@@ -250,6 +250,7 @@ const zhMessages = {
     version: "MulmoClaude v{version}",
     tabs: {
       gemini: "Gemini API 密钥",
+      agent: "智能体",
       tools: "允许的工具",
       mcp: "MCP 服务器",
       dirs: "目录",
@@ -345,6 +346,15 @@ const zhMessages = {
       helperText: "更高的等级会带来更多思考时间,但也会增加延迟和 token 消耗。",
       configured: "推理强度:{level}",
       notConfigured: "未设置",
+      loadError: "加载设置失败",
+      saveError: "保存失败",
+    },
+    agentTab: {
+      description: "选择对话使用的命令行智能体。更改将在下一轮生效。",
+      backendLabel: "对话后端",
+      helperText: "自动模式优先使用 Claude Code，Claude 不可用时使用 Codex。Codex 需要 PATH 中已认证的 `codex` CLI。",
+      configured: "后端：{backend}",
+      backend: { auto: "自动（Claude 优先）", "claude-code": "Claude Code", codex: "OpenAI Codex" },
       loadError: "加载设置失败",
       saveError: "保存失败",
     },

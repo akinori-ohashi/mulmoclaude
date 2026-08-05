@@ -1,10 +1,12 @@
 import { EVENT_TYPES } from "../../src/types/events.js";
 
+export const AGENT_SESSION_EVENT_TYPE = "agent_session" as const;
+
 export type AgentEvent =
   | { type: typeof EVENT_TYPES.status; message: string }
   | { type: typeof EVENT_TYPES.text; message: string }
   | { type: typeof EVENT_TYPES.toolResult; result: unknown }
-  | { type: typeof EVENT_TYPES.error; message: string }
+  | { type: typeof EVENT_TYPES.error; message: string; recovery?: "stale-session" }
   | {
       type: typeof EVENT_TYPES.toolCall;
       toolUseId: string;
@@ -21,6 +23,7 @@ export type AgentEvent =
        *  errors to a specific MCP server and warn / notify. */
       isError?: boolean;
     }
+  | { type: typeof AGENT_SESSION_EVENT_TYPE; backendId: "claude-code" | "codex"; token: string }
   | { type: typeof EVENT_TYPES.claudeSessionId; id: string };
 
 export interface ClaudeContentBlock {

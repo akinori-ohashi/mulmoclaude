@@ -253,6 +253,7 @@ const deMessages = {
     version: "MulmoClaude v{version}",
     tabs: {
       gemini: "Gemini-API-Schlüssel",
+      agent: "Agent",
       tools: "Erlaubte Tools",
       mcp: "MCP-Server",
       dirs: "Verzeichnisse",
@@ -357,6 +358,15 @@ const deMessages = {
       helperText: "Höhere Stufen erlauben mehr Denkzeit, erhöhen aber Latenz und Token-Verbrauch.",
       configured: "Effort: {level}",
       notConfigured: "Nicht gesetzt",
+      loadError: "Einstellungen konnten nicht geladen werden",
+      saveError: "Speichern fehlgeschlagen",
+    },
+    agentTab: {
+      description: "Wählen Sie den Kommandozeilen-Agenten für Unterhaltungen. Die Änderung gilt ab der nächsten Anfrage.",
+      backendLabel: "Unterhaltungs-Backend",
+      helperText: "Auto bevorzugt Claude Code und verwendet Codex, wenn Claude nicht verfügbar ist. Codex benötigt eine authentifizierte `codex` CLI im PATH.",
+      configured: "Backend: {backend}",
+      backend: { auto: "Auto (Claude zuerst)", "claude-code": "Claude Code", codex: "OpenAI Codex" },
       loadError: "Einstellungen konnten nicht geladen werden",
       saveError: "Speichern fehlgeschlagen",
     },

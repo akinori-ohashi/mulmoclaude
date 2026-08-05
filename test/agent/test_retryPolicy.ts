@@ -18,6 +18,10 @@ describe("isRecoverableStaleSession", () => {
     assert.equal(isRecoverableStaleSession(errorEvent(STALE_MESSAGE), 1), true);
   });
 
+  it("accepts a provider-typed stale session without matching provider text", () => {
+    assert.equal(isRecoverableStaleSession({ type: EVENT_TYPES.error, message: "thread lookup failed", recovery: "stale-session" }, 1), true);
+  });
+
   it("refuses once the budget is exhausted", () => {
     assert.equal(isRecoverableStaleSession(errorEvent(STALE_MESSAGE), 0), false);
   });

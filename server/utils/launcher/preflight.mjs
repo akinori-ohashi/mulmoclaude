@@ -83,6 +83,6 @@ export function runPreflight({ nodeVersion = process.version, env = process.env,
     return { key: "nodeTooOld", values: { required: formatRequiredNode(), found: nodeVersion } };
   }
   if (!hasCommand("npx")) return { key: "npxMissing", values: {} };
-  if (!hasCommand("claude")) return { key: "claudeMissing", values: {} };
+  if (!hasCommand("claude") && !hasCommand("codex")) return { key: "claudeMissing", values: {} };
   return null;
 }

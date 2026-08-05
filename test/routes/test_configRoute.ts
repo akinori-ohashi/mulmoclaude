@@ -119,7 +119,7 @@ describe("GET /config", () => {
     getHandler({} as Request, res);
     assert.equal(state.status, 200);
     assert.deepEqual(state.body, {
-      settings: { extraAllowedTools: [] },
+      settings: { extraAllowedTools: [], agentBackend: "codex" },
       mcp: { servers: [] },
       csp: {},
       macosReminders: macosRemindersContext,
@@ -133,7 +133,7 @@ describe("GET /config", () => {
     const { state, res } = mockRes();
     getHandler({} as Request, res);
     assert.deepEqual(state.body, {
-      settings: { extraAllowedTools: ["mcp__claude_ai_Gmail"] },
+      settings: { extraAllowedTools: ["mcp__claude_ai_Gmail"], agentBackend: "codex" },
       mcp: { servers: [] },
       csp: {},
       macosReminders: macosRemindersContext,
@@ -151,8 +151,9 @@ describe("PUT /config/settings", () => {
     const { state, res } = mockRes();
     putSettingsHandler({ body } as Request, res);
     assert.equal(state.status, 200);
-    assert.deepEqual(state.body, { settings: body, mcp: { servers: [] }, csp: {}, macosReminders: macosRemindersContext });
-    assert.deepEqual(configMod.loadSettings(), body);
+    const expectedSettings = { ...body, agentBackend: "codex" };
+    assert.deepEqual(state.body, { settings: expectedSettings, mcp: { servers: [] }, csp: {}, macosReminders: macosRemindersContext });
+    assert.deepEqual(configMod.loadSettings(), expectedSettings);
   });
 
   it("rejects invalid shape with 400", () => {

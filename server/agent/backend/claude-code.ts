@@ -316,6 +316,6 @@ async function* runClaudeAgent(input: AgentInput): AsyncGenerator<AgentEvent> {
 
 export const claudeCodeBackend: LLMBackend = {
   id: "claude-code",
-  capabilities: { sessionResume: true, mcp: true },
+  capabilities: { sessionResume: true, mcp: true, sandboxOwner: "mulmoclaude-docker" },
   runAgent: runClaudeAgent,
 };

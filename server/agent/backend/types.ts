@@ -36,6 +36,9 @@ export interface AgentInput {
   /** When set, the path the backend should hand to its MCP loader.
    *  Pre-resolved for host-vs-container by the orchestrator. */
   mcpConfigPath?: string | undefined;
+  /** In-memory source config for backends that accept MCP settings over
+   *  their protocol instead of reading Claude's --mcp-config file. */
+  mcpConfig?: { mcpServers: Record<string, unknown> } | undefined;
   /** Extra allowed-tool names from settings + user MCP servers. */
   extraAllowedTools: string[];
   /** Reasoning effort from settings (#1323). Undefined → flag omitted. */
@@ -58,6 +61,8 @@ export interface BackendCapabilities {
    *  emulate or skip. Today only Claude consumes activePlugins /
    *  mcpConfigPath. */
   mcp: boolean;
+  /** Which layer constrains filesystem and process access. */
+  sandboxOwner: "mulmoclaude-docker" | "backend" | "none";
 }
 
 export interface LLMBackend {

@@ -251,6 +251,7 @@ const frMessages = {
     version: "MulmoClaude v{version}",
     tabs: {
       gemini: "Clé API Gemini",
+      agent: "Agent",
       tools: "Outils autorisés",
       mcp: "Serveurs MCP",
       dirs: "Répertoires",
@@ -356,6 +357,15 @@ const frMessages = {
       notConfigured: "Non défini",
       loadError: "Échec du chargement des paramètres",
       saveError: "Échec de l'enregistrement",
+    },
+    agentTab: {
+      description: "Choisissez l’agent en ligne de commande utilisé pour les conversations. Le changement s’applique au prochain tour.",
+      backendLabel: "Backend de conversation",
+      helperText: "Auto préfère Claude Code et utilise Codex si Claude est indisponible. Codex nécessite une CLI `codex` authentifiée dans le PATH.",
+      configured: "Backend : {backend}",
+      backend: { auto: "Auto (Claude d’abord)", "claude-code": "Claude Code", codex: "OpenAI Codex" },
+      loadError: "Échec du chargement des paramètres",
+      saveError: "Échec de l’enregistrement",
     },
     voiceTab: {
       description:

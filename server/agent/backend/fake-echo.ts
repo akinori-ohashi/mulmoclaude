@@ -372,6 +372,6 @@ export const fakeEchoBackend: LLMBackend = {
   // stub. Flag them unsupported so callers that depend on the real
   // Claude semantics opt out instead of getting silently wrong
   // behavior.
-  capabilities: { sessionResume: false, mcp: false },
+  capabilities: { sessionResume: false, mcp: false, sandboxOwner: "none" },
   runAgent: runFakeEchoAgent,
 };

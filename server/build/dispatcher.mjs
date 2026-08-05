@@ -10,6 +10,8 @@ var ONE_MINUTE_MS = 6e4;
 var SUBPROCESS_PROBE_TIMEOUT_MS = 5 * ONE_SECOND_MS;
 var STARTUP_FAILURE_FORCE_EXIT_MS = 5 * ONE_SECOND_MS;
 var CLI_SUBPROCESS_TIMEOUT_MS = 5 * ONE_MINUTE_MS;
+var CODEX_RPC_TIMEOUT_MS = 30 * ONE_SECOND_MS;
+var CODEX_INTERRUPT_TIMEOUT_MS = 5 * ONE_SECOND_MS;
 
 // server/workspace/hooks/shared/workspace.ts
 import { homedir } from "node:os";

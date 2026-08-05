@@ -22,6 +22,7 @@ export interface RunAgentOptions {
   sessionId: string;
   port: number;
   claudeSessionId?: string | undefined;
+  sessionToken?: string | undefined;
   /** When aborted, the spawned Claude CLI process is killed. */
   abortSignal?: AbortSignal | undefined;
 }
@@ -33,6 +34,7 @@ export interface RunAgentInput {
   sessionId: string;
   port: number;
   claudeSessionId?: string | undefined;
+  sessionToken?: string | undefined;
   abortSignal?: AbortSignal | undefined;
   attachments?: Attachment[] | undefined;
   userTimezone?: string | undefined;
@@ -41,7 +43,8 @@ export interface RunAgentInput {
 export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent> {
   const { role, workspacePath } = input;
   const activePlugins = getActivePlugins(role);
-  const useDocker = await isDockerAvailable();
+  const backend = getActiveBackend();
+  const useDocker = backend.capabilities.sandboxOwner === "mulmoclaude-docker" ? await isDockerAvailable() : false;
 
   // Per-invocation read so Settings UI changes apply without a server restart.
   const userMcpRaw = loadMcpConfig().mcpServers;
@@ -56,7 +59,7 @@ export async function* runAgent(input: RunAgentInput): AsyncGenerator<AgentEvent
   // tears them down — otherwise host processes / ports leak for the
   // rest of the session.
   try {
-    const prepared = await prepareAgentRun(input, { activePlugins, useDocker, userServers });
+    const prepared = await prepareAgentRun(input, { activePlugins, useDocker, userServers, backend });
     try {
       yield* prepared.backend.runAgent(prepared.agentInput);
     } finally {
@@ -82,6 +85,7 @@ interface AgentRunDeps {
   activePlugins: string[];
   useDocker: boolean;
   userServers: Awaited<ReturnType<typeof prepareUserServers>>["servers"];
+  backend: LLMBackend;
 }
 
 type McpPaths = ReturnType<typeof resolveMcpConfigPaths>;
@@ -113,8 +117,8 @@ async function prepareAgentRun(input: RunAgentInput, deps: AgentRunDeps): Promis
   }
 
   const systemPrompt = await buildFullSystemPrompt(input, useDocker);
-  const { mcpPaths, mcpServerNames } = await writeMcpConfig(input, deps, hasMcp);
-  const { backend, agentInput } = buildAgentInput(input, deps, { systemPrompt, hasMcp, mcpPaths, mcpServerNames });
+  const { mcpPaths, mcpServerNames, mcpConfig } = await writeMcpConfig(input, deps, hasMcp);
+  const { backend, agentInput } = buildAgentInput(input, deps, { systemPrompt, hasMcp, mcpPaths, mcpServerNames, ...(mcpConfig ? { mcpConfig } : {}) });
   return { backend, agentInput, hasMcp, hostMcpPath: mcpPaths.hostPath };
 }
 
@@ -122,7 +126,7 @@ async function prepareAgentRun(input: RunAgentInput, deps: AgentRunDeps): Promis
 // this turn, dumping it to the log on the first message of a --debug
 // session.
 async function buildFullSystemPrompt(input: RunAgentInput, useDocker: boolean): Promise<string> {
-  const { role, workspacePath, claudeSessionId, userTimezone } = input;
+  const { role, workspacePath, claudeSessionId, sessionToken, userTimezone } = input;
 
   // Pre-load memory once (atomic vs topic format chosen inside
   // `loadMemorySnapshot`) so prompt assembly itself stays sync.
@@ -136,7 +140,7 @@ async function buildFullSystemPrompt(input: RunAgentInput, useDocker: boolean): 
   });
 
   // --debug: dump the full system prompt on the first message of each session.
-  if (!claudeSessionId && process.argv.includes("--debug")) {
+  if (!(sessionToken ?? claudeSessionId) && process.argv.includes("--debug")) {
     log.info("agent", `system prompt for new session:\n${fullSystemPrompt}`);
   }
 
@@ -146,7 +150,11 @@ async function buildFullSystemPrompt(input: RunAgentInput, useDocker: boolean): 
 // Resolve the per-session MCP config paths and, when any MCP server is
 // active, write the config file the backend will load. Returns the
 // server names for the --debug spawn log.
-async function writeMcpConfig(input: RunAgentInput, deps: AgentRunDeps, hasMcp: boolean): Promise<{ mcpPaths: McpPaths; mcpServerNames: string[] }> {
+async function writeMcpConfig(
+  input: RunAgentInput,
+  deps: AgentRunDeps,
+  hasMcp: boolean,
+): Promise<{ mcpPaths: McpPaths; mcpServerNames: string[]; mcpConfig?: { mcpServers: Record<string, unknown> } }> {
   const { workspacePath, sessionId, port } = input;
   const { activePlugins, useDocker, userServers } = deps;
 
@@ -161,8 +169,9 @@ async function writeMcpConfig(input: RunAgentInput, deps: AgentRunDeps, hasMcp: 
 
   // Surfaced in the --debug spawn log so developers can verify Settings UI changes reach Claude Code.
   let mcpServerNames: string[] = [];
+  let mcpConfig: { mcpServers: Record<string, unknown> } | undefined;
   if (hasMcp) {
-    const mcpConfig = buildMcpConfig({
+    mcpConfig = buildMcpConfig({
       chatSessionId: sessionId,
       port,
       activePlugins,
@@ -174,7 +183,7 @@ async function writeMcpConfig(input: RunAgentInput, deps: AgentRunDeps, hasMcp: 
     await writeJsonAtomic(mcpPaths.hostPath, mcpConfig);
   }
 
-  return { mcpPaths, mcpServerNames };
+  return { mcpPaths, mcpServerNames, ...(mcpConfig ? { mcpConfig } : {}) };
 }
 
 // Read per-invocation settings, resolve the active backend, log the
@@ -182,24 +191,30 @@ async function writeMcpConfig(input: RunAgentInput, deps: AgentRunDeps, hasMcp: 
 function buildAgentInput(
   input: RunAgentInput,
   deps: AgentRunDeps,
-  args: { systemPrompt: string; hasMcp: boolean; mcpPaths: McpPaths; mcpServerNames: string[] },
+  args: {
+    systemPrompt: string;
+    hasMcp: boolean;
+    mcpPaths: McpPaths;
+    mcpServerNames: string[];
+    mcpConfig?: { mcpServers: Record<string, unknown> };
+  },
 ): { backend: LLMBackend; agentInput: AgentInput } {
-  const { message, role, workspacePath, sessionId, port, claudeSessionId, abortSignal, attachments, userTimezone } = input;
-  const { activePlugins, useDocker, userServers } = deps;
-  const { systemPrompt, hasMcp, mcpPaths, mcpServerNames } = args;
+  const { message, role, workspacePath, sessionId, port, claudeSessionId, sessionToken, abortSignal, attachments, userTimezone } = input;
+  const { activePlugins, useDocker, userServers, backend } = deps;
+  const { systemPrompt, hasMcp, mcpPaths, mcpServerNames, mcpConfig } = args;
 
   // Per-invocation read so allowedTools / MCP-server changes apply without a server restart.
   const settings = loadSettings();
   const userServerAllowedTools = userServerAllowedToolNames(userServers, useDocker);
 
   // Boolean presence flags only — never write raw sessionId into long-lived log sinks.
-  const backend = getActiveBackend();
+  const resumeToken = sessionToken ?? claudeSessionId;
   const spawnLog: Record<string, unknown> = {
     backend: backend.id,
     roleId: role.id,
     useDocker,
     hasMcp,
-    resumed: Boolean(claudeSessionId),
+    resumed: Boolean(resumeToken),
     hasSessionId: Boolean(sessionId),
   };
   // --debug only: kept off the default log to avoid leaking user MCP server names into long-lived sinks.
@@ -215,10 +230,11 @@ function buildAgentInput(
     workspacePath,
     sessionId,
     port,
-    sessionToken: claudeSessionId,
+    sessionToken: resumeToken,
     attachments,
     activePlugins,
     mcpConfigPath: hasMcp ? mcpPaths.argPath : undefined,
+    ...(mcpConfig ? { mcpConfig } : {}),
     extraAllowedTools: [...settings.extraAllowedTools, ...userServerAllowedTools],
     effortLevel: settings.effortLevel,
     abortSignal,

@@ -255,6 +255,7 @@ const koMessages = {
     version: "MulmoClaude v{version}",
     tabs: {
       gemini: "Gemini API 키",
+      agent: "에이전트",
       tools: "허용된 도구",
       mcp: "MCP 서버",
       dirs: "디렉터리",
@@ -357,6 +358,15 @@ const koMessages = {
       notConfigured: "미설정",
       loadError: "설정을 불러오지 못했습니다",
       saveError: "저장에 실패했습니다",
+    },
+    agentTab: {
+      description: "대화에 사용할 명령줄 에이전트를 선택합니다. 변경 사항은 다음 턴부터 적용됩니다.",
+      backendLabel: "대화 백엔드",
+      helperText: "자동은 Claude Code를 우선하며 사용할 수 없으면 Codex를 사용합니다. Codex에는 인증된 `codex` CLI가 PATH에 있어야 합니다.",
+      configured: "백엔드: {backend}",
+      backend: { auto: "자동(Claude 우선)", "claude-code": "Claude Code", codex: "OpenAI Codex" },
+      loadError: "설정을 불러오지 못했습니다",
+      saveError: "저장하지 못했습니다",
     },
     voiceTab: {
       description: "음성으로 채팅 메시지를 입력합니다. 오디오는 MulmoClaude를 실행하는 컴퓨터에서 로컬로 전사되며 외부 서비스로 전송되지 않습니다.",

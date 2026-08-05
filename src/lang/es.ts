@@ -256,6 +256,7 @@ const esMessages = {
     version: "MulmoClaude v{version}",
     tabs: {
       gemini: "Clave API de Gemini",
+      agent: "Agente",
       tools: "Herramientas permitidas",
       mcp: "Servidores MCP",
       dirs: "Directorios",
@@ -361,6 +362,15 @@ const esMessages = {
       notConfigured: "Sin configurar",
       loadError: "Error al cargar los ajustes",
       saveError: "Error al guardar",
+    },
+    agentTab: {
+      description: "Elige el agente de línea de comandos usado en las conversaciones. El cambio se aplica al siguiente turno.",
+      backendLabel: "Backend de conversación",
+      helperText: "Auto prefiere Claude Code y usa Codex si Claude no está disponible. Codex requiere una CLI `codex` autenticada en PATH.",
+      configured: "Backend: {backend}",
+      backend: { auto: "Auto (Claude primero)", "claude-code": "Claude Code", codex: "OpenAI Codex" },
+      loadError: "No se pudo cargar la configuración",
+      saveError: "No se pudo guardar",
     },
     voiceTab: {
       description:

@@ -58,7 +58,9 @@ Re-run the command after upgrading: the shortcut carries its own copy of the lau
 ### Prerequisites
 
 - **Node.js 20+** — runtime
-- **[Claude Code CLI](https://claude.ai/code)** — installed and authenticated. Run `claude` once to complete OAuth
+- At least one authenticated agent CLI:
+  - **[Claude Code CLI](https://claude.ai/code)** — run `claude` once to complete OAuth
+  - **[OpenAI Codex CLI](https://developers.openai.com/codex/cli/)** — install `@openai/codex` and run `codex login`
 - **ffmpeg** — required for movie generation. Skip if you don't generate videos
   - macOS: `brew install ffmpeg`
   - Linux: `apt install ffmpeg`
@@ -187,7 +189,9 @@ The Gemini API has a free tier that is sufficient for personal use.
 
 ## Security
 
-MulmoClaude uses Claude Code as its AI backend, which has access to tools including Bash — meaning it can read and write files on your machine.
+MulmoClaude can use OpenAI Codex or Claude Code as its AI backend, with Codex selected by default. Change it under **Settings → Agent**, with `--agent-backend claude-code`, or with `MULMOCLAUDE_AGENT_BACKEND=claude-code`. The optional `auto` mode prefers Claude for backward compatibility and falls back to Codex when Claude is unavailable.
+
+Both agents can run commands and edit files. Claude Code uses MulmoClaude's Docker sandbox when available; Codex runs on the host with its native workspace-write sandbox.
 
 **Without Docker**, Claude can access any file your user account can reach, including SSH keys and credentials stored outside your workspace. This is acceptable for personal local use, but worth understanding.
 

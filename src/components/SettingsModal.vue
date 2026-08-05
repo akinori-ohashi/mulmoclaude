@@ -169,6 +169,8 @@
 
             <SettingsGoogleTab v-else-if="activeTab === 'google'" :reload-token="googleReloadToken" />
 
+            <SettingsAgentTab v-else-if="activeTab === 'agent'" :reload-token="agentReloadToken" @saved="emit('saved')" />
+
             <SettingsModelTab v-else-if="activeTab === 'model'" :reload-token="modelReloadToken" @saved="emit('saved')" />
 
             <SettingsVoiceTab v-else-if="activeTab === 'voice'" :reload-token="voiceReloadToken" />
@@ -212,6 +214,7 @@ import SettingsReferenceDirsTab from "./SettingsReferenceDirsTab.vue";
 import SettingsMapTab from "./SettingsMapTab.vue";
 import SettingsPhotosTab from "./SettingsPhotosTab.vue";
 import SettingsGoogleTab from "./SettingsGoogleTab.vue";
+import SettingsAgentTab from "./SettingsAgentTab.vue";
 import SettingsModelTab from "./SettingsModelTab.vue";
 import SettingsVoiceTab from "./SettingsVoiceTab.vue";
 import SettingsChatIndexTab from "./SettingsChatIndexTab.vue";
@@ -269,6 +272,7 @@ const mcpTabRef = ref<{ flushDraft: () => boolean; hasPendingDraft: () => boolea
 
 type TabId =
   | "gemini"
+  | "agent"
   | "tools"
   | "mcp"
   | "dirs"
@@ -299,7 +303,7 @@ const isFullTab = computed(() => FULL_TABS.includes(activeTab.value));
 // item is filtered out by `visibleGroups` when geminiAvailable === true
 // (env var present → user has nothing to configure).
 const GROUPS: readonly { key: string; items: readonly TabId[] }[] = [
-  { key: "llm", items: ["model", "voice", "chatIndex", "journal", "tools", "gemini"] },
+  { key: "llm", items: ["agent", "model", "voice", "chatIndex", "journal", "tools", "gemini"] },
   { key: "servers", items: ["mcp"] },
   { key: "workspace", items: ["dirs", "refs"] },
   { key: "notifications", items: ["notifications"] },
@@ -335,6 +339,7 @@ function onMapSaved(): void {
 // hand-edited in settings.json since the last visit).
 const photosReloadToken = ref(0);
 const googleReloadToken = ref(0);
+const agentReloadToken = ref(0);
 const modelReloadToken = ref(0);
 const voiceReloadToken = ref(0);
 const chatIndexReloadToken = ref(0);
@@ -546,6 +551,7 @@ watch(
       mapReloadToken.value += 1;
       photosReloadToken.value += 1;
       googleReloadToken.value += 1;
+      agentReloadToken.value += 1;
       modelReloadToken.value += 1;
       voiceReloadToken.value += 1;
       chatIndexReloadToken.value += 1;

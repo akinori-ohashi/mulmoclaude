@@ -24,12 +24,14 @@ export interface RetryBudgets {
 interface StreamEvent {
   type: string;
   message?: unknown;
+  recovery?: unknown;
 }
 
 /** A stale `--resume` failure we can recover from by retrying without it: an
  *  error event carrying a stale-session message, while failover budget remains. */
 export function isRecoverableStaleSession(event: StreamEvent, attemptsRemaining: number): boolean {
-  return attemptsRemaining > 0 && event.type === EVENT_TYPES.error && typeof event.message === "string" && isStaleSessionError(event.message);
+  if (attemptsRemaining <= 0 || event.type !== EVENT_TYPES.error || typeof event.message !== "string") return false;
+  return event.recovery === "stale-session" || isStaleSessionError(event.message);
 }
 
 /** The transient MCP-broker startup race (#2057): the CLI couldn't resolve the
