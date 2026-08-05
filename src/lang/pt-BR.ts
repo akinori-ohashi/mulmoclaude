@@ -251,6 +251,7 @@ const ptBRMessages = {
     version: "MulmoClaude v{version}",
     tabs: {
       gemini: "Chave API do Gemini",
+      agent: "Agente",
       tools: "Ferramentas permitidas",
       mcp: "Servidores MCP",
       dirs: "Diretórios",
@@ -354,6 +355,15 @@ const ptBRMessages = {
       configured: "Esforço: {level}",
       notConfigured: "Sem configurar",
       loadError: "Falha ao carregar as configurações",
+      saveError: "Falha ao salvar",
+    },
+    agentTab: {
+      description: "Escolha o agente de linha de comando usado nas conversas. A mudança vale no próximo turno.",
+      backendLabel: "Backend da conversa",
+      helperText: "Auto prefere Claude Code e usa Codex quando Claude não está disponível. Codex requer uma CLI `codex` autenticada no PATH.",
+      configured: "Backend: {backend}",
+      backend: { auto: "Auto (Claude primeiro)", "claude-code": "Claude Code", codex: "OpenAI Codex" },
+      loadError: "Falha ao carregar configurações",
       saveError: "Falha ao salvar",
     },
     voiceTab: {

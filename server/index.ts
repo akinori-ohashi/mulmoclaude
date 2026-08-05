@@ -61,7 +61,7 @@ import { registerRuntimePlugins } from "./plugins/runtime-registry.js";
 import { makePluginRuntime } from "./plugins/runtime.js";
 import { MCP_PLUGIN_NAMES } from "./agent/plugin-names.js";
 import { claudeCredentialsPath } from "./utils/claudeConfigPath.js";
-import { setActiveBackend } from "./agent/backend/index.js";
+import { getActiveBackend, setActiveBackend } from "./agent/backend/index.js";
 import { fakeEchoBackend } from "./agent/backend/fake-echo.js";
 import { startMacosReminderAdapter } from "./notifier/macosReminderAdapter.js";
 import notifierRoutes from "./api/routes/notifier.js";
@@ -891,6 +891,11 @@ async function ensureCredentialsAvailable(): Promise<void> {
 }
 
 async function setupSandbox(): Promise<boolean> {
+  const backend = getActiveBackend();
+  if (backend.capabilities.sandboxOwner !== "mulmoclaude-docker") {
+    log.info("sandbox", `${backend.id} owns sandboxing — skipping Claude Docker setup`);
+    return false;
+  }
   if (env.disableSandbox) {
     log.info("sandbox", "DISABLE_SANDBOX=1 — running unrestricted (debug mode)");
     return false;

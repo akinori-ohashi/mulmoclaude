@@ -23,6 +23,11 @@ import { isRecord, isStringArray, isStringRecord } from "../utils/types.js";
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
+export const AGENT_BACKEND_IDS = ["claude-code", "codex"] as const;
+export type AgentBackendId = (typeof AGENT_BACKEND_IDS)[number];
+export const AGENT_BACKEND_PREFERENCES = ["auto", ...AGENT_BACKEND_IDS] as const;
+export type AgentBackendPreference = (typeof AGENT_BACKEND_PREFERENCES)[number];
+
 // Chat-index summarizer setting (#1944). "off" disables the whole
 // AI-title / summary / keywords background indexer; "haiku" / "sonnet"
 // select the Claude model the summarizer spawns. Default (undefined)
@@ -51,6 +56,10 @@ export interface AppSettings {
   //   "mcp__claude_ai_Gmail"
   //   "mcp__claude_ai_Google_Calendar"
   extraAllowedTools: string[];
+
+  // Conversation engine. "auto" preserves the historical
+  // Claude-first behaviour and falls back to Codex when needed.
+  agentBackend?: AgentBackendPreference;
 
   // Google Maps JS API key. Pasted via Settings → Map tab and used
   // by `@gui-chat-plugin/google-map`'s View — passed through as a
@@ -116,7 +125,7 @@ export interface AppSettings {
   macosRemindersEnabled?: boolean;
 }
 
-const DEFAULT_SETTINGS: AppSettings = { extraAllowedTools: [] };
+const DEFAULT_SETTINGS: AppSettings = { extraAllowedTools: [], agentBackend: "codex" };
 
 // `AppSettings` is an interface, so its keys don't exist at runtime — but two
 // consumers need them: the bug-report FAQ's `configKey:` pointers are verified
@@ -125,6 +134,7 @@ const DEFAULT_SETTINGS: AppSettings = { extraAllowedTools: [] };
 // a new field in `AppSettings` that isn't added here fails to build.
 export const APP_SETTINGS_KEYS = [
   "extraAllowedTools",
+  "agentBackend",
   "googleMapsApiKey",
   "photoExif",
   "effortLevel",
@@ -143,6 +153,7 @@ export type AppSettingsKey = (typeof APP_SETTINGS_KEYS)[number];
 // one secret stored in plaintext today and is absent by construction.
 export const SAFE_SETTINGS_KEYS = [
   "extraAllowedTools",
+  "agentBackend",
   "photoExif",
   "effortLevel",
   "voiceInput",
@@ -189,6 +200,10 @@ function isEffortLevel(value: unknown): value is EffortLevel {
   return EFFORT_LEVELS.some((level) => level === value);
 }
 
+export function isAgentBackendPreference(value: unknown): value is AgentBackendPreference {
+  return AGENT_BACKEND_PREFERENCES.some((preference) => preference === value);
+}
+
 function isChatIndexMode(value: unknown): value is ChatIndexMode {
   return CHAT_INDEX_MODES.some((mode) => mode === value);
 }
@@ -208,17 +223,21 @@ function isVoiceInputSettings(value: unknown): value is { enabled: boolean; mode
 // isAppSettings so that function stays under the cognitive-complexity ceiling
 // as new optional settings land.
 const isOptionalBoolean = (value: unknown): boolean => value === undefined || typeof value === "boolean";
+const isString = (value: unknown): value is string => typeof value === "string";
+const isOptional = (value: unknown, validator: (candidate: unknown) => boolean): boolean => value === undefined || validator(value);
 
 function hasValidOptionalAppSettings(value: Record<string, unknown>): boolean {
-  if (value.googleMapsApiKey !== undefined && typeof value.googleMapsApiKey !== "string") return false;
-  if (value.photoExif !== undefined && !isPhotoExifSettings(value.photoExif)) return false;
-  if (value.effortLevel !== undefined && !isEffortLevel(value.effortLevel)) return false;
-  if (value.voiceInput !== undefined && !isVoiceInputSettings(value.voiceInput)) return false;
-  if (value.chatIndex !== undefined && !isChatIndexMode(value.chatIndex)) return false;
-  if (value.journal !== undefined && !isJournalMode(value.journal)) return false;
-  if (!isOptionalBoolean(value.pushEnabled)) return false;
-  if (!isOptionalBoolean(value.macosRemindersEnabled)) return false;
-  return true;
+  return [
+    isOptional(value.agentBackend, isAgentBackendPreference),
+    isOptional(value.googleMapsApiKey, isString),
+    isOptional(value.photoExif, isPhotoExifSettings),
+    isOptional(value.effortLevel, isEffortLevel),
+    isOptional(value.voiceInput, isVoiceInputSettings),
+    isOptional(value.chatIndex, isChatIndexMode),
+    isOptional(value.journal, isJournalMode),
+    isOptionalBoolean(value.pushEnabled),
+    isOptionalBoolean(value.macosRemindersEnabled),
+  ].every(Boolean);
 }
 
 export function isAppSettings(value: unknown): value is AppSettings {
@@ -278,16 +297,18 @@ const isOptionalNullableJournalMode = (value: unknown): boolean => value === und
 
 export function isAppSettingsPatch(value: unknown): value is AppSettingsPatch {
   if (!isRecord(value)) return false;
-  if (value.extraAllowedTools !== undefined && !isStringArray(value.extraAllowedTools)) return false;
-  if (!isOptionalString(value.googleMapsApiKey)) return false;
-  if (value.photoExif !== undefined && !isPhotoExifSettings(value.photoExif)) return false;
-  if (!isOptionalNullableEffortLevel(value.effortLevel)) return false;
-  if (value.voiceInput !== undefined && !isVoiceInputSettings(value.voiceInput)) return false;
-  if (!isOptionalNullableChatIndexMode(value.chatIndex)) return false;
-  if (!isOptionalNullableJournalMode(value.journal)) return false;
-  if (!isOptionalBoolean(value.pushEnabled)) return false;
-  if (!isOptionalBoolean(value.macosRemindersEnabled)) return false;
-  return true;
+  return [
+    isOptional(value.extraAllowedTools, isStringArray),
+    isOptional(value.agentBackend, isAgentBackendPreference),
+    isOptionalString(value.googleMapsApiKey),
+    isOptional(value.photoExif, isPhotoExifSettings),
+    isOptionalNullableEffortLevel(value.effortLevel),
+    isOptional(value.voiceInput, isVoiceInputSettings),
+    isOptionalNullableChatIndexMode(value.chatIndex),
+    isOptionalNullableJournalMode(value.journal),
+    isOptionalBoolean(value.pushEnabled),
+    isOptionalBoolean(value.macosRemindersEnabled),
+  ].every(Boolean);
 }
 
 function parseSettingsRaw(raw: string, file: string): unknown {
@@ -305,6 +326,9 @@ function parseSettingsRaw(raw: string, file: string): unknown {
  *  point that propagates them). */
 function cloneAppSettings(settings: AppSettings): AppSettings {
   const copy: AppSettings = { extraAllowedTools: [...settings.extraAllowedTools] };
+  if (settings.agentBackend !== undefined) {
+    copy.agentBackend = settings.agentBackend;
+  }
   if (settings.googleMapsApiKey !== undefined) {
     copy.googleMapsApiKey = settings.googleMapsApiKey;
   }
@@ -399,6 +423,9 @@ export function saveSettings(settings: AppSettings): void {
   }
   ensureConfigsDir();
   const payload: AppSettings = { extraAllowedTools: [...settings.extraAllowedTools] };
+  if (settings.agentBackend !== undefined) {
+    payload.agentBackend = settings.agentBackend;
+  }
   if (settings.googleMapsApiKey !== undefined) {
     payload.googleMapsApiKey = settings.googleMapsApiKey;
   }

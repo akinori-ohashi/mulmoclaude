@@ -51,6 +51,11 @@ function asCsv(value: string | undefined): readonly string[] {
   );
 }
 
+function valueFlag(flag: string): string | undefined {
+  const index = process.argv.indexOf(flag);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
 // ── Snapshot ────────────────────────────────────────────────────────
 
 /**
@@ -64,6 +69,10 @@ export const env = Object.freeze({
   port: asInt(process.env.PORT, DEFAULT_PORT, PORT_RANGE),
   nodeEnv: process.env.NODE_ENV ?? "development",
   isProduction: process.env.NODE_ENV === "production",
+
+  // Conversation backend. The valued CLI flag mirrors the env var;
+  // schema validation happens in the backend resolver.
+  agentBackend: process.env.MULMOCLAUDE_AGENT_BACKEND ?? valueFlag("--agent-backend"),
 
   // Claude Code CLI config-location overrides (issue #87 §2). Both undefined →
   // `server/utils/claudeConfigPath.ts` falls back to `homedir()/.claude` +

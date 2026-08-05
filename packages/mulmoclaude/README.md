@@ -1,16 +1,21 @@
 # MulmoClaude
 
-GUI front-end for Claude Code — chat with rich visual output, schema-driven data apps, and long-term memory. AI-native application platform that runs locally on your machine.
+GUI front-end for Claude Code and OpenAI Codex — chat with rich visual output, schema-driven data apps, and long-term memory. AI-native application platform that runs locally on your machine.
 
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js 20+, Claude Code CLI
-npm install -g @anthropic-ai/claude-code
-claude              # one-time OAuth — completes the CLI setup
+# Prerequisites: Node.js 20+, plus one authenticated agent CLI
+# Codex (default):
+npm install -g @openai/codex
+codex login
+# Claude Code alternative:
+# npm install -g @anthropic-ai/claude-code
+# claude              # one-time OAuth — completes the CLI setup
 
 # Launch MulmoClaude
 npx mulmoclaude@latest
+# To select Claude explicitly: npx mulmoclaude@latest --agent-backend claude-code
 ```
 
 Your browser opens to `http://localhost:3001`. That's it.
@@ -19,7 +24,7 @@ Your browser opens to `http://localhost:3001`. That's it.
 
 ## What can you do?
 
-| Ask Claude to…                  | What you get                                          |
+| Ask the agent to…               | What you get                                          |
 | ------------------------------- | ----------------------------------------------------- |
 | "Write a project proposal"      | Rich markdown document in the canvas                  |
 | "Chart last quarter's revenue"  | Interactive ECharts visualization                     |

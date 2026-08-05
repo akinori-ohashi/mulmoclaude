@@ -4,6 +4,7 @@ import { WORKSPACE_DIRS, workspacePath } from "../../workspace/paths.js";
 import { readTextUnder, writeTextUnder, resolvePath, ensureWorkspaceDir } from "./workspace-io.js";
 import { isRecord } from "../types.js";
 import { isSessionOrigin, type SessionOrigin } from "../../../src/types/session.js";
+import { AGENT_BACKEND_IDS, type AgentBackendId } from "../../system/config.js";
 
 const CHAT = WORKSPACE_DIRS.chat;
 const root = (rootOverride?: string) => rootOverride ?? workspacePath;
@@ -25,6 +26,7 @@ export interface SessionMeta {
   startedAt?: string | undefined;
   firstUserMessage?: string | undefined;
   claudeSessionId?: string | undefined;
+  agentSession?: AgentSessionRef | undefined;
   hasUnread?: boolean | undefined;
   isBookmarked?: boolean | undefined;
   origin?: SessionOrigin | undefined;
@@ -35,10 +37,20 @@ export interface SessionMeta {
   [key: string]: unknown;
 }
 
+export interface AgentSessionRef {
+  backendId: AgentBackendId;
+  token: string;
+}
+
 export type ReadMetaResult = { kind: "missing" } | { kind: "ok"; meta: SessionMeta } | { kind: "corrupt"; raw: string };
 
 const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
 const isOptionalBoolean = (value: unknown): boolean => value === undefined || typeof value === "boolean";
+
+function isAgentSessionRef(value: unknown): value is AgentSessionRef {
+  if (!isRecord(value) || typeof value.token !== "string") return false;
+  return AGENT_BACKEND_IDS.some((backendId) => backendId === value.backendId);
+}
 
 // Checks every field `SessionMeta` declares. The trailing index signature
 // accepts anything, so the extra keys older builds may have written ride
@@ -50,6 +62,7 @@ function isSessionMeta(value: unknown): value is SessionMeta {
     isOptionalString(value.startedAt) &&
     isOptionalString(value.firstUserMessage) &&
     isOptionalString(value.claudeSessionId) &&
+    (value.agentSession === undefined || isAgentSessionRef(value.agentSession)) &&
     isOptionalBoolean(value.hasUnread) &&
     isOptionalBoolean(value.isBookmarked) &&
     (value.origin === undefined || isSessionOrigin(value.origin)) &&
@@ -120,6 +133,27 @@ export async function clearClaudeSessionId(sessionId: string, rootOverride?: str
   const meta = await readSessionMeta(sessionId, rootOverride);
   if (!meta) return;
   const { claudeSessionId: __removed, ...rest } = meta;
+  await writeSessionMeta(sessionId, rest, rootOverride);
+}
+
+export async function setAgentSession(sessionId: string, agentSession: AgentSessionRef, rootOverride?: string): Promise<void> {
+  const meta = await readSessionMeta(sessionId, rootOverride);
+  if (!meta) return;
+  const legacy = agentSession.backendId === "claude-code" ? { claudeSessionId: agentSession.token } : {};
+  await writeSessionMeta(sessionId, { ...meta, ...legacy, agentSession }, rootOverride);
+}
+
+export async function clearAgentSession(sessionId: string, backendId: AgentBackendId, rootOverride?: string): Promise<void> {
+  const meta = await readSessionMeta(sessionId, rootOverride);
+  if (!meta) return;
+  const legacyClaude = backendId === "claude-code" && meta.agentSession === undefined && typeof meta.claudeSessionId === "string";
+  if (meta.agentSession?.backendId !== backendId && !legacyClaude) return;
+  const { agentSession: __agentSession, ...withoutAgentSession } = meta;
+  if (backendId !== "claude-code") {
+    await writeSessionMeta(sessionId, withoutAgentSession, rootOverride);
+    return;
+  }
+  const { claudeSessionId: __claudeSessionId, ...rest } = withoutAgentSession;
   await writeSessionMeta(sessionId, rest, rootOverride);
 }
 

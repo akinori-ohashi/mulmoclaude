@@ -163,25 +163,25 @@ describe("loadSettings", () => {
 
   it("returns defaults when the file is missing", () => {
     const cfg = mod.loadSettings();
-    assert.deepEqual(cfg, { extraAllowedTools: [] });
+    assert.deepEqual(cfg, { extraAllowedTools: [], agentBackend: "codex" });
   });
 
   it("reads a well-formed file", () => {
     mod.saveSettings({ extraAllowedTools: ["a", "b"] });
-    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: ["a", "b"] });
+    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: ["a", "b"], agentBackend: "codex" });
   });
 
   it("returns defaults and warns on malformed JSON", () => {
     mod.ensureConfigsDir();
     writeFileSync(mod.settingsPath(), "not json");
     const cfg = mod.loadSettings();
-    assert.deepEqual(cfg, { extraAllowedTools: [] });
+    assert.deepEqual(cfg, { extraAllowedTools: [], agentBackend: "codex" });
   });
 
   it("returns defaults when shape does not match", () => {
     mod.ensureConfigsDir();
     writeFileSync(mod.settingsPath(), JSON.stringify({ extraAllowedTools: [1, 2, 3] }));
-    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [] });
+    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [], agentBackend: "codex" });
   });
 
   // Codex review on PR #1247: a hand-edited partial settings file
@@ -195,6 +195,7 @@ describe("loadSettings", () => {
     const cfg = mod.loadSettings();
     assert.deepEqual(cfg, {
       extraAllowedTools: [],
+      agentBackend: "codex",
       photoExif: { autoCapture: false },
     });
     assert.equal(mod.isPhotoExifAutoCaptureEnabled(cfg), false);
@@ -205,6 +206,7 @@ describe("loadSettings", () => {
     writeFileSync(mod.settingsPath(), JSON.stringify({ googleMapsApiKey: "AIza..." }));
     assert.deepEqual(mod.loadSettings(), {
       extraAllowedTools: [],
+      agentBackend: "codex",
       googleMapsApiKey: "AIza...",
     });
   });
@@ -212,7 +214,7 @@ describe("loadSettings", () => {
   it("still falls back when a present field has the wrong type", () => {
     mod.ensureConfigsDir();
     writeFileSync(mod.settingsPath(), JSON.stringify({ extraAllowedTools: "not-array" }));
-    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [] });
+    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [], agentBackend: "codex" });
   });
 
   it("returns a defensive copy — mutating the result does not affect disk", () => {
@@ -478,7 +480,7 @@ describe("saveSettings", () => {
     const entries = readdirSync(mod.configsDir());
     const leftover = entries.filter((entry) => entry.endsWith(".tmp"));
     assert.deepEqual(leftover, []);
-    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: ["second"] });
+    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: ["second"], agentBackend: "codex" });
   });
 
   // #1944: without this test the earlier bug (saveSettings dropping
@@ -486,9 +488,9 @@ describe("saveSettings", () => {
   // past. Roundtrips both non-default modes.
   it("persists chatIndex and roundtrips it through loadSettings", () => {
     mod.saveSettings({ extraAllowedTools: [], chatIndex: "haiku" });
-    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [], chatIndex: "haiku" });
+    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [], agentBackend: "codex", chatIndex: "haiku" });
     mod.saveSettings({ extraAllowedTools: [], chatIndex: "sonnet" });
-    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [], chatIndex: "sonnet" });
+    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [], agentBackend: "codex", chatIndex: "sonnet" });
   });
 
   it("omits chatIndex when unset so settings.json stays default-clean", () => {
@@ -500,9 +502,9 @@ describe("saveSettings", () => {
 
   it("persists journal and roundtrips it through loadSettings", () => {
     mod.saveSettings({ extraAllowedTools: [], journal: "haiku" });
-    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [], journal: "haiku" });
+    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [], agentBackend: "codex", journal: "haiku" });
     mod.saveSettings({ extraAllowedTools: [], journal: "sonnet" });
-    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [], journal: "sonnet" });
+    assert.deepEqual(mod.loadSettings(), { extraAllowedTools: [], agentBackend: "codex", journal: "sonnet" });
   });
 
   it("omits journal when unset so settings.json stays default-clean", () => {

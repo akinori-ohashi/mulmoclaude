@@ -5,7 +5,7 @@
 // Ships with server source (TypeScript) + pre-built client (Vite).
 // Runs the server via tsx (TypeScript executor).
 
-import { execSync, spawn } from "child_process";
+import { execFileSync, execSync, spawn } from "child_process";
 import { existsSync } from "fs";
 import { get as httpGet } from "http";
 import { createRequire } from "module";
@@ -37,9 +37,9 @@ function error(msg) {
   console.error(`\x1b[31m[mulmoclaude]\x1b[0m ${msg}`);
 }
 
-function checkClaude() {
+function checkAgentCommand(command) {
   try {
-    execSync("claude --version", { stdio: "pipe" });
+    execFileSync(command, ["--version"], { stdio: "pipe" });
     return true;
   } catch {
     return false;
@@ -108,6 +108,7 @@ Commands:
 
 Options:
   --port <number>      Server port (default: ${DEFAULT_PORT})
+  --agent-backend <id> Conversation backend: auto, claude-code, or codex (default: codex)
   --no-open            Don't open browser automatically
   --dev-plugin <path>  Load a plugin from a local project dir for development
                        (repeatable). Path can be absolute or relative to cwd.
@@ -138,6 +139,17 @@ if (args[0] === "create-shortcut") {
 const { requestedPort, portExplicit } = parsePortArg();
 const noOpen = args.includes("--no-open");
 const devPluginPaths = resolveDevPluginPaths();
+const agentBackend = parseAgentBackendArg();
+
+function parseAgentBackendArg() {
+  const index = args.indexOf("--agent-backend");
+  if (index === -1) return "codex";
+  const value = args[index + 1];
+  if (["auto", "claude-code", "codex"].includes(value)) return value;
+  error("--agent-backend must be one of: auto, claude-code, codex");
+  process.exit(1);
+  return "codex";
+}
 
 function resolveDevPluginPaths() {
   const result = parseDevPluginArgs(args, process.cwd());
@@ -169,18 +181,23 @@ function parsePortArg() {
 
 // ── Pre-flight checks ───────────────────────────────────────
 
-if (!checkClaude()) {
-  error("Claude Code CLI not found.");
+const claudeAvailable = checkAgentCommand("claude");
+const codexAvailable = checkAgentCommand("codex");
+const selectedAvailable = agentBackend === "claude-code" ? claudeAvailable : agentBackend === "codex" ? codexAvailable : claudeAvailable || codexAvailable;
+if (!selectedAvailable) {
+  error(`Agent CLI not found for backend: ${agentBackend}.`);
   error("");
-  error("Install it first:");
+  error("Install and sign in to Claude Code or Codex:");
   error("  npm install -g @anthropic-ai/claude-code");
   error("  claude auth login");
+  error("  npm install -g @openai/codex");
+  error("  codex login");
   error("");
   error("Then try again: npx mulmoclaude");
   process.exit(1);
 }
 
-log("Claude Code CLI ✓");
+log(`Agent CLI ✓ (${agentBackend})`);
 
 if (!existsSync(SERVER_ENTRY)) {
   error(`Server source not found at ${SERVER_ENTRY}`);
@@ -245,6 +262,7 @@ const serverEnv = {
   ...baseEnv,
   NODE_ENV: "production",
   PORT: String(port),
+  MULMOCLAUDE_AGENT_BACKEND: agentBackend,
 };
 if (devPluginPaths.length > 0) {
   serverEnv.MULMOCLAUDE_DEV_PLUGINS = devPluginPaths.join(PATH_DELIMITER);

@@ -8,8 +8,9 @@ import {
   incrementUserQueryCount,
   readSessionMetaFull,
   readSessionMeta,
-  setClaudeSessionId as setClaudeId,
-  clearClaudeSessionId as clearClaudeId,
+  setAgentSession,
+  clearAgentSession,
+  type AgentSessionRef,
   appendSessionLine,
   readSessionJsonl,
   sessionJsonlAbsPath,
@@ -18,6 +19,8 @@ import {
 } from "../../utils/files/session-io.js";
 import { getRole } from "../../workspace/roles.js";
 import { runAgent } from "../../agent/index.js";
+import { getActiveBackend } from "../../agent/backend/index.js";
+import { AGENT_SESSION_EVENT_TYPE } from "../../agent/stream.js";
 import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
 import { abortableSleep, BROKER_RECONNECT_WAIT_MS, detectRecovery, type RecoveryKind, type RetryBudgets } from "../../agent/retryPolicy.js";
@@ -306,7 +309,7 @@ async function persistUserTurn(params: StartChatParams, ctx: { isFirstTurn: bool
 
 // Build the LLM-bound message (see decorateMessageForCli) and kick
 // off the detached background agent run. The background run itself is
-// fire-and-forget; this awaits only the claudeSessionId read that must
+// fire-and-forget; this awaits only the backend session ref that must
 // precede it (its presence decides whether the journal pointer is added).
 async function dispatchAgentRun(
   params: StartChatParams,
@@ -316,22 +319,29 @@ async function dispatchAgentRun(
   const { extras, resultsFilePath, abortController, validOrigin } = ctx;
 
   const role = getRole(roleId);
-  const claudeSessionId = await readClaudeSessionIdFromSession(chatSessionId);
+  const backendId: AgentSessionRef["backendId"] = getActiveBackend().id === "codex" ? "codex" : "claude-code";
+  const sessionRef = await readAgentSessionFromSession(chatSessionId);
+  const sessionToken = sessionRef?.backendId === backendId ? sessionRef.token : undefined;
 
   const requestStartedAt = Date.now();
   log.info("agent", "request received", {
     chatSessionId,
     roleId,
     messageLen: message.length,
-    resumed: Boolean(claudeSessionId),
+    backend: backendId,
+    resumed: Boolean(sessionToken),
   });
 
-  const decoratedMessage = decorateMessageForCli({
+  let decoratedMessage = decorateMessageForCli({
     message,
     workspaceDir: workspacePath,
     attachedFiles: extras.attachedFiles,
-    resumed: Boolean(claudeSessionId),
+    resumed: Boolean(sessionToken),
   });
+  if (sessionRef && sessionRef.backendId !== backendId) {
+    const preamble = await readTranscriptPreamble(chatSessionId);
+    if (preamble) decoratedMessage = `${preamble}${decoratedMessage}`;
+  }
 
   // Deliberately not awaited — the request returns the SSE stream immediately
   // and the run continues past it. The terminal `.catch` is the safety net for
@@ -350,7 +360,8 @@ async function dispatchAgentRun(
     decoratedMessage,
     role,
     chatSessionId,
-    claudeSessionId,
+    backendId,
+    sessionToken,
     abortSignal: abortController.signal,
     resultsFilePath,
     requestStartedAt,
@@ -615,7 +626,8 @@ interface BackgroundRunParams {
   decoratedMessage: string;
   role: ReturnType<typeof getRole>;
   chatSessionId: string;
-  claudeSessionId: string | undefined;
+  backendId: AgentSessionRef["backendId"];
+  sessionToken: string | undefined;
   abortSignal: AbortSignal;
   resultsFilePath: string;
   requestStartedAt: number;
@@ -664,13 +676,15 @@ const CLAUDE_CLI_SKILL_BODY_PREFIX = "Base directory for this skill: ";
 // invisible to clients. Everything else is treated as "normal flow":
 // broadcast + optional jsonl append + optional tool-trace side effect.
 async function handleAgentEvent(event: Awaited<ReturnType<typeof runAgent>> extends AsyncGenerator<infer E> ? E : never, ctx: EventContext): Promise<void> {
-  if (event.type === EVENT_TYPES.claudeSessionId) {
+  if (event.type === AGENT_SESSION_EVENT_TYPE || event.type === EVENT_TYPES.claudeSessionId) {
     await flushTextAccumulator(ctx);
     // claudeSessionId is a meta event — never part of a Skill→body
     // sequence. Clear pendingSkill so a flag set earlier in the run
     // can't leak into a later unrelated assistant text.
     ctx.pendingSkill = null;
-    await setClaudeId(ctx.chatSessionId, event.id);
+    const agentSession: AgentSessionRef =
+      event.type === AGENT_SESSION_EVENT_TYPE ? { backendId: event.backendId, token: event.token } : { backendId: "claude-code", token: event.id };
+    await setAgentSession(ctx.chatSessionId, agentSession);
     return;
   }
   pushSessionEvent(ctx.chatSessionId, event);
@@ -869,9 +883,9 @@ async function resolveSkillMetadata(skillName: string): Promise<SkillMetadata> {
 // Clear the stale `--resume` id and rebuild the turn from the local jsonl so the
 // replay carries context without the bad session id (#211). Returns the message
 // to replay; the caller drops the claude session id.
-async function recoverStaleSession(chatSessionId: string, decoratedMessage: string): Promise<string> {
-  log.warn("agent", "stale claude session id — retrying without --resume", { chatSessionId });
-  await clearClaudeId(chatSessionId);
+async function recoverStaleSession(chatSessionId: string, decoratedMessage: string, backendId: AgentSessionRef["backendId"]): Promise<string> {
+  log.warn("agent", "stale backend session — retrying without resume", { chatSessionId, backendId });
+  await clearAgentSession(chatSessionId, backendId);
   const preamble = await readTranscriptPreamble(chatSessionId);
   pushSessionEvent(chatSessionId, {
     type: EVENT_TYPES.status,
@@ -899,7 +913,8 @@ interface FailoverStreamArgs {
   decoratedMessage: string;
   role: ReturnType<typeof getRole>;
   chatSessionId: string;
-  claudeSessionId: string | undefined;
+  backendId: AgentSessionRef["backendId"];
+  sessionToken: string | undefined;
   abortSignal: AbortSignal;
   attachments: Attachment[] | undefined;
   userTimezone: string | undefined;
@@ -953,14 +968,14 @@ function discardAbortedPass(eventCtx: EventContext): void {
 // hidden-worker cleanup. Split out of `runAgentInBackground` to keep that
 // function under the max-lines-per-function budget.
 async function runAgentStreamWithFailover(args: FailoverStreamArgs, eventCtx: EventContext): Promise<boolean> {
-  const { decoratedMessage, role, chatSessionId, claudeSessionId, abortSignal, attachments, userTimezone } = args;
+  const { decoratedMessage, role, chatSessionId, backendId, sessionToken, abortSignal, attachments, userTimezone } = args;
 
   // One retry each. Stale-`--resume` only applies when we entered with an id (a
   // fresh session can't hit it); the broker race can hit a fresh session too.
   // One max apiece so a looping CLI bug can't stack infinite replays.
-  const budgets: RetryBudgets = { stale: claudeSessionId ? 1 : 0, broker: 1 };
+  const budgets: RetryBudgets = { stale: sessionToken ? 1 : 0, broker: backendId === "claude-code" ? 1 : 0 };
   let currentMessage = decoratedMessage;
-  let currentClaudeSessionId = claudeSessionId;
+  let currentSessionToken = sessionToken;
   let didError = false;
 
   while (true) {
@@ -974,7 +989,7 @@ async function runAgentStreamWithFailover(args: FailoverStreamArgs, eventCtx: Ev
       workspacePath,
       sessionId: chatSessionId,
       port: PORT,
-      claudeSessionId: currentClaudeSessionId,
+      sessionToken: currentSessionToken,
       abortSignal,
       attachments,
       userTimezone,
@@ -986,8 +1001,8 @@ async function runAgentStreamWithFailover(args: FailoverStreamArgs, eventCtx: Ev
     discardAbortedPass(eventCtx);
     if (pass.recovery === "stale") {
       budgets.stale--;
-      currentMessage = await recoverStaleSession(chatSessionId, decoratedMessage);
-      currentClaudeSessionId = undefined;
+      currentMessage = await recoverStaleSession(chatSessionId, decoratedMessage, backendId);
+      currentSessionToken = undefined;
     } else {
       budgets.broker--;
       await recoverBrokerNotReady(chatSessionId, abortSignal);
@@ -997,8 +1012,19 @@ async function runAgentStreamWithFailover(args: FailoverStreamArgs, eventCtx: Ev
 }
 
 async function runAgentInBackground(params: BackgroundRunParams): Promise<void> {
-  const { decoratedMessage, role, chatSessionId, claudeSessionId, abortSignal, resultsFilePath, requestStartedAt, toolArgsCache, attachments, userTimezone } =
-    params;
+  const {
+    decoratedMessage,
+    role,
+    chatSessionId,
+    backendId,
+    sessionToken,
+    abortSignal,
+    resultsFilePath,
+    requestStartedAt,
+    toolArgsCache,
+    attachments,
+    userTimezone,
+  } = params;
 
   const eventCtx: EventContext = {
     chatSessionId,
@@ -1014,7 +1040,10 @@ async function runAgentInBackground(params: BackgroundRunParams): Promise<void> 
   let didError = false;
 
   try {
-    didError = await runAgentStreamWithFailover({ decoratedMessage, role, chatSessionId, claudeSessionId, abortSignal, attachments, userTimezone }, eventCtx);
+    didError = await runAgentStreamWithFailover(
+      { decoratedMessage, role, chatSessionId, backendId, sessionToken, abortSignal, attachments, userTimezone },
+      eventCtx,
+    );
     // Flush any accumulated streaming text as a single consolidated
     // line in the jsonl. This prevents per-chunk lines that would
     // appear as separate cards on session reload.
@@ -1131,14 +1160,16 @@ function runPostTurnSideEffects(chatSessionId: string, requestStartedAt: number)
   }).catch(logBackgroundError("wiki-backlinks"));
 }
 
-// Read claudeSessionId from meta (primary) or jsonl (legacy fallback).
-async function readClaudeSessionIdFromSession(chatSessionId: string): Promise<string | undefined> {
+// Read the provider-tagged ref first, then migrate legacy Claude metadata.
+async function readAgentSessionFromSession(chatSessionId: string): Promise<AgentSessionRef | undefined> {
   const meta = await readSessionMeta(chatSessionId);
-  if (meta?.claudeSessionId) return meta.claudeSessionId;
+  if (meta?.agentSession) return meta.agentSession;
+  if (meta?.claudeSessionId) return { backendId: "claude-code", token: meta.claudeSessionId };
   // Legacy scan: search jsonl lines backwards for a claudeSessionId event
   const jsonl = await readSessionJsonl(chatSessionId);
   if (!jsonl) return undefined;
-  return findLastSessionEntry(jsonl, (entry) => (entry.type === EVENT_TYPES.claudeSessionId && isNonEmptyString(entry.id) ? entry.id : undefined));
+  const token = findLastSessionEntry(jsonl, (entry) => (entry.type === EVENT_TYPES.claudeSessionId && isNonEmptyString(entry.id) ? entry.id : undefined));
+  return token ? { backendId: "claude-code", token } : undefined;
 }
 
 // Read the session jsonl and render the transcript preamble used on

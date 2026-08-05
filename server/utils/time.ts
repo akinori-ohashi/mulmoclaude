@@ -53,3 +53,9 @@ export const SUBPROCESS_WORK_TIMEOUT_MS = ONE_MINUTE_MS;
 
 /** CLI subprocess timeout (claude -p for summarization, etc.) */
 export const CLI_SUBPROCESS_TIMEOUT_MS = 5 * ONE_MINUTE_MS;
+
+/** Codex app-server handshake and ordinary JSON-RPC request ceiling. */
+export const CODEX_RPC_TIMEOUT_MS = 30 * ONE_SECOND_MS;
+
+/** Grace for turn/interrupt before the app-server child is terminated. */
+export const CODEX_INTERRUPT_TIMEOUT_MS = 5 * ONE_SECOND_MS;

@@ -75,8 +75,13 @@ describe("runPreflight", () => {
     assert.equal(failure?.key, "npxMissing");
   });
 
-  it("reports a missing Claude Code", () => {
+  it("passes when Codex is present without Claude Code", () => {
     const failure = runPreflight({ nodeVersion: "v24.12.0", commandAvailable: (command) => command !== "claude" });
+    assert.equal(failure, null);
+  });
+
+  it("reports a missing agent when neither CLI is present", () => {
+    const failure = runPreflight({ nodeVersion: "v24.12.0", commandAvailable: (command) => command === "npx" });
     assert.equal(failure?.key, "claudeMissing");
   });
 
@@ -85,7 +90,7 @@ describe("runPreflight", () => {
     const failures = [
       runPreflight({ nodeVersion: "v18.0.0", commandAvailable: allPresent }),
       runPreflight({ nodeVersion: "v24.12.0", commandAvailable: (command) => command !== "npx" }),
-      runPreflight({ nodeVersion: "v24.12.0", commandAvailable: (command) => command !== "claude" }),
+      runPreflight({ nodeVersion: "v24.12.0", commandAvailable: (command) => command === "npx" }),
     ];
     failures.forEach((failure) => {
       assert.ok(failure !== null);

@@ -12,6 +12,8 @@ import {
   backfillFirstUserMessage,
   setClaudeSessionId,
   clearClaudeSessionId,
+  setAgentSession,
+  clearAgentSession,
   appendSessionLine,
   readSessionJsonl,
 } from "../../../server/utils/files/session-io.js";
@@ -149,6 +151,28 @@ describe("setClaudeSessionId / clearClaudeSessionId", () => {
     meta = await readSessionMeta("claude-test", root);
     assert.equal(meta?.claudeSessionId, undefined);
     assert.equal(meta?.roleId, "general"); // other fields preserved
+  });
+});
+
+describe("provider-tagged agent session", () => {
+  it("persists Codex tokens without populating the Claude legacy field", async () => {
+    await writeSessionMeta("codex-session", { roleId: "general" }, root);
+    await setAgentSession("codex-session", { backendId: "codex", token: "thr_123" }, root);
+    const meta = await readSessionMeta("codex-session", root);
+    assert.deepEqual(meta?.agentSession, { backendId: "codex", token: "thr_123" });
+    assert.equal(meta?.claudeSessionId, undefined);
+  });
+
+  it("keeps the legacy Claude field and clears only the matching provider", async () => {
+    await writeSessionMeta("generic-claude", { roleId: "general" }, root);
+    await setAgentSession("generic-claude", { backendId: "claude-code", token: "cs-456" }, root);
+    assert.equal((await readSessionMeta("generic-claude", root))?.claudeSessionId, "cs-456");
+    await clearAgentSession("generic-claude", "codex", root);
+    assert.ok((await readSessionMeta("generic-claude", root))?.agentSession);
+    await clearAgentSession("generic-claude", "claude-code", root);
+    const meta = await readSessionMeta("generic-claude", root);
+    assert.equal(meta?.agentSession, undefined);
+    assert.equal(meta?.claudeSessionId, undefined);
   });
 });
 
