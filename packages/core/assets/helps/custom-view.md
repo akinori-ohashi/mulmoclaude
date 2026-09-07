@@ -55,7 +55,10 @@ collection's view-mode selector automatically.
 
 ## The runtime contract — `window.__MC_VIEW`
 
-The host injects a bootstrap into your page **before any of your scripts run**:
+The host injects a bootstrap at the very start of your `<head>`, so it runs
+**before any script in your `<head>` or `<body>`** — write your view normally
+and `window.__MC_VIEW` is always there. (A `<script>` placed _before_ `<head>`
+would run ahead of it and see no `__MC_VIEW`; there is no reason to write one.)
 
 ```js
 window.__MC_VIEW = {
@@ -63,10 +66,19 @@ window.__MC_VIEW = {
   token: "<scoped capability token>", // Authorization bearer
   dataUrl: "http://localhost:3001/api/collections/annual-plan/view-data",
   onChange: (cb) => unsubscribe, // live refresh — see "Staying live" below
+  searchQuery: "", // live text in the app's own search box — see "One search box"
+  onSearchQueryChange: (cb) => unsubscribe, // fires when the user types there
   openItem: (id, mode) => void, // open a record in the host's panel — see "Opening a record"
   startChat: (prompt, role) => void, // draft a new chat for the user — see "Starting a chat"
 };
 ```
+
+> **`dataUrl` is a bare base URL, and stays one.** Every endpoint below is
+> built by concatenating onto it — `dataUrl + "?fields=…"`, `+ "/query"`,
+> `+ "/actions/<id>"`, `+ "/image?path=…"`. It therefore carries no query
+> string of its own. (Host note: a host that appends its own parameter here —
+> to identify a project, say — corrupts every one of those calls. Scope belongs
+> in the token, which is where the host puts it.)
 
 ### Reading records
 
@@ -196,7 +208,8 @@ if (res.ok) {
 
 ### Displaying images — `GET <dataUrl>/image`
 
-An `image`-type field stores a **workspace path** (`data/attachments/…`,
+An `image`-type field stores a path relative to the collection's own root — the
+workspace or project folder it lives in (`data/attachments/…`,
 `data/<name>/logos/…`) that a sandboxed view cannot load directly — the
 iframe has an opaque origin and `<img>` can't attach the bearer token. To
 render one, ask the host to resolve it into a downscaled thumbnail:
@@ -290,6 +303,69 @@ What you need to know:
 - **No extra capability needed** — a read-only view can use `onChange`.
 - It returns an **unsubscribe** function; you rarely need it (the view is torn
   down with the iframe), but it's there for fine-grained control.
+
+### One search box — `searchQuery` / `onSearchQueryChange`
+
+The app's **standard search box stays on screen while your view renders**, so
+the user expects it to drive your view too. It does: the host relays what they
+type into the sandboxed frame.
+
+**Do not build a second search box.** Read the host's, and you get the
+behaviour the user already assumes.
+
+```js
+const v = window.__MC_VIEW;
+
+function render() {
+  const q = v.searchQuery.trim().toLowerCase();
+  const hits = q ? records.filter((r) => matches(r, q)) : records;
+  // …draw hits, highlight where each one matched…
+}
+
+v.onSearchQueryChange(render); // the user typed in the app's search box
+v.onChange(reload); // the data changed (a separate wire — see above)
+render();
+```
+
+What you need to know:
+
+- **`searchQuery` is always current.** It updates the instant the user types, so
+  reading it inside your own render (as above) is never a keystroke behind.
+- **The callback is debounced** — it runs once typing pauses (~150 ms), not
+  once per keystroke — and receives the query as its argument
+  (`onSearchQueryChange((q) => …)`), so you can use either source.
+- **An empty string means the box is empty** — show everything, don't show
+  nothing. It fires on clearing too.
+- **It is scoped to this collection and this session.** Switching collections
+  clears the box; nothing is persisted.
+- **Navigating your frame away ends it.** The query arrives on a private
+  channel bound to the document the host built, so a page your view navigates
+  to gets no further queries — deliberately, since the text is the user's own.
+  If that page asks the host for the channel, the host reinstalls your view
+  over it rather than handing it over. Open outbound links with
+  `target="_blank"` (see the sandbox rules) and your view keeps running.
+- **Reloading your own view is fine.** `location.reload()` makes the host
+  reinstall the view and hand it a fresh channel, seeded with whatever is in
+  the search box — so the query you see after a reload is the current one, not
+  an empty string.
+- **Replacing the document is allowed a few times, not endlessly.** Each
+  reinstall — after a reload or after another page claims the channel — costs
+  the host a rebuild, so it grants **at most 3** between one user-initiated
+  view change and the next (switching view or collection resets the budget).
+  Past that your view still renders and still reads its data; only the search
+  channel stays disconnected, and `searchQuery` stops updating. Use `onChange`
+  to refresh rather than reloading the frame, and you will never reach it.
+- **One direction only.** You read the user's query; you cannot write the app's
+  search box from view code. If your view needs a filter the box can't express
+  (a date range, a facet), add that control yourself and combine it with
+  `searchQuery`.
+- **No extra capability needed**, and it is **not** a data reload: it never
+  fires `onChange`, and `onChange` never fires this.
+
+This is what makes a "search" view worth writing — the built-in box only
+filters table rows, so a view that shows **which field matched**, with a
+highlighted snippet, is a real upgrade the user drives from the box they were
+already using.
 
 ### Opening a record — `openItem`
 

@@ -5,6 +5,7 @@ const de: Messages = {
   loadFailed: "⚠ Laden des Dokuments fehlgeschlagen: {error}",
   refreshFailed: "⚠ Aktualisieren des Dokuments fehlgeschlagen: {error} — es wird der zuletzt erfolgreich geladene Inhalt angezeigt.",
   noContent: "Kein Markdown-Inhalt verfügbar",
+  reload: "Von der Festplatte neu laden",
   pdf: "PDF",
   pdfFailedShort: "⚠ PDF fehlgeschlagen",
   editSource: "Markdown-Quelle bearbeiten",
@@ -27,6 +28,10 @@ const de: Messages = {
   marpSplitEditorLabel: "Quelle",
   mermaidLoadFailed: "⚠ Mermaid konnte nicht geladen werden: {error}",
   mermaidRenderFailed: "⚠ Mermaid-Rendering fehlgeschlagen: {error}",
+  mathLoadFailed: "⚠ MathJax konnte nicht geladen werden: {error}",
+  mathRenderFailed: "⚠ Formel-Rendering fehlgeschlagen: {error}",
+  bookmarkRailLabel: "Lesezeichen",
+  bookmarkJump: "Zum Lesezeichen springen: {label}",
 };
 
 export default de;

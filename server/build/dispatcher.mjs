@@ -285,7 +285,7 @@ async function handleSkillBridge(payload) {
 // server/workspace/hooks/handlers/wikiSnapshot.ts
 import path5 from "node:path";
 
-// packages/core/dist/slug-CdN-pQX1.js
+// packages/core/dist/slug-BpjumQfe.js
 function isSafeSlug(slug) {
   if (slug.length === 0) return false;
   if (slug === "." || slug === "..") return false;

@@ -23,6 +23,9 @@ export interface Shortcut {
   title: string;
   /** Cached material-symbols glyph — refreshed on reconcile. */
   icon: string;
+  /** Cached accent colour name — refreshed on reconcile. Absent when the
+   *  collection / feed names none, which reads as the unstyled default. */
+  color?: string;
 }
 
 /** On-disk shape of `config/shortcuts.json`. Object wrapper (not a

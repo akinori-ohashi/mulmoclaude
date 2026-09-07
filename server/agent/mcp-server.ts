@@ -23,6 +23,7 @@ import { safeResponseText } from "../utils/http.js";
 import { readTextSafeSync } from "../utils/files/safe.js";
 import { WORKSPACE_PATHS } from "../workspace/paths.js";
 import { makeUuid } from "../utils/id.js";
+import { deliverBeacon, BROKER_READY_DELIVERY } from "./brokerBeacon.js";
 
 type JsonRpcId = string | number | null;
 
@@ -581,6 +582,50 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
   return parts.length > 0 ? parts.join("\n") : "Done";
 }
 
+// Milliseconds from this process starting to the module being set up — the
+// cold boot itself. `performance.now()` is relative to process start, so tsx
+// transcoding the import graph (or node reading the 6 MB bundle) is already
+// inside the number, and no host/container clock agreement is needed (#2842).
+const BOOT_MS = Math.round(performance.now());
+
+// Which spawn path this is, as seen from inside: the bundle is emitted as
+// `server/build/mcp-server.mjs`, the fallback runs `mcp-server.ts` under tsx.
+const BROKER_KIND = import.meta.url.endsWith(".mjs") ? "bundle" : "tsx";
+
+// `initialize` can arrive again on a reconnect; the first answer is the one
+// that raced the CLI's connect wait, so later ones say nothing new. Set when
+// delivery STARTS, not when it succeeds — a second handshake must not open a
+// second retry chain reporting a boot time that is no longer the first one.
+const brokerReadyBeacon = { started: false };
+
+// Fire-and-forget, and only AFTER the handshake reply is already on the wire.
+// The host has no other view of this child — Claude CLI spawned it and owns its
+// stderr — so without this beacon a slow broker and a dead one are the same
+// observation from out there (#2842). Deliberately never awaited and never
+// rethrown: a beacon that delayed `initialize` would worsen the very race it
+// exists to measure.
+//
+// Retried rather than sent once, because the host now SKIPS the automatic
+// replay when no beacon arrived. A beacon dropped in flight would make a
+// healthy broker look like one that never started.
+function reportBrokerReady(): void {
+  if (brokerReadyBeacon.started) return;
+  brokerReadyBeacon.started = true;
+  const body = { bootMs: BOOT_MS, initializeMs: Math.round(performance.now()), kind: BROKER_KIND, spawnId: env.mcpSpawnId };
+  void deliverBeacon(
+    {
+      send: (timeoutMs) => postJson(API_ROUTES.mcp.brokerReady, body, { timeoutMs }),
+      // Unref'd: a pending retry must never be the reason this process stays up.
+      wait: (delayMs) =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, delayMs).unref();
+        }),
+      report: (attempts, err) => process.stderr.write(`[mcp-server] startup beacon undelivered after ${attempts} attempts: ${errorMessage(err)}\n`),
+    },
+    BROKER_READY_DELIVERY,
+  );
+}
+
 function handleInitialize(requestId: JsonRpcId | undefined): void {
   respond({
     jsonrpc: "2.0",
@@ -591,6 +636,7 @@ function handleInitialize(requestId: JsonRpcId | undefined): void {
       serverInfo: { name: "mulmoclaude", version: "1.0.0" },
     },
   });
+  reportBrokerReady();
 }
 
 // Answer once runtime plugins are in — but never later than the cap. A client

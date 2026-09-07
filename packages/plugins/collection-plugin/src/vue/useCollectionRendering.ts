@@ -14,7 +14,7 @@
 // returned object down to child panels.
 
 import type { Ref } from "vue";
-import { collectionUi } from "./uiContext";
+import { useCollectionUiGetter } from "./scopedUi";
 import { deriveAll } from "@mulmoclaude/core/collection";
 import type {
   BacklinksView,
@@ -36,6 +36,7 @@ import {
   formatMoney,
   hasTableRows,
   inputTypeFor,
+  isServerStamped,
   isExternalUrl,
   resolveCurrency,
   stepForFieldType,
@@ -81,7 +82,8 @@ export interface CollectionRendering {
   tableRows: (value: unknown) => Record<string, unknown>[];
   hasTableRows: (value: unknown) => boolean;
   formatSubCell: (subField: FieldSpec, value: unknown, record: CollectionItem | null) => string;
-  inputTypeFor: (type: FieldType) => string;
+  inputTypeFor: (type: FieldType, value?: unknown) => string;
+  isServerStamped: (value: unknown) => boolean;
   stepFor: (type: FieldType) => string | undefined;
   deriveAll: (schema: CollectionSchema, base: CollectionItem, refRecords: RefRecordCache) => CollectionItem;
   evaluateDerivedAgainstItem: (field: FieldSpec, fieldKey: string, item: CollectionItem) => number | null;
@@ -105,11 +107,16 @@ const STATELESS_RENDERERS = {
   tableRows,
   hasTableRows,
   inputTypeFor,
+  isServerStamped,
   stepFor: stepForFieldType,
   deriveAll,
 };
 
 export function useCollectionRendering(collection: Ref<CollectionDetail | null>, locale: Ref<string>): CollectionRendering {
+  // Resolved during setup, called at render time: the card's scope can only be
+  // injected here, but the binding itself must stay lazy (a renderer may run
+  // before — or without — a host binding).
+  const uiFor = useCollectionUiGetter();
   const caches = useLinkedCollectionCaches(collection);
   const { refCache, refRecordCache, embedCache } = caches;
   return {
@@ -125,10 +132,10 @@ export function useCollectionRendering(collection: Ref<CollectionDetail | null>,
     // A `file` field holds a workspace-relative path; the host resolves it to a
     // served artifact URL (html/svg) or null. The host owns the path guard
     // (absolute / `..`-traversal rejected before building the URL).
-    artifactUrl: (value) => collectionUi().fileAssetUrl(value),
+    artifactUrl: (value) => uiFor().fileAssetUrl(value),
     // In-app File Explorer route for a workspace path — the fallback for `file`
     // values that aren't a directly-served artifact.
-    fileRoutePath: (value) => collectionUi().fileRoutePath(value),
+    fileRoutePath: (value) => uiFor().fileRoutePath(value),
     formatSubCell: (subField, value, record) => renderSubCell(subField, value, record, refCache.value, locale.value),
     evaluateDerivedAgainstItem: (field, fieldKey, item) =>
       evaluateDerived(field, fieldKey, item, collection.value?.schema ?? null, refRecordCache.value, embedCache.value),

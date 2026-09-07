@@ -40,6 +40,7 @@ export {
   type RegistryListResponse,
   type RegistryImportResponse,
 } from "./uiContext";
+export { useCollectionUi, useCollectionUiGetter, provideCollectionScope, resolveScopedCollectionUi, resetScopedCollectionUi } from "./scopedUi";
 export { useCollectionRendering, type CollectionRendering } from "./useCollectionRendering";
 export {
   readCollectionViewMode,
@@ -56,6 +57,7 @@ export {
   type FlagFilterMode,
   type FlagFilterState,
 } from "./collectionViewMode";
+export { decideSearchChannelClaim, MAX_FRAME_RECLAIMS, type SearchChannelAction, type SearchChannelState } from "./searchChannelPolicy";
 export { default as CollectionRecordModal } from "./components/CollectionRecordModal.vue";
 export { default as CollectionEmbedView } from "./components/CollectionEmbedView.vue";
 export { default as CollectionCalendarView } from "./components/CollectionCalendarView.vue";

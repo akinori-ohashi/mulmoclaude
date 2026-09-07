@@ -134,7 +134,7 @@ interface TaskDefinition {
 }
 
 type TaskSchedule =
-  | { type: "interval"; intervalMs: number }   // every N ms since midnight UTC
+  | { type: "interval"; intervalMs: number }   // every N ms, counted from the epoch
   | { type: "daily"; time: string };           // "HH:MM" UTC, 24-hour
 ```
 
@@ -157,23 +157,33 @@ a clock-tick boundary).
 
 The scheduler calls `onTick` every `tickMs`. On each tick it walks
 the registry and fires every enabled task whose schedule is "due".
-Due-checking is pure — see `isDue()` in
-[`server/events/task-manager/index.ts`](../server/events/task-manager/index.ts).
+Due-checking is pure — see
+[`packages/core/src/scheduler/schedule-window.ts`](../packages/core/src/scheduler/schedule-window.ts),
+which delegates to `isDueAt()` in `@receptron/task-scheduler`
+(`packages/scheduler`) so firing, catch-up and the "next run"
+timestamp all share one window definition.
 
-- **`interval`**: due when `floor(msSinceMidnightUtc / tickMs) * tickMs`
-  is a whole-number multiple of `intervalMs`. Practical effect:
-  pick intervals that are multiples of your `tickMs` (e.g. 60 s, 5
-  min, 1 h in production). An `intervalMs` smaller than `tickMs`
+- **`interval`**: windows are anchored to the **epoch** — the Nth
+  window is `N * intervalMs` — and a task is due when one of those
+  windows falls inside the tick that is ending. So the period is
+  exactly `intervalMs` whatever its size, and `interval 168h` fires
+  once a week (on a Thursday 00:00 UTC, since the epoch was a
+  Thursday), not once a day. An `intervalMs` smaller than `tickMs`
   fires every tick — probably not what you want.
-- **`daily`**: due when the rounded msSinceMidnightUtc equals the
-  target `HH:MM` in ms. UTC, not local — pick the time
-  accordingly. Fires at most once per day at that slot.
+- **`daily`**: due when the `HH:MM` instant falls inside the ending
+  tick. UTC, not local — pick the time accordingly. Fires at most
+  once per day at that slot.
 
-Midnight rollover: `msSinceMidnightUtc` resets to 0 at 00:00 UTC,
-so `interval` tasks all align on midnight. There's no "first run
-now" option — if you need immediate execution on boot, call the
-task body directly in `startRuntimeServices` and then `registerTask`
-it for subsequent ticks.
+Because the anchor is the epoch and not the registration time, a
+task's window does not move when the server restarts, and it is the
+same window `nextWindowAfter()` reports as `nextScheduledAt` — the
+tick engine and the persisted state agree by construction. This is
+what #2937 fixed: the engine used to count from UTC midnight, which
+made every interval of 24h or more collapse into "daily at 00:00".
+
+There's no "first run now" option — if you need immediate execution
+on boot, call the task body directly in `startRuntimeServices` and
+then `registerTask` it for subsequent ticks.
 
 ---
 

@@ -11,7 +11,7 @@
        - Origin (scheduler / skill / bridge) → tiny B&W badge on the
          top-right. Human / unknown origin → no badge. -->
   <span class="relative shrink-0 inline-flex items-center leading-none">
-    <span class="material-icons leading-none" :class="[iconSizeClass, stateClass, spinClass]">{{ glyph }}</span>
+    <span class="material-icons leading-none" :class="[iconSizeClass, stateClass, spinClass, ROLE_ICON_CONTAINMENT]">{{ glyph }}</span>
     <span
       v-if="originGlyph"
       role="img"
@@ -29,7 +29,7 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import type { Role } from "../config/roles";
 import { SESSION_ORIGINS, type SessionSummary } from "../types/session";
-import { roleIcon } from "../utils/role/icon";
+import { ROLE_ICON_CONTAINMENT, roleIcon } from "../utils/role/icon";
 
 const { t } = useI18n();
 

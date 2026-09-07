@@ -6,7 +6,7 @@ Reference for contributors hacking on MulmoClaude. End-user instructions live in
 
 ## Contributing — please open an issue with a plan first
 
-Thanks for wanting to contribute! Please read this section before sending a pull request — **we cannot accept large or AI-generated pull requests from outside contributors**, and unsolicited ones will be closed without a detailed review. The flow we ask for instead is:
+Thanks for wanting to contribute! Please read this section before sending a pull request — **we do not accept pull requests from outside the development team, regardless of size**, and unsolicited ones are commented on and closed automatically. **Issues are a different story — bug reports and feature requests are always welcome, and an issue is the way to get a change in.** The flow we ask for instead is:
 
 1. **Open a GitHub issue describing the problem and a proposed plan.** A few paragraphs are enough: what's wrong (or what's missing), the approach you have in mind, the files you expect to touch, and any open questions. The files under [`plans/`](../plans/) are good references for the level of detail we want.
 2. **Discuss the plan in the issue thread.** We may suggest scope adjustments, point out existing helpers or in-flight refactors that overlap, or surface constraints that are hard to see from the outside, such as security boundaries or deprecation paths. This is usually a short back-and-forth.
@@ -27,26 +27,28 @@ AI coding assistants make it easy to generate large, polished-looking diffs in m
 
 This is not about screening out AI-assisted work — the maintainer who drafts the pull request will often be using an agent too. The point is that **the plan is what we agree on, and the resulting code is owned by whoever lands it**. Locking that ownership boundary at the plan keeps responsibility clear and review focused on the parts that need human judgement.
 
-### When you can skip the plan
+### There is no small-diff exemption
 
-A direct pull request is welcome for:
+Every change from outside the development team starts as an issue — typos, copy fixes,
+documentation tweaks and dependency bumps included. A one-line fix still needs a maintainer to
+judge whether it is the right fix, and routing it through an issue costs you less than writing a
+pull request that will be closed.
 
-- Typos, copy fixes, documentation tweaks
-- Dependency version bumps
-- Single-file bug fixes with an obvious root cause and a matching test, **10 lines of diff or fewer (additions + deletions, inclusive)**
-- Anything a maintainer or a continuous integration bot explicitly asks for in a review comment
+The one exception is a change **a maintainer or a continuous integration bot explicitly asked
+for in a review comment on your existing pull request** — that request is the agreement, so
+there is nothing left to negotiate in an issue.
 
-Anything larger than that should start as an issue. If you are not sure, opening an issue first is always cheaper than writing a pull request that will not be accepted. Thanks for understanding.
+If you are not sure, opening an issue first is always cheaper. Thanks for understanding.
 
 ### Automated triage on pull requests
 
 The `.github/workflows/pr_triage.yaml` workflow runs on every PR and enforces the rule above mechanically:
 
-- PRs from maintainers and allowlisted bots fall through. The current allowlist is `isamu`, `snakajima`, `ystknsh`, `yuki0627`, `dependabot[bot]`, `coderabbitai[bot]`, `sourcery-ai[bot]`. To add a maintainer, edit the `MAINTAINERS` list in the workflow and the same list here.
-- PRs from anyone else are accepted automatically when the diff is ≤ 10 lines (additions + deletions).
-- Larger non-maintainer PRs receive a templated comment that links back to this section and asks for an issue first — **the issue body's first three lines should be a compact summary of the problem and the proposed plan** so a maintainer can decide whether to engage at a glance — and the PR is closed.
-
-The line cap and the documentation are intentionally kept in lock-step. If the cap moves, update both the workflow's `LINE_LIMIT` and the bullet above in the same commit.
+- PRs from maintainers and allowlisted bots pass through untouched. The current allowlist is `isamu`, `snakajima`, `ystknsh`, `yuki0627`, `dependabot[bot]`, `coderabbitai[bot]`, `sourcery-ai[bot]`. To add a maintainer, edit the `MAINTAINERS` list in the workflow and the same list here, in the same commit.
+- **Every other PR gets a templated comment linking back to this section and is closed. There is no small-diff exemption.** The comment asks for an issue instead — **its first three lines should be a compact summary of the problem and the proposed plan** so a maintainer can decide whether to engage at a glance.
+- The guard runs on PRs against **any** branch, not just `main`: a PR opened against a long-lived branch is exactly as unreviewable as one against `main`.
+- An event a maintainer triggered stands the automation down, so retitling an outside PR you have decided to keep does not re-close it.
+- Re-closing a reopened PR is silent — the workflow recognises its own earlier comment and does not post a second copy.
 
 ---
 
@@ -80,8 +82,9 @@ All env vars are **optional unless flagged "required"**. The server reads them a
 | `SESSIONS_LIST_WINDOW_DAYS`            | `90`                           | Caps how far back the sidebar looks when listing chat sessions (`server/api/routes/sessions.ts`). Set to `0` to disable the cutoff entirely. Introduced in PR #203 to keep `GET /api/sessions` cheap on long-lived workspaces; anything older is still on disk, just hidden from the list.        |
 | `MACOS_REMINDER_NOTIFICATIONS`         | `1` (Darwin) / unset elsewhere | Set to `0` to disable the macOS Reminders sink. The sink mirrors notifications into the system Reminders app via `osascript`. Title and body are passed via argv (not via `osascript` attribute) so notification text containing `osascript`-meta characters can't escape into the script (#789). |
 | `DISABLE_MACOS_REMINDER_NOTIFICATIONS` | unset                          | Alternate kill-switch for the same sink — set to `1` to silence it without changing the primary flag. Auto-enabled in `node:test` runs to keep test output clean.                                                                                                                                 |
-| `MULMOCLAUDE_DEV_LAN`                  | unset                          | Set to `1` to bind the Vite dev server to every interface instead of `127.0.0.1`, so another device on the network can load the page. The backend stays loopback-only either way: with LAN enabled, a non-loopback caller receives an **empty** auth token and the proxied backend paths (`/api`, `/artifacts`, `/ws`) are refused, so the page loads but cannot reach the API. Only enable it on a network you trust. Dev server only — `vite build` output is unaffected. |
+| `MULMOCLAUDE_DEV_LAN`                  | unset                          | Set to `1` to bind the Vite dev server to every interface instead of `127.0.0.1`, so another device on the network can load the page. The backend stays loopback-only either way: with LAN enabled, a non-loopback caller receives an **empty** auth token and the proxied backend paths (`/api`, `/artifacts`, `/htmlfile`, `/ws`) are refused, so the page loads but cannot reach the API. Only enable it on a network you trust. Dev server only — `vite build` output is unaffected. |
 | `MULMOCLAUDE_DEV_WATCH_PACKAGES`       | unset                          | Windows-only escape hatch. `yarn dev` stops watching `packages/*/dist` on win32 because every sandboxed agent spawn bind-mounts the workspace packages into the container and Docker Desktop bumps their mtimes, which full-reloads the page mid-turn (#2632). Set to `1` while iterating on a workspace package to get its rebuild HMR back — at the cost of the reload storms. No effect on macOS/Linux, where those mounts never happen and the dists stay watched. |
+| `MULMOCLAUDE_DEV_WAIT_MS`              | `60000`                        | How long `yarn dev` waits for the backend to start listening before it starts Vite anyway (#2975). The client half blocks on `scripts/wait-for-backend.ts` until the API port accepts a connection, which is also the moment the session token exists on disk (`server/index.ts` writes it before `app.listen`) — so the first page load gets neither a body-less 502 from the proxy nor an empty auth token baked into `index.html`. On timeout it logs why and starts Vite regardless, so a backend that never boots cannot hold the dev server hostage. Raise it on a slow machine (a cold `tsx` boot behind a Windows virus scanner is the case this exists for); it replaced a flat 2-second sleep that Windows routinely lost. |
 | `MULMOCLAUDE_TRUSTED_ORIGINS`          | unset                          | CSV of additional `Origin` values allowed by the CSRF guard (`server/api/csrfGuard.ts`) for cross-origin state-changing requests. Match is verbatim — include the scheme and port, no trailing slash. Localhost is always allowed regardless of this list. The literal string `null` (browsers send it for sandboxed iframes / `file://` / `data:` pages) is rejected even if listed — there is no opt-in escape hatch for opaque origins. Note this only widens the **Origin** check; it does not by itself make the dev server reachable off-host (see `MULMOCLAUDE_DEV_LAN`), and the backend refuses non-loopback callers regardless. |
 | `CLAUDE_CONFIG_DIR`                    | `<homedir>/.claude`            | Absolute path to the user's Claude Code CLI config directory. This is Claude Code's own env var, so setting it relocates the real install — and `.claude.json` **moves with it**, into the directory rather than staying at `~/.claude.json` (verified against the CLI; its docs mention neither the interaction nor the file's default). MulmoClaude follows that, so this one var is enough (#2654). Resolved by `server/utils/claudeConfigPath.ts` and consumed by the sandbox pre-flight (`server/system/docker.ts`), the Docker bind mounts (`server/agent/config.ts`), the credentials probe (`server/index.ts`), and the user-scope skills lookup (`server/workspace/skills/paths.ts`). Issue #87 §2. |
 | `CLAUDE_CONFIG_JSON`                   | `<CLAUDE_CONFIG_DIR>/.claude.json`, else `<homedir>/.claude.json` | MulmoClaude-only escape hatch for the top-level JSON config alone; resolved by the same helper, and it wins over `CLAUDE_CONFIG_DIR`. Claude Code itself does not read this var, so setting it alone points MulmoClaude at a file the CLI is not using — reach for it only when the file genuinely sits outside its config dir (test fixture, corporate redirect). A blank value in either var counts as unset. |
@@ -174,8 +177,9 @@ You never set these by hand; the server constructs them when spawning Claude ins
 
 | Script                  | Notes                                                                              |
 | ----------------------- | ---------------------------------------------------------------------------------- |
-| `yarn lint`             | ESLint on `src/` and `server/`. CI-blocking.                                       |
-| `yarn format`           | Prettier auto-fix on `{src,server,test}/**/*.{ts,json,yaml,vue}`.                  |
+| `yarn lint`             | ESLint on `src server test e2e e2e-live packages scripts batch config`. CI-blocking. Under GitHub Actions it also writes a findings report to the job summary. |
+| `yarn lint:summary`     | That same report on stdout, for reading it locally.                                |
+| `yarn format`           | Prettier auto-fix on `{src,server,test,e2e,e2e-live,packages,scripts,batch,config}/**/*.{ts,mts,mjs,json,yaml,vue}`. |
 | `yarn typecheck`        | `vue-tsc --noEmit` for the client.                                                 |
 | `yarn typecheck:server` | `tsc -p server/tsconfig.json --noEmit` for the server (separate, stricter config). |
 | `yarn build`            | Vite client build → `dist/client`, then server typecheck.                          |

@@ -6,29 +6,28 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createDevWatchIgnore } from './scripts/lib/devWatchIgnore'
-import { assertProxyablePort, describeRejection, resolveServerPort, serverOrigins } from './scripts/lib/devServerPort'
+import { resolveDevWorkspacePath } from './scripts/lib/devWorkspace'
+import { createProxyTargetFollower } from './scripts/lib/proxyTargetFollower'
+import { assertProxyablePort, describeRejection, parsePublishedPort, resolveProxyTarget, resolveServerPort, serverOrigins } from './scripts/lib/devServerPort'
 import { parseEnvFile } from './server/utils/launch-env.mjs'
+
+// `.env` as the launcher's parser sees it — the same `dotenv.parse` the server's
+// own loader uses. Read once, here, because BOTH things the dev client takes out
+// of `.env` depend on it: where the workspace is, and which port to proxy to.
+const ENV_FILE_VALUES = parseEnvFile(path.join(process.cwd(), '.env')).parsed
 
 // Token file path mirrors `WORKSPACE_PATHS.sessionToken` in
 // server/workspace-paths.ts. Duplicated here (rather than imported)
 // because Vite config runs outside the TS server tsconfig.
 //
-// Honors MULMOCLAUDE_WORKSPACE_PATH (via process.env or directly
-// parsing .env file) so the dev token plugin reads the same workspace
-// the server is using. Local patch 2026-05-30 to fix the unauthorized
-// error when workspace is relocated.
+// Honors MULMOCLAUDE_WORKSPACE_PATH (via process.env or `.env`) so the dev token
+// plugin reads the same workspace the server is using. The resolution is shared
+// with the readiness wait (`resolveDevWorkspacePath`) rather than written twice:
+// this file used to match the assignment with its own regex, which keeps quotes
+// and inline comments that `dotenv.parse` strips, so a quoted path sent the two
+// halves of the dev client to different directories (#2981).
 function resolveWorkspacePath(): string {
-  const fromProcess = process.env.MULMOCLAUDE_WORKSPACE_PATH
-  if (fromProcess && fromProcess.length > 0) return fromProcess
-  try {
-    const envPath = path.join(process.cwd(), '.env')
-    const content = fs.readFileSync(envPath, 'utf-8')
-    const assigned = content.match(/^MULMOCLAUDE_WORKSPACE_PATH=(.+)$/m)?.[1]
-    if (assigned !== undefined) return assigned.trim()
-  } catch {
-    /* .env not present, fall through to default */
-  }
-  return path.join(os.homedir(), 'mulmoclaude')
+  return resolveDevWorkspacePath({ processEnv: process.env, envFileValues: ENV_FILE_VALUES })
 }
 const TOKEN_FILE_PATH = path.join(resolveWorkspacePath(), '.session-token')
 const TOKEN_PLACEHOLDER = '__MULMOCLAUDE_AUTH_TOKEN__'
@@ -46,12 +45,90 @@ const PORT_RESOLUTION = resolveServerPort({
   // The launcher's parser — i.e. `dotenv.parse`, the same one the server's loader
   // uses. Reading the file by hand here would let the two disagree about inline
   // comments, an `export ` prefix or quoting, which is this bug one level down.
-  envFileValues: parseEnvFile(path.join(process.cwd(), '.env')).parsed
+  envFileValues: ENV_FILE_VALUES
 })
-for (const { source, raw, reason } of PORT_RESOLUTION.problems) {
-  console.warn(`[vite] ignoring ${source}="${raw}" — ${describeRejection(reason)}`)
+// Reported only when it still matters. `PORT=0` is a problem for config-time
+// resolution and no problem at all once the backend has published the port it
+// got, so warning about it after successfully following would just be noise.
+function reportUnusablePortValues(): void {
+  if (PROXY_TARGET.source === 'published') return
+  for (const { source, raw, reason } of PORT_RESOLUTION.problems) {
+    console.warn(`[vite] ignoring ${source}="${raw}" — ${describeRejection(reason)}`)
+  }
 }
-const { http: SERVER_ORIGIN, ws: SERVER_WS_ORIGIN } = serverOrigins(PORT_RESOLUTION.port)
+
+// What the backend ACTUALLY bound, which is not always what it was asked for:
+// `server/index.ts` walks forward off a busy implicit default and publishes the
+// result here. Reading it is what makes the proxy follow (#2981/#2650) instead
+// of addressing a port nobody is on.
+//
+// Ordering is what makes this safe rather than racy: `yarn dev`'s client pane is
+// `yarn wait:backend && vite`, and that wait does not return until this run's
+// backend has published. So by the time this config is evaluated the file holds
+// this run's port — and `yarn dev` cleared it beforehand, so a leftover from a
+// dead run cannot be mistaken for it.
+//
+// Gated on an env var that ONLY `yarn dev` sets, because that guarantee is
+// `yarn dev`'s and not the file's: `yarn dev:client` and `dev:client:e2e` run
+// Vite with no backend and no `--reset`, so whatever `.server-port` holds there
+// is a leftover, and following it would address a port nothing is on. Those
+// keep targeting what `PORT` implies, exactly as before.
+const FOLLOWS_PUBLISHED_PORT = process.env.MULMOCLAUDE_DEV_FOLLOW_PORT === '1'
+
+function readPublishedPort(): string | null {
+  if (!FOLLOWS_PUBLISHED_PORT) return null
+  try {
+    return fs.readFileSync(path.join(resolveWorkspacePath(), '.server-port'), 'utf-8')
+  } catch {
+    return null
+  }
+}
+const PROXY_TARGET = resolveProxyTarget(readPublishedPort(), PORT_RESOLUTION)
+if (PROXY_TARGET.source === 'published' && PROXY_TARGET.port !== PORT_RESOLUTION.port) {
+  console.info(`[vite] proxying to :${PROXY_TARGET.port} — the port the backend actually bound (PORT resolved to :${PORT_RESOLUTION.port})`)
+}
+reportUnusablePortValues()
+const { http: SERVER_ORIGIN, ws: SERVER_WS_ORIGIN } = serverOrigins(PROXY_TARGET.port)
+
+// Following, continued — the reading above is only the one taken at startup
+// (#2995). `vite.config.ts` is evaluated once, so when the readiness wait ran
+// out of budget and Vite started against the merely-REQUESTED port, a backend
+// publishing a moment later was left unreachable for the rest of the session.
+// The proxy can be re-aimed per request; `scripts/lib/proxyTargetFollower.ts`
+// explains why that is a supported property and not a poke at internals.
+//
+// Polling rather than `fs.watch`: one small file once a second costs nothing,
+// and `fs.watch` is what `docs/windows-gotchas.md` says not to rely on.
+const TARGET_POLL_MS = 1000
+type Reaimable = { options: { target?: unknown } }
+const followedProxies: Array<{ proxy: Reaimable; origin: (port: number) => string }> = []
+
+/** Register a proxy instance so it is re-aimed when the backend moves. */
+function reaimable(origin: (port: number) => string) {
+  return (proxy: unknown): void => {
+    followedProxies.push({ proxy: proxy as Reaimable, origin })
+  }
+}
+const httpOrigin = (port: number): string => serverOrigins(port).http
+const wsOrigin = (port: number): string => serverOrigins(port).ws
+
+function followPublishedPort(server: { httpServer: { once: (event: string, cb: () => void) => void } | null }): void {
+  if (!FOLLOWS_PUBLISHED_PORT || followedProxies.length === 0) return
+  const follower = createProxyTargetFollower({
+    initialPort: PROXY_TARGET.port,
+    readPublished: readPublishedPort,
+    parsePort: parsePublishedPort,
+    onSwitch: (port) => {
+      followedProxies.forEach(({ proxy, origin }) => {
+        proxy.options.target = origin(port)
+      })
+      console.info(`[vite] backend moved to :${port} — proxy re-aimed`)
+    }
+  })
+  const timer = setInterval(() => follower.poll(), TARGET_POLL_MS)
+  timer.unref()
+  server.httpServer?.once('close', () => clearInterval(timer))
+}
 
 // `PORT=0` (or a whitespace-only PORT, which coerces to 0) leaves the backend on an
 // OS-assigned port that no proxy target can name, so the dev server must refuse to
@@ -63,7 +140,16 @@ function proxyPortGuardPlugin(): Plugin {
     name: 'mulmoclaude-proxy-port-guard',
     apply: 'serve',
     configResolved() {
-      assertProxyablePort(PORT_RESOLUTION)
+      assertProxyablePort(PORT_RESOLUTION, PROXY_TARGET)
+    },
+    // RETURNED, not run inline. Vite calls plugin `configureServer` hooks first
+    // and installs the proxy middleware afterwards, so the instances do not
+    // exist yet at that point — an inline call registered nothing and the proxy
+    // never moved. The returned function is the post hook, which runs once the
+    // middlewares (and therefore every `configure`) are in place. Tied to the
+    // server so the poll stops with it rather than outliving what it followed.
+    configureServer(server) {
+      return () => followPublishedPort(server)
     }
   }
 }
@@ -83,7 +169,7 @@ function realpathOrSelf(candidate: string): string {
 // #2632: prune runtime writes and (on Windows) sandbox-mount mtime bumps from
 // the dev watcher, both of which full-reload the page mid-agent-turn.
 const devWatchIgnore = createDevWatchIgnore({
-  projectRoot: realpathOrSelf(__dirname),
+  projectRoot: realpathOrSelf(import.meta.dirname),
   workspacePath: realpathOrSelf(resolveWorkspacePath()),
   platform: process.platform,
   watchPackageDists: process.env.MULMOCLAUDE_DEV_WATCH_PACKAGES === '1',
@@ -134,13 +220,17 @@ const requestFromLoopback = new AsyncLocalStorage<boolean>()
 
 // Every path this dev server forwards to Express. Kept in sync with
 // `server.proxy` below — a prefix added there without being added here is
-// reachable from the LAN whenever MULMOCLAUDE_DEV_LAN is set.
+// reachable from the LAN whenever MULMOCLAUDE_DEV_LAN is set
+// (`test/config/test_viteDevProxy.ts` fails when the two drift apart).
 //
 // `/ws` is the backend pub/sub socket. It needs BOTH guards below: the
 // connect middleware never sees a WebSocket handshake (those arrive on the
 // http server's `upgrade` event, not the request pipeline), so the prefix
 // alone would not stop it.
-const PROXIED_BACKEND_PREFIXES = ['/api', '/artifacts', '/ws'] as const
+//
+// Exported for that test alone — this module is the dev server's config and
+// loads node builtins, so client code under `src/` can never import it.
+export const PROXIED_BACKEND_PREFIXES = ['/api', '/artifacts', '/htmlfile', '/ws'] as const
 
 function startsWithProxiedPrefix(url: string | undefined): boolean {
   return PROXIED_BACKEND_PREFIXES.some((prefix) => url?.startsWith(prefix) ?? false)
@@ -277,12 +367,12 @@ export default defineConfig({
       // build-time `import` references it — the importmap is consumed
       // by the BROWSER, not by Vite's static analysis.
       input: {
-        index: path.resolve(__dirname, 'index.html'),
-        'runtime-vue': path.resolve(__dirname, 'src/_runtime/vue.ts'),
+        index: path.resolve(import.meta.dirname, 'index.html'),
+        'runtime-vue': path.resolve(import.meta.dirname, 'src/_runtime/vue.ts'),
         // Same pattern as runtime-vue: the importmap consumer is the
         // browser, not Vite's static analysis, so without this entry
         // the chunk gets tree-shaken out of the build.
-        'runtime-protocol-vue': path.resolve(__dirname, 'src/_runtime/protocol-vue.ts'),
+        'runtime-protocol-vue': path.resolve(import.meta.dirname, 'src/_runtime/protocol-vue.ts'),
       },
       // Force every named re-export from `src/_runtime/vue.ts` to be
       // preserved in the emitted chunk. Without `'strict'`, Rolldown
@@ -350,13 +440,15 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: SERVER_ORIGIN,
-        changeOrigin: true
+        changeOrigin: true,
+        configure: reaimable(httpOrigin)
       },
       // Static-mount on the backend (server/index.ts: app.use('/artifacts/images', ...)).
       // Without this proxy, dev's Vite catch-all returns the SPA index.html instead.
       '/artifacts/images': {
         target: SERVER_ORIGIN,
-        changeOrigin: true
+        changeOrigin: true,
+        configure: reaimable(httpOrigin)
       },
       // Static-mount on the backend (server/index.ts: app.use('/artifacts/svg', ...)).
       // Same reason as `/artifacts/images`: `<img src="/artifacts/svg/...">` would
@@ -364,7 +456,8 @@ export default defineConfig({
       // body), which the browser silently fails to render as an image.
       '/artifacts/svg': {
         target: SERVER_ORIGIN,
-        changeOrigin: true
+        changeOrigin: true,
+        configure: reaimable(httpOrigin)
       },
       // Static-mount on the backend (server/index.ts: app.use('/artifacts/html', ...)).
       // Without this proxy, Vite's HTML transform injects `/@vite/client` and
@@ -382,11 +475,30 @@ export default defineConfig({
       '/artifacts/html': {
         target: SERVER_ORIGIN,
         changeOrigin: true,
-        xfwd: true
+        xfwd: true,
+        configure: reaimable(httpOrigin)
+      },
+      // Static-mount on the backend (server/index.ts: app.use(HTML_FILE_MOUNT, ...)),
+      // serving a page presentHtml was pointed AT rather than one it wrote — the
+      // `path` form's `docs/report.html` or an absolute path. Its iframe `src`
+      // comes from `htmlFileUrl()` in @mulmoclaude/html-plugin. Without this the
+      // SPA catch-all answers 200 with index.html and the pane renders blank
+      // (#2928); `test/config/test_viteDevProxy.ts` pins the URLs against this
+      // table so a new URL shape fails there instead.
+      //
+      // `xfwd: true` for the same reason as `/artifacts/html`, and it bites
+      // harder here: this mount serves the page's subresources (images, media)
+      // too, so a CSP naming the backend origin blocks them.
+      '/htmlfile': {
+        target: SERVER_ORIGIN,
+        changeOrigin: true,
+        xfwd: true,
+        configure: reaimable(httpOrigin)
       },
       '/ws': {
         target: SERVER_WS_ORIGIN,
-        ws: true
+        ws: true,
+        configure: reaimable(wsOrigin)
       }
     }
   }

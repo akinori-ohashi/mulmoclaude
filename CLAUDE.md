@@ -12,6 +12,7 @@ MulmoClaude is a text/task-driven agent app with rich visual output. It uses **C
 
 - **Dev server**: `npm run dev` (runs both client and server concurrently)
 - **Lint**: `yarn lint` / **Format**: `yarn format` / **Typecheck**: `yarn typecheck` / **Build**: `yarn build`
+- **Lint findings report**: `yarn lint:summary` (the same report `yarn lint` writes to the Actions job summary)
 - **Unit tests**: `yarn test` (node:test, server handlers + utils)
 - **E2E tests**: `yarn test:e2e` (Playwright, browser UI tests — no backend needed)
 
@@ -197,6 +198,32 @@ npm view <pkg> version --registry https://registry.npmjs.org/
 ```
 
 A range update reaches users only through that consumer's own next release, so it does not force an immediate republish of all 50 packages — but it MUST be in the tree before the consumer is published next.
+
+### A plugin declares host-provided packages as `peer` + `dev` — never `dependencies`
+
+A `packages/plugins/*-plugin` is always installed **alongside a host** — `mulmoclaude` or
+`mulmoterminal` — and both hosts declare `@mulmoclaude/core` themselves. So core is supplied by
+the host, and a plugin MUST declare it as:
+
+```jsonc
+"peerDependencies":  { "@mulmoclaude/core": "^<latest>" },  // the host must provide it
+"devDependencies":   { "@mulmoclaude/core": "^<latest>" }   // so the plugin builds/tests standalone
+```
+
+and MUST NOT list it under `dependencies`. Same for anything else the host owns
+(`gui-chat-protocol`, `vue`, `echarts` — see the existing `peerDependencies` blocks).
+
+Rationale: `dependencies` makes npm install a **second copy of core nested under the plugin**,
+so the plugin and the host each get their own module instance. Anything core keeps in module
+state (registries, watchers, caches) then silently exists twice, and the plugin talks to the
+copy the host never sees. A peer range instead *fails loudly* when the host is too old, which is
+the behaviour you want. `check:launcher-sync` verifies the launcher satisfies these peers
+("no peer-dep violations"); nothing catches a wrongly-placed `dependencies` entry, so it is on
+you at review time.
+
+`collection-plugin` is the reference shape. When a plugin imports core, moving the entry out of
+`dependencies` means **adding** it to `peerDependencies` and `devDependencies` — deleting it
+outright leaves an imported package undeclared.
 
 ### Tag every publish — no untagged releases
 

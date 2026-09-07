@@ -15,7 +15,7 @@ A single key unlocks all three capabilities (images, TTS audio, video) — you d
 
 ### Audio
 
-- **MulmoScript speech** — `presentMulmoScript` synthesizes speaker voices via Gemini TTS (`gemini-2.5-flash-preview-tts`). This is what turns a storyboard into spoken narration, so the **Storyteller** and **Storyteller Plus** roles become near-complete multimedia pieces.
+- **MulmoScript speech** — `presentMulmoScript` synthesizes speaker voices via Gemini TTS. This is what turns a storyboard into spoken narration, so the **Storyteller** and **Storyteller Plus** roles become near-complete multimedia pieces. Speakers record with whatever the provider's current default is (today `gemini-2.5-flash-preview-tts`) unless the script names a model itself — a speaker can set `"model": "gemini-2.5-pro-preview-tts"` for higher-quality narration at about twice the token price (`config/helps/mulmoscript.md` → speechParams).
 
 ### Video
 

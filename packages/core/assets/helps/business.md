@@ -18,6 +18,10 @@ Reach for `presentMulmoScript` when the user asks for a presentation, slideshow,
   - `markdown` — rich text, tables, mixed content
 - Do NOT use `imagePrompt` or `moviePrompt` in business presentations
 - Write concise, professional narration text for each beat (becomes the voiceover)
+- Leave the speaker's `model` out unless the user asks for higher-quality narration
+  (`"model": "gemini-2.5-pro-preview-tts"`), and set it before the first render — voice / model /
+  `speechOptions` form the audio cache key, so a later change re-records every beat
+  (full speaker reference: `config/helps/mulmoscript.md` → speechParams)
 - Put a 1–2 sentence summary of the whole presentation in the top-level `description` field
 
 ## Template

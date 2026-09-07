@@ -146,7 +146,7 @@
             :class="selectedId === role.id ? 'rounded-b-none' : ''"
             @click="selectRole(role)"
           >
-            <span class="material-icons text-gray-500">{{ role.icon }}</span>
+            <span class="text-gray-500"><IconGlyph :icon="role.icon" font-class="material-icons" size-class="!text-2xl" /></span>
             <div class="flex-1 min-w-0">
               <div class="font-medium text-sm text-gray-800">
                 {{ role.name }}
@@ -292,6 +292,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
+import { IconGlyph } from "@mulmoclaude/core/plugin-vue";
 import { useFreshPluginData } from "../composables/useFreshPluginData";
 import { useAppApi } from "../composables/useAppApi";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";

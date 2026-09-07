@@ -225,6 +225,41 @@ shipped registry repo's README. Common rejections:
 - `name` reuses the reserved value `official`.
 - `name` doesn't match `[A-Za-z0-9][A-Za-z0-9_-]{0,31}`.
 
+## A collection's icon shows up as letters, or smears over its neighbours
+
+### Symptoms
+
+- A collection / feed / pinned shortcut draws its icon NAME as text
+  (`podcasts`, or a fragment like `_A__C`) instead of a glyph.
+- The text spills out of its square and overlaps the buttons next to it
+  in the launcher bar.
+
+### Cause + fix
+
+`schema.icon` was set to something the Material Symbols font has no
+ligature for. The font matches icons by LIGATURE, so an unknown value
+is simply laid out as ordinary text.
+
+Valid names are lowercase letters, digits and underscores only —
+`podcasts`, `rss_feed`, `menu_book`, `3d_rotation`. Capitals, spaces
+and hyphens never match (`Podcasts` and `menu-book` are the usual
+typos). Look the name up in the Material Symbols set before writing it;
+do not invent one.
+
+An **emoji is a valid alternative** and is often the better choice: it
+is in colour and stands out among the monochrome glyphs, which is the
+point when several collections would otherwise share a look-alike icon
+(`podcasts` / `rss_feed` / `menu_book`). Set `"icon": "🎙️"` the same way you
+would set a name. Only the first GRAPHEME is drawn — one emoji, whatever
+number of code points it is built from (a variation selector, a skin tone, a
+ZWJ family) — so write exactly one glyph and nothing after it.
+
+If the smearing persists after the value is corrected, the surface
+drawing it is bypassing `IconGlyph`
+(`@mulmoclaude/core/plugin-vue`) — every schema-authored icon must go
+through it rather than into a bare
+`<span class="material-symbols-outlined">`.
+
 ## A hand-placed custom role never appears in the list
 
 ### Symptoms
@@ -365,6 +400,42 @@ missing key to `.env` (restart the server) or rewrite the script's
 keys configured. Don't retry the render unchanged — the same provider
 will fail the same way.
 
+## MulmoScript narration — wrong voice, ignored direction, or every beat re-recorded
+
+### Symptoms
+
+- A non-default language (`speechParams.speakers.<name>.lang.<code>`) renders
+  in a different voice, or fails on a missing `OPENAI_API_KEY` even though the
+  script names `gemini` everywhere.
+- `speechOptions.instruction` or `speed` has no audible effect on the narration.
+- A small edit to a speaker re-generates audio for **every** beat, including the
+  ones whose text never changed.
+
+### Cause
+
+Speech settings resolve through silent fallbacks — the schema does not reject a
+missing field, it fills one in:
+
+- A `lang` entry **replaces** the whole speaker; it does not extend it. Whatever
+  the entry omits falls back to the schema and provider defaults, so one holding
+  only `voiceId` loses `provider` (which then resolves to `openai`), `model`, and
+  `speechOptions`.
+- `instruction` is dropped by the `google` provider unless the speaker also sets
+  a `model`; `speed` is ignored by `gemini` altogether.
+- Each beat's audio file is cached under a hash of that beat's `text` plus the
+  speaker's `voiceId` + `provider` + `model` + `speechOptions`. Editing the
+  speaker is a new cache key for every beat that speaks through it — the whole
+  script when there is one speaker — so it is re-recorded and re-billed.
+
+### Fix
+
+Repeat every field the parent speaker sets — `provider` above all — inside each
+`lang` entry. Express pacing for Gemini through `instruction` rather than
+`speed`. Settle voice, model, and delivery **before** the first render — and when
+a change is genuinely wanted, say up front that every beat of that speaker
+re-records, rather than letting the bill surprise the user. Field-by-field
+reference: `config/helps/mulmoscript.md` → speechParams.
+
 ## Build / yarn workspace ordering
 
 ### Symptoms
@@ -400,6 +471,42 @@ with a ledger at `plugins/plugins.json`. Reinstall the failing
 plugin via the `/skills` UI to refresh both the tgz and the ledger.
 A version skew on a peer dep means the plugin was built against an
 older host — bump the plugin via the Discover tab's update flow.
+
+## A collection you just authored never appears — you wrote under `data/skills/`
+
+You created `data/skills/<slug>/schema.json` + `SKILL.md`, got no error from
+any tool, and the collection is nowhere: not at `/collections/<slug>`, not in
+`manageCollection` `getOntology`, not in the sidebar. Nothing is logged,
+because nothing failed — the files are exactly where you put them.
+
+### Why
+
+`data/skills/` is a STAGING tree, and it only works where a host-side
+skill-bridge hook mirrors it into `.claude/skills/<slug>/`. Discovery scans
+`.claude/skills` and nothing else. In a managed workspace the hook exists, so
+authoring under `data/skills/` is right (and necessary — `.claude/` is behind a
+permission gate the GUI cannot answer). In a plain project folder there is no
+gate and no hook, so a `data/skills/` tree is never mirrored and never read.
+
+Two symptoms confirm it:
+
+- `.claude/skills/<slug>/` does not exist, or is older than what you wrote;
+- a `data/skills/<slug>/` tree exists that nothing references.
+
+### Fix
+
+Write the skill directly into `<root>/.claude/skills/<slug>/` —
+`schema.json`, `SKILL.md`, `templates/*.md`, and any `views/*.html` — then
+remove the stray `data/skills/<slug>/` tree. Leaving it is not merely untidy:
+a stale file there can shadow the real skill's file of the same name on later
+reads.
+
+Then re-read the authoring reference before writing more: call
+`manageCollection` `schemaDocs`. It serves the variant that matches THIS root,
+so the instructions you get name the location that actually works here. If the
+guide it returns says `data/skills/`, this root does have a bridge and the
+problem is something else — check that `schema.json` passed validation (a
+schema that fails is silently skipped at discovery).
 
 ## dataSource (CSV) collection reads fail — "DuckDB is unavailable on this host"
 
@@ -535,6 +642,77 @@ overwrites, which is exactly what the conflict report means. If the
 workspace is already on a real filesystem and a conflict still will not
 clear, that is a new bug — report it with the calendar id and the
 record.
+
+## A calendar collection only ever holds a handful of records
+
+### Symptoms
+
+A `googleCalendar` collection sits at a small number of records (0, 1,
+a couple of dozen) instead of the calendar's history. Sync reports
+success with **no error**, and pressing it again adds nothing. Only
+events created or edited AFTER the collection existed keep arriving.
+
+### Cause
+
+A Google sync token is keyed by `calendarId` alone, so it is shared by
+every consumer of that calendar — the `google` tool's `calendarSync`,
+and every collection bound to it. Before `#2850` a fresh collection
+resumed from whatever cursor was already stored, so its "first sync"
+was a DELTA of a window it had never received. Two ways in: the user
+(or you) ran `google` `kind: "calendarSync"` first, or another
+collection on the same calendar had already synced.
+
+Fixed in `@mulmoclaude/core` 3.4.0: a collection now records its own
+backfill beside its records (`<dataPath>/.calendar-sync.json`) and the
+sync walks the whole calendar while any collection still lacks one. The
+`google` tool keeps a separate cursor.
+
+### Fix
+
+On a host with the fix, delete `<dataPath>/.calendar-sync.json` (or the
+records themselves) and press Sync — the walk starts over. On an older
+host, delete `<workspace>/data/calendar/.sync-state.json` to force a
+full re-walk for every collection on that calendar.
+
+Do NOT tell the user to recreate the collection: deleting the skill
+files by hand does not clear the shared cursor, which is why the
+original reporter hit this six times in a row.
+
+## Sync says only part of the calendar was copied
+
+### Symptoms
+
+Sync reports `Google returned more pages of events than one sync pass
+walks`. The collection holds real records, but not all of them, and the
+message returns on every attempt.
+
+### Cause
+
+One sync pass walks a bounded number of pages, and Google returned more
+than that. Any calendar big enough in Google's own paging terms reaches
+it — Google states a page may hold fewer events than asked for, "or none
+at all", so page count does not track event count.
+
+The common cause by far is recurring expansion: with `singleEvents=true`
+and no date window, a recurring event with **no end date** is expanded
+decades into the future, and one such series can fill the entire walk
+before any other event is reached. Check that first, but do not assume
+it is the only way in.
+
+Before `#2850` this was silent — the partial copy read as a completed
+sync.
+
+### Fix
+
+Give every recurring event with no end date a finite end date in Google
+Calendar, then Sync again. Ask the user to check for "repeats forever"
+series; a single one is enough to cause this. If there are none and the
+message persists, the calendar is simply larger than one pass — report
+it, since raising the guard is a code change.
+
+Nothing already synced is lost while it persists: the records that did
+arrive are written and keep their baseline, and the sync withholds the
+backfill marker rather than claiming the calendar is fully copied.
 
 ## `proceeding without the calendar state lock` in the logs
 
@@ -693,40 +871,94 @@ shipped builders produce, and asserts `handlePermission` comes back over the MCP
 
 ### Cause
 
-`Dockerfile.sandbox` installs the CLI unpinned (`RUN npm install -g @anthropic-ai/claude-code
-tsx`), so the image freezes whatever was latest when it was built. Two mechanisms then keep it
-frozen:
-
-1. `ensureSandboxImage()` (`server/system/docker.ts`) rebuilds only when the **Dockerfile's
-   SHA** changes. A new CLI release upstream doesn't change that SHA, so nothing retriggers.
-2. Deleting the image does not delete the **build cache**. The rebuild reuses the cached
-   `npm install -g` layer (it reports `CACHED` in 0.0s) and reinstalls nothing.
-
-So the usual "remove it and let it rebuild" reflex genuinely does nothing here, which is why
-this one burns time.
+The image freezes whichever CLI was current when it was built, and
+`ensureSandboxImage()` (`server/system/docker.ts`) rebuilds only when the **Dockerfile's SHA**
+changes. A new CLI release upstream doesn't change that SHA, so nothing retriggers the build.
 
 ### Fix
 
-Check the version inside the image — the host's `claude --version` says nothing about it, and
-the entrypoint override is required because the image's ENTRYPOINT is the sandbox script:
+Read it off the boot log — since #2842 the server records the version at build time as an image
+label and prints it on every start, so no container has to be run to find out:
+
+```
+INFO [sandbox] sandbox image claudeCodeVersion=2.1.220 ageDays=3
+```
+
+`claudeCodeVersion=unrecorded` means the image predates the label (or was built with npm
+unreachable). In that case ask the image directly — the entrypoint override is required because
+the image's ENTRYPOINT is the sandbox script, and the host's own `claude --version` says nothing
+about what is inside:
 
 ```bash
 docker run --rm --entrypoint claude mulmoclaude-sandbox --version
 ```
 
-If it's behind, drop the image AND the build cache, then let the next run rebuild:
+If it's behind, drop the image and let the next run rebuild:
 
 ```bash
 yarn sandbox:remove          # docker rmi mulmoclaude-sandbox
-docker builder prune -a -f   # the step that actually invalidates the npm layer
 ```
 
-`docker builder prune -a -f` clears the builder cache for the whole daemon, not just this
-image, so unrelated builds are slower once afterwards. That is the cost of the fix, not a
-sign something went wrong.
+Two warns fire on their own when this is worth acting on: `sandbox image is stale` past 30 days,
+and `Claude CLI in the sandbox image is older than the version our MCP config needs` below
+2.1.121 (the floor for `alwaysLoad`).
 
-The CLI is deliberately left unpinned (#2202), so this can recur whenever an upstream fix
-matters to you — the check above is the way to rule it in or out.
+> **Older than #2842?** Back then the rebuild reused the cached `npm install -g` layer (reported
+> `CACHED` in 0.0s) and reinstalled nothing, so `yarn sandbox:remove` alone genuinely did nothing
+> and `docker builder prune -a -f` was needed. The Dockerfile now installs an exact
+> `@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}` resolved on the host, so a moved CLI changes
+> the layer's own command string and invalidates it. Don't reach for `builder prune` first — it
+> clears the cache for the whole daemon.
+
+The CLI is deliberately left unpinned by default (#2202), so this can recur whenever an upstream
+fix matters to you — the log line above is the way to rule it in or out.
+
+## A turn dies on `handlePermission not found` — read the broker lines before anything else
+
+### Symptoms
+
+The same `MCP tool mcp__mulmoclaude__handlePermission ... not found` as the three sections
+above, and you can't yet tell WHICH of them you are in.
+
+### Cause
+
+They are genuinely different failures — a permanent load failure, a startup race, a frozen CLI —
+and guessing between them is what makes this expensive. Since #2842 the log answers it directly,
+so read these three before forming a theory:
+
+| Log line | What it tells you |
+|---|---|
+| `spawning agent … broker=tsx` | This install is on the SLOW path: the bundle is missing, so the broker is transcoded from source on every spawn (seconds to tens of seconds over a Windows/macOS bind mount). A `broker bundle missing` warn accompanies it once per process. |
+| `[mcp] broker ready bootMs=… initializeMs=…` | The broker DID connect, and how long it took. `broker cold boot is slow` replaces it past 5 s. |
+| `brokerEverReady=false reason=never-ready` on the retry warn | No beacon arrived for that chat, and the host kept looking until the beacon's own delivery budget was spent — the broker did not come up at all. The turn is NOT replayed: a replay would sit out another full connect wait and end in the same error. |
+| `reason=ready-during-wait` on the retry warn | The beacon arrived while the host waited, so the broker lost the race by a moment and IS connected now. The turn is replayed, which is what fixes this one. |
+| `brokerEverStarted=` on the `MCP tools were unavailable` warn | Whether the broker PROCESS ever existed, which is a different question from whether it answered. `true` with `brokerEverReady=false` means it launched and never finished booting — the boot is the problem (the mount, the `tsx` path). `false` means it never launched — the spawn is the problem. Diagnostic only, and not authenticated: under Docker everything needed to forge it sits in the per-session MCP config inside the workspace mount, so read it as evidence about a healthy install rather than as proof against a hostile one. |
+
+### Fix
+
+- `broker=tsx` → this is the cold-boot cost, not the connect-wait ceiling. In a dev checkout run
+  `yarn build:mcp-broker` (or plain `yarn build`); on an npm install, update `mulmoclaude` —
+  published launchers have shipped the bundle since 1.9.0.
+- `broker ready` present with a small `initializeMs`, failing anyway → it is the startup race,
+  not the boot. See the scheduled-run section above.
+- `brokerEverStarted=false` → the broker process never launched. That is the permanent load
+  failure; check the `Cannot find module` section. This one surfaces fast on its own: the CLI
+  notices a broker it could not spawn within seconds rather than waiting out its connect ceiling,
+  so a turn that fails QUICKLY in this shape is the diagnosis, not a second symptom.
+- `brokerEverStarted=true` with `brokerEverReady=false` → the process launched and the BOOT is
+  what did not finish. Two sub-cases, and the elapsed time separates them: a boot still running
+  when the CLI gave up eats the whole connect wait (fix the boot — the `broker=tsx` bullet above
+  — rather than waiting longer), while a boot that CRASHED fails as fast as a missing binary. The
+  crash reason is not in this log by construction: Claude CLI owns the broker's stderr, so read
+  the `Cannot find module` section for what to check.
+- Either way the turn is NOT replayed, so the cost is ONE connect wait rather than two. The first
+  wait still happens — nothing can tell the broker is not coming until the CLI gives up on it —
+  and the host then keeps looking for the beacon a few seconds longer before concluding it never
+  will, so that a beacon merely still in flight is not mistaken for a broker that never answered.
+- Do NOT read a missing `broker ready` line on its own as "the broker never started" — before
+  `brokerEverStarted` existed, that inference was the only one available and it is wrong for
+  exactly the case that costs the most time.
+- Old or unrecorded `claudeCodeVersion` alongside any of these → rule out the frozen CLI first.
 
 ---
 
@@ -864,6 +1096,122 @@ Do NOT tell the user to re-check the spelling in `.env`, add the key
 again, or move it elsewhere; the file is already correct, and it is being
 read. The conflict is the whole problem.
 
+## A `putItems` batch is too large to pass inline — use `itemsFile`, never the MCP bridge
+
+### Symptoms
+
+- You generated records with a script (a month of booking slots, an imported
+  CSV, anything past a few dozen rows) and the only way you can see to store
+  them is to write every object into `manageCollection`'s `items` argument.
+- You start looking for the collection's data directory on disk, or for a way
+  to hand the file to the tool.
+- The next step that suggests itself is spawning `server/mcp/bridge.mjs` (or
+  the host's MCP server) yourself and speaking JSON-RPC to it from a script.
+
+### Cause
+
+`items` takes the rows inline, so a 540-row batch means writing ~80 KB of JSON
+token by token — even when a script already produced exactly that JSON as a
+file. The judgement that the batch cannot go through `items` is correct; only
+the workaround is wrong.
+
+### Fix
+
+Pass the file instead. `putItems` accepts **`itemsFile`** — an absolute path to
+a JSON file holding the array of record objects, read by the host:
+
+```jsonc
+{ "action": "putItems", "slug": "slots", "mode": "create",
+  "itemsFile": "/absolute/path/to/generated-slots.json" }
+```
+
+Write the generated file **under the workspace**. Paths outside it are refused:
+the host reads this file on your behalf, so an unconstrained path would let the
+tool reach host files you cannot otherwise see. Under a sandbox your workspace
+path is translated to the host's automatically — you pass the path you wrote to.
+
+Rules that make it fail cleanly rather than silently:
+
+- **Absolute paths only.** The tool runs in the host's SERVER process, whose
+  working directory is not yours; a relative path is refused rather than
+  resolved against some unrelated directory.
+- **Inside the workspace only**, and **not a symlink** — pass the real path of a
+  regular file. Symlinks are refused rather than followed, contained or not.
+- **`items` or `itemsFile`, never both** — passing both is refused, not merged.
+- **1000 rows per call, max**, and the file itself at most 8 MiB. Over either,
+  the call is refused WHOLE with nothing written; split the file and call again,
+  so you never meet a half-filled collection.
+
+Reading the refusal you got:
+
+| Message | What it means |
+| --- | --- |
+| `must be an ABSOLUTE path` | You passed a relative path. Pass the full one. |
+| `must be inside the workspace` | The file is outside the workspace (or a symlink out of it). Regenerate it under the workspace. |
+| `is a symbolic link` | Symlinks are never followed. Pass the real path. |
+| `changed while it was being opened` | The file was replaced mid-call. Finish writing it, then call putItems. |
+| `grew while it was being read` | The file was still being written. Wait for the script to finish, then call putItems. |
+| `could not read \`itemsFile\`` | The host cannot see that path — the usual cause is a file written to a temp dir outside the mount. Write it under the workspace. |
+| `is not a regular file` | The path is a directory, device, or fifo. |
+| `could not be read as JSON` | The file exists and was read, but does not parse. This is YOUR file's shape, not a host problem — check the script that wrote it (a truncated write, a trailing comma, log output mixed into the file). |
+| `must hold a non-empty JSON array of record objects` | It parsed, but is `[]`, an object, or an array of scalars. The file must be `[{…}, {…}]` — the same row objects you would have passed as `items`. |
+
+Do NOT spawn the MCP bridge yourself. A hand-written JSON-RPC client fails
+invisibly and can leave a partially written collection that nothing reports.
+
+## `putItems` came back with a `lint` block — the rows were written, the values are the wrong shape
+
+### Symptoms
+
+- A `putItems` result carries `lint` beside `written`: `{ total, note, rows: [{ id, problem }] }`.
+- The problem text reads like a type complaint rather than a missing field —
+  `not a YYYY-MM-DDTHH:MM datetime`, `is not numeric`, `is not a real YYYY-MM-DD date`,
+  `is not a boolean`.
+- `rejected` is empty, and the records are on disk, so nothing looks broken yet.
+
+### Cause
+
+The write gate refuses only what makes a record unopenable: required fields,
+enum values, `primaryKey` = record id. The SHAPE of a value is checked by a
+second, report-only tier — refusing there would make a collection whose older
+rows predate the typed rules unwritable. So the row lands, and `lint` is the
+report.
+
+It is not cosmetic. Every later reader runs the strict tier: a full `getItems`
+listing (and a selective one that missed an id) returns the same finding as a
+`warning` beside the rows, and publishing a shared app REFUSES these rows
+outright. A batch generated by a script is wrong in every row the same way, so
+this is the moment it costs the least to fix.
+
+### Fix
+
+Correct the generator, then rewrite the rows (`mode: "upsert"`, same ids) and
+check that `lint` is gone. `lint.total` is the real count; `lint.rows` shows the
+first ten.
+
+The one that recurs is `datetime`. It stores a **local wall clock** —
+`YYYY-MM-DDTHH:MM`, seconds optional, **no `Z` and no offset** — because `08:00`
+in a schedule means eight in the morning wherever it is read, and that is what
+the calendar can place. So format the string, never convert it:
+
+```js
+// WRONG — appends `Z` and shifts the hours by the generating machine's offset
+{ startAt: new Date(`${day}T08:00`).toISOString() }   // "2026-08-17T15:00:00.000Z"
+
+// RIGHT — the clock you meant, written as the clock
+{ startAt: `${day}T08:00` }                            // "2026-08-17T08:00"
+```
+
+The conversion is the more expensive half: had the format passed, a Tokyo court's
+08:00 seeded on a US laptop would have published every slot seven hours out
+(eight, on the dates the other side of a DST change) with nothing to point at.
+The one `Z`-suffixed datetime the strict tier accepts is a shared app's
+server-stamped instant — nine fractional digits
+(`2026-08-15T01:45:54.605987654Z`), written by the server, not by you.
+`toISOString()`'s three digits are not that shape and are linted.
+
+Field-by-field stored forms: `schemaDocs` with `topic: "Field types"`.
+
 ## A tool your own instructions describe returns "No such tool available"
 
 ### Symptoms
@@ -895,3 +1243,56 @@ Ask the user for the server log around the session start — the broker prints
 `[mcp-server] publishing N tools: …` and, when a promised tool is missing,
 `[mcp-server] advertised but NOT published (check plugin load above): …`. That
 second line, with the plugin-load errors above it, is what a bug report needs.
+
+## A shared collection (`storage: firestore`) is empty, refused, or missing
+
+### Symptoms
+
+- Reading or writing a collection fails with `shared collection unavailable:
+  connect remote-host first`.
+- A collection whose `schema.json` declares `"storage": { "type": "firestore" }`
+  never appears in the list at all.
+- Reads and writes fail with `permission-denied` from Firestore even though the
+  session is connected.
+
+### Cause + fix
+
+These are three different states, and the fix differs. Do NOT treat any of them
+as "the collection has no records" — a shared collection's records live in its
+app's Firestore, so an empty screen would be indistinguishable from data loss.
+The backend deliberately fails loudly instead of returning nothing.
+
+1. **`connect remote-host first`** — there is no authenticated session, or the
+   signed-in user has no email address. The records are not on this machine and
+   nothing can be read or written until the user connects remote-host. Tell them
+   that; do not retry in a loop and do not fall back to a local file.
+
+2. **The collection never appears** — discovery REFUSED the schema, and the
+   reason is in the server log under `collections` (`schema.json rejected after
+   validation, skipping`). For a shared collection the usual reason is the app
+   declaration: `apps/{aid}/collections/{cid}/items` needs an `aid`, which comes
+   from `app.json` at the repository root, not from the schema.
+
+   `<repository root>/app.json`:
+
+   ```json
+   { "aid": "app_salon_7f3a" }
+   ```
+
+   `aid` must be alphanumeric with `-` / `_` inside it (the same charset as a
+   collection slug); `sales:2026` or a path is refused, because that name is
+   re-encoded downstream as a document id and a channel name. Never put `aid`,
+   `cid` or `path` in the schema's `storage` block — it takes none of them, and
+   writing one is a validation error rather than a silently-dropped key.
+
+3. **`permission-denied` while connected** — the app's member roster is what
+   authorizes a shared collection, and it is keyed by EMAIL. The signed-in
+   address must be listed in `apps/{aid}.members` with a role for that
+   collection (or `*`). This is not something the host can fix locally: the
+   app's owner has to add the address. Report which address is signed in — that
+   is the fact the owner needs.
+
+Deleting a shared collection is refused outright: the delete can neither archive
+nor remove documents that other members also read, and removing its records
+first does not unlock it. Retiring the whole app is a Firestore project
+administrator's recursive delete, not something this app does.

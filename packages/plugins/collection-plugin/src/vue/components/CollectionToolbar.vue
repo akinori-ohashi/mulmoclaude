@@ -131,7 +131,7 @@
           :data-testid="`collection-view-custom-${cv.id}`"
           @click="emit('setCustomView', cv.id)"
         >
-          <span class="material-symbols-outlined text-sm">{{ cv.icon || (cv.target === "mobile" ? "smartphone" : "dashboard_customize") }}</span>
+          <IconGlyph :icon="cv.icon" :fallback="cv.target === 'mobile' ? 'smartphone' : 'dashboard_customize'" size-class="text-sm" />
           <span>{{ cv.label }}</span>
         </button>
         <!-- "+" — ask Claude to author a new custom view for this collection.
@@ -210,7 +210,12 @@
       >
         <option v-for="key in enumFields" :key="key" :value="key">{{ collection?.schema.fields[key]?.label ?? key }}</option>
       </select>
-      <div v-if="items.length > 0" class="text-[10px] text-slate-400 font-bold uppercase tracking-wider select-none">
+      <!-- Hidden for a custom view: the count is the HOST's match tally
+           (scalar fields only, `itemMatchesQuery`), while the iframe fetches
+           its own records and may match more — nested rows, keyword arrays,
+           long text. Now that the box drives both (#2959) a disagreeing
+           "3 / 120" beside a view showing 5 hits reads as a bug. -->
+      <div v-if="items.length > 0 && !customViewActive" class="text-[10px] text-slate-400 font-bold uppercase tracking-wider select-none">
         {{ t("collectionsView.searchSummary", { shown: activeView === "table" ? tableFilteredCount : filteredCount, total: items.length }) }}
       </div>
     </div>
@@ -219,9 +224,10 @@
 
 <script setup lang="ts">
 import { computed, watch } from "vue";
+import { IconGlyph } from "@mulmoclaude/core/plugin-vue";
 import { useCollectionI18n } from "../lang";
 import { useClickOutside } from "../composables/useClickOutside";
-import { customViewKey, type CollectionViewMode, type FlagFilterMode, type FlagFilterState } from "../collectionViewMode";
+import { customViewKey, isCustomViewMode, type CollectionViewMode, type FlagFilterMode, type FlagFilterState } from "../collectionViewMode";
 import { cycleFlagFilterState, flagChipClassForMode, flagChipIconClassForMode, flagChipIconForMode, flagFilterModeOf } from "../flagFilterDisplay";
 import type { CollectionDetail, CollectionItem, CollectionCustomView as CustomViewSpec, FlagChip } from "@mulmoclaude/core/collection";
 
@@ -303,6 +309,9 @@ function cycleFlagFilter(key: string): void {
 const flagChipIcon = (key: string): string => flagChipIconForMode(flagFilterMode(key));
 const flagChipIconClass = (key: string): string => flagChipIconClassForMode(flagFilterMode(key));
 const flagChipClass = (key: string): string => flagChipClassForMode(flagFilterMode(key));
+
+/** A custom view is showing — the host's own match count doesn't describe it. */
+const customViewActive = computed<boolean>(() => isCustomViewMode(props.activeView));
 
 /** How many chips currently filter (badge on the menu trigger). */
 const activeFlagFilterCount = computed<number>(() => props.flagChips.filter((chip) => flagFilterMode(chip.key) !== undefined).length);

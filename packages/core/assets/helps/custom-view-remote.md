@@ -85,6 +85,13 @@ const page = await window.__MC_VIEW.getItems({
   size-capped channel; you can never assume one call returns everything.
   Render the first page, then offer a **"Load more"** affordance while
   `items.length < total` (see the example).
+- **A page may come back SHORTER than the `limit` you asked for.** When inlined
+  thumbnails would overflow the channel budget, the host ends the page early and
+  the remaining records arrive on the next one — with their images intact. So
+  advance by what you RECEIVED, never by the limit you requested:
+  `offset: loaded.length` (both examples below do this), and stop on
+  `loaded.length >= total`. `total` always counts every record behind the view,
+  never just this page. A short page is normal, not an error.
 - **Always pass `fields`.** The projection keeps pages small (the primary key
   is always included). List the columns your view actually renders — including
   any `image`-type field you want inlined (see **Displaying images**).
@@ -180,19 +187,29 @@ const page = await window.__MC_VIEW.getItems({ offset: 0, limit: 20, fields: ["t
 - **Only `image`-type fields listed in `imageFields` are inlined.** A non-image
   field name is ignored; a field the page's `fields` projection dropped is not
   inlined (so paging without the image column costs nothing).
-- **Thumbnails are downscaled**, longest edge `imageMaxEdge` (default 512). Keep
-  it small and keep pages small (`limit`): every inlined image travels inside the
-  size-capped page. The host enforces a **per-page byte budget** — once a page is
-  full, further images are **left as their original path** (which renders as a
-  broken/placeholder `<img>`), never dropped silently but never overflowing the
-  channel either. Fewer, smaller images per page = more reliably rendered.
-- **A field may come back as a path, not a `data:` URL** (over budget, missing
-  file, or an undecodable source). Handle both: `onerror` a placeholder, or check
-  for the `data:` prefix before rendering.
+- **Thumbnails are downscaled**, longest edge `imageMaxEdge` (default 512). Every
+  inlined image travels inside the size-capped page, so the host enforces a
+  **per-page byte budget** — when the next thumbnail would overflow it, the page
+  **ends there** and those records arrive on the following page with their images.
+  You get a short page, never a page with a hole in it. A smaller `imageMaxEdge`
+  fits more thumbnails per page, so it costs FEWER round-trips; a smaller `limit`
+  costs more. Neither changes whether an image eventually appears — that is no
+  longer something the budget can take away.
+  For scale: a real photo at `imageMaxEdge: 384` inlines to roughly 15 KB, so a
+  page holds on the order of 50 of them before it is cut.
+- **A field may still come back as a path, not a `data:` URL** — for a missing
+  file or an undecodable source, which a smaller page cannot fix; and, on the
+  FIRST item of a page only, for an image so large it does not fit an empty
+  budget (deferring that one would return an empty page and stall paging).
+  Handle both: `onerror` a placeholder, or check for the `data:` prefix before
+  rendering.
 - **Cost**: inlined thumbnails are the one thing that grows a page's bytes;
   they're opt-in per view and per projection precisely so a view pays only for the
-  images it shows. The preview's caption reports `N images (M over budget)` so you
-  can size `imageMaxEdge` / `limit` against the budget while iterating.
+  images it shows. The preview's caption reports `N images (M placeholders)` —
+  `M` counts every image the page hands back as a path, which is what you will
+  see as a placeholder. An image that merely did not fit is deferred to the next
+  page and is NOT counted; what remains is the unresolvable ones, plus the rare
+  first-item-too-large case above.
 
 ### Starting a chat — `startChat`
 

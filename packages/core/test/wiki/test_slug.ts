@@ -8,7 +8,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { isSafeSlug } from "../../src/wiki/slug.ts";
+import { isSafeSlug, wikiPageStem } from "../../src/wiki/slug.ts";
 import { wikiSlugFromAbsPath } from "../../src/wiki/server/paths.ts";
 
 describe("isSafeSlug", () => {
@@ -81,5 +81,34 @@ describe("wikiSlugFromAbsPath", () => {
 
   it("returns null for `<pagesDir>/.md` (slug would be empty)", () => {
     assert.equal(wikiSlugFromAbsPath(path.join(pagesDir, ".md"), pagesDir), null);
+  });
+});
+
+describe("wikiPageStem", () => {
+  it("slugifies an ASCII page name", () => {
+    assert.equal(wikiPageStem("Video Generation"), "video-generation");
+  });
+
+  it("suggests a non-ASCII page name verbatim (#2940)", () => {
+    // Slugifying would propose `wiki/pages/-4.md` — a file the agent
+    // would then create, and which no link could ever resolve to.
+    assert.equal(wikiPageStem("不耕起栽培-カバークロップ4年計画"), "不耕起栽培-カバークロップ4年計画");
+  });
+
+  it("trims surrounding whitespace", () => {
+    assert.equal(wikiPageStem("  さくらインターネット  "), "さくらインターネット");
+  });
+
+  it("returns null for names that cannot be a page filename", () => {
+    // Salvaging a stem here would send the caller to a file it never
+    // asked for — `../secrets` would read as `secrets.md` (Codex review).
+    assert.equal(wikiPageStem("../秘密"), null);
+    assert.equal(wikiPageStem("日本語/ページ"), null);
+    assert.equal(wikiPageStem("../secrets"), null);
+    assert.equal(wikiPageStem(""), null);
+  });
+
+  it("returns null when an ASCII name slugifies to nothing", () => {
+    assert.equal(wikiPageStem("!!!"), null);
   });
 });

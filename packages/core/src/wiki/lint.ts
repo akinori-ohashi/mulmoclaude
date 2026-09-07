@@ -10,7 +10,8 @@
 
 import type { WikiPageEntry } from "./index-parse.js";
 import { WIKI_LINK_PATTERN, parseWikiLink } from "./link.js";
-import { wikiSlugify } from "./slug.js";
+import { resolveLinkTarget } from "./resolve.js";
+import { wikiPageStem } from "./slug.js";
 
 /** Files on disk that aren't referenced by index.md. */
 export function findOrphanPages(fileSlugs: ReadonlySet<string>, indexedSlugs: ReadonlySet<string>): string[] {
@@ -27,42 +28,58 @@ export function findOrphanPages(fileSlugs: ReadonlySet<string>, indexedSlugs: Re
 export function findMissingFiles(pageEntries: readonly WikiPageEntry[], fileSlugs: ReadonlySet<string>): string[] {
   const issues: string[] = [];
   for (const entry of pageEntries) {
-    if (!fileSlugs.has(entry.slug)) {
+    if (entry.slug.length === 0) {
+      issues.push(`- **Malformed entry**: index.md lists \`${entry.title}\` with no page name`);
+    } else if (!fileSlugs.has(entry.slug)) {
       issues.push(`- **Missing file**: index.md references \`${entry.slug}\` but the file does not exist`);
     }
   }
   return issues;
 }
 
-/** Walk a page's body for `[[…]]` links and flag any whose
- *  resolved slug doesn't exist in the file set.
+/** One `[[…]]` body's diagnostic, or null when the link resolves.
  *
  *  Critically: this routes through `parseWikiLink` so
- *  `[[slug|display]]` is split correctly — the lint slugifies the
+ *  `[[slug|display]]` is split correctly — the lint resolves the
  *  TARGET, not the full bracket body. Pre-#1297 the lint
  *  slugified the entire content (`slug|display`), which collapsed
  *  to a slug that always missed and produced ~168 false-positive
  *  "broken link" warnings. */
-export function findBrokenLinksInPage(fileName: string, content: string, fileSlugs: ReadonlySet<string>): string[] {
-  const issues: string[] = [];
-  const matches = [...content.matchAll(WIKI_LINK_PATTERN)];
-  for (const [, body = ""] of matches) {
-    const { target } = parseWikiLink(body);
-    const linkSlug = wikiSlugify(target);
-    // Empty target is its own diagnostic — `[[|display]]` or
-    // `[[]]` slugifies to "" and would otherwise be flagged
-    // identically to a real broken link. Keep the original raw
-    // bracket body in the report so the user can grep their pages
-    // for the malformed link.
-    if (linkSlug.length === 0) {
-      issues.push(`- **Broken link** in \`${fileName}\`: [[${body}]] → empty target`);
-      continue;
-    }
-    if (!fileSlugs.has(linkSlug)) {
-      issues.push(`- **Broken link** in \`${fileName}\`: [[${body}]] → \`${linkSlug}.md\` not found`);
-    }
-  }
-  return issues;
+function brokenLinkIssue(fileName: string, body: string, fileSlugs: ReadonlySet<string>, slugByTitle: ReadonlyMap<string, string>): string | null {
+  const { target } = parseWikiLink(body);
+  // Empty target is its own diagnostic — `[[|display]]` has nothing to
+  // resolve and would otherwise be flagged identically to a real broken
+  // link. Keep the original raw bracket body in the report so the user
+  // can grep their pages for the malformed link. (`[[]]` never reaches
+  // here: a zero-length body matches neither `WIKI_LINK_PATTERN` nor the
+  // renderer's scanner, so it stays literal text everywhere.)
+  if (target.trim().length === 0) return `- **Broken link** in \`${fileName}\`: [[${body}]] → empty target`;
+  if (resolveLinkTarget(target, fileSlugs, slugByTitle) !== null) return null;
+  const stem = wikiPageStem(target);
+  // A target the write guard would reject has no file to suggest —
+  // saying `../secrets.md not found` invites creating what cannot
+  // exist (CodeRabbit review).
+  if (stem === null) return `- **Broken link** in \`${fileName}\`: [[${body}]] → \`${target.trim()}\` cannot be a page filename`;
+  return `- **Broken link** in \`${fileName}\`: [[${body}]] → \`${stem}.md\` not found`;
+}
+
+/** Walk a page's body for `[[…]]` links and flag any whose target
+ *  doesn't resolve to a file.
+ *
+ *  `slugByTitle` (from `slugByIndexTitle`) is what lets a link written
+ *  as an index.md display title count as resolved — without it the
+ *  lint calls broken exactly the links the page resolver and the graph
+ *  follow happily. It defaults to empty so a caller linting an
+ *  in-memory snapshot with no index still works. */
+export function findBrokenLinksInPage(
+  fileName: string,
+  content: string,
+  fileSlugs: ReadonlySet<string>,
+  slugByTitle: ReadonlyMap<string, string> = new Map(),
+): string[] {
+  return [...content.matchAll(WIKI_LINK_PATTERN)]
+    .map(([, body = ""]) => brokenLinkIssue(fileName, body, fileSlugs, slugByTitle))
+    .filter((issue): issue is string => issue !== null);
 }
 
 function formatTagList(tags: readonly string[]): string {

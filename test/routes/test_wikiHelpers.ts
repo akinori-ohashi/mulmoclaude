@@ -600,6 +600,60 @@ describe("buildPageResponseData", () => {
     });
     assert.match(response.instructions, /wiki\/pages\/video-generation\.md/);
   });
+
+  it("names the RESOLVED file in the empty-page hint, not the requested name", () => {
+    // A request for `Foo` can resolve to `foo-bar.md` (fuzzy) — deriving
+    // the stem from the request would send the agent to `foo.md`
+    // (CodeRabbit review).
+    const response = buildPageResponseData({
+      action: "page",
+      pageName: "Foo",
+      resolvedTitle: "foo-bar",
+      content: "",
+      exists: true,
+    });
+    assert.match(response.instructions, /wiki\/pages\/foo-bar\.md/);
+  });
+
+  it("suggests the TARGET half of an aliased request, not the whole body", () => {
+    // The resolver accepts `[[target|display]]`, so the hint has to
+    // name `target.md` — `target|display.md` resolves to nothing.
+    const response = buildPageResponseData({
+      action: "page",
+      pageName: "不耕起栽培-カバークロップ4年計画|4年計画",
+      resolvedTitle: "不耕起栽培-カバークロップ4年計画|4年計画",
+      content: "",
+      exists: false,
+    });
+    assert.match(response.instructions, /wiki\/pages\/不耕起栽培-カバークロップ4年計画\.md/);
+  });
+
+  it("says the name is unusable rather than naming an empty file", () => {
+    // `wikiPageStem` returns null here; the old text rendered
+    // `wiki/pages/.md`, a file the write guard rejects (Codex review).
+    const response = buildPageResponseData({
+      action: "page",
+      pageName: "../secrets",
+      resolvedTitle: "../secrets",
+      content: "",
+      exists: false,
+    });
+    assert.match(response.instructions, /cannot be used as a page filename/);
+    assert.doesNotMatch(response.instructions, /wiki\/pages\/\.md/);
+  });
+
+  it("keeps a non-ASCII pageName intact in the filesystem hint (#2940)", () => {
+    // Slugifying stripped every non-ASCII character, so the agent was
+    // told to create `wiki/pages/-4.md` — a file no link resolves to.
+    const response = buildPageResponseData({
+      action: "page",
+      pageName: "不耕起栽培-カバークロップ4年計画",
+      resolvedTitle: "不耕起栽培-カバークロップ4年計画",
+      content: "",
+      exists: false,
+    });
+    assert.match(response.instructions, /wiki\/pages\/不耕起栽培-カバークロップ4年計画\.md/);
+  });
 });
 
 // Pin the wrapper layer that sits between resolvePagePath (I/O) and

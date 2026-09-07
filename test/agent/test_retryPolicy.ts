@@ -5,7 +5,15 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { detectRecovery, isRecoverableBrokerNotReady, isRecoverableStaleSession, abortableSleep } from "../../server/agent/retryPolicy.js";
+import { getEventListeners } from "node:events";
+import {
+  detectRecovery,
+  isRecoverableBrokerNotReady,
+  isRecoverableStaleSession,
+  abortableSleep,
+  awaitBrokerReady,
+  judgeBrokerReplay,
+} from "../../server/agent/retryPolicy.js";
 import { EVENT_TYPES } from "../../src/types/events.js";
 
 const STALE_MESSAGE = "No conversation found with session ID abc-123";
@@ -100,6 +108,35 @@ describe("detectRecovery", () => {
   });
 });
 
+// The reading BEFORE the wait cannot decide this on its own: the beacon is sent
+// when the broker answers `initialize`, so a broker that lost the race by a
+// moment has not sent one yet at the instant the turn fails. Refusing the
+// replay on that reading would break the #2057 recovery the wait exists for.
+describe("judgeBrokerReplay", () => {
+  it("replays when the broker had already reported ready", () => {
+    assert.deepEqual(judgeBrokerReplay(true, true), { replay: true, reason: "ready-before-wait" });
+  });
+
+  // #2057: the beacon arrives DURING the wait, which is exactly the case a
+  // replay fixes.
+  it("replays when the beacon arrives during the wait", () => {
+    assert.deepEqual(judgeBrokerReplay(false, true), { replay: true, reason: "ready-during-wait" });
+  });
+
+  // #2842: nothing ever arrived, so the replay buys a second full connect-wait
+  // and ends in the same error — the 100 s the reporter measured.
+  it("refuses when no beacon ever arrived", () => {
+    assert.deepEqual(judgeBrokerReplay(false, false), { replay: false, reason: "never-ready" });
+  });
+
+  // Cannot happen — readiness is recorded per spawn and only a new spawn clears
+  // it — but "the broker DID answer" is the safe reading if it ever does:
+  // a needless replay costs latency, a refused one costs the turn.
+  it("replays when readiness somehow disappears across the wait", () => {
+    assert.deepEqual(judgeBrokerReplay(true, false), { replay: true, reason: "ready-before-wait" });
+  });
+});
+
 // Racing against a deadline is what actually distinguishes "the abort cut the
 // wait short" from "the test just awaited a 60s timer" — a bare await passes
 // either way.
@@ -125,5 +162,77 @@ describe("abortableSleep", () => {
     const waited = abortableSleep(60_000, controller.signal);
     controller.abort();
     assert.equal(await raceAgainstDeadline(waited), "slept");
+  });
+
+  // `{ once: true }` releases a listener only if the abort actually fires, so a
+  // sleep that simply finished used to leave one behind. Harmless per call, but
+  // the readiness poll calls this ~32 times on ONE signal over its window
+  // (CodeRabbit review on #2931).
+  it("leaves no abort listener behind when the timer wins", async () => {
+    const controller = new AbortController();
+    await Array.from({ length: 20 }).reduce<Promise<void>>((chain) => chain.then(() => abortableSleep(1, controller.signal)), Promise.resolve());
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+  });
+
+  it("leaves no abort listener behind when the abort wins", async () => {
+    const controller = new AbortController();
+    const waited = abortableSleep(60_000, controller.signal);
+    controller.abort();
+    await waited;
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+  });
+});
+
+// A beacon that is merely slow must not be read as a broker that never came up
+// — that reading refuses the very replay the #2057 recovery exists for. So the
+// wait ends on the beacon, not on a fixed pause (Codex review on #2931).
+describe("awaitBrokerReady", () => {
+  const never = new AbortController().signal;
+
+  it("answers immediately when readiness is already there", async () => {
+    const startedAt = Date.now();
+    assert.equal(await awaitBrokerReady(() => "ready", 5_000, never), "ready");
+    assert.ok(Date.now() - startedAt < 200, "must not wait out the window for an answer it already has");
+  });
+
+  it("answers as soon as readiness appears mid-window", async () => {
+    let ready: string | null = null;
+    setTimeout(() => (ready = "ready"), 300);
+    const startedAt = Date.now();
+    assert.equal(await awaitBrokerReady(() => ready, 60_000, never), "ready");
+    assert.ok(Date.now() - startedAt < 3_000, "must not wait out the window once the beacon has landed");
+  });
+
+  it("gives up at the end of the window", async () => {
+    const startedAt = Date.now();
+    assert.equal(await awaitBrokerReady(() => null, 400, never), null);
+    assert.ok(Date.now() - startedAt >= 400, "must not conclude before the window is spent");
+  });
+
+  // A stop must end the wait promptly rather than hold the turn open for the
+  // rest of the window.
+  it("gives up promptly when the turn is aborted mid-wait", async () => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 100);
+    const startedAt = Date.now();
+    assert.equal(await awaitBrokerReady(() => null, 60_000, controller.signal), null);
+    assert.ok(Date.now() - startedAt < 3_000, "an aborted wait must not run to the deadline");
+  });
+
+  it("answers null without waiting when already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const startedAt = Date.now();
+    assert.equal(await awaitBrokerReady(() => null, 60_000, controller.signal), null);
+    assert.ok(Date.now() - startedAt < 200);
+  });
+
+  // Readiness wins over an abort that arrived in the same moment: the broker
+  // did answer, and that fact does not stop being true because the user
+  // cancelled.
+  it("returns readiness even when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    assert.equal(await awaitBrokerReady(() => "ready", 60_000, controller.signal), "ready");
   });
 });

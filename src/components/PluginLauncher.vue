@@ -54,20 +54,18 @@
       <button
         v-for="shortcut in shortcuts"
         :key="`${shortcut.kind}:${shortcut.slug}`"
-        :class="[
-          'h-8 w-8 flex items-center justify-center flex-none border-r border-gray-200 last:border-r-0 transition-colors',
-          isShortcutActive(shortcut) ? 'bg-blue-50 text-blue-600' : 'bg-white text-gray-600 hover:bg-gray-50',
-        ]"
+        :class="['h-8 w-8 flex items-center justify-center flex-none border-r border-gray-200 last:border-r-0 transition-colors', shortcutChrome(shortcut)]"
         :title="shortcut.title"
         :aria-label="shortcut.title"
         :data-testid="`plugin-launcher-shortcut-${shortcut.kind}-${shortcut.slug}`"
         @click="emit('navigateShortcut', shortcut)"
       >
-        <!-- Icon-only — the cached title rides the tooltip / aria-label.
-           Collections / feeds use the material-symbols font for their
-           glyphs (matches the index cards), distinct from the
-           material-icons used by the fixed launcher buttons. -->
-        <span class="material-symbols-outlined text-base">{{ shortcut.icon }}</span>
+        <!-- Icon-only — the cached title rides the tooltip / aria-label,
+           so the glyph itself stays decorative. IconGlyph keeps a value the
+           icon font cannot resolve from overflowing onto the neighbouring
+           buttons, and lets a collection use an emoji to stand apart from a
+           pill of look-alike glyphs (#2986 / #2960). -->
+        <IconGlyph :icon="shortcut.icon" size-class="text-base" />
       </button>
     </div>
 
@@ -82,6 +80,8 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
+import { IconGlyph } from "@mulmoclaude/core/plugin-vue";
+import { accentChipClasses } from "@mulmoclaude/core/collection";
 import { PAGE_ROUTES } from "../router/pageRoutes";
 import type { Shortcut, ShortcutKind } from "../types/shortcuts";
 import SessionCountBadges from "./SessionCountBadges.vue";
@@ -226,6 +226,17 @@ const ROUTE_NAME_BY_KIND: Record<ShortcutKind, string> = {
 // active collection's pill highlights but its siblings don't.
 function isShortcutActive(shortcut: Shortcut): boolean {
   return props.activeViewMode === ROUTE_NAME_BY_KIND[shortcut.kind] && route.params.slug === shortcut.slug;
+}
+
+// Background + glyph colour for one shortcut button. Active BEATS the accent
+// on purpose: "you are here" is a different question from "which one is this",
+// and the blue is the only thing answering the first. Layering both (accent
+// fill + a ring for active) would add a visual the chrome does not otherwise
+// use — and #2960 asked for the launcher not to change shape.
+function shortcutChrome(shortcut: Shortcut): string {
+  if (isShortcutActive(shortcut)) return "bg-blue-50 text-blue-600";
+  const accent = accentChipClasses(shortcut.color);
+  return accent ? `${accent} hover:brightness-95` : "bg-white text-gray-600 hover:bg-gray-50";
 }
 
 const emit = defineEmits<{

@@ -3,7 +3,10 @@
 // Scans both user (`~/.claude/skills/`) and project
 // (`<workspace>/.claude/skills/`) scopes; project wins on slug
 // collision (mirrors the rule in
-// `server/workspace/skills/discovery.ts`).
+// `server/workspace/skills/discovery.ts`). A host may declare a root to
+// have NO user scope (`paths.userSkillsDir` → null), and then there is no
+// shadowing to reason about: that root sees its own collections and feeds,
+// and nothing else.
 //
 // The schema validator itself lives in `../core/schemaZ` (the zod single
 // source of truth every `../core/schema` type derives from); this module
@@ -11,9 +14,10 @@
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { log, getWorkspaceRoot, userSkillsDir, projectSkillsDir, feedsRoot } from "./host";
+import { log, getWorkspaceRoot, userSkillsDir, projectSkillsDir, feedsRoot, hostSupportsSharedCollections } from "./host";
 import { CollectionSchemaZ } from "../core/schemaZ";
 import { SCHEMA_FILE, resolveDataDir, safeSlugName } from "./paths";
+import { appManifestReason, loadAppManifest } from "./appManifest";
 import type { LoadedCollection } from "./discoveredCollection";
 import type { CollectionDetail, CollectionSchema, CollectionSource, CollectionSummary } from "../core/schema";
 import { isErrorWithCode, isRecord } from "@mulmoclaude/common";
@@ -42,11 +46,18 @@ function applyFeedSchemaDefaults(parsed: unknown, slug: string): unknown {
 /** Result of the post-Zod acceptance gates: the resolved record dir (and,
  *  for a `dataSource` schema, the resolved data file) on success, or a
  *  one-line reason discovery would skip the schema. */
-export type SchemaAcceptance = { ok: true; dataDir: string; dataSourceFile?: string; storageFile?: string } | { ok: false; reason: string };
+export type SchemaAcceptance = { ok: true; dataDir: string; dataSourceFile?: string; storageFile?: string; appId?: string } | { ok: false; reason: string };
 
-/** The conventional per-slug records dir a `dataSource` collection gets as
- *  its `dataDir` (records never live there, but archive/delete paths stay
- *  well-defined — same shape the registry's R3 normalization uses). */
+/** The conventional per-slug records dir a `dataSource` / `storage` collection
+ *  gets as its `dataDir` (records never live there, but archive/delete paths
+ *  stay well-defined — same shape the registry's R3 normalization uses).
+ *
+ *  INVARIANT — this is NOT a default `dataPath`, and must not be used as one.
+ *  It applies only to the two backends whose records are not per-file JSON. A
+ *  normal collection declares its own location and exactly one of `dataPath` /
+ *  `dataSource` / `storage`; a schema with none of the three is REJECTED, not
+ *  quietly pointed here. Handing a per-file collection this path would silently
+ *  relocate its records away from the folder the user (and its SKILL.md) sees. */
 function conventionalDataPath(slug: string): string {
   return `data/collections/${slug}/items`;
 }
@@ -91,18 +102,48 @@ export function acceptParsedSchema(schema: CollectionSchema, opts: { source: Col
     if (dataDir === null) return { ok: false, reason: `slug '${opts.slug}' yields no workspace-contained data dir` };
     return { ok: true, dataDir, dataSourceFile };
   }
-  if (schema.storage !== undefined) {
-    // An alternative-backend data file (e.g. the SQLite db): same
-    // containment as dataSource, same conventional phantom dataDir.
-    const storageFile = resolveDataDir(schema.storage.path, opts.workspaceRoot);
-    if (storageFile === null) return { ok: false, reason: `storage.path '${schema.storage.path}' escapes the workspace` };
-    const dataDir = resolveDataDir(conventionalDataPath(opts.slug), opts.workspaceRoot);
-    if (dataDir === null) return { ok: false, reason: `slug '${opts.slug}' yields no workspace-contained data dir` };
-    return { ok: true, dataDir, storageFile };
-  }
+  if (schema.storage !== undefined) return acceptStorageSchema(schema.storage, opts);
   const dataDir = resolveDataDir(schema.dataPath ?? "", opts.workspaceRoot);
   if (dataDir === null) return { ok: false, reason: `dataPath '${schema.dataPath}' escapes the workspace` };
   return { ok: true, dataDir };
+}
+
+/** The `storage` arm of the acceptance gate. Every storage backend gets the
+ *  conventional phantom dataDir; what differs is what else has to resolve
+ *  before the collection can exist at all.
+ *
+ *  A FILE-backed backend (sqlite) resolves and containment-checks a
+ *  `storageFile`. A SHARED one (firestore) has no path on this machine — it
+ *  resolves an IDENTITY instead: the `aid` from the repository's `app.json`,
+ *  which together with the slug as `cid` names `apps/{aid}/collections/{cid}`.
+ *
+ *  Resolving it HERE, once, is the point. The store then receives a settled
+ *  `(aid, cid)` and never reads `app.json` itself — otherwise the questions of
+ *  caching, staleness and what to do when the file is missing would be decided
+ *  inside a read path, where the only cheap answer is to return nothing, and
+ *  "this collection is misconfigured" would reach the user as "this collection
+ *  is empty". A missing or malformed `app.json` is a CONFIGURATION error, so it
+ *  is reported the same way an escaping `storage.path` is: the schema is
+ *  refused, with a reason naming the file to create. */
+function acceptStorageSchema(storage: NonNullable<CollectionSchema["storage"]>, opts: { workspaceRoot: string; slug: string }): SchemaAcceptance {
+  const dataDir = resolveDataDir(conventionalDataPath(opts.slug), opts.workspaceRoot);
+  if (dataDir === null) return { ok: false, reason: `slug '${opts.slug}' yields no workspace-contained data dir` };
+  if (storage.type === "sqlite") {
+    const storageFile = resolveDataDir(storage.path, opts.workspaceRoot);
+    if (storageFile === null) return { ok: false, reason: `storage.path '${storage.path}' escapes the workspace` };
+    return { ok: true, dataDir, storageFile };
+  }
+  // A shared collection needs a host that can reach Firestore AND a host whose
+  // roots are project repositories (D5). Both are the same question from the
+  // engine's side, and the host answers it: see `CollectionHost.sharedCollections`.
+  // Refused rather than skipped, so the author is told why instead of watching
+  // the collection vanish from discovery.
+  if (!hostSupportsSharedCollections()) {
+    return { ok: false, reason: "this host does not support shared collections — they live in a project repository, not a managed workspace" };
+  }
+  const manifest = loadAppManifest(opts.workspaceRoot);
+  if (!manifest.ok) return { ok: false, reason: appManifestReason(manifest, opts.workspaceRoot) };
+  return { ok: true, dataDir, appId: manifest.manifest.aid };
 }
 
 async function loadOneCollection(skillsRoot: string, slug: string, source: CollectionSource, workspaceRoot: string): Promise<LoadedCollection | null> {
@@ -155,6 +196,7 @@ async function loadOneCollection(skillsRoot: string, slug: string, source: Colle
     dataDir: acceptance.dataDir,
     ...(acceptance.dataSourceFile !== undefined ? { dataSourceFile: acceptance.dataSourceFile } : {}),
     ...(acceptance.storageFile !== undefined ? { storageFile: acceptance.storageFile } : {}),
+    ...(acceptance.appId !== undefined ? { appId: acceptance.appId } : {}),
     skillDir: path.join(skillsRoot, safeName),
   };
 }
@@ -188,6 +230,15 @@ async function collectFromDir(skillsRoot: string, source: CollectionSource, work
   return results;
 }
 
+/** The user-scope dir this call should scan, or `null` for none. The single
+ *  place the "explicit override beats the host binding, and either may say
+ *  none" rule is spelled — `??` cannot express it, because `undefined` there
+ *  means "ask the host" and would silently re-enable a scope the caller
+ *  passed `null` to switch off. */
+function resolveUserDir(opts: DiscoveryOptions, workspaceRoot: string): string | null {
+  return opts.userSkillsDir !== undefined ? opts.userSkillsDir : userSkillsDir(workspaceRoot);
+}
+
 export interface DiscoveryOptions {
   /** Override the workspace root for project-scope skill discovery.
    *  Default: the live `workspacePath`. Tests point this at a
@@ -198,8 +249,16 @@ export interface DiscoveryOptions {
   /** Override `~/.claude/skills/` for tests. Production callers
    *  leave this unset. Without an override, even a test-scoped
    *  workspaceRoot still scans the real user home — which can leak
-   *  unrelated skills into the result. */
-  userSkillsDir?: string | undefined;
+   *  unrelated skills into the result.
+   *
+   *  Three distinct values, and the difference matters — a caller that
+   *  thinks it opted out and did not is exactly the failure the scope
+   *  isolation removes:
+   *  - `undefined` (or absent): ask the host binding for this root, which
+   *    may itself answer `null`.
+   *  - a path: scan that dir as user scope.
+   *  - `null`: this call has NO user scope. The host is not consulted. */
+  userSkillsDir?: string | null | undefined;
 }
 
 /** Discover every schema-driven collection available to this
@@ -211,14 +270,16 @@ export interface DiscoveryOptions {
  *  regardless of override). */
 export async function discoverCollections(opts: DiscoveryOptions = {}): Promise<LoadedCollection[]> {
   const workspaceRoot = opts.workspaceRoot ?? getWorkspaceRoot();
-  const userDir = opts.userSkillsDir ?? userSkillsDir();
+  const userDir = resolveUserDir(opts, workspaceRoot);
   const projectDir = projectSkillsDir(workspaceRoot);
   // Feeds (the non-skill `<workspace>/feeds/` registry) are scanned as a
   // third root. They merge FIRST so a real skill collection (user or
   // project) always overrides a feed on slug collision — a feed must
   // never shadow a genuine skill-backed collection.
   const feedCollections = await collectFromDir(feedsRoot(workspaceRoot), "feed", workspaceRoot);
-  const userCollections = await collectFromDir(userDir, "user", workspaceRoot);
+  // A root with no user scope skips the pass entirely (not an empty dir scan)
+  // — see the `userSkillsDir` contract in `host.ts`.
+  const userCollections = userDir === null ? [] : await collectFromDir(userDir, "user", workspaceRoot);
   const projectCollections = await collectFromDir(projectDir, "project", workspaceRoot);
   const merged = new Map<string, LoadedCollection>();
   for (const entry of feedCollections) merged.set(entry.slug, entry);
@@ -233,14 +294,16 @@ export async function loadCollection(slug: string, opts: DiscoveryOptions = {}):
   const safeName = safeSlugName(slug);
   if (safeName === null) return null;
   const workspaceRoot = opts.workspaceRoot ?? getWorkspaceRoot();
-  const userDir = opts.userSkillsDir ?? userSkillsDir();
+  const userDir = resolveUserDir(opts, workspaceRoot);
   const projectDir = projectSkillsDir(workspaceRoot);
   // Project first (overrides user), then user, then the feeds registry
   // last — mirroring the merge precedence in `discoverCollections` so a
   // skill collection always wins over a feed of the same slug.
   const projectCollection = await loadOneCollection(projectDir, safeName, "project", workspaceRoot);
   if (projectCollection) return projectCollection;
-  const userCollection = await loadOneCollection(userDir, safeName, "user", workspaceRoot);
+  // No user scope for this root: skip the fallback, so a slug that exists
+  // ONLY in user scope is a MISS rather than a quiet hop into another world.
+  const userCollection = userDir === null ? null : await loadOneCollection(userDir, safeName, "user", workspaceRoot);
   if (userCollection) return userCollection;
   return loadOneCollection(feedsRoot(workspaceRoot), safeName, "feed", workspaceRoot);
 }
@@ -250,8 +313,10 @@ export function toSummary(collection: LoadedCollection): CollectionSummary {
     slug: collection.slug,
     title: collection.schema.title,
     icon: collection.schema.icon,
+    ...(collection.schema.color !== undefined ? { color: collection.schema.color } : {}),
     source: collection.source,
     ...(collection.schema.dataSource !== undefined ? { readonly: true as const } : {}),
+    ...(collection.appId !== undefined ? { appId: collection.appId } : {}),
   };
 }
 

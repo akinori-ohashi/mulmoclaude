@@ -13,7 +13,7 @@ import {
   downloadFilename,
   effectiveBeat,
   getMissingCharacterKeys,
-  isAllSlideDeck,
+  hasEditableBeats,
   isBeatImageReference,
   isSameScript,
   isValidBeat,
@@ -190,35 +190,24 @@ describe("isBeatImageReference", () => {
   });
 });
 
-describe("isAllSlideDeck", () => {
+describe("hasEditableBeats", () => {
   const slide = { image: { type: "slide" } };
 
+  // The gate is "is there a beat to edit", not "is this a deck": the editor handles all eight
+  // beat types. The all-slide test this replaces belonged to the old iframe deck editor.
   it("accepts a script whose beats are all slides", () => {
-    assert.equal(isAllSlideDeck({ beats: [slide, slide] }), true);
+    assert.equal(hasEditableBeats({ beats: [slide, slide] }), true);
   });
 
-  // Mixed scripts fall through to the per-beat list UI; mounting the deck
-  // editor on them would hide the non-slide beats entirely.
-  it("refuses a mixed script", () => {
-    assert.equal(isAllSlideDeck({ beats: [slide, { image: { type: "imagePrompt" } }] }), false);
+  it("accepts a mixed script — the non-slide beats are editable too", () => {
+    assert.equal(hasEditableBeats({ beats: [slide, { image: { type: "markdown" } }] }), true);
   });
 
   it("refuses an empty or missing beats array", () => {
-    assert.equal(isAllSlideDeck({ beats: [] }), false);
-    assert.equal(isAllSlideDeck({}), false);
-    assert.equal(isAllSlideDeck({ beats: "not an array" }), false);
-  });
-
-  it("refuses a beat with no image or a non-record image", () => {
-    assert.equal(isAllSlideDeck({ beats: [{}] }), false);
-    assert.equal(isAllSlideDeck({ beats: [{ image: "slide" }] }), false);
-  });
-
-  it("refuses non-record scripts", () => {
-    assert.equal(isAllSlideDeck(null), false);
-    assert.equal(isAllSlideDeck(undefined), false);
-    assert.equal(isAllSlideDeck("script"), false);
-    assert.equal(isAllSlideDeck([slide]), false);
+    // Nothing to edit; the per-beat list already renders an empty state.
+    assert.equal(hasEditableBeats({ beats: [] }), false);
+    assert.equal(hasEditableBeats({}), false);
+    assert.equal(hasEditableBeats({ beats: "not an array" }), false);
   });
 });
 

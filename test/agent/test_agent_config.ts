@@ -9,6 +9,7 @@ import {
   buildDockerSpawnArgs,
   brokerSpawn,
   buildMulmoclaudeServer,
+  BROKER_LOG_SOURCE,
   dockerUserCapArgs,
   dockerBindMountArgs,
   buildMcpConfig,
@@ -16,12 +17,15 @@ import {
   CONTAINER_WORKSPACE_PATH,
   type Platform,
   prepareUserServers,
+  resolveBrokerStartMarkerPaths,
   resolveMcpConfigPaths,
   resolveSystemPromptPaths,
   rewriteLocalhostForDocker,
   userServerAllowedToolNames,
   workspaceModuleMounts,
+  type StartShim,
 } from "../../server/agent/config.js";
+import { shimProbeUrl, shimSseUrl } from "../../server/agent/stdioHttpShim.js";
 import type { McpServerSpec } from "../../server/system/config.js";
 
 describe("buildMcpConfig", () => {
@@ -92,13 +96,13 @@ describe("buildMcpConfig", () => {
     const config = buildMcpConfig({ chatSessionId: "s", port: 3001, activePlugins: [], useDocker: true }) as Record<string, unknown>;
     const server = (config.mcpServers as Record<string, unknown>).mulmoclaude as Record<string, unknown>;
     const args = server.args as string[];
-    const importIdx = args.indexOf("--import");
-    assert.ok(importIdx !== -1, "--import flag must be present so the ESM loader hook is registered");
+    const bootstrapIdx = args.indexOf("file:///app/server/agent/mcp-esm-bootstrap.mjs");
+    assert.ok(bootstrapIdx !== -1, "the ESM loader bootstrap must be imported");
     // Points at the bootstrap — NOT the loader directly. `--import
     // <loader>` only evaluates the module's top level; a bootstrap
     // that calls `register()` is what actually wires the resolve
     // hook into Node's loader chain (Codex review).
-    assert.equal(args[importIdx + 1], "file:///app/server/agent/mcp-esm-bootstrap.mjs");
+    assert.equal(args[bootstrapIdx - 1], "--import");
     // The broker script must still be the LAST arg so the runtime treats it as
     // the entry point rather than a flag operand. Which of the two brokers it
     // is depends on whether `yarn build:mcp-broker` has run — `brokerSpawn`
@@ -109,11 +113,30 @@ describe("buildMcpConfig", () => {
     );
   });
 
-  it("native (non-docker) server does NOT include --import (loader hook is a Docker-only fix)", async () => {
+  // The start beacon must be evaluated before anything else the broker loads —
+  // that ordering is what makes "the process exists" observable separately from
+  // "the process finished booting" (#2842). Under Docker it therefore precedes
+  // the ESM bootstrap, which is a heavier module and Docker-only.
+  it("imports the start beacon first, on both modes", async () => {
+    const docker = buildMcpConfig({ chatSessionId: "s", port: 3001, activePlugins: [], useDocker: true }) as Record<string, unknown>;
+    const dockerArgs = ((docker.mcpServers as Record<string, unknown>).mulmoclaude as Record<string, unknown>).args as string[];
+    assert.deepEqual(dockerArgs.slice(0, 2), ["--import", "file:///app/server/agent/mcp-start-beacon.mjs"]);
+    assert.ok(dockerArgs.indexOf("file:///app/server/agent/mcp-start-beacon.mjs") < dockerArgs.indexOf("file:///app/server/agent/mcp-esm-bootstrap.mjs"));
+
+    const native = buildMcpConfig({ chatSessionId: "s", port: 3001, activePlugins: [], useDocker: false }) as Record<string, unknown>;
+    const nativeArgs = ((native.mcpServers as Record<string, unknown>).mulmoclaude as Record<string, unknown>).args as string[];
+    assert.equal(nativeArgs[0], "--import");
+    assert.match(String(nativeArgs[1]), /^file:\/\/.*mcp-start-beacon\.mjs$/);
+  });
+
+  // The loader hook plugs a Windows-junction gap that only exists inside the
+  // container; registering it natively would install a resolver for a
+  // `/app/pkg_modules` that isn't there (#1982).
+  it("keeps the ESM loader bootstrap out of native mode", async () => {
     const config = buildMcpConfig({ chatSessionId: "s", port: 3001, activePlugins: [], useDocker: false }) as Record<string, unknown>;
     const server = (config.mcpServers as Record<string, unknown>).mulmoclaude as Record<string, unknown>;
     const args = server.args as string[];
-    assert.ok(!args.includes("--import"), "--import must not leak into native mode where the loader isn't relevant");
+    assert.ok(!args.some((arg) => arg.includes("mcp-esm-bootstrap")), "the loader bootstrap must not leak into native mode");
   });
 });
 
@@ -820,6 +843,99 @@ describe("prepareUserServers", () => {
     assert.deepEqual((await prepareUserServers(servers, false, hostWs)).servers, {});
     assert.deepEqual((await prepareUserServers(servers, true, hostWs)).servers, {});
   });
+
+  // #3018: the host-exec success path had NO coverage — only the drop
+  // paths above were reachable from a test — so the shim's spec was
+  // emitted with the wrong transport for its whole life (#1421 Phase B
+  // through 1.15.0) and nothing went red. The shim is injected here so
+  // these run without spawning supergateway.
+  describe("host-exec shim success path (#3018)", () => {
+    const optedIn: Record<string, McpServerSpec> = {
+      "email-icloud": {
+        type: "stdio",
+        command: "npx",
+        args: ["-y", "@codefuturist/email-mcp", "stdio"],
+        hostExecInDocker: true,
+      },
+    };
+    const fakeShim =
+      (url: string): StartShim =>
+      async () => ({ url, close: () => {} });
+
+    it("declares the transport the gateway actually speaks, not http", async () => {
+      // supergateway defaults to the legacy HTTP+SSE transport for
+      // `--stdio`: it serves GET on the stream path and POST on a
+      // separate one. `type: "http"` (Streamable HTTP) makes the CLI
+      // POST `initialize` to the stream path, take a 404, and register
+      // the server with zero tools — the exact #3018 symptom.
+      const { servers: out } = await prepareUserServers(optedIn, true, hostWs, fakeShim("http://127.0.0.1:39100/sse"));
+      assert.deepEqual(out, {
+        "email-icloud": { type: "sse", url: "http://host.docker.internal:39100/sse" },
+      });
+    });
+
+    it("keeps the gateway path and rewrites only the host for the container", async () => {
+      // The sandboxed agent can't reach the host's loopback, and the
+      // path must survive the rewrite or the client hits a 404 route.
+      const { servers: out } = await prepareUserServers(optedIn, true, hostWs, fakeShim("http://127.0.0.1:39137/sse"));
+      const spec = out["email-icloud"];
+      assert.ok(spec && "url" in spec);
+      assert.equal(new URL(spec.url).hostname, "host.docker.internal");
+      assert.equal(new URL(spec.url).pathname, "/sse");
+    });
+
+    it("hands back the shim handle so the caller can tear it down", async () => {
+      // A leaked handle means an orphaned host process holding a port.
+      let closed = false;
+      const { shims } = await prepareUserServers(optedIn, true, hostWs, async () => ({
+        url: "http://127.0.0.1:39100/sse",
+        close: () => {
+          closed = true;
+        },
+      }));
+      assert.equal(shims.length, 1);
+      const [handle] = shims;
+      assert.ok(handle);
+      handle.close();
+      assert.equal(closed, true, "the returned handle must close the gateway it started");
+    });
+
+    it("falls back to dropping the server when the gateway never comes up", async () => {
+      const { servers: out, shims } = await prepareUserServers(optedIn, true, hostWs, async () => null);
+      assert.deepEqual(out, {}, "a half-broken server must not be wired up");
+      assert.equal(shims.length, 0);
+    });
+
+    it("exposes the shimmed server to the tool allowlist", async () => {
+      // The allowlist reads the PREPARED map, and its stdio branch must
+      // not swallow the rewritten entry — otherwise the tools connect
+      // but stay unusable.
+      const { servers: out } = await prepareUserServers(optedIn, true, hostWs, fakeShim("http://127.0.0.1:39100/sse"));
+      assert.deepEqual(userServerAllowedToolNames(out, true), ["mcp__email-icloud"]);
+    });
+  });
+});
+
+describe("stdioHttpShim URLs (#3018)", () => {
+  it("advertises the SSE stream path to the agent", () => {
+    assert.equal(shimSseUrl(39100), "http://127.0.0.1:39100/sse");
+  });
+
+  it("never probes the SSE path", () => {
+    // The gateway keeps ONE MCP Server and connects it per GET of the
+    // stream path; a probe there consumes the only session, so the
+    // agent's connect throws "Already connected to a transport" and
+    // takes the gateway down. Probing the message path answers 400
+    // without touching the Server.
+    assert.notEqual(new URL(shimProbeUrl(39100)).pathname, new URL(shimSseUrl(39100)).pathname);
+    assert.equal(shimProbeUrl(39100), "http://127.0.0.1:39100/message");
+  });
+
+  it("points both URLs at the same gateway", () => {
+    const sse = new URL(shimSseUrl(39100));
+    const probe = new URL(shimProbeUrl(39100));
+    assert.equal(probe.host, sse.host);
+  });
 });
 
 describe("userServerAllowedToolNames", () => {
@@ -1134,7 +1250,9 @@ describe("MCP child wiring (regression guard for #2052)", () => {
 
   it("registers the ESM resolver bootstrap via --import on the Docker child", () => {
     const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker: true });
-    assert.deepEqual(spec.args.slice(0, 2), ["--import", "file:///app/server/agent/mcp-esm-bootstrap.mjs"]);
+    // Second, behind the start beacon (#2842) — the beacon has to be the first
+    // thing evaluated for its timing to mean anything.
+    assert.deepEqual(spec.args.slice(2, 4), ["--import", "file:///app/server/agent/mcp-esm-bootstrap.mjs"]);
     // Which script it ends with depends on whether `yarn build:mcp-broker` has
     // run, so assert only that it spawns one of the two known brokers — the
     // branch itself is pinned on `brokerSpawn` below, which needs no artifact.
@@ -1149,29 +1267,108 @@ describe("MCP child wiring (regression guard for #2052)", () => {
   // ~5 s connect wait — the #2201 race. The fallback exists because the bundle
   // is a build artifact: a fresh checkout must still spawn a working broker.
   it("spawns the bundled broker in the container when it has been built", () => {
-    assert.deepEqual(brokerSpawn(true, true), { command: "node", scriptPath: "/app/server/build/mcp-server.mjs" });
+    assert.deepEqual(brokerSpawn(true, true), { kind: "bundle", command: "node", scriptPath: "/app/server/build/mcp-server.mjs" });
   });
 
   it("falls back to tsx in the container when the bundle was never built", () => {
-    assert.deepEqual(brokerSpawn(true, false), { command: "tsx", scriptPath: "/app/server/agent/mcp-server.ts" });
+    assert.deepEqual(brokerSpawn(true, false), { kind: "tsx", command: "tsx", scriptPath: "/app/server/agent/mcp-server.ts" });
   });
 
   it("runs the native bundled broker on this node, not a PATH lookup", () => {
     const spawn = brokerSpawn(false, true);
+    assert.equal(spawn.kind, "bundle");
     assert.equal(spawn.command, process.execPath);
     assert.match(spawn.scriptPath, /server[/\\]build[/\\]mcp-server\.mjs$/);
   });
 
   it("falls back to the repo-local tsx binary natively", () => {
     const spawn = brokerSpawn(false, false);
+    assert.equal(spawn.kind, "tsx");
     assert.match(spawn.command, /node_modules[/\\]\.bin[/\\]tsx$/);
     assert.match(spawn.scriptPath, /server[/\\]agent[/\\]mcp-server\.ts$/);
   });
 
-  it("leaves the native child alone: no NODE_PATH, no --import", () => {
+  // The silent fallback is what made #2842 unreadable: an install on the slow
+  // path looked exactly like one on the fast path, so a 50 s cold boot got
+  // diagnosed as "the connect-wait gate is too small". `kind` is the field that
+  // makes the two distinguishable from a log line alone, so it must never
+  // report the fast path for a spawn that is actually running tsx.
+  it("never labels a tsx spawn as the bundle", () => {
+    for (const useDocker of [false, true]) {
+      const spawn = brokerSpawn(useDocker, false);
+      assert.equal(spawn.kind, "tsx");
+      assert.match(spawn.scriptPath, /\.ts$/, `useDocker=${String(useDocker)}`);
+    }
+  });
+
+  // Codex review on #2898: the turn resolves the broker ONCE and passes it to
+  // both the MCP config and the spawn log. If the config re-probed instead, the
+  // two could straddle a concurrent `yarn build:mcp-broker` and describe
+  // different brokers — a `broker=` field that contradicts what actually ran is
+  // worse than no field. Passing the tsx spawn while the bundle may well exist
+  // on disk is exactly the case a re-probe would get wrong.
+  it("spawns the broker the caller resolved, not one it re-probes", () => {
+    const resolved = brokerSpawn(true, false);
+    const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker: true, broker: resolved });
+    assert.equal(spec.command, resolved.command);
+    assert.equal(spec.args.at(-1), resolved.scriptPath);
+  });
+
+  // The container-only wiring stays container-only. The start beacon is the one
+  // `--import` both modes carry, because "did this process launch?" is the same
+  // question everywhere (#2842).
+  it("leaves the native child alone: no NODE_PATH, no container loader hook", () => {
     const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker: false });
     assert.equal(spec.env.NODE_PATH, undefined);
-    assert.equal(spec.args.includes("--import"), false);
+    assert.equal(
+      spec.args.some((arg) => arg.includes("mcp-esm-bootstrap")),
+      false,
+    );
+  });
+
+  it("imports the start beacon before anything else, in both modes", () => {
+    for (const useDocker of [false, true]) {
+      const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker });
+      assert.equal(spec.args[0], "--import", `missing for useDocker=${useDocker}`);
+      assert.match(String(spec.args[1]), /mcp-start-beacon\.mjs$/, `missing for useDocker=${useDocker}`);
+    }
+  });
+
+  // The marker is the half of the signal that beats a boot blocking the event
+  // loop, so the broker has to be told where to write it — in ITS coordinates,
+  // which under Docker is the container side of the workspace mount.
+  it("hands the broker its start-marker path", () => {
+    const native = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker: false, startMarkerPath: "/tmp/marker" });
+    assert.equal(native.env.MCP_START_MARKER, "/tmp/marker");
+    const docker = buildMulmoclaudeServer({
+      chatSessionId: "s",
+      port: 1,
+      activePlugins: [],
+      useDocker: true,
+      startMarkerPath: "/home/node/mulmoclaude/.mulmoclaude/broker-start-s-x",
+    });
+    assert.equal(docker.env.MCP_START_MARKER, "/home/node/mulmoclaude/.mulmoclaude/broker-start-s-x");
+  });
+
+  // Empty rather than absent, so the preload's `if (MARKER_PATH)` guard reads
+  // it the same way whether the caller supplied one or not.
+  it("leaves the marker path empty when the caller only inspects the spec", () => {
+    const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker: false });
+    assert.equal(spec.env.MCP_START_MARKER, "");
+  });
+
+  // The beacon has to reach the host from wherever the broker runs, and it is
+  // an import-free preload — so everything it needs must already be in the env
+  // the parent hands the child.
+  it("gives the start beacon everything it needs to reach the host", () => {
+    for (const useDocker of [false, true]) {
+      const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker, spawnId: "spawn-1" });
+      assert.equal(spec.env.SESSION_ID, "s", `missing for useDocker=${useDocker}`);
+      assert.equal(spec.env.MCP_SPAWN_ID, "spawn-1", `missing for useDocker=${useDocker}`);
+      assert.equal(spec.env.PORT, "1", `missing for useDocker=${useDocker}`);
+    }
+    const docker = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker: true });
+    assert.equal(docker.env.MCP_HOST, "host.docker.internal");
   });
 
   // The broker's stdout is the JSON-RPC channel, but the shared logger splits
@@ -1181,6 +1378,16 @@ describe("MCP child wiring (regression guard for #2052)", () => {
     for (const useDocker of [false, true]) {
       const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker });
       assert.equal(spec.env.LOG_CONSOLE_STREAM, "stderr", `missing for useDocker=${useDocker}`);
+    }
+  });
+
+  // The broker shares the parent's log FILE and respawns once per turn, so
+  // untagged lines read as server restarts — 34 "plugins/preset loaded" a day
+  // was filed as a reload loop (#2904). Only the parent can name the child.
+  it("names the broker as the log source in both modes", () => {
+    for (const useDocker of [false, true]) {
+      const spec = buildMulmoclaudeServer({ chatSessionId: "s", port: 1, activePlugins: [], useDocker });
+      assert.equal(spec.env.LOG_SOURCE, BROKER_LOG_SOURCE, `missing for useDocker=${useDocker}`);
     }
   });
 
@@ -1215,5 +1422,44 @@ describe("MCP child wiring (regression guard for #2052)", () => {
   it("skips the unscoped launcher package", () => {
     const win = workspaceModuleMounts(REPO_ROOT, "win32", identity);
     assert.ok(!win.some((arg) => arg.endsWith(":/app/pkg_modules/mulmoclaude:ro")));
+  });
+});
+
+// The marker is per SPAWN, not per session: a replay starts a second broker
+// while the first attempt's marker may still be on disk, and a marker that
+// could vouch for a broker other than the one being waited on is worse than
+// none (#2842).
+describe("resolveBrokerStartMarkerPaths", () => {
+  const base = { workspacePath: "/w", sessionId: "chat-1", spawnId: "spawn-1" };
+
+  it("puts the marker inside the workspace mount under Docker, so both sides see it", () => {
+    const paths = resolveBrokerStartMarkerPaths({ ...base, useDocker: true });
+    assert.equal(paths.hostPath, join("/w", ".mulmoclaude", "broker-start-chat-1-spawn-1"));
+    assert.equal(paths.argPath, "/home/node/mulmoclaude/.mulmoclaude/broker-start-chat-1-spawn-1");
+  });
+
+  it("uses one path for both sides natively", () => {
+    const paths = resolveBrokerStartMarkerPaths({ ...base, useDocker: false });
+    assert.equal(paths.hostPath, paths.argPath);
+    assert.ok(paths.hostPath.endsWith("mulmoclaude-broker-start-chat-1-spawn-1"));
+  });
+
+  it("gives two spawns of one session two different markers", () => {
+    const first = resolveBrokerStartMarkerPaths({ ...base, useDocker: false });
+    const second = resolveBrokerStartMarkerPaths({ ...base, spawnId: "spawn-2", useDocker: false });
+    assert.notEqual(first.hostPath, second.hostPath);
+  });
+
+  // Both ids reach a filesystem path, so neither may carry a separator or a
+  // traversal — the same sanitising the MCP config path applies.
+  it("keeps a hostile session or spawn id inside the intended directory", () => {
+    const paths = resolveBrokerStartMarkerPaths({
+      workspacePath: "/w",
+      sessionId: "../../etc/passwd",
+      spawnId: "a/b",
+      useDocker: true,
+    });
+    assert.equal(paths.hostPath, join("/w", ".mulmoclaude", "broker-start-passwd-b"));
+    assert.ok(!paths.argPath.includes(".."));
   });
 });

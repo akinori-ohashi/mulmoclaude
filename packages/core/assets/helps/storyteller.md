@@ -31,6 +31,13 @@ Set `speechOptions.instruction` on the Narrator speaker to match the story's ton
 | Deep / authoritative | Alnilam, Iapetus, Algieba |
 | Soft / gentle | Aoede, Umbriel, Laomedeia, Achernar, Rasalgethi, Pulcherrima, Vindemiatrix, Sadachbia, Sadaltager, Zubenelgenubi |
 
+Leave `model` out — the speaker then records with Gemini's default TTS model. Add
+`"model": "gemini-2.5-pro-preview-tts"` only when the user asks for higher-quality
+narration, and add it **before the first render**: voice, model, and
+`speechOptions` are part of the audio cache key, so changing one later re-records
+every beat. Full speaker reference (including the `lang` map, which *replaces* the
+speaker rather than extending it): `config/helps/mulmoscript.md` → speechParams.
+
 ## Other Rules
 
 - Always use Google providers (`gemini` for TTS, `google` for image generation).

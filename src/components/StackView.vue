@@ -1,7 +1,7 @@
 <template>
   <div class="h-full flex flex-col bg-gray-50">
     <div class="shrink-0 flex items-center gap-1 text-xs text-gray-400 px-4 pt-3 pb-2" data-testid="stack-role-header">
-      <span v-if="sessionRoleIcon" class="material-icons text-xs leading-none">{{ sessionRoleIcon }}</span>
+      <span v-if="sessionRoleIcon" class="material-icons text-xs leading-none" :class="ROLE_ICON_CONTAINMENT">{{ sessionRoleIcon }}</span>
       <span v-if="sessionRoleName">{{ sessionRoleName }}</span>
       <div class="ml-auto flex items-center gap-0.5">
         <CopyChatButton :results="toolResults" :result-timestamps="resultTimestamps" :session-role-name="sessionRoleName" />
@@ -26,7 +26,9 @@
          pill-shaped query suggestions) so switching canvas modes
          doesn't change what a fresh chat looks like. -->
     <div v-if="toolResults.length === 0" class="flex-1 flex flex-col items-center justify-center h-full px-6 text-center" data-testid="stack-empty">
-      <span v-if="sessionRoleIcon" class="material-icons text-5xl text-gray-400 mb-2" aria-hidden="true">{{ sessionRoleIcon }}</span>
+      <span v-if="sessionRoleIcon" class="material-icons text-5xl text-gray-400 mb-2" :class="ROLE_ICON_CONTAINMENT" aria-hidden="true">{{
+        sessionRoleIcon
+      }}</span>
       <p v-if="sessionRoleName" class="text-lg font-medium text-gray-700 mb-4">{{ sessionRoleName }}</p>
       <div v-if="queries && queries.length > 0 && sendTextMessage" class="flex flex-wrap gap-2 justify-center max-w-xl">
         <button
@@ -124,6 +126,7 @@ import { TOOL_NAMES, type ToolName } from "../config/toolNames";
 import type { ToolResult, ToolResultComplete } from "gui-chat-protocol/vue";
 import { View as TextResponseOriginalView } from "../plugins/textResponse/index";
 import { clampIframeHeight } from "../utils/dom/iframeHeightClamp";
+import { ROLE_ICON_CONTAINMENT } from "../utils/role/icon";
 import { isNearBottom } from "../utils/dom/scrollable";
 import type { TextResponseData } from "../plugins/textResponse/types";
 import { formatSmartTime } from "../utils/format/date";

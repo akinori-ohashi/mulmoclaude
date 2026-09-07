@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { apiCall, apiGet, apiPost, apiPut, apiDelete, backendReachable, lastBackendError, setAuthToken } from "../../src/utils/api.ts";
+import { apiCall, apiGet, apiPost, apiPut, apiDelete, backendReachable, isProxyUnreachable, lastBackendError, setAuthToken } from "../../src/utils/api.ts";
 
 // fetch mocking. Capture the URL + init passed by the api module, and
 // reply with a pre-scripted response. Each test installs its own mock
@@ -255,5 +255,135 @@ describe("apiCall — backendReachable signal", () => {
     assert.equal(result.ok, false);
     assert.equal(backendReachable.value, true);
     assert.equal(lastBackendError.value, null);
+  });
+});
+
+// #2975 — a proxy that cannot reach the backend answers with a status of its
+// own, so the reply-means-reachable rule above used to read an outage as a
+// healthy server: the offline banner stayed hidden and `res.statusText` — the
+// bare string "Bad Gateway" — became the error the user saw. Vite's dev proxy
+// does exactly this on ECONNREFUSED (verified: 502, `text/plain`, empty body),
+// which is why `yarn dev` before the backend finished booting showed it.
+describe("apiCall — proxy-level outage (#2975)", () => {
+  beforeEach(() => {
+    installMock();
+    backendReachable.value = true;
+    lastBackendError.value = null;
+  });
+  afterEach(restoreMock);
+
+  // The shape Vite hands back: `res.writeHead(502, {...}).end()`.
+  function bodylessGateway(status: number): Response {
+    return new Response("", { status, headers: { "Content-Type": "text/plain" } });
+  }
+
+  [502, 503, 504].forEach((status) => {
+    it(`treats a body-less ${status} as backend-unreachable`, async () => {
+      nextResponse = bodylessGateway(status);
+      const result = await apiCall("/api/anything");
+      assert.equal(result.ok, false);
+      assert.equal(backendReachable.value, false);
+      if (result.ok === false) {
+        // The status survives for callers that branch on it...
+        assert.equal(result.status, status);
+        // ...but "Bad Gateway" does not reach the user, and what replaces
+        // it is a protocol constant rather than untranslated English prose
+        // (the banner supplies the sentence, in the user's own locale).
+        assert.doesNotMatch(result.error, /Bad Gateway/);
+        assert.equal(result.error, `HTTP ${status}`);
+      }
+      assert.match(lastBackendError.value ?? "", new RegExp(String(status)));
+    });
+  });
+
+  // The discriminator, and the reason it is the body rather than the status:
+  // `server/api/routes/skills.ts` answers a failed external skill install with
+  // a real 502, and that is the backend talking. Reading it as an outage would
+  // raise the offline banner over a working server.
+  it("leaves a 502 that carries the server's own JSON error alone", async () => {
+    nextResponse = jsonResponse(502, { error: "external install failed: registry timeout" });
+    const result = await apiCall("/api/skills/install");
+    assert.equal(result.ok, false);
+    assert.equal(backendReachable.value, true);
+    assert.equal(lastBackendError.value, null);
+    if (result.ok === false) assert.match(result.error, /external install failed/);
+  });
+
+  it("recovers on the next real reply, as the health poll drives it", async () => {
+    nextResponse = bodylessGateway(502);
+    await apiCall("/api/health");
+    assert.equal(backendReachable.value, false);
+
+    nextResponse = jsonResponse(200, { ok: true });
+    await apiCall("/api/health");
+    assert.equal(backendReachable.value, true);
+    assert.equal(lastBackendError.value, null);
+  });
+});
+
+describe("isProxyUnreachable", () => {
+  it("is true only for gateway statuses with no app-authored body", () => {
+    assert.equal(isProxyUnreachable(502, false), true);
+    assert.equal(isProxyUnreachable(503, false), true);
+    assert.equal(isProxyUnreachable(504, false), true);
+    assert.equal(isProxyUnreachable(502, true), false);
+    // 500 is the server itself failing — it replied, so it is reachable.
+    assert.equal(isProxyUnreachable(500, false), false);
+    assert.equal(isProxyUnreachable(401, false), false);
+    assert.equal(isProxyUnreachable(404, false), false);
+  });
+});
+
+// The classification rule, swept across body shapes rather than asserted on
+// the one shape that motivated it. Harvested from the differential harness
+// that proved the `apiCall` split behaviour-preserving (244 generated cases,
+// 0 mismatches) — the harness itself could not survive, since half of it was
+// the pre-split code, but the generator and the property it established can.
+//
+// The property: `backendReachable` goes false exactly when the status is a
+// gateway status AND the body carries no app-authored `{ error: string }`.
+// Body *emptiness* is deliberately NOT the discriminator (CodeRabbit
+// suggested it): a real reverse proxy in front of the app — nginx
+// and friends — answers an unreachable upstream with an HTML error PAGE, and
+// requiring an empty body would suppress the banner in exactly the case it
+// exists for. What separates the two is authorship, not length.
+describe("apiCall — reachability classification across body shapes", () => {
+  const GATEWAY = [502, 503, 504];
+  const NON_GATEWAY = [400, 401, 404, 409, 500, 501, 599];
+
+  // `authored` = the body is the server's own `{ error: string }` envelope.
+  const SHAPES: { name: string; body: string; ctype: string; authored: boolean }[] = [
+    { name: "app JSON error envelope", body: JSON.stringify({ error: "boom" }), ctype: "application/json", authored: true },
+    { name: "empty body (Vite dev proxy)", body: "", ctype: "text/plain", authored: false },
+    { name: "nginx-style HTML error page", body: "<html><title>502 Bad Gateway</title></html>", ctype: "text/html", authored: false },
+    { name: "bare plain text", body: "upstream connect error", ctype: "text/plain", authored: false },
+    { name: "malformed JSON", body: "{not json", ctype: "application/json", authored: false },
+    { name: "JSON without an error key", body: JSON.stringify({ detail: "x" }), ctype: "application/json", authored: false },
+    { name: "JSON whose error is not a string", body: JSON.stringify({ error: 42 }), ctype: "application/json", authored: false },
+  ];
+
+  beforeEach(installMock);
+  afterEach(restoreMock);
+
+  SHAPES.forEach((shape) => {
+    GATEWAY.forEach((status) => {
+      it(`${status} + ${shape.name} → ${shape.authored ? "reachable" : "UNREACHABLE"}`, async () => {
+        backendReachable.value = true;
+        lastBackendError.value = null;
+        nextResponse = new Response(shape.body, { status, headers: { "Content-Type": shape.ctype } });
+        await apiCall("/api/anything");
+        assert.equal(backendReachable.value, shape.authored);
+      });
+    });
+
+    NON_GATEWAY.forEach((status) => {
+      it(`${status} + ${shape.name} → reachable (the server answered)`, async () => {
+        backendReachable.value = true;
+        lastBackendError.value = null;
+        nextResponse = new Response(shape.body, { status, headers: { "Content-Type": shape.ctype } });
+        await apiCall("/api/anything");
+        assert.equal(backendReachable.value, true);
+      });
+    });
   });
 });

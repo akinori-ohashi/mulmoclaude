@@ -75,6 +75,69 @@ describe("stripLeadingMentions", () => {
     const adversarial = "@a@a@a@a@a";
     assert.equal(stripLeadingMentions(adversarial), adversarial);
   });
+
+  // #2952 — a mention that ENDS the body used to survive, so an
+  // image-only DM reached the agent with "@bot" as its prompt.
+  it("strips a mention that ends the body", () => {
+    assert.equal(stripLeadingMentions("@bot"), "");
+    assert.equal(stripLeadingMentions("@bot@example.social"), "");
+    assert.equal(stripLeadingMentions("@a @b"), "");
+    assert.equal(stripLeadingMentions("@bot  "), "");
+  });
+
+  it("leaves a mention that does not start the body — the pattern is anchored", () => {
+    // Unreachable through the bridge (`htmlToText` trims first), but
+    // pinned so the anchoring is a decision rather than an accident.
+    assert.equal(stripLeadingMentions("  @bot  "), "@bot");
+  });
+
+  it("still keeps a body that merely follows a mention", () => {
+    assert.equal(stripLeadingMentions("@bot hello"), "hello");
+    assert.equal(stripLeadingMentions("hello @bot"), "hello @bot");
+    assert.equal(stripLeadingMentions("@bot see @x"), "see @x");
+  });
+
+  // The generator harvested from the differential run that pinned this
+  // change (54k inputs, old implementation vs new). The harness itself
+  // could not survive — half of it was the pre-change implementation —
+  // so what stays is the generator plus the two properties it proved.
+  const VALID_HANDLES = ["@bot", "@a", "@bot@example.social", "@a_b.c", "@x@y-z.social"];
+  const SEPARATORS = [" ", "  ", "\n", "\t"];
+
+  it("reduces a body made only of mentions to nothing", () => {
+    let checked = 0;
+    VALID_HANDLES.forEach((first) => {
+      SEPARATORS.forEach((separator) => {
+        VALID_HANDLES.forEach((second) => {
+          ["", " ", "  "].forEach((trailing) => {
+            assert.equal(stripLeadingMentions(`${first}${separator}${second}${trailing}`), "");
+            assert.equal(stripLeadingMentions(`${first}${trailing}`), "");
+            checked += 2;
+          });
+        });
+      });
+    });
+    assert.ok(checked > 100, `expected a broad sweep, ran ${checked}`);
+  });
+
+  it("keeps the body that follows the mentions, whatever the separator", () => {
+    const tails = ["hello", "what is this?", "see @x", "\u65e5\u672c\u8a9e"];
+    let checked = 0;
+    VALID_HANDLES.forEach((first) => {
+      SEPARATORS.forEach((separator) => {
+        VALID_HANDLES.forEach((second) => {
+          tails.forEach((tail) => {
+            const stripped = stripLeadingMentions(`${first}${separator}${second}${separator}${tail}`);
+            assert.equal(stripped, tail, `lost or kept too much: ${JSON.stringify(stripped)}`);
+            // A second pass must change nothing.
+            assert.equal(stripLeadingMentions(stripped), stripped);
+            checked += 1;
+          });
+        });
+      });
+    });
+    assert.ok(checked > 100, `expected a broad sweep, ran ${checked}`);
+  });
 });
 
 describe("parseMentionStatus", () => {

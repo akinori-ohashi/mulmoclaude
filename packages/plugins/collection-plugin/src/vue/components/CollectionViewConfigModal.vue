@@ -31,7 +31,7 @@
 
         <ul v-if="views.length > 0" class="flex flex-col gap-1">
           <li v-for="view in views" :key="view.id" class="flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
-            <span class="material-symbols-outlined text-base text-slate-400">{{ view.icon || "dashboard_customize" }}</span>
+            <span class="text-slate-400"><IconGlyph :icon="view.icon" fallback="dashboard_customize" size-class="text-base" /></span>
             <span class="flex-1 truncate text-sm font-semibold text-slate-700">{{ view.label }}</span>
             <button
               type="button"
@@ -55,16 +55,21 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import { IconGlyph } from "@mulmoclaude/core/plugin-vue";
 import { useCollectionI18n } from "../lang";
 import CollectionRecordModal from "./CollectionRecordModal.vue";
 import type { CollectionCustomView } from "@mulmoclaude/core/collection";
 import { errorMessage } from "@mulmoclaude/core/collection";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 
 const props = defineProps<{ slug: string; title: string; views: CollectionCustomView[] }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
 
 const { t } = useCollectionI18n();
+
+// Resolved in setup — `onDelete` runs outside it, where the card's scope can
+// no longer be injected.
+const cui = useCollectionUi();
 
 // The id of the view whose delete is in flight (disables the other buttons),
 // and the last delete error (HTTP or network), shown inline.
@@ -72,7 +77,7 @@ const deleting = ref<string | null>(null);
 const error = ref<string | null>(null);
 
 async function onDelete(view: CollectionCustomView): Promise<void> {
-  const ok = await collectionUi().confirm({
+  const ok = await cui.confirm({
     message: t("collectionsView.config.confirmDelete", { label: view.label }),
     confirmText: t("common.remove"),
     cancelText: t("common.cancel"),
@@ -82,7 +87,7 @@ async function onDelete(view: CollectionCustomView): Promise<void> {
   error.value = null;
   deleting.value = view.id;
   try {
-    const result = await collectionUi().deleteView(props.slug, view.id);
+    const result = await cui.deleteView(props.slug, view.id);
     if (!result.ok) {
       error.value = result.error;
       return;

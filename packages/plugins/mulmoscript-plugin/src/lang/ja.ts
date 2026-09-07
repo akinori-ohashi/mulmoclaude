@@ -2,6 +2,8 @@ import type { Messages } from "./messages";
 
 const ja: Messages = {
   beatCount: (count) => `${count} ビート`,
+  editTab: "編集",
+  mediaTab: "メディア",
   movie: "動画",
   generating: "生成中…",
   rendering: "レンダリング中…",

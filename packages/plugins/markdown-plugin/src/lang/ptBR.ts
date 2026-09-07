@@ -5,6 +5,7 @@ const ptBR: Messages = {
   loadFailed: "⚠ Falha ao carregar o documento: {error}",
   refreshFailed: "⚠ Falha ao atualizar o documento: {error} — exibindo o último conteúdo carregado com sucesso.",
   noContent: "Nenhum conteúdo Markdown disponível",
+  reload: "Recarregar do disco",
   pdf: "PDF",
   pdfFailedShort: "⚠ Falha no PDF",
   editSource: "Editar fonte Markdown",
@@ -26,6 +27,10 @@ const ptBR: Messages = {
   marpSplitEditorLabel: "Código",
   mermaidLoadFailed: "⚠ Falha ao carregar o Mermaid: {error}",
   mermaidRenderFailed: "⚠ Falha ao renderizar o Mermaid: {error}",
+  mathLoadFailed: "⚠ Falha ao carregar o MathJax: {error}",
+  mathRenderFailed: "⚠ Falha ao renderizar a fórmula: {error}",
+  bookmarkRailLabel: "Marcadores",
+  bookmarkJump: "Ir para o marcador: {label}",
 };
 
 export default ptBR;

@@ -17,8 +17,10 @@ import {
   DEFAULT_SERVER_PORT,
   describeRejection,
   parseServerPort,
+  resolveProxyTarget,
   resolveServerPort,
   serverOrigins,
+  type PortResolution,
 } from "../../scripts/lib/devServerPort.js";
 // The backend's own coercion and range, and the launcher's `.env` parser — the two
 // authorities this module borrows from instead of reimplementing.
@@ -219,10 +221,77 @@ describe("assertProxyablePort", () => {
 
 describe("serverOrigins", () => {
   it("builds both origins from one port, so the proxy entries cannot drift", () => {
-    assert.deepEqual(serverOrigins(3100), { http: "http://localhost:3100", ws: "ws://localhost:3100" });
+    assert.deepEqual(serverOrigins(3100), { http: "http://127.0.0.1:3100", ws: "ws://127.0.0.1:3100" });
   });
 
   it("keeps the default shape unchanged", () => {
-    assert.deepEqual(serverOrigins(DEFAULT_SERVER_PORT), { http: "http://localhost:3001", ws: "ws://localhost:3001" });
+    assert.deepEqual(serverOrigins(DEFAULT_SERVER_PORT), { http: "http://127.0.0.1:3001", ws: "ws://127.0.0.1:3001" });
+  });
+
+  // Not `localhost`. The backend binds the IPv4 loopback explicitly, while
+  // `localhost` resolves to `::1` first on a dual-stack host — usually harmless
+  // (refused, falls back to IPv4) but silently fatal when something else IS on
+  // `::1:<port>`, because the proxy connects there and never falls back.
+  // Observed while verifying #2981: an unrelated process on `*:3002` answered
+  // 404 through `localhost:3002` while this backend answered 200 through
+  // `127.0.0.1:3002`.
+  it("names the address the backend actually binds, not a name that may resolve elsewhere", () => {
+    Object.values(serverOrigins(3001)).forEach((origin) => {
+      assert.match(origin, /\/\/127\.0\.0\.1:/);
+      assert.doesNotMatch(origin, /localhost/);
+    });
+  });
+});
+
+// #2981 — the proxy FOLLOWS the port the backend actually bound.
+//
+// `PORT` says what the backend was asked for; `.server-port` says what it got.
+// Those differ exactly when the request could not be honoured, which is #2650:
+// an implicit default that was busy, walked forward by `server/index.ts` while
+// the client kept addressing the port nobody was on.
+describe("resolveProxyTarget", () => {
+  const envOnly = (port: number): PortResolution => ({ port, problems: [] });
+
+  it("a published port wins over what PORT asked for — that is the whole fix", () => {
+    assert.deepEqual(resolveProxyTarget("3002\n", envOnly(3001)), { port: 3002, source: "published" });
+  });
+
+  it("agreement resolves the same way, just attributed to the publish", () => {
+    assert.deepEqual(resolveProxyTarget("3001\n", envOnly(3001)), { port: 3001, source: "published" });
+  });
+
+  it("nothing published falls back to PORT — a client with no backend behind it", () => {
+    assert.deepEqual(resolveProxyTarget(null, envOnly(3001)), { port: 3001, source: "env" });
+  });
+
+  it("an unusable file falls back rather than resolving to NaN or 0", () => {
+    // An empty file, a half-finished write, a build too old to publish at all.
+    ["", "   ", "\n", "not-a-port", "0", "-1", "99999999"].forEach((raw) => {
+      assert.deepEqual(resolveProxyTarget(raw, envOnly(3001)), { port: 3001, source: "env" }, `expected "${raw}" to fall back`);
+    });
+  });
+
+  it("borrows the server's own coercion, so odd-but-valid spellings resolve alike", () => {
+    // `asInt` + PORT_RANGE is what the backend itself uses, so `0x1f`-style
+    // values must not be treated as ports here while the backend accepts them
+    // there (or vice versa).
+    const raw = "3100.0";
+    assert.deepEqual(resolveProxyTarget(raw, envOnly(3001)), { port: parseServerPort(raw).port ?? 3001, source: "published" });
+  });
+});
+
+describe("assertProxyablePort with a published target", () => {
+  const ephemeral = resolveServerPort({ processEnv: { PORT: "0" } });
+
+  it("still refuses PORT=0 when nothing published — the port is unknowable", () => {
+    assert.throws(() => assertProxyablePort(ephemeral, { port: 3001, source: "env" }), /OS-assigned port/);
+  });
+
+  it("allows PORT=0 once the backend has published — it is knowable now (#2981)", () => {
+    assert.doesNotThrow(() => assertProxyablePort(ephemeral, { port: 51234, source: "published" }));
+  });
+
+  it("keeps refusing when called without a target at all", () => {
+    assert.throws(() => assertProxyablePort(ephemeral), /OS-assigned port/);
   });
 });

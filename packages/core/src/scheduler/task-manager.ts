@@ -5,11 +5,10 @@
 // runs in sequence within one tick.
 
 import type { MinimalLogger } from "@mulmoclaude/common";
-import { SCHEDULE_TYPES } from "@receptron/task-scheduler";
+import { isScheduleDueAt, unfireableScheduleReason, type TaskSchedule } from "./schedule-window.js";
 
 const ONE_SECOND_MS = 1000;
 const ONE_MINUTE_MS = 60 * ONE_SECOND_MS;
-const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
 
 // Gap between the START of each independently-due task within one tick. When
 // many tasks come due at the same minute (system journal + feed-refresh + a few
@@ -43,7 +42,9 @@ export type SchedulerLogger = MinimalLogger;
 
 const NOOP_LOG: SchedulerLogger = { info: () => {}, warn: () => {}, error: () => {} };
 
-export type TaskSchedule = { type: typeof SCHEDULE_TYPES.interval; intervalMs: number } | { type: typeof SCHEDULE_TYPES.daily; time: string }; // time: "HH:MM" in UTC
+// Re-exported, not redefined: the schedule shape belongs with the window
+// arithmetic that interprets it, and hosts have always imported it from here.
+export type { TaskSchedule } from "./schedule-window.js";
 
 export interface TaskRunContext {
   taskId: string;
@@ -93,41 +94,7 @@ export interface TaskManagerOptions {
 }
 
 function isDue(now: Date, schedule: TaskSchedule, tickMs: number): boolean {
-  if (schedule.type === SCHEDULE_TYPES.interval) {
-    const msSinceMidnight = now.getUTCHours() * ONE_HOUR_MS + now.getUTCMinutes() * ONE_MINUTE_MS + now.getUTCSeconds() * ONE_SECOND_MS;
-    // Round down to tick boundary, then check if it aligns with the interval
-    const rounded = Math.floor(msSinceMidnight / tickMs) * tickMs;
-    return rounded % schedule.intervalMs === 0;
-  }
-
-  if (schedule.type === SCHEDULE_TYPES.daily) {
-    const targetMs = dailyTargetMs(schedule.time);
-    if (targetMs === null) return false;
-    const msSinceMidnight = now.getUTCHours() * ONE_HOUR_MS + now.getUTCMinutes() * ONE_MINUTE_MS + now.getUTCSeconds() * ONE_SECOND_MS;
-    const rounded = Math.floor(msSinceMidnight / tickMs) * tickMs;
-    return rounded === targetMs;
-  }
-
-  return false;
-}
-
-/** Milliseconds past UTC midnight for a `HH:MM` daily time, or null when the
- *  string isn't that shape. `TaskSchedule.time` is a bare `string` on a
- *  published package, so a host that skips its own validation must land on
- *  "never due" rather than on a garbage firing time. */
-function dailyTargetMs(time: string): number | null {
-  const [hours, minutes] = time.split(":").map(Number);
-  if (hours === undefined || minutes === undefined) return null;
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-  return hours * ONE_HOUR_MS + minutes * ONE_MINUTE_MS;
-}
-
-/** The `time` of a daily schedule this manager can never fire, or null when the
- *  schedule is fine. Returning the offending value (not a boolean) is what lets
- *  the caller name it in the log. */
-function unfireableDailyTime(schedule: TaskSchedule): string | null {
-  if (schedule.type !== SCHEDULE_TYPES.daily) return null;
-  return dailyTargetMs(schedule.time) === null ? schedule.time : null;
+  return isScheduleDueAt(schedule, now.getTime(), tickMs);
 }
 
 /** Say out loud that this schedule can never fire. The task is still accepted —
@@ -136,9 +103,9 @@ function unfireableDailyTime(schedule: TaskSchedule): string | null {
  *  evidence anywhere to start from (#2765). Deliberately not a throw: a
  *  consumer whose task has been quietly dead would get a boot crash instead. */
 function reportUnfireable(log: SchedulerLogger, taskId: string, schedule: TaskSchedule): void {
-  const time = unfireableDailyTime(schedule);
-  if (time === null) return;
-  log.error("daily time is not HH:MM — this task will never run", { id: taskId, time });
+  const reason = unfireableScheduleReason(schedule);
+  if (reason === null) return;
+  log.error(`schedule has an unusable ${reason.field} — this task will never run`, { id: taskId, [reason.field]: reason.value });
 }
 
 /** Split the due tasks into those that may run immediately and those gated

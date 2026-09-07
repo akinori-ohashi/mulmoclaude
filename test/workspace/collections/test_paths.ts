@@ -12,11 +12,12 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { isContainedInRoot, safeRecordId, safeSlugName } from "@mulmoclaude/core/collection/server";
+import { isContainedInRoot, isUnderRealRoot, safeRecordId, safeSlugName } from "@mulmoclaude/core/collection/server";
 
 let rootDir: string;
 let outsideDir: string;
@@ -31,6 +32,34 @@ afterEach(() => {
   rmSync(outsideDir, { recursive: true, force: true });
 });
 
+// #2972: `manageCollection` resolved the itemsFile with `fs/promises.realpath`
+// and then handed the result to `isContainedInRoot`, which canonicalises the
+// ROOT with `fs.realpathSync`. On Windows those two APIs disagree — the async
+// one expands an 8.3 short name (`C:\Users\RUNNER~1\…`, which is what
+// `os.tmpdir()` hands back on a GitHub runner) and the sync one does not — so
+// every file under the workspace compared as if it were outside it.
+//
+// The rule these tests pin is not "the APIs agree" (they need not) but
+// "whatever resolves the two sides must be the SAME function".
+describe("realpath canonicalisation is api-dependent", () => {
+  it("compares equal only when both sides come from the same resolver", async () => {
+    const file = path.join(rootDir, "rows.json");
+    writeFileSync(file, "[]");
+    const [syncRoot, syncFile, asyncRoot, asyncFile] = [realpathSync(rootDir), realpathSync(file), await realpath(rootDir), await realpath(file)];
+
+    assert.equal(isUnderRealRoot(syncFile, syncRoot), true, `sync/sync: ${syncFile} under ${syncRoot}`);
+    assert.equal(isUnderRealRoot(asyncFile, asyncRoot), true, `async/async: ${asyncFile} under ${asyncRoot}`);
+    // The mixed pairing is the defect. It happens to hold where the two APIs
+    // agree (POSIX), so this documents the requirement rather than asserting a
+    // platform: what must never happen is code that MIXES them.
+    assert.equal(
+      isUnderRealRoot(asyncFile, syncRoot),
+      asyncRoot === syncRoot,
+      `mixing resolvers is only safe while they agree — syncRoot=${syncRoot} asyncRoot=${asyncRoot}`,
+    );
+  });
+});
+
 describe("isContainedInRoot", () => {
   it("accepts a real subdirectory of the root", () => {
     const sub = path.join(rootDir, "data", "clients", "items");
@@ -43,6 +72,19 @@ describe("isContainedInRoot", () => {
     // yet, but its parent (workspace root) is real and contained.
     const sub = path.join(rootDir, "data", "clients", "items");
     assert.equal(isContainedInRoot(sub, rootDir), true);
+  });
+
+  // #2972: `manageCollection`'s `itemsFile` guard refuses a file the test wrote
+  // directly under its own `mkdtempSync` root — but only on Windows, where
+  // `os.tmpdir()` hands back the 8.3 short form (`C:\Users\RUNNER~1\...`).
+  // Every case above contains a DIRECTORY; this one contains a FILE, which is
+  // the shape that guard actually checks. The message names both realpaths so a
+  // failure says which side failed to canonicalise, rather than just "false".
+  it("accepts a FILE written directly under the root", () => {
+    const file = path.join(rootDir, "rows.json");
+    writeFileSync(file, "[]");
+    const detail = `root=${rootDir} rootReal=${realpathSync(rootDir)} file=${file} fileReal=${realpathSync(file)}`;
+    assert.equal(isContainedInRoot(file, rootDir), true, detail);
   });
 
   it("rejects a directory that IS a symlink pointing outside the root", () => {

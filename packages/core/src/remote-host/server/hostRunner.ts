@@ -38,39 +38,20 @@ import {
 } from "../index.js";
 import { stripUndefined, undefinedPaths, unexpectedPaths } from "./firestoreSafeResult.js";
 import { PRESENCE_STALE_BEATS, createPresenceBeat, type PresenceBeat } from "./presenceBeat.js";
+import { monotonicNowMs } from "./monotonicClock.js";
+// Listener retry policy: `../../firestore/listen.ts`. It is true of ANY
+// Firestore listener, and the shared-collection store has one too. Two copies
+// would drift SILENTLY — one subsystem retrying a revoked grant forever while
+// the other gives up on a network blip.
+import { backoffDelayMs, classifyListenerError, LISTEN_RETRY_WINDOW_MS, shouldGiveUpListening } from "../../firestore/listen.js";
 
 // Exported so a host that judges presence freshness from the outside (a probe that
 // reads the doc back) measures against the same beat the runner writes on.
 export const DEFAULT_HEARTBEAT_MS = 60_000;
 
-// Firestore listen errors worth re-subscribing for: network / backend blips, plus
-// `unauthenticated` — the SDK refreshes tokens on its own, so an expired one is
-// fixed by trying again, and stopping the host at the first expiry was far too
-// strong (#2633). Everything else — permission-denied and any unrecognized code —
-// is fatal: re-listening can't restore a revoked grant, and an open-ended retry on
-// an unknown code would loop forever. Retrying is bounded by LISTEN_RETRY_WINDOW_MS
-// either way, so even a doomed retry ends in an escalation rather than a spin.
-const TRANSIENT_LISTEN_ERROR_CODES = new Set(["aborted", "cancelled", "deadline-exceeded", "internal", "resource-exhausted", "unauthenticated", "unavailable"]);
-
-const listenErrorCode = (error: unknown): string => (isRecord(error) && typeof error.code === "string" ? error.code : "");
-
-export const classifyListenerError = (error: unknown): "transient" | "fatal" =>
-  TRANSIENT_LISTEN_ERROR_CODES.has(listenErrorCode(error)) ? "transient" : "fatal";
-
-const BASE_LISTEN_RETRY_MS = 1_000;
-const MAX_LISTEN_RETRY_MS = 30_000;
-// How long a listener may keep failing before the runner stops retrying in place
-// and escalates to the lifecycle owner (which can re-auth). Bounding this by a
-// RETRY COUNT instead made it ~31s of wall clock — shorter than any laptop sleep
-// or network move, after which the host never re-subscribed (#2633).
-export const LISTEN_RETRY_WINDOW_MS = 5 * 60_000;
-
-// The outage is measured from its first failure, not from the last attempt: a
-// backoff ladder that keeps failing must not extend its own deadline.
-export const shouldGiveUpListening = (downSinceMs: number, now: number, windowMs: number = LISTEN_RETRY_WINDOW_MS): boolean => now - downSinceMs >= windowMs;
-
-// Exponential backoff, capped: attempt 0 → 1s, 1 → 2s, … saturating at 30s.
-export const backoffDelayMs = (attempt: number): number => Math.min(MAX_LISTEN_RETRY_MS, BASE_LISTEN_RETRY_MS * 2 ** attempt);
+// Re-exported under their original names so this module's published surface —
+// which MulmoTerminal imports — is unchanged by the move.
+export { backoffDelayMs, classifyListenerError, LISTEN_RETRY_WINDOW_MS, shouldGiveUpListening };
 
 export interface HostEvent {
   phase: "received" | "done" | "error";
@@ -241,7 +222,8 @@ interface ListenerRun {
   retryTimer: ReturnType<typeof setTimeout> | null;
   attempt: number;
   // Start of the current outage, or null while healthy. `attempt` still drives the
-  // backoff ladder; only the give-up decision reads the clock.
+  // backoff ladder; only the give-up decision reads the clock — a MONOTONIC one, so
+  // a clock step cannot spend this window on its own.
   downSinceMs: number | null;
 }
 
@@ -250,6 +232,8 @@ interface ListenerRun {
 // orderBy("createdAt") because a Firestore orderBy silently EXCLUDES docs missing
 // the field, dropping every pre-offline-queue command.
 const dispatchAddedCommands = (ctx: RunnerContext, snapshot: QuerySnapshot): void => {
+  // Wall clock on purpose, unlike the outage timers below: this is compared with a
+  // command's `expiresAt`, which the phone stamped from its own clock.
   const now = Date.now();
   snapshot
     .docChanges()
@@ -281,7 +265,7 @@ function scheduleResubscribe(run: ListenerRun): void {
 function handleListenError(run: ListenerRun, error: FirestoreError): void {
   run.ctx.options.onEvent?.({ phase: "error", method: "listen", message: error.message });
   if (run.stopped) return;
-  const now = Date.now();
+  const now = monotonicNowMs();
   run.downSinceMs ??= now;
   if (classifyListenerError(error) === "fatal" || shouldGiveUpListening(run.downSinceMs, now)) {
     run.goOffline();
@@ -339,8 +323,8 @@ export const presenceStaleAfterMs = (options: HostRunnerOptions = {}): number =>
 
 // Advertise online/offline + the capability set (method names + protocol version)
 // on the same doc the remote already listens to for presence, and watch whether
-// those writes are landing — see presenceBeat.ts for why the sensor is the age of
-// the last acknowledgement rather than a count of failures.
+// those writes are landing — see presenceBeat.ts for why the sensor counts the
+// beats that ran rather than the time that passed.
 const buildPresenceBeat = (
   firestore: Firestore,
   channel: Channel,
@@ -354,10 +338,10 @@ const buildPresenceBeat = (
     write: (online) => setDoc(presence, { ...buildHostPresence(channel, handlers, online), updatedAt: serverTimestamp() }),
     onError: (message) => report(`presence write failed: ${message}`),
     onStale: (silentMs) => {
-      report(`no presence write acknowledged for ${Math.round(silentMs / 1_000)}s — the remote cannot see this host`);
+      report(`no presence write acknowledged across ${PRESENCE_STALE_BEATS} beats (${Math.round(silentMs / 1_000)}s) — the remote cannot see this host`);
       onStale();
     },
-    staleAfterMs: presenceStaleAfterMs(options),
+    staleAfterBeats: PRESENCE_STALE_BEATS,
   });
 };
 

@@ -2,6 +2,8 @@ import type { Messages } from "./messages";
 
 const ko: Messages = {
   beatCount: (count) => `${count}개 비트`,
+  editTab: "편집",
+  mediaTab: "미디어",
   movie: "영상",
   generating: "생성 중…",
   rendering: "렌더링 중…",

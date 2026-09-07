@@ -51,7 +51,7 @@
           @keydown.space.self.prevent="open(feed.slug)"
         >
           <div class="h-12 w-12 flex items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100/50">
-            <span class="material-symbols-outlined text-2xl">{{ feed.icon || "dynamic_feed" }}</span>
+            <IconGlyph :icon="feed.icon" fallback="dynamic_feed" size-class="text-2xl" />
           </div>
 
           <div class="flex-1 min-w-0">
@@ -62,7 +62,7 @@
             </span>
           </div>
 
-          <component :is="pinToggle" kind="feed" :slug="feed.slug" :title="feed.title" :icon="feed.icon || 'dynamic_feed'" />
+          <component :is="pinToggle" kind="feed" :slug="feed.slug" :title="feed.title" :icon="feed.icon || 'dynamic_feed'" :color="feed.color" />
 
           <button
             type="button"
@@ -116,13 +116,15 @@
 
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from "vue";
+import { IconGlyph } from "@mulmoclaude/core/plugin-vue";
+import { toShortcutInfo } from "@mulmoclaude/core/collection";
 import { useCollectionI18n } from "../lang";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 import type { FeedSummary } from "@mulmoclaude/core/collection";
 
 const { t } = useCollectionI18n();
 // Host couplings (list/refresh/navigate/chat/shortcuts/pin) via the binding.
-const cui = collectionUi();
+const cui = useCollectionUi();
 const { pinToggle, reconcileShortcuts } = cui;
 
 const feeds = ref<FeedSummary[]>([]);
@@ -152,7 +154,7 @@ async function load(): Promise<void> {
   // prune dead slugs, refresh stale titles/icons, self-heal the file.
   void reconcileShortcuts(
     "feed",
-    feeds.value.map((feed) => ({ slug: feed.slug, title: feed.title, icon: feed.icon || "dynamic_feed" })),
+    feeds.value.map((feed) => toShortcutInfo(feed, "dynamic_feed")),
   );
 }
 

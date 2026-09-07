@@ -115,7 +115,12 @@ export const describeRejection = (reason: PortRejection): string =>
  * Only the dev server cares: `PORT` means nothing to `vite build`, so the caller
  * applies this on `serve` alone.
  */
-export const assertProxyablePort = (resolution: PortResolution): void => {
+export const assertProxyablePort = (resolution: PortResolution, target?: ProxyTarget): void => {
+  // A published port is knowable by definition — the backend is on it and said
+  // so — which is what makes `PORT=0` usable now (#2981). The refusal below is
+  // for the case it was written for: nothing published, so the proxy would fall
+  // through to `:3001` and quietly reach whatever else is there.
+  if (target?.source === "published") return;
   const ephemeral = resolution.problems.find((problem) => problem.reason === "ephemeral");
   if (!ephemeral) return;
   throw new Error(
@@ -125,8 +130,65 @@ export const assertProxyablePort = (resolution: PortResolution): void => {
   );
 };
 
-/** The proxy targets, built from one port so the five entries cannot drift apart. */
+/** Where the proxy target came from. `published` means the backend told us. */
+export type ProxyTargetSource = "published" | "env";
+
+export interface ProxyTarget {
+  port: number;
+  source: ProxyTargetSource;
+}
+
+/**
+ * The backend writes a bare integer plus a newline. Anything else — an empty
+ * file, a half-finished write, a build too old to publish at all — is not a
+ * port and must fall back rather than resolve to `NaN` or `0`.
+ *
+ * `parseServerPort` rather than a numeric check written here: the same rule that
+ * decides what the backend would accept decides what counts as a published port,
+ * which is this module's whole reason for existing. It already returns `null`
+ * for both unusable text and `0`.
+ */
+export const parsePublishedPort = (raw: string | null): number | null => {
+  if (raw === null) return null;
+  return parseServerPort(raw.trim()).port;
+};
+
+/**
+ * The port the dev proxy should address (#2981).
+ *
+ * `PORT` says what the backend was ASKED for; `.server-port` says what it
+ * actually bound. Those differ exactly when the request could not be honoured —
+ * an implicit default that was busy, which `server/index.ts` deliberately walks
+ * forward from — and that gap is #2650: the client kept addressing the port
+ * nobody was on.
+ *
+ * So the published value wins whenever there is one. It is not a heuristic: the
+ * backend writes it after `app.listen` with the port it is actually serving, and
+ * `yarn dev` clears the file before either pane starts so a leftover cannot be
+ * mistaken for this run's. `PORT` remains the answer only when nothing has been
+ * published — a client started without a backend, or one that never came up.
+ */
+export const resolveProxyTarget = (publishedRaw: string | null, resolution: PortResolution): ProxyTarget => {
+  const published = parsePublishedPort(publishedRaw);
+  if (published !== null) return { port: published, source: "published" };
+  return { port: resolution.port, source: "env" };
+};
+
+
+/**
+ * The proxy targets, built from one port so the five entries cannot drift apart.
+ *
+ * `127.0.0.1`, not `localhost`: the backend binds the IPv4 loopback explicitly
+ * (`app.listen(port, "127.0.0.1")`), while `localhost` resolves to `::1` first
+ * on a dual-stack host. Usually that still works — nothing holds `::1:3001`, the
+ * connection is refused and Node falls back to IPv4 — but when something IS
+ * there, the proxy connects to it and never falls back, so the client silently
+ * talks to a different server on the same port number. Observed while verifying
+ * #2981: with an unrelated process on `*:3002` and this backend on
+ * `127.0.0.1:3002`, `localhost:3002` answered 404 and `127.0.0.1:3002` answered
+ * 200. Naming the address the backend actually bound removes the ambiguity.
+ */
 export const serverOrigins = (port: number): { http: string; ws: string } => ({
-  http: `http://localhost:${port}`,
-  ws: `ws://localhost:${port}`,
+  http: `http://127.0.0.1:${port}`,
+  ws: `ws://127.0.0.1:${port}`,
 });

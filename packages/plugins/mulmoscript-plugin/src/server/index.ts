@@ -27,5 +27,5 @@ export {
 } from "./ops";
 export { createMulmoScriptDispatchHandler, type MulmoScriptDispatchHandler } from "./dispatch";
 export { withMulmoErrorCapture, enableGraphAIErrorCapture, composeMulmoErrorMessage, describeMulmoCause } from "./mulmoErrorCapture";
-export { GENERATION_EVENT, type MulmoScriptGenerationEvent } from "../core/contract";
+export { GENERATION_EVENT, SCRIPT_CHANGED_EVENT, type MulmoScriptChangedEvent, type MulmoScriptGenerationEvent } from "../core/contract";
 export { executeMulmoScriptSave, executeUpdateBeat, executeUpdateScript, type MulmoScriptFailure } from "../core/plugin";

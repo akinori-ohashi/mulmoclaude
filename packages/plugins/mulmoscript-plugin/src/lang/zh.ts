@@ -2,6 +2,8 @@ import type { Messages } from "./messages";
 
 const zh: Messages = {
   beatCount: (count) => `${count} 个 beat`,
+  editTab: "编辑",
+  mediaTab: "媒体",
   movie: "视频",
   generating: "生成中…",
   rendering: "渲染中…",

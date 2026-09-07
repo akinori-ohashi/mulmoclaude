@@ -39,6 +39,13 @@ export interface AgentInput {
   /** In-memory source config for backends that accept MCP settings over
    *  their protocol instead of reading Claude's --mcp-config file. */
   mcpConfig?: { mcpServers: Record<string, unknown> } | undefined;
+  /** HOST-side path of the broker's start marker (#2842). The broker writes it
+   *  through its own (container) path; a backend that spawns the broker reads
+   *  this one to tell "the process launched" from "it never did". */
+  startMarkerPath?: string | undefined;
+  /** Identity of the broker this turn spawns. The marker must contain it, so a
+   *  file merely pre-created at that path does not read as a broker. */
+  spawnId?: string | undefined;
   /** Extra allowed-tool names from settings + user MCP servers. */
   extraAllowedTools: string[];
   /** Reasoning effort from settings (#1323). Undefined → flag omitted. */

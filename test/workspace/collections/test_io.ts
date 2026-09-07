@@ -37,7 +37,7 @@ import type { CollectionSchema } from "../../../server/workspace/collections/typ
 // `configureCollectionHost` is a no-op if called again with the same object,
 // which keeps re-runs idempotent.
 const TEST_HOST_PATHS = {
-  userSkillsDir: "/dev/null/.claude/skills",
+  userSkillsDir: () => "/dev/null/.claude/skills",
   projectSkillsDir: (root: string) => path.join(root, ".claude", "skills"),
   feedsRoot: (root: string) => path.join(root, "feeds"),
   skillsStagingDir: (root: string) => path.join(root, "data", "skills"),
@@ -163,9 +163,22 @@ describe("readCustomViewHtml — source-aware base + import fallback", () => {
   //   - IMPORTED via the discover panel (rename-on-conflict): everything,
   //     views included, lands in <workspace>/.claude/skills/<slug>/views/
   //     with NO staging-dir mirror — this is what 404'd before the fallback.
+  //
+  // The two shapes are told apart by the STAGED SLUG'S OWN schema.json, so a
+  // fixture that stages a view has to stage the schema beside it or it is not
+  // the authoring layout — it is the stale-leftover shape (#3031).
   const slug = "movies-2";
   const viewFile = "views/cinema.html";
   const html = "<!doctype html><body>cinema</body>";
+
+  /** The staging tree the authoring layout actually produces: `putSchema` writes
+   *  schema.json, and the view HTML sits beside it. */
+  function stageView(body: string) {
+    const stagingDir = path.join(workdir, "data", "skills", slug);
+    mkdirSync(path.join(stagingDir, "views"), { recursive: true });
+    writeFileSync(path.join(stagingDir, "schema.json"), JSON.stringify({ title: slug, primaryKey: "id" }));
+    writeFileSync(path.join(stagingDir, "views", "cinema.html"), body);
+  }
 
   function authoredProjectCollection() {
     return { slug, source: "project" as const, skillDir: path.join(workdir, ".claude", "skills", slug) };
@@ -176,9 +189,7 @@ describe("readCustomViewHtml — source-aware base + import fallback", () => {
   }
 
   it("reads project views from the staging dir (authoring layout)", async () => {
-    const stagingViews = path.join(workdir, "data", "skills", slug, "views");
-    mkdirSync(stagingViews, { recursive: true });
-    writeFileSync(path.join(stagingViews, "cinema.html"), html);
+    stageView(html);
     const result = await readCustomViewHtml(authoredProjectCollection(), viewFile, { workspaceRoot: workdir });
     assert.equal(result, html);
   });
@@ -193,14 +204,28 @@ describe("readCustomViewHtml — source-aware base + import fallback", () => {
   });
 
   it("prefers the staging-dir copy over the skillDir copy when both exist", async () => {
+    const skillViews = path.join(workdir, ".claude", "skills", slug, "views");
+    mkdirSync(skillViews, { recursive: true });
+    writeFileSync(path.join(skillViews, "cinema.html"), "SKILL");
+    stageView("STAGING");
+    const result = await readCustomViewHtml(authoredProjectCollection(), viewFile, { workspaceRoot: workdir });
+    assert.equal(result, "STAGING", "staging dir (the authoring path) wins when present");
+  });
+
+  // #3031. A staged workspace also holds imported and directly-committed
+  // collections, and `stagingSkillDir` said "staged" for every one of them
+  // because it only knew the ROOT had a staging tree. A leftover view under a
+  // slug that was never staged then won on every read — silently, and against
+  // the copy the repository actually commits.
+  it("ignores a staging view for a slug that has no staged schema", async () => {
     const stagingViews = path.join(workdir, "data", "skills", slug, "views");
     const skillViews = path.join(workdir, ".claude", "skills", slug, "views");
     mkdirSync(stagingViews, { recursive: true });
     mkdirSync(skillViews, { recursive: true });
-    writeFileSync(path.join(stagingViews, "cinema.html"), "STAGING");
-    writeFileSync(path.join(skillViews, "cinema.html"), "SKILL");
+    writeFileSync(path.join(stagingViews, "cinema.html"), "STALE STAGED");
+    writeFileSync(path.join(skillViews, "cinema.html"), "COMMITTED");
     const result = await readCustomViewHtml(authoredProjectCollection(), viewFile, { workspaceRoot: workdir });
-    assert.equal(result, "STAGING", "staging dir (the authoring path) wins when present");
+    assert.equal(result, "COMMITTED", "a slug with no staged schema.json is not staged");
   });
 
   it("returns null when the view is absent from both bases", async () => {
@@ -252,8 +277,18 @@ describe("readCustomViewI18n — locale pick + source-aware fallback", () => {
     writeFileSync(path.join(dir, "cinema.i18n.json"), JSON.stringify(body));
   }
 
+  /** The staging tree the authoring layout actually produces — the slug's own
+   *  schema.json beside the dict. Without it the tree is the stale-leftover
+   *  shape, which the staging base deliberately no longer covers (#3031). */
+  function stageI18n(body: unknown) {
+    const stagingDir = path.join(workdir, "data", "skills", slug);
+    mkdirSync(stagingDir, { recursive: true });
+    writeFileSync(path.join(stagingDir, "schema.json"), JSON.stringify({ title: slug, primaryKey: "id" }));
+    writeI18nFile(stagingDir, body);
+  }
+
   it("returns only the requested locale's strings (staging dir, project authored)", async () => {
-    writeI18nFile(path.join(workdir, "data", "skills", slug), dictDoc);
+    stageI18n(dictDoc);
     const result = await readCustomViewI18n(authoredProjectCollection(), i18nFile, "ja", { workspaceRoot: workdir });
     assert.equal(result.locale, "ja");
     assert.deepEqual(result.dict, dictDoc.ja);
@@ -267,14 +302,14 @@ describe("readCustomViewI18n — locale pick + source-aware fallback", () => {
   });
 
   it("falls back to the en block when the requested locale is absent", async () => {
-    writeI18nFile(path.join(workdir, "data", "skills", slug), dictDoc);
+    stageI18n(dictDoc);
     const result = await readCustomViewI18n(authoredProjectCollection(), i18nFile, "de", { workspaceRoot: workdir });
     assert.equal(result.locale, "en");
     assert.deepEqual(result.dict, dictDoc.en);
   });
 
   it("returns empty (no en, no requested locale) when neither block exists", async () => {
-    writeI18nFile(path.join(workdir, "data", "skills", slug), { fr: { only: "fr" } });
+    stageI18n({ fr: { only: "fr" } });
     const result = await readCustomViewI18n(authoredProjectCollection(), i18nFile, "ja", { workspaceRoot: workdir });
     assert.equal(result.locale, "");
     assert.deepEqual(result.dict, {});
@@ -287,16 +322,17 @@ describe("readCustomViewI18n — locale pick + source-aware fallback", () => {
   });
 
   it("returns empty on malformed JSON (no throw — the view must keep rendering)", async () => {
-    const dir = path.join(workdir, "data", "skills", slug, "views");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(path.join(dir, "cinema.i18n.json"), "not json {");
+    const stagingDir = path.join(workdir, "data", "skills", slug);
+    mkdirSync(path.join(stagingDir, "views"), { recursive: true });
+    writeFileSync(path.join(stagingDir, "schema.json"), JSON.stringify({ title: slug, primaryKey: "id" }));
+    writeFileSync(path.join(stagingDir, "views", "cinema.i18n.json"), "not json {");
     const result = await readCustomViewI18n(authoredProjectCollection(), i18nFile, "ja", { workspaceRoot: workdir });
     assert.equal(result.locale, "");
     assert.deepEqual(result.dict, {});
   });
 
   it("drops non-string values from the picked locale block (contract: flat string map)", async () => {
-    writeI18nFile(path.join(workdir, "data", "skills", slug), { ja: { greeting: "こんにちは", count: 5, nested: { x: 1 } } });
+    stageI18n({ ja: { greeting: "こんにちは", count: 5, nested: { x: 1 } } });
     const result = await readCustomViewI18n(authoredProjectCollection(), i18nFile, "ja", { workspaceRoot: workdir });
     assert.equal(result.locale, "ja");
     assert.deepEqual(result.dict, { greeting: "こんにちは" });
@@ -308,7 +344,7 @@ describe("readCustomViewI18n — locale pick + source-aware fallback", () => {
     // strings"; the fallback arm must symmetrically refuse to report `"en"`
     // when there's nothing to deliver. Reporting `{ locale: "en", dict: {} }`
     // would mislead the iframe into thinking English is available.
-    writeI18nFile(path.join(workdir, "data", "skills", slug), { en: { count: 5, nested: { x: 1 } } });
+    stageI18n({ en: { count: 5, nested: { x: 1 } } });
     const result = await readCustomViewI18n(authoredProjectCollection(), i18nFile, "ja", { workspaceRoot: workdir });
     assert.equal(result.locale, "");
     assert.deepEqual(result.dict, {});
@@ -488,11 +524,15 @@ describe("writeItem / deleteItem — change publishing", () => {
   // never leaks into another test (or into the rest of the suite).
   afterEach(() => setCollectionChangePublisher(null));
 
-  it("publishes an upsert (slug + id) after a successful write", async () => {
+  // These calls pass `workspaceRoot: workdir` explicitly, so the payload carries
+  // `root` — the multi-root field a host keys its live-update fan-out on. The
+  // app itself passes no root and its payloads stay root-less; that shape is
+  // pinned in packages/core's `test_changePayloadBackCompat.ts`.
+  it("publishes an upsert (slug + id + root) after a successful write", async () => {
     const events: CollectionChangePayload[] = [];
     setCollectionChangePublisher((payload) => events.push(payload));
     await writeItem(dataDir, "rec-1", { id: "rec-1" }, { workspaceRoot: workdir, slug: "clients" });
-    assert.deepEqual(events, [{ slug: "clients", ids: ["rec-1"], op: "upsert" }]);
+    assert.deepEqual(events, [{ slug: "clients", ids: ["rec-1"], op: "upsert", root: workdir }]);
   });
 
   it("publishes a delete after a successful delete", async () => {
@@ -500,7 +540,7 @@ describe("writeItem / deleteItem — change publishing", () => {
     const events: CollectionChangePayload[] = [];
     setCollectionChangePublisher((payload) => events.push(payload));
     await deleteItem(dataDir, "rec-1", { workspaceRoot: workdir, slug: "clients" });
-    assert.deepEqual(events, [{ slug: "clients", ids: ["rec-1"], op: "delete" }]);
+    assert.deepEqual(events, [{ slug: "clients", ids: ["rec-1"], op: "delete", root: workdir }]);
   });
 
   it("does NOT publish when no slug is supplied (internal / test writes stay silent)", async () => {

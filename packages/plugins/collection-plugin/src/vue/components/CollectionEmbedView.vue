@@ -41,6 +41,12 @@
     </div>
   </a>
 
+  <!-- Unset: an optional `idField` whose value is empty, which the schema
+       contract resolves fail-soft to "no record" — nothing is broken, so it
+       reads as an empty field, not as the dangling reference below. -->
+  <!-- eslint-disable-next-line @intlify/vue-i18n/no-raw-text -- bare "—" empty-value glyph, same treatment as the other read-only detail branches. -->
+  <span v-else-if="!view.recordId" class="text-slate-300" :data-testid="`collections-embed-unset-${fieldKey}`">—</span>
+
   <div v-else class="relative rounded-xl border border-red-100 bg-red-50/30 p-4 pl-5 shadow-sm" :data-testid="`collections-embed-${fieldKey}`">
     <!-- Left Accent Stripe for Error/Missing -->
     <div class="absolute left-0 top-0 bottom-0 w-1 bg-red-400 rounded-l-xl"></div>
@@ -75,14 +81,18 @@
 // `<router-link>`, so a router-less host (e.g. MulmoTerminal) can map it to its
 // own view state. Translation keys resolve through the plugin's own
 // `useCollectionI18n()` instance (self-contained); a host only feeds the active
-// locale via `collectionUi().localeTag()`.
+// locale via `useCollectionUi().localeTag()`.
 import { useCollectionI18n } from "../lang";
-import { collectionUi } from "../uiContext";
-import { activateRefLink } from "../refLink";
+import { useCollectionUi } from "../scopedUi";
+import { useRefLinkActivators } from "../refLink";
 import type { EmbedView } from "@mulmoclaude/core/collection";
+
+// Link activation resolves the binding at click time, so a scoped card's plain
+// clicks navigate in the card's project — like the `href` beside them.
+const { activateRefLink } = useRefLinkActivators();
 
 defineProps<{ view: EmbedView; fieldKey: string }>();
 
 const { t } = useCollectionI18n();
-const cui = collectionUi();
+const cui = useCollectionUi();
 </script>

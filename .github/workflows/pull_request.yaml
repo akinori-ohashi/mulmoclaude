@@ -41,7 +41,7 @@ jobs:
     outputs:
       run_e2e: ${{ steps.filter.outputs.run_e2e }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false  # no git push; zizmor artipacked
@@ -66,18 +66,31 @@ jobs:
   # is covered daily and on every main push instead.
   lint_test:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # 30, not 20: the macOS cells sit far closer to the cap than ubuntu.
+    # Over 60 runs the macOS p90 was 18.0-19.3 min against a 20 min cap
+    # (ubuntu p90 13.9-15.5), and 5 of those runs had a macOS cell killed
+    # at exactly 20 min while every ubuntu sibling passed. Runner speed
+    # also drifts day to day - on 2026-08-28 the macOS median was 17.7.
+    # A lockfile-touching PR is the worst case: setup-node's yarn cache
+    # and the packages/dist cache below both key on the lockfile with no
+    # restore-key, so a dep bump pays a cold install AND a cold
+    # build:packages (#3005: 42s -> 2m26s and 1m11s -> 2m25s). The
+    # puppeteer cache has a restore-key and stays warm, so it is not part
+    # of this. 30 matches the Windows sibling job. A cap is a runaway
+    # guard, not a perf budget - raising it costs nothing on a healthy
+    # run. (#3007)
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         node-version: [22.x, 24.x]
         os: [ubuntu-latest, macos-latest]
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         persist-credentials: false  # no git push; zizmor artipacked
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v7
       with:
         node-version: ${{ matrix.node-version }}
         cache: yarn
@@ -90,7 +103,7 @@ jobs:
     # restore-keys lets an unrelated lockfile change still land on a warm
     # browser (postinstall re-downloads only if the pinned revision differs).
     - name: Cache puppeteer browsers
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: ~/.cache/puppeteer
         key: puppeteer-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
@@ -105,14 +118,14 @@ jobs:
     # version because emitted JS can differ across them.
     - name: Cache packages/dist
       id: pkg-dist-cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           packages/*/dist
           packages/bridges/*/dist
           packages/plugins/*/dist
           packages/services/*/dist
-        key: pkg-dist-${{ runner.os }}-${{ matrix.node-version }}-${{ hashFiles('packages/*/src/**', 'packages/*/tsconfig.json', 'packages/*/package.json', 'packages/bridges/*/src/**', 'packages/bridges/*/tsconfig.json', 'packages/bridges/*/package.json', 'packages/plugins/*/src/**', 'packages/plugins/*/tsconfig.json', 'packages/plugins/*/package.json', 'packages/services/*/src/**', 'packages/services/*/tsconfig.json', 'packages/services/*/package.json', 'config/tsconfig.packages.json', 'yarn.lock', 'package.json') }}
+        key: pkg-dist-${{ runner.os }}-${{ matrix.node-version }}-${{ hashFiles('packages/*/src/**', 'packages/*/tsconfig.json', 'packages/*/package.json', 'packages/bridges/*/src/**', 'packages/bridges/*/tsconfig.json', 'packages/bridges/*/package.json', 'packages/plugins/*/src/**', 'packages/plugins/*/tsconfig.json', 'packages/plugins/*/package.json', 'packages/services/*/src/**', 'packages/services/*/tsconfig.json', 'packages/services/*/package.json', 'build-config/tsconfig.packages.json', 'yarn.lock', 'package.json') }}
     - name: Build internal packages (required before typecheck)
       if: steps.pkg-dist-cache.outputs.cache-hit != 'true'
       run: yarn build:packages
@@ -130,6 +143,17 @@ jobs:
     # this catches drift at PR time before it reaches an `npx
     # mulmoclaude` user.
     - run: yarn run check:launcher-sync
+    # #2967: a help file moved to packages/core/assets/ and a manifest was
+    # deleted, and the docs kept linking at the old paths for months — the
+    # link still READS fine, so only a reader who clicks finds out. It took an
+    # outside contributor to notice. Cheap to check, so check it every PR.
+    - run: yarn run check:doc-links
+    # #2989: a plugin's Tailwind build scans only its own package, so classes
+    # declared in core (the shared enum palette) dropped out of the plugin's
+    # dist/style.css while the host app kept rendering them — invisible unless
+    # you load the plugin AS a package. The fix is one `@source` line; this is
+    # what makes the next shared palette fail loudly instead of silently.
+    - run: yarn run check:plugin-css
     - run: yarn run build
     # Bundle integrity: `yarn build` regenerates committed esbuild
     # artifacts (`server/workspace/wiki-history/hook/snapshot.mjs`
@@ -162,10 +186,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false  # no git push; zizmor artipacked
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24.x
       - name: Enable Yarn 4 via Corepack
@@ -217,11 +241,11 @@ jobs:
       matrix:
         shard: [1, 2]
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         persist-credentials: false  # no git push; zizmor artipacked
     - name: Use Node.js 22.x
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v7
       with:
         node-version: 22.x
         cache: 'yarn'
@@ -231,14 +255,14 @@ jobs:
     # finishes building first warms the cache for the other.
     - name: Cache packages/dist
       id: pkg-dist-cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           packages/*/dist
           packages/bridges/*/dist
           packages/plugins/*/dist
           packages/services/*/dist
-        key: pkg-dist-${{ runner.os }}-22.x-${{ hashFiles('packages/*/src/**', 'packages/*/tsconfig.json', 'packages/*/package.json', 'packages/bridges/*/src/**', 'packages/bridges/*/tsconfig.json', 'packages/bridges/*/package.json', 'packages/plugins/*/src/**', 'packages/plugins/*/tsconfig.json', 'packages/plugins/*/package.json', 'packages/services/*/src/**', 'packages/services/*/tsconfig.json', 'packages/services/*/package.json', 'config/tsconfig.packages.json', 'yarn.lock') }}
+        key: pkg-dist-${{ runner.os }}-22.x-${{ hashFiles('packages/*/src/**', 'packages/*/tsconfig.json', 'packages/*/package.json', 'packages/bridges/*/src/**', 'packages/bridges/*/tsconfig.json', 'packages/bridges/*/package.json', 'packages/plugins/*/src/**', 'packages/plugins/*/tsconfig.json', 'packages/plugins/*/package.json', 'packages/services/*/src/**', 'packages/services/*/tsconfig.json', 'packages/services/*/package.json', 'build-config/tsconfig.packages.json', 'yarn.lock', 'package.json') }}
     - name: Build internal packages
       if: steps.pkg-dist-cache.outputs.cache-hit != 'true'
       run: yarn build:packages
@@ -255,7 +279,7 @@ jobs:
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
     - name: Cache Playwright browsers
       id: playwright-cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}

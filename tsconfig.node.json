@@ -15,5 +15,5 @@
   },
   // `vite.config.ts` alone left the modules it imports outside the project, so
   // they were type-checked by nothing (TS6307 the moment `strict` went on).
-  "include": ["vite.config.ts", "scripts/lib/**/*.ts", "server/utils/envCoerce.ts"]
+  "include": ["vite.config.ts", "scripts/lib/**/*.ts", "scripts/wait-for-backend.ts", "server/utils/envCoerce.ts"]
 }

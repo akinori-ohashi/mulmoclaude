@@ -25,6 +25,7 @@ import WebSocket from "ws";
 import { createBridgeClient, chunkText, formatAckReply, frameText } from "@mulmobridge/client";
 import { isRecord, parseCsvSet } from "@mulmoclaude/common";
 import { parseNotificationRaw, parseFrame, type JsonRecord, type ParsedStatus } from "./parse.js";
+import { fitBudget, hasRelayableContent, imageMediaEntries, isLostImagesOnly, resolveMessageText, type ImageMedia } from "./media.js";
 import { resolvePublicUrl } from "./urlGuard.js";
 
 const TRANSPORT_ID = "mastodon";
@@ -170,15 +171,16 @@ async function fetchImageAttachment(rawUrl: string): Promise<MulmoAttachment | n
   }
 }
 
-async function collectImageAttachments(media: unknown): Promise<MulmoAttachment[]> {
-  if (!Array.isArray(media)) return [];
+async function collectImageAttachments(media: ImageMedia[]): Promise<MulmoAttachment[]> {
   const out: MulmoAttachment[] = [];
   for (const item of media) {
-    if (!isRecord(item) || item.type !== "image" || typeof item.url !== "string") continue;
     const att = await fetchImageAttachment(item.url);
     if (att) out.push(att);
   }
-  return out;
+  // Four images at the 8 MB cap are 42 MB of base64 — past both the
+  // server's attachment budget and the socket frame. Trim here so the
+  // caller can count what was left out.
+  return fitBudget(out);
 }
 
 // ── Notification handling ───────────────────────────────────────
@@ -203,18 +205,32 @@ async function handleNotification(raw: string): Promise<void> {
     return;
   }
 
-  // Collect attachments first so image-only DMs (no caption) still flow through.
-  const attachments = await collectImageAttachments(parsed.media);
-  if (!parsed.text && attachments.length === 0) return;
-
-  console.log(`[mastodon] message from=${parsed.senderAcct} len=${parsed.text.length} attachments=${attachments.length}`);
+  // Images are looked at before the empty-body check so an image-only
+  // DM (no caption) still flows through.
+  const media = imageMediaEntries(parsed.media);
+  if (!hasRelayableContent(parsed.text, media.length)) return;
 
   try {
-    const ack = await mulmo.send(parsed.senderAcct, parsed.text, attachments.length > 0 ? attachments : undefined);
-    await postStatus(parsed.senderAcct, formatAckReply(ack), parsed.statusId, parsed.visibility);
+    await relayStatus(parsed, media);
   } catch (err) {
     console.error(`[mastodon] message handling failed: ${err}`);
   }
+}
+
+async function relayStatus(parsed: ParsedStatus, media: ImageMedia[]): Promise<void> {
+  const attachments = await collectImageAttachments(media);
+  const dropped = media.length - attachments.length;
+  console.log(`[mastodon] message from=${parsed.senderAcct} len=${parsed.text.length} attachments=${attachments.length} dropped=${dropped}`);
+
+  // Nothing survived on an image-only DM: say so, rather than relaying a
+  // prompt about an image the agent never receives.
+  if (isLostImagesOnly(parsed.text, attachments.length)) {
+    await postStatus(parsed.senderAcct, "Sorry, I could not download that image. Please try again.", parsed.statusId, parsed.visibility);
+    return;
+  }
+
+  const ack = await mulmo.send(parsed.senderAcct, resolveMessageText(parsed.text, dropped), attachments.length > 0 ? attachments : undefined);
+  await postStatus(parsed.senderAcct, formatAckReply(ack), parsed.statusId, parsed.visibility);
 }
 
 // ── WebSocket stream ────────────────────────────────────────────

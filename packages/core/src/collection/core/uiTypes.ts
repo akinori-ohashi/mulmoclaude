@@ -153,6 +153,9 @@ export interface FeedSummary {
   slug: string;
   title: string;
   icon: string;
+  /** Optional accent colour name (see `ACCENT_COLORS`), drawn as a pale chip
+   *  behind the launcher glyph. Absent when the schema names none. */
+  color?: string;
   kind: string;
   schedule: string;
   lastFetchedAt: string | null;
@@ -169,4 +172,7 @@ export interface CollectionShortcutInfo {
   slug: string;
   title: string;
   icon: string;
+  /** Optional accent colour name (see `ACCENT_COLORS`), drawn as a pale chip
+   *  behind the launcher glyph. Absent when the schema names none. */
+  color?: string;
 }

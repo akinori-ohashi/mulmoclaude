@@ -4,7 +4,7 @@ import {
   beatMayHaveMovie,
   clearReactiveRecords,
   getMissingCharacterKeys,
-  isAllSlideDeck,
+  hasEditableBeats,
   isSameScript,
   resolveSilentAdvanceSeconds,
   shouldAutoRenderBeat,
@@ -165,48 +165,39 @@ describe("isSameScript (#1074)", () => {
   });
 });
 
-describe("isAllSlideDeck", () => {
-  it("returns true when every beat is a slide", () => {
+describe("hasEditableBeats", () => {
+  // The gate is "is there a beat to edit", not "is this a deck". `@mulmocast/beat-editor`
+  // handles all eight types; the all-slide test this replaces was a limit of the OLD iframe
+  // deck editor and kept a markdown script read-only for no reason.
+  it("is true for an all-slide deck", () => {
     const script = {
       beats: [{ image: { type: "slide", slide: { layout: "title", title: "A" } } }, { image: { type: "slide", slide: { layout: "bigQuote", quote: "hi" } } }],
     };
-    assert.equal(isAllSlideDeck(script), true);
+    assert.equal(hasEditableBeats(script), true);
   });
 
-  it("returns false when any beat is non-slide", () => {
+  it("is true for a markdown script — the case that used to fall through to a read-only list", () => {
+    assert.equal(hasEditableBeats({ beats: [{ image: { type: "markdown", markdown: "# hi" } }] }), true);
+  });
+
+  it("is true for a mixed script", () => {
     const mixed = {
       beats: [{ image: { type: "slide", slide: { layout: "title", title: "A" } } }, { image: { type: "movie", source: { kind: "path", path: "x.mp4" } } }],
     };
-    assert.equal(isAllSlideDeck(mixed), false);
-
-    const oneTextSlide = {
-      beats: [{ image: { type: "textSlide", slide: { title: "hello" } } }],
-    };
-    assert.equal(isAllSlideDeck(oneTextSlide), false);
+    assert.equal(hasEditableBeats(mixed), true);
   });
 
-  it("returns false for empty / missing beats", () => {
-    assert.equal(isAllSlideDeck({ beats: [] }), false);
-    assert.equal(isAllSlideDeck({}), false);
-    assert.equal(isAllSlideDeck({ beats: undefined }), false);
+  it("is true for a beat with no image at all — the editor can still give it one", () => {
+    assert.equal(hasEditableBeats({ beats: [{ text: "narration only" }] }), true);
   });
 
-  it("returns false when a beat has no image", () => {
-    assert.equal(isAllSlideDeck({ beats: [{}] }), false);
-    assert.equal(isAllSlideDeck({ beats: [{ image: null }] }), false);
-  });
-
-  it("returns false for non-object inputs", () => {
-    assert.equal(isAllSlideDeck(null), false);
-    assert.equal(isAllSlideDeck(undefined), false);
-    assert.equal(isAllSlideDeck("string"), false);
-    assert.equal(isAllSlideDeck(42), false);
-    assert.equal(isAllSlideDeck([]), false);
-  });
-
-  it("returns false when beat is not an object", () => {
-    assert.equal(isAllSlideDeck({ beats: [null] }), false);
-    assert.equal(isAllSlideDeck({ beats: ["not a beat"] }), false);
+  it("is false when there is nothing to edit", () => {
+    // The per-beat list already renders an empty state for these.
+    assert.equal(hasEditableBeats({ beats: [] }), false);
+    assert.equal(hasEditableBeats({}), false);
+    assert.equal(hasEditableBeats(null), false);
+    assert.equal(hasEditableBeats("nope"), false);
+    assert.equal(hasEditableBeats({ beats: "not an array" }), false);
   });
 });
 

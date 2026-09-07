@@ -63,8 +63,11 @@ export function htmlToText(html: string): string {
 // fails in O(n) per match. eslint-plugin-security's safe-regex
 // heuristic flags any `(...)?` containing `+` generically, even
 // when the surrounding pattern can't drive exponential backtracking.
+// The trailing `(?:\s+|$)` also strips a mention that ENDS the body:
+// an image-only DM is nothing but the handle, and leaving `@bot` behind
+// made it the prompt the agent received (#2952).
 // eslint-disable-next-line security/detect-unsafe-regex -- single-mention pattern, no nested-quantifier overlap; the iterative caller bounds total work to O(N) in the input length
-const SINGLE_MENTION_RE = /^@[A-Za-z0-9_.]+(?:@[A-Za-z0-9_.-]+)?\s+/;
+const SINGLE_MENTION_RE = /^@[A-Za-z0-9_.]+(?:@[A-Za-z0-9_.-]+)?(?:\s+|$)/;
 
 export function stripLeadingMentions(text: string): string {
   // Iterative strip — peel off one leading "@acct" / "@acct@instance"

@@ -20,11 +20,27 @@ import {
 import { getRole } from "../../workspace/roles.js";
 import { runAgent } from "../../agent/index.js";
 import { getActiveBackend } from "../../agent/backend/index.js";
-import { AGENT_SESSION_EVENT_TYPE } from "../../agent/stream.js";
+import { AGENT_SESSION_EVENT_TYPE, INJECTED_TEXT } from "../../agent/stream.js";
 import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
-import { abortableSleep, BROKER_RECONNECT_WAIT_MS, detectRecovery, type RecoveryKind, type RetryBudgets } from "../../agent/retryPolicy.js";
-import { splitSkillAndReply, updatePendingSkillOnToolCall, updatePendingSkillOnToolCallResult, type PendingSkill } from "../../agent/skillEvents.js";
+import {
+  abortableSleep,
+  awaitBrokerReady,
+  BROKER_READY_DECISION_WINDOW_MS,
+  BROKER_RECONNECT_WAIT_MS,
+  detectRecovery,
+  judgeBrokerReplay,
+  type RecoveryKind,
+  type RetryBudgets,
+} from "../../agent/retryPolicy.js";
+import { getBrokerReady, getCurrentBrokerSpawn } from "../../agent/brokerReadiness.js";
+import {
+  recordPushReply,
+  splitSkillAndReply,
+  updatePendingSkillOnToolCall,
+  updatePendingSkillOnToolCallResult,
+  type PendingSkill,
+} from "../../agent/skillEvents.js";
 import { decorateMessageForCli, sanitiseOriginalFilename, type AttachedFile } from "../../agent/messageDecorate.js";
 import { getOrCreateSession, beginRun, endRun, cancelRun, pushSessionEvent, pushToolResult, getActiveSessionIds } from "../../events/session-store/index.js";
 import { workspacePath } from "../../workspace/workspace.js";
@@ -58,20 +74,26 @@ import {
 // (by snakajima)
 // import { NOTIFICATION_KINDS } from "../../../src/types/notification.js";
 // import { publishNotification } from "../../events/notifications.js";
-import { env } from "../../system/env.js";
+import { getBoundPort } from "../../workspace/serverPort.js";
 import type { Attachment } from "@mulmobridge/protocol";
 import type { StartChatParams as ChatServiceStartChatParams } from "@mulmobridge/chat-service";
 import { isImagePath, loadImageBase64 } from "../../utils/files/image-store.js";
 import { isAttachmentPath, loadAttachmentBase64, inferMimeFromExtension, saveAttachment } from "../../utils/files/attachment-store.js";
 
 const router = Router();
-const PORT = env.port;
+// The port the server actually BOUND, read per-call rather than frozen at
+// module load: a second instance walks forward off a busy default, and the
+// broker we spawn addresses this port (#3055). `env.port` would send it to
+// whichever instance owns the requested port instead.
 
 // Short, safe preview of tool args for logs. Full payload may contain
 // base64 images or large blobs, so we cap it. The goal is to make a
 // line like `mcp__deepwiki__read_wiki_contents` grep-able in logs
 // alongside its args shape, not to record the full input.
 const TOOL_ARGS_LOG_PREVIEW_MAX = 200;
+// Enough of an unexpected injection to recognise its shape in a log line
+// without dumping a whole SKILL.md-sized body into it.
+const INJECTED_TEXT_LOG_PREVIEW_MAX = 80;
 function previewJson(value: unknown): string {
   let serialised: string;
   try {
@@ -647,9 +669,9 @@ interface BackgroundRunParams {
 // (which would appear as separate cards on session reload).
 //
 // `pendingSkill` is set when a `tool_call` with `toolName === "Skill"`
-// arrives. The next non-empty text flush IS the SKILL.md body that
-// Claude CLI synthesises — gets tagged as `type: "skill"` instead of
-// `type: "text"` and consumes the flag. (#1218)
+// arrives. The SKILL.md body Claude CLI synthesises then follows as an
+// `INJECTED_TEXT` event and consumes the flag — see `handleInjectedText`,
+// which turns it into a `type: "skill"` entry. (#1218, #2821)
 //
 // `toolUseId` is tracked alongside the slug so we can recognise the
 // matching `tool_call_result` (which Claude CLI emits between the
@@ -666,6 +688,12 @@ interface EventContext {
   toolArgsCache: ReturnType<typeof createArgsCache>;
   textAccumulator: string[];
   pendingSkill: PendingSkill | null;
+  // The most recent assistant burst, kept for the turn-end Web Push. Each flush
+  // overwrites it, so at run-end it holds the reply the user is waiting on —
+  // the only thing that knows WHAT finished (#2901). Held here rather than
+  // re-read from the jsonl, which would mean reading a whole long session back
+  // just to quote its last paragraph.
+  lastAssistantText: string;
 }
 
 const CLAUDE_CLI_SKILL_BODY_PREFIX = "Base directory for this skill: ";
@@ -675,7 +703,9 @@ const CLAUDE_CLI_SKILL_BODY_PREFIX = "Base directory for this skill: ";
 // events fall into that bucket — they update meta and are otherwise
 // invisible to clients. Everything else is treated as "normal flow":
 // broadcast + optional jsonl append + optional tool-trace side effect.
-async function handleAgentEvent(event: Awaited<ReturnType<typeof runAgent>> extends AsyncGenerator<infer E> ? E : never, ctx: EventContext): Promise<void> {
+type AgentStreamEvent = Awaited<ReturnType<typeof runAgent>> extends AsyncGenerator<infer E> ? E : never;
+
+async function handleAgentEvent(event: AgentStreamEvent, ctx: EventContext): Promise<void> {
   if (event.type === AGENT_SESSION_EVENT_TYPE || event.type === EVENT_TYPES.claudeSessionId) {
     await flushTextAccumulator(ctx);
     // claudeSessionId is a meta event — never part of a Skill→body
@@ -685,6 +715,10 @@ async function handleAgentEvent(event: Awaited<ReturnType<typeof runAgent>> exte
     const agentSession: AgentSessionRef =
       event.type === AGENT_SESSION_EVENT_TYPE ? { backendId: event.backendId, token: event.token } : { backendId: "claude-code", token: event.id };
     await setAgentSession(ctx.chatSessionId, agentSession);
+    return;
+  }
+  if (event.type === INJECTED_TEXT) {
+    await handleInjectedText(ctx, event.message);
     return;
   }
   pushSessionEvent(ctx.chatSessionId, event);
@@ -732,15 +766,44 @@ async function handleAgentEvent(event: Awaited<ReturnType<typeof runAgent>> exte
   }).catch(logBackgroundError("tool-trace"));
 }
 
+// Text the CLI injected as a `user`-role message. With a Skill call pending
+// this IS the SKILL.md body, so it becomes a `skill` entry right here instead
+// of being broadcast as `text` and re-classified at the next flush. Publishing
+// it as `text` first is what put SKILL.md bodies into bridge replies (#2821):
+// the canvas could undo it by replacing the trailing card, but a consumer that
+// accumulates text events — every bridge — cannot.
+//
+// Without a pending Skill the injection is something we have not seen the CLI
+// do. Fall back to the old treatment (broadcast + accumulate) so no content is
+// lost, and warn so the new shape is discoverable.
+async function handleInjectedText(ctx: EventContext, message: string): Promise<void> {
+  if (!message) return;
+  const skill = ctx.pendingSkill;
+  if (!skill) {
+    log.warn("agent", "user-role text arrived with no Skill call pending — treating it as assistant text", {
+      preview: message.slice(0, INJECTED_TEXT_LOG_PREVIEW_MAX),
+    });
+    pushSessionEvent(ctx.chatSessionId, { type: EVENT_TYPES.text, message });
+    ctx.textAccumulator.push(message);
+    return;
+  }
+  ctx.pendingSkill = null;
+  // Whatever streamed before the body is the assistant's own prose; flush it
+  // (as plain text, the flag is already cleared) so jsonl order is preserved.
+  await flushTextAccumulator(ctx);
+  await writeSkillEntry(ctx, skill.skillName, message);
+}
+
 // Write the accumulated streaming text chunks as one consolidated
 // jsonl line. Called at the end of each agent run (success or error)
 // so the session transcript has exactly one assistant text entry
 // per response, not N per-chunk entries.
 //
-// When `ctx.pendingSkill` is set (preceding tool_call had
-// `toolName === "Skill"`), the flushed text is the SKILL.md body
-// Claude CLI synthesised — write it as `type: "skill"` instead of
-// `type: "text"` and consume the flag (#1218).
+// `ctx.pendingSkill` still being set here means the SKILL.md body reached us as
+// ASSISTANT text rather than the injected `user`-role message `handleInjectedText`
+// expects. No CLI version we have measured does that, so this is the degradation
+// path for a future one: tag the flush as `type: "skill"` (#1218) and consume the
+// flag, accepting that the body was already broadcast as text (#2821).
 async function flushTextAccumulator(ctx: EventContext): Promise<void> {
   if (ctx.textAccumulator.length === 0) return;
   const fullText = ctx.textAccumulator.join("");
@@ -753,9 +816,12 @@ async function flushTextAccumulator(ctx: EventContext): Promise<void> {
   ctx.pendingSkill = null;
 
   if (skill) {
-    await writeSkillEntry(ctx, skill.skillName, fullText);
+    // Only the part after the SKILL.md body is something the user said to
+    // them; the body itself is instruction content for the model.
+    recordPushReply(ctx, await writeSkillEntry(ctx, skill.skillName, fullText));
     return;
   }
+  recordPushReply(ctx, fullText);
   await appendSessionLine(
     ctx.chatSessionId,
     JSON.stringify({
@@ -781,7 +847,11 @@ async function flushTextAccumulator(ctx: EventContext): Promise<void> {
 // the SKILL.md body on disk as a structural delimiter; the reply
 // portion gets persisted as a SECOND entry of `type: "text"` so it
 // stays visible after the user collapses the skill card.
-async function writeSkillEntry(ctx: EventContext, skillName: string, body: string): Promise<void> {
+/** Writes the skill entry and, when the CLI emitted a genuine reply in the same
+ *  burst, that reply too. Returns the reply so the caller can decide what the
+ *  completion push quotes — it is the only user-facing part of a Skill burst
+ *  (Codex review on #2909). */
+async function writeSkillEntry(ctx: EventContext, skillName: string, body: string): Promise<string> {
   const resolved = await resolveSkillMetadata(skillName);
   // Canary: skill detection is sequence-based (not body-prefix based),
   // but we still cross-check the prefix as a format-drift signal.
@@ -824,6 +894,7 @@ async function writeSkillEntry(ctx: EventContext, skillName: string, body: strin
     pushSessionEvent(ctx.chatSessionId, textPayload);
     await appendSessionLine(ctx.chatSessionId, JSON.stringify(textPayload));
   }
+  return replyPart;
 }
 
 interface SkillMetadata {
@@ -894,15 +965,58 @@ async function recoverStaleSession(chatSessionId: string, decoratedMessage: stri
   return preamble ? `${preamble}${decoratedMessage}` : decoratedMessage;
 }
 
-// Wait for the broker to connect, then let the caller replay the same turn
-// unchanged (#2057). Surfaces a status event so the pause isn't read as a hang.
-async function recoverBrokerNotReady(chatSessionId: string, abortSignal: AbortSignal): Promise<void> {
-  log.warn("agent", "mulmoclaude MCP broker not ready — retrying after a short wait", { chatSessionId });
+// Wait for the broker to connect, then say whether replaying the same turn can
+// still succeed (#2057, #2842). Surfaces a status event so the pause isn't read
+// as a hang.
+//
+// The startup beacon (#2898) is read on both sides of the wait, because only
+// the SECOND reading separates the two failures that produce one identical CLI
+// error: a broker that lost the race by a moment sends its beacon during the
+// wait and is fixed by a replay, while one that never came up sends nothing and
+// a replay merely buys another full connect-wait before the same error — the
+// 100 s the reporter measured.
+type BrokerRecoveryOutcome = "replay" | "give-up" | "aborted";
+
+async function recoverBrokerNotReady(chatSessionId: string, abortSignal: AbortSignal): Promise<BrokerRecoveryOutcome> {
+  // Capture WHICH spawn this is before waiting, then ask about that one on both
+  // sides. The turn's own spawn id is created inside `runAgent` and never leaves
+  // it, so "the spawn we are waiting on" has to be read from the readiness
+  // state — and reading it once, up front, is what stops the answer from
+  // drifting to a later spawn while the wait runs (Codex review on #2932).
+  const spawn = getCurrentBrokerSpawn(chatSessionId);
+  const readyBeforeWait = spawn?.ready ?? null;
   pushSessionEvent(chatSessionId, {
     type: EVENT_TYPES.status,
-    message: "Tools are still starting up — retrying…",
+    message: "Tools are still starting up…",
   });
-  await abortableSleep(BROKER_RECONNECT_WAIT_MS, abortSignal);
+  // Two clocks, deliberately. The reconnect pause is the one a REPLAY costs and
+  // it is unchanged. The decision window is longer and only the give-up path
+  // pays it: concluding "no beacon, so the broker never came up" is unsound
+  // until the beacon has run out of delivery attempts, and refusing a replay on
+  // a beacon still in flight would break the recovery this wait exists for.
+  const paused = abortableSleep(BROKER_RECONNECT_WAIT_MS, abortSignal);
+  // Asked about the spawn captured above, so a later one cannot answer for it.
+  // With no spawn on record there is nothing to wait for — that is a turn with
+  // no broker, and `null` is the honest reading.
+  const ready =
+    spawn === null ? null : await awaitBrokerReady(() => getBrokerReady(chatSessionId, spawn.spawnId), BROKER_READY_DECISION_WINDOW_MS, abortSignal);
+  await paused;
+  // A stop cuts both short, so "no beacon yet" says nothing about the broker
+  // here. Judging anyway would log a diagnosis for a turn the user cancelled —
+  // and the caller ends it either way.
+  if (abortSignal.aborted) return "aborted";
+
+  const verdict = judgeBrokerReplay(readyBeforeWait !== null, ready !== null);
+  const detail = { chatSessionId, brokerEverReady: ready !== null, reason: verdict.reason, ...(ready ?? {}) };
+  if (verdict.replay) {
+    log.warn("agent", "mulmoclaude MCP broker was not ready — replaying the turn", detail);
+    return "replay";
+  }
+  log.warn("agent", "mulmoclaude MCP broker never reported ready — not replaying, the same wait would end in the same error", {
+    ...detail,
+    hint: "Look for `[mcp] broker ready` and `broker=` in server/system/logs/; `broker=tsx` means this install lacks the prebuilt broker bundle.",
+  });
+  return "give-up";
 }
 
 // What the failover stream loop reads to (re)invoke `runAgent`. A
@@ -924,13 +1038,18 @@ interface FailoverStreamArgs {
 // recovery the stream asked for (or null) plus whether a real error surfaced. A
 // recovery-triggering event is swallowed (the caller retries); its error is not
 // counted, so a recovered pass reports didError=false.
+//
+// The swallowed event comes back with it. A recovery can still be REFUSED after
+// the fact — the broker one is, when nothing ever reported ready (#2842) — and
+// then this is the only copy of the failure left to show the user.
 async function streamOnce(
   runArgs: Parameters<typeof runAgent>[0],
   budgets: RetryBudgets,
   eventCtx: EventContext,
-): Promise<{ recovery: RecoveryKind; didError: boolean }> {
+): Promise<{ recovery: RecoveryKind; didError: boolean; swallowed: AgentStreamEvent | null }> {
   let recovery: RecoveryKind = null;
   let didError = false;
+  let swallowed: AgentStreamEvent | null = null;
   // A broker-not-ready replay is only safe when NOTHING executed — the failing
   // first tool call is blocked at the permission check. Once ANY tool has
   // completed successfully (an auto-approved Bash/Write, or a tool that ran
@@ -944,13 +1063,16 @@ async function streamOnce(
     // Swallow the error — the caller is about to recover. `break` abandons the
     // generator; the event is only yielded after the CLI exited, so the
     // subprocess is already dead and `for await`'s return() is the only cleanup.
-    if (recovery) break;
+    if (recovery) {
+      swallowed = event;
+      break;
+    }
     // A yielded error event (non-zero exit, missing binary, a tool surfacing an
     // error) is a real failure even though the generator didn't throw.
     if (event.type === EVENT_TYPES.error) didError = true;
     await handleAgentEvent(event, eventCtx);
   }
-  return { recovery, didError };
+  return { recovery, didError, swallowed };
 }
 
 // A recovery-triggering error is swallowed before `handleAgentEvent`, so it
@@ -960,6 +1082,9 @@ async function streamOnce(
 function discardAbortedPass(eventCtx: EventContext): void {
   eventCtx.textAccumulator.length = 0;
   eventCtx.pendingSkill = null;
+  // Same reason as the accumulator: the abandoned pass's text must not become
+  // the replayed pass's push body.
+  eventCtx.lastAssistantText = "";
 }
 
 // Drive `runAgent` for one turn, recovering once from a stale `--resume` id
@@ -988,7 +1113,7 @@ async function runAgentStreamWithFailover(args: FailoverStreamArgs, eventCtx: Ev
       role,
       workspacePath,
       sessionId: chatSessionId,
-      port: PORT,
+      port: getBoundPort(),
       sessionToken: currentSessionToken,
       abortSignal,
       attachments,
@@ -998,15 +1123,35 @@ async function runAgentStreamWithFailover(args: FailoverStreamArgs, eventCtx: Ev
     didError = didError || pass.didError;
     if (!pass.recovery) break;
 
-    discardAbortedPass(eventCtx);
     if (pass.recovery === "stale") {
+      discardAbortedPass(eventCtx);
       budgets.stale--;
       currentMessage = await recoverStaleSession(chatSessionId, decoratedMessage, backendId);
       currentSessionToken = undefined;
-    } else {
-      budgets.broker--;
-      await recoverBrokerNotReady(chatSessionId, abortSignal);
+      continue;
     }
+
+    budgets.broker--;
+    const outcome = await recoverBrokerNotReady(chatSessionId, abortSignal);
+    if (outcome === "replay") {
+      discardAbortedPass(eventCtx);
+      continue;
+    }
+    // Every path below this line ends the turn, so the pass's streamed text is
+    // the last there will be and is kept rather than discarded. Discarding is
+    // only correct ahead of a replay, whose consolidated jsonl entry it would
+    // otherwise be concatenated into.
+    //
+    // A stop gets the same treatment an ordinary cancel does, which keeps what
+    // was streamed before it (`flushTextAccumulator` at the end of the run).
+    // Discarding here made a cancel during this particular wait the one cancel
+    // that silently dropped the reply (CodeRabbit review on #2931).
+    if (outcome === "aborted") break;
+    // Refused: the broker never came up, so the error the pass died on was
+    // swallowed for a replay that is no longer happening. Surface it (#2842).
+    if (pass.swallowed) await handleAgentEvent(pass.swallowed, eventCtx);
+    didError = true;
+    break;
   }
   return didError;
 }
@@ -1031,6 +1176,7 @@ async function runAgentInBackground(params: BackgroundRunParams): Promise<void> 
     resultsFilePath,
     toolArgsCache,
     textAccumulator: [],
+    lastAssistantText: "",
     pendingSkill: null,
   };
 
@@ -1065,7 +1211,7 @@ async function runAgentInBackground(params: BackgroundRunParams): Promise<void> 
       message: String(err),
     });
   } finally {
-    await finalizeRun(chatSessionId, params.origin, didError, requestStartedAt);
+    await finalizeRun(chatSessionId, params.origin, didError, requestStartedAt, eventCtx.lastAssistantText);
   }
 }
 
@@ -1073,7 +1219,13 @@ async function runAgentInBackground(params: BackgroundRunParams): Promise<void> 
 // a hidden worker session or fire the normal post-turn side effects.
 // Split out of `runAgentInBackground` to keep that function under the
 // cognitive-complexity threshold.
-async function finalizeRun(chatSessionId: string, origin: SessionOrigin | undefined, didError: boolean, requestStartedAt: number): Promise<void> {
+async function finalizeRun(
+  chatSessionId: string,
+  origin: SessionOrigin | undefined,
+  didError: boolean,
+  requestStartedAt: number,
+  replyText: string,
+): Promise<void> {
   endRun(chatSessionId);
 
   if (origin === SESSION_ORIGINS.system) {
@@ -1104,7 +1256,7 @@ async function finalizeRun(chatSessionId: string, origin: SessionOrigin | undefi
   // excluded — those aren't the user waiting in the browser; missing origin means
   // "human" by convention). No-op unless enabled AND RemoteHost is connected.
   if (origin === undefined || origin === SESSION_ORIGINS.human) {
-    notifyTaskFinished(chatSessionId, didError).catch(logBackgroundError("web-push"));
+    notifyTaskFinished(chatSessionId, didError, replyText).catch(logBackgroundError("web-push"));
   }
 }
 

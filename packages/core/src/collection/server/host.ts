@@ -8,29 +8,103 @@
 // workspace root) unchanged while removing the package's dependency on
 // host-only modules (`server/workspace/workspace.ts`, the host logger).
 
+import path from "node:path";
+import { canonicalRoot } from "../../files/root.js";
+import { localCollectionKeyOf, sharedCollectionKey, type CollectionKey } from "../core/collectionKey.js";
 import { createForwardingLogger, createHostSlot, type StructuredLogger } from "../../host/hostSlot.js";
+// Type-only: this module must not pull the firebase SDK in at runtime (it is an
+// OPTIONAL peer of this package). The adapter ships from
+// `@mulmoclaude/core/collection/firestore` instead.
+import type { FirestoreDocs } from "./firestoreDocs";
 
 /** Public alias of the shared `StructuredLogger` — keeps the domain surface name-stable. */
 export type CollectionLogger = StructuredLogger;
 
+/** Re-exported so collection-engine callers (the watcher, the reconciler) keep
+ *  one import surface; the definition lives in `@mulmoclaude/core/files`
+ *  because a root is an identity in subsystems that do not depend on this one. */
+export { canonicalRoot };
+
+/** `err.code` on the throw from `getWorkspaceRoot()` under an explicit-root
+ *  binding: this CALL is missing its `workspaceRoot` option. Exported because
+ *  the fix differs from a watcher root conflict — that one means another root's
+ *  watcher is already running — and a host catching both in one place should
+ *  not have to match on message text to tell them apart. */
+export const COLLECTION_ROOT_REQUIRED = "COLLECTION_ROOT_REQUIRED";
+
+/** Build a local {@link CollectionKey}, canonicalising the root. The identity
+ *  type itself is isomorphic and cannot canonicalise (that needs `node:path`),
+ *  so this is the constructor server code should use. */
+export const localCollectionKey = (root: string, slug: string): CollectionKey => localCollectionKeyOf(canonicalRoot(root), slug);
+
+/** INVARIANT — **a slug is unique within a root and nowhere else.**
+ *
+ *  A collection's identity is `(root, slug)`. Anything keyed by slug ALONE —
+ *  a cache, a pubsub channel, a view token, a notification id, a rendered
+ *  card — is a cross-root collision waiting to happen the moment two projects
+ *  each own a `tasks` collection. A single-workspace host never sees it, which
+ *  is exactly why it keeps being written that way.
+ *
+ *  Every engine surface that crosses a host boundary therefore carries the
+ *  root: `CollectionChangePayload.root`, the completion bell's legacy id, the
+ *  presented card's scope. When you add another, key it on the pair. */
 export interface CollectionHost {
   /** Absolute path to the host workspace root (e.g. `~/mulmoclaude`). The
    *  default root for every path/containment check that isn't given an
-   *  explicit override. */
-  workspaceRoot: string;
+   *  explicit override.
+   *
+   *  `null` puts the binding in EXPLICIT-ROOT mode: the host declares that it
+   *  always passes `opts.workspaceRoot` per call, and `getWorkspaceRoot()`
+   *  throws instead of guessing. A multi-root host (MulmoTerminal, one root
+   *  per project) wants this — there, a forgotten option is not a crash but a
+   *  silent read/write against the WRONG project. A single-workspace host
+   *  (MulmoClaude) passes a string and nothing changes. */
+  workspaceRoot: string | null;
   /** Host logger; the engine logs under the `"collections"` prefix. */
   log: CollectionLogger;
   /** Host workspace layout — supplied as the host's own path helpers so the
    *  package owns no layout literals and works against a test/alt root. */
   paths: {
-    /** Absolute user-scope skills dir (host-specific, e.g. `~/.claude/skills`). */
-    userSkillsDir: string;
+    /** Absolute user-scope skills dir for a root (host-specific, e.g.
+     *  `~/.claude/skills`), or `null` when this root has NO user scope.
+     *
+     *  A single-workspace host (MulmoClaude) returns the same path for its one
+     *  root and behaves exactly as before — user scope merges into the
+     *  workspace and a project slug still shadows a user one.
+     *
+     *  A multi-root host returns `null` for a plain project directory: `~` and
+     *  a project are separate worlds, and a project that could resolve a
+     *  machine-global collection would depend on something no clone of it can
+     *  have. Under `null` the user pass is skipped in BOTH discovery and
+     *  `loadCollection` — a user-only slug is then a miss, not a quiet hop
+     *  into another world. Resolution is where the guarantee has to hold:
+     *  filtering only the listing would still let a slug typed by the agent,
+     *  or arriving in a URL, write into `~/.claude/skills` from a project.
+     *
+     *  A bare `string` is the pre-3.3.0 form and still works, read as "this
+     *  path, for every root". It is accepted rather than required-away because
+     *  a caret range floats across minors: a host pinned at `^3.2.0` installs
+     *  this version without touching its code, and a required callable would
+     *  turn that into a TypeError on its first discovery — a crash, not an
+     *  opt-out. Prefer the function form; the string is deprecated. */
+    userSkillsDir: string | ((workspaceRoot: string) => string | null);
     /** Absolute project-scope skills dir for a workspace (`<root>/.claude/skills`). */
     projectSkillsDir: (workspaceRoot: string) => string;
     /** Absolute feeds-registry root for a workspace (`<root>/data/feeds`). */
     feedsRoot: (workspaceRoot: string) => string;
-    /** Absolute project-skills *staging* dir for a workspace (`<root>/data/skills`). */
-    skillsStagingDir: (workspaceRoot: string) => string;
+    /** Absolute project-skills *staging* dir for a root (`<root>/data/skills`),
+     *  or `null` when this root has NO staging tree.
+     *
+     *  Staging exists because a managed workspace gates writes into `.claude/`
+     *  and a skill-bridge hook mirrors `data/skills/<slug>/` across. A root
+     *  with no such bridge (a plain project folder) has nothing to mirror, so
+     *  the skill dir IS the authoring location and there is no staging.
+     *
+     *  Return `null` there — do NOT hand back the skill dir instead. It looks
+     *  equivalent (the read list becomes the same dir twice) but the delete
+     *  path `rm -rf`s the staging dir by name, which would then remove the
+     *  committed skill under the label "staging". */
+    skillsStagingDir: (workspaceRoot: string) => string | null;
     /** Workspace-relative archive dir (a removed collection's files move here). */
     archiveDir: string;
     /** Absolute path to the user-supplied extra-registries config file for a
@@ -43,22 +117,159 @@ export interface CollectionHost {
   isPresetSlug: (slug: string) => boolean;
 }
 
+/** The authenticated Firestore access a shared collection is served through.
+ *
+ *  It carries NO uid, and that is a decision rather than an omission. Nothing
+ *  about a shared collection is keyed by uid any more: the documents live at
+ *  `apps/{aid}/collections/{cid}/items`, and the deployed rules authorize on
+ *  `request.auth.token.email` against the app's member roster. A uid kept
+ *  "just for identity" would be a value nothing checks, sitting next to a path
+ *  it no longer determines — which is how a later reader ends up deriving a
+ *  path from it again.
+ *
+ *  `email` is what the rules actually evaluate, so it is what makes a refusal
+ *  explainable: `permission-denied` is the most common failure a shared
+ *  collection has and the least informative, and naming the principal turns it
+ *  into "signed in as a@b — this app's roster may not list you". A session with
+ *  no verified email is NOT a session here (the accessor answers null): public
+ *  anonymous submission is a visitor's path through the published web app, not
+ *  the host's.
+ *
+ *  `docs` is the narrow document interface rather than a raw `Firestore` so the
+ *  backend stays testable: core ships `createFirestoreDocs` over the real SDK
+ *  (`firestoreDocs.ts`) and tests inject an in-memory fake. */
+export interface FirestoreHandle {
+  docs: FirestoreDocs;
+  email: string;
+  /** The signed-in Firebase uid.
+   *
+   *  The EMAIL is the principal the roster is keyed by, and it is what every
+   *  record operation needs. The uid is needed by exactly one caller —
+   *  `publish` — because the app document's `owner` is a uid: the rules
+   *  require `owner == request.auth.uid` when the app is created and require
+   *  it unchanged afterwards. Required rather than optional so a host cannot
+   *  wire a session that can read and write records but silently cannot
+   *  create an app; the failure would surface as a permission denial with
+   *  nothing in it about identity. */
+  uid: string;
+}
+
 /** A collection's records changed on disk. Carries the `slug` so the host can
  *  publish on a per-collection channel; `ids` lists the affected record ids
  *  when known (a consumer may ignore them and refetch the whole collection),
  *  and `op` is advisory. Deliberately carries NO record bodies — this is a
  *  "refetch" ping, not a data feed, so it stays cheap and leaks nothing when a
  *  host relays it into an opaque-origin custom-view iframe. */
-export interface CollectionChangePayload {
+/** Fields every change carries, whatever kind of collection it is about. */
+interface CollectionChangeBase {
+  /** The collection's NAME in its scope: the slug, or a shared collection's
+   *  `cid`. Never an identity on its own — see the two arms below. */
   slug: string;
   ids?: string[];
   op?: "upsert" | "delete";
 }
 
+/** A change to a collection in a directory. */
+export interface LocalCollectionChange extends CollectionChangeBase {
+  /** Absolute workspace/project root the change happened under. Present only
+   *  when the engine call carried an explicit `workspaceRoot`; absent means the
+   *  host's configured root, so a single-workspace host never sets it.
+   *  A multi-root host MUST key its live-update fan-out on `(root, slug)` —
+   *  two projects each owning a `tasks` collection would otherwise refresh each
+   *  other's open views. */
+  root?: string;
+  /** Never on a local change. The two arms are mutually exclusive at the TYPE
+   *  level, not by convention: a payload carrying both would be read as shared
+   *  by `collectionChangeKey`, which drops the root and fans the update out on
+   *  the wrong channel. */
+  aid?: never;
+}
+
+/** A change to a collection published to a shared app. */
+export interface SharedCollectionChange extends CollectionChangeBase {
+  /** The shared app (`apps/{aid}/collections/{cid}`). Required on this arm:
+   *  it is what makes the payload an identity. */
+  aid: string;
+  /** Never on a shared change — a shared collection has no root, because the
+   *  same collection is resolved from every clone of the repository. */
+  root?: never;
+}
+
+/** A collection's records changed. Carries the `slug` so the host can publish
+ *  on a per-collection channel; `ids` lists the affected record ids when known
+ *  (a consumer may ignore them and refetch the whole collection), and `op` is
+ *  advisory. Deliberately carries NO record bodies — this is a "refetch" ping,
+ *  not a data feed, so it stays cheap and leaks nothing when a host relays it
+ *  into an opaque-origin custom-view iframe.
+ *
+ *  Reading a payload is unchanged: `slug`, `root`, `ids` and `op` are all
+ *  reachable on the union. Use {@link collectionChangeKey} rather than deciding
+ *  what an absent field means by hand. */
+export type CollectionChangePayload = LocalCollectionChange | SharedCollectionChange;
+
 type CollectionChangePublisher = (payload: CollectionChangePayload) => void;
+
+/** Build a change payload, attaching `root` only when the engine call carried
+ *  an explicit one. Centralised so every publish site states the root the same
+ *  way, and so a single-workspace host's payload shape stays byte-identical to
+ *  what it saw before multi-root support. */
+export function collectionChangePayload(base: CollectionChangeBase, root: string | undefined): LocalCollectionChange {
+  // Canonical, because a host keys its live-update fan-out on this value: a
+  // direct `writeItem({ workspaceRoot: "/proj/" })` and the watcher's own
+  // publish for `/proj` must land on the same channel, not two.
+  return root === undefined ? base : { ...base, root: canonicalRoot(root) };
+}
+
+/** Build a change payload for a SHARED collection. `slug` carries the `cid`,
+ *  which is what it is called inside its app; `aid` is what makes it an
+ *  identity. Never stamps a `root` — a shared collection does not have one. */
+export function sharedCollectionChangePayload(base: CollectionChangeBase, aid: string): SharedCollectionChange {
+  // Validated HERE, at construction, not at publish. A host's publisher wraps
+  // its publish in a try/catch on purpose -- dropping one live-refresh event
+  // beats crashing the write that triggered it -- so a name that no channel can
+  // encode would be swallowed there and the update would simply stop arriving,
+  // with nothing said. Building the key is the cheap way to say it loudly.
+  sharedCollectionKey(aid, base.slug);
+  return { ...base, aid };
+}
+
+/** The identity a change is about, as a value — the thing to key a fan-out on.
+ *
+ *  This is the one place that decides what an absent field means, so no host
+ *  has to: `aid` present is a shared collection, otherwise it is local, and a
+ *  local payload with no `root` means the host's configured root (which is why
+ *  a single-workspace host's payloads still say nothing about roots).
+ *
+ *  `fallbackRoot` is what a payload with no root resolves to. An explicit-root
+ *  host has no such default and must not guess — pass the root the call was
+ *  made for. */
+/** Refuse a payload that names both an app and a root.
+ *
+ *  The two arms are mutually exclusive in the TYPE, so this cannot come from
+ *  the constructors -- it is corrupt input (a JS caller, a cast, something off
+ *  a wire). Throwing rather than picking one: whichever way it were guessed,
+ *  the update would be fanned out on a channel it does not belong to, and that
+ *  is invisible where a throw is not.
+ *
+ *  Takes the WIDENED shape deliberately. Written inline, TypeScript narrows the
+ *  union to `never` inside the branch and the fields cannot be read at all --
+ *  which is the type-level guarantee doing its job, and exactly why the runtime
+ *  check has to be stated somewhere it can still see them. */
+function requireOneScope(payload: CollectionChangeBase & { aid?: string; root?: string }): void {
+  if (payload.aid !== undefined && payload.root !== undefined) {
+    throw new Error(`collectionChangeKey: payload for "${payload.slug}" carries both an app (${payload.aid}) and a root (${payload.root})`);
+  }
+}
+
+export function collectionChangeKey(payload: CollectionChangePayload, fallbackRoot: string): CollectionKey {
+  requireOneScope(payload);
+  return payload.aid === undefined ? localCollectionKey(payload.root ?? fallbackRoot, payload.slug) : sharedCollectionKey(payload.aid, payload.slug);
+}
 
 const hostSlot = createHostSlot<CollectionHost>("@mulmoclaude/core/collection/server: configureCollectionHost()");
 let changePublisher: CollectionChangePublisher | null = null;
+let firestoreAccessor: (() => FirestoreHandle | null) | null = null;
+let sharedCollectionsSupported = false;
 
 /** Wire the engine to a host. Call once at server startup, before any
  *  collection storage operation. Re-binding to a *different* host throws —
@@ -86,20 +297,103 @@ export function publishCollectionChange(payload: CollectionChangePayload): void 
   changePublisher?.(payload);
 }
 
+/** Does this host serve SHARED (firestore-backed) collections at all?
+ *
+ *  Opt-in, and `false` until a host says otherwise, because the default has to
+ *  be the safe one: a host that cannot reach Firestore must not accept a
+ *  shared schema and then report the collection as empty.
+ *
+ *  WHY A CAPABILITY AND NOT A HOST CHECK. The engine must not know which host
+ *  it is running in. The rule being expressed — shared collections live in a
+ *  PROJECT REPOSITORY, not in a single managed workspace where one roster
+ *  would govern every unrelated collection beside it — is a property the host
+ *  knows about ITSELF. Asking the engine to test for a particular host's
+ *  workspace would put a host's name in shared code and make every change to
+ *  a one-host feature a change to this package.
+ *
+ *  WHY NOT A FIELD ON `CollectionHost`. Same reason the accessor below is not
+ *  one: `configureCollectionHost` is a ONE-SHOT binding a host sets at startup
+ *  and cannot re-bind, so a suite exercising this engine could not turn the
+ *  capability on for itself without owning the whole host. This is the same
+ *  concern as the accessor and belongs beside it.
+ *
+ *  NOT DERIVED FROM THE ACCESSOR. "Has a session right now" and "serves shared
+ *  collections at all" are different questions: the accessor answers null
+ *  between connections, and a collection must not stop being ACCEPTABLE
+ *  because nobody is signed in — that would turn "connect first" into "this
+ *  schema is invalid". */
+export function setSharedCollectionsSupport(supported: boolean): void {
+  sharedCollectionsSupported = supported;
+}
+
+/** Whether the host declared support. Consulted from the schema ACCEPTANCE
+ *  gate, whose contract is to return a reason rather than raise. */
+export function hostSupportsSharedCollections(): boolean {
+  return sharedCollectionsSupported;
+}
+
+/** Wire the accessor for the host's authenticated Firestore session.
+ *
+ *  Separate from `configureCollectionHost` for the same reason
+ *  `setCollectionChangePublisher` is: the host binding is set at the top of
+ *  server startup, but this session doesn't exist until the user connects
+ *  remote-host (and closes again on disconnect), so it cannot be part of a
+ *  one-shot binding. Optional — left unwired, only shared collections are
+ *  affected, and they report "not connected". Pass `null` to detach. */
+export function setFirestoreAccessor(accessor: (() => FirestoreHandle | null) | null): void {
+  firestoreAccessor = accessor;
+}
+
+/** The host's live Firestore access, or null when there is no session (or the
+ *  host never wired one — every non-shared backend leaves it unset).
+ *  Callers MUST surface null as an actionable "connect remote-host first",
+ *  never as an empty result: silence would be indistinguishable from a
+ *  collection that genuinely has no records. */
+export function firestoreHandle(): FirestoreHandle | null {
+  return firestoreAccessor?.() ?? null;
+}
+
 function requireHost(): CollectionHost {
   return hostSlot.get();
 }
 
-/** The configured workspace root. Throws if the host never configured one. */
+/** The configured workspace root. Throws if the host never configured one —
+ *  and, under an explicit-root binding (`workspaceRoot: null`), throws rather
+ *  than guessing, which is the whole point of that mode: on a multi-root host
+ *  a missing `opts.workspaceRoot` must fail loudly instead of silently
+ *  resolving against some other project. */
 export function getWorkspaceRoot(): string {
-  return requireHost().workspaceRoot;
+  const root = requireHost().workspaceRoot;
+  if (root === null) {
+    throw Object.assign(
+      new Error(
+        "@mulmoclaude/core/collection/server: the host is bound in explicit-root mode (workspaceRoot: null), " +
+          "so there is no ambient workspace root — pass an explicit `workspaceRoot` in this call's options.",
+      ),
+      { code: COLLECTION_ROOT_REQUIRED },
+    );
+  }
+  return root;
+}
+
+/** The configured workspace root, or `null` under an explicit-root binding /
+ *  before the host configures one. Never throws — for callers that need to
+ *  COMPARE roots (is this the one we are already running for?) rather than
+ *  operate on one. Anything that will touch the filesystem wants
+ *  `getWorkspaceRoot()` and its loud failure instead. */
+export function peekWorkspaceRoot(): string | null {
+  return hostSlot.peek()?.workspaceRoot ?? null;
 }
 
 // Workspace-layout accessors — thin wrappers over the host binding, named to
 // match the host helpers they replace so the moved engine modules keep their
 // call sites. Each throws (via requireHost) if the host never configured.
-export function userSkillsDir(): string {
-  return requireHost().paths.userSkillsDir;
+/** The user-scope skills dir for a root, or `null` when it has none. The one
+ *  place the pre-3.3.0 `string` binding is normalized, so nothing downstream
+ *  has to know the host might not have upgraded its shape yet. */
+export function userSkillsDir(workspaceRoot: string): string | null {
+  const binding = requireHost().paths.userSkillsDir;
+  return typeof binding === "string" ? binding : binding(workspaceRoot);
 }
 export function projectSkillsDir(workspaceRoot: string): string {
   return requireHost().paths.projectSkillsDir(workspaceRoot);
@@ -107,16 +401,25 @@ export function projectSkillsDir(workspaceRoot: string): string {
 export function feedsRoot(workspaceRoot: string): string {
   return requireHost().paths.feedsRoot(workspaceRoot);
 }
-export function skillsStagingDir(workspaceRoot: string): string {
+export function skillsStagingDir(workspaceRoot: string): string | null {
   return requireHost().paths.skillsStagingDir(workspaceRoot);
+}
+
+/** `<staging>/<slug>` for a root, or `null` when the root has no staging tree.
+ *  The single place the staging-or-not branch is spelled, so every caller
+ *  (read bases, schema write targets, archive, delete) agrees on it. */
+export function stagingSkillDir(workspaceRoot: string, slug: string): string | null {
+  const staging = requireHost().paths.skillsStagingDir(workspaceRoot);
+  return staging === null ? null : path.join(staging, slug);
 }
 export function archiveDir(): string {
   return requireHost().paths.archiveDir;
 }
-/** Absolute path to the configured workspace's `collections-registries.json`. */
-export function collectionsRegistriesConfigPath(): string {
-  const host = requireHost();
-  return host.paths.collectionsRegistriesConfig(host.workspaceRoot);
+/** Absolute path to a workspace's `collections-registries.json`. Takes the
+ *  root explicitly — reading the ambient one here would throw under an
+ *  explicit-root binding and take the Discover tab down with it. */
+export function collectionsRegistriesConfigPath(workspaceRoot: string): string {
+  return requireHost().paths.collectionsRegistriesConfig(workspaceRoot);
 }
 export function isPresetSlug(slug: string): boolean {
   return requireHost().isPresetSlug(slug);

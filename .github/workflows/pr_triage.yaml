@@ -1,59 +1,33 @@
-# Auto-triage incoming pull requests against the "open an issue and
-# agree on a plan first" contribution policy (docs/developer.md →
-# Contributing). PRs from listed maintainers / bots fall through with
-# no action. PRs from anyone else are allowed only when the diff is
-# small (additions + deletions ≤ LINE_LIMIT). Anything larger gets a
-# templated comment pointing at the policy and is closed.
+# Enforce the "open an issue and agree on a plan first" contribution policy
+# (docs/developer.md → Contributing). PRs from the maintainer / bot allowlist fall
+# through with no action. PRs from anyone else get a templated comment pointing at
+# the policy and are closed — there is no small-diff exemption.
 #
 # Why `pull_request_target` over `pull_request`:
-#   - Forked PRs running `pull_request` don't get write-scoped
-#     GITHUB_TOKEN, so we couldn't comment + close them.
-#   - `pull_request_target` runs from the base repo's workflow on the
-#     base branch, and we never check out the PR's code, so the usual
-#     `pull_request_target` security concerns (running attacker code
-#     with elevated permissions) don't apply here.
+#   - Forked PRs running `pull_request` don't get a write-scoped GITHUB_TOKEN, so
+#     we couldn't comment + close them.
+#   - `pull_request_target` runs the base branch's copy of this workflow and we
+#     never check out the PR's code, so the usual `pull_request_target` concern
+#     (running attacker code with elevated permissions) doesn't apply.
 #
 # Maintainer list — keep in sync with the Contributing section of
-# docs/developer.md. Adding a maintainer is a one-line edit in both
-# places.
+# docs/developer.md. Adding a maintainer is a one-line edit in both places.
 
 name: PR triage (non-maintainer guard)
 
 on:
   # zizmor: ignore[dangerous-triggers]
-  # `pull_request_target` is needed so forked PRs get a write-scoped
-  # GITHUB_TOKEN (we must comment + close them). The two usual abuse
-  # paths for this trigger don't apply here:
-  #   1. We never `actions/checkout` the PR's code, so no attacker
-  #      script ever runs with elevated permissions.
-  #   2. PR-controlled fields (author login, additions count) reach
-  #      the shell only through `env:` bindings and are referenced as
-  #      `${VAR}` (quoted) inside bash. There is no `${{ github.event.
-  #      pull_request.* }}` template substitution into the shell body,
-  #      so zizmor's template-injection vector is closed.
+  # PR-controlled fields (author login, PR number) reach the shell only through
+  # `env:` bindings and are referenced as quoted `${VAR}` inside bash. No
+  # `${{ github.event.pull_request.* }}` substitution happens inside a script
+  # body, so the template-injection vector is closed.
   pull_request_target:
-    # `edited` catches base-branch retargets: a contributor could open
-    # the PR against a non-main branch (bypassing `branches: [main]`)
-    # then edit it to point at main. That arrives as `edited`, not
-    # `opened` / `reopened`, so triage would otherwise never fire on
-    # the retargeted PR. CodeRabbit + Codex review on PR #1708.
-    #
-    # `synchronize` removed (#1869 follow-up): a `synchronize` event
-    # arrives a few seconds after we call `gh pr close` on a large
-    # PR, and the post-close `edited` event from CodeRabbit's title /
-    # body edits arrives a beat later. Both re-ran this workflow and
-    # each posted another copy of the closing comment (PR #1869
-    # received three identical close comments inside 90 s). The
-    # `if: state == 'open'` guard below catches the residual `edited`
-    # case; dropping `synchronize` removes the primary duplicate
-    # source. Net behaviour: a contributor who opens a small PR and
-    # later pushes a large commit is no longer auto-closed, but the
-    # PR is still in the human review queue (and the doc-link in the
-    # opening comment still points at the policy) — that's an
-    # acceptable trade for not spamming three copies of the same
-    # close comment every time.
+    # No `branches:` filter on purpose: a PR opened against `dev_tool` or any
+    # other long-lived branch is just as unreviewable as one against `main`.
+    # `edited` still matters because a base-branch retarget arrives as `edited`,
+    # and re-running on it is harmless — the guards in the script below make a
+    # second run a no-op rather than a second comment.
     types: [opened, reopened, edited]
-    branches: [main]
 
 permissions:
   contents: read
@@ -62,23 +36,15 @@ permissions:
 
 concurrency:
   group: pr-triage-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   triage:
-    # Skip everything once the PR is closed. Without this, a residual
-    # `edited` event (e.g. CodeRabbit re-summarising the title/body
-    # after we already closed) re-runs the whole script — `gh pr close`
-    # on a closed PR is a no-op, but the `gh pr comment` above it is
-    # NOT idempotent and posts another copy of the closing template.
-    # This guard is the second half of the #1869 fix (the first half
-    # is dropping `synchronize` from `types` above).
-    if: github.event.pull_request.state == 'open'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     env:
-      # Newline-separated allowlist. Match is exact (full GitHub login
-      # including the `[bot]` suffix for App accounts).
+      # Newline-separated allowlist. Match is exact (full GitHub login, including
+      # the `[bot]` suffix for App accounts).
       MAINTAINERS: |
         isamu
         snakajima
@@ -87,14 +53,11 @@ jobs:
         dependabot[bot]
         coderabbitai[bot]
         sourcery-ai[bot]
-      # Combined cap on additions + deletions for non-maintainer PRs.
-      # The docs/developer.md "When you can skip the plan" section
-      # quotes the same number — bump both together if it changes.
-      LINE_LIMIT: 10
-      # Link target for the closing comment. Kept here so the URL
-      # interpolation happens at workflow-load time (not inside the
-      # bash heredoc) and stays grep-able alongside the policy.
-      DOC_LINK: https://github.com/${{ github.repository }}/blob/main/docs/developer.md#contributing--please-open-an-issue-with-a-plan-first
+      # Marker embedded in the comment body so a re-run recognises its own
+      # previous comment and stays silent. `gh pr comment` is not idempotent, so
+      # without it an author who reopens the PR collects a second copy of the
+      # same template.
+      TRIAGE_MARKER: "<!-- mulmoclaude-pr-triage -->"
     steps:
       - name: Decide and act
         env:
@@ -102,42 +65,84 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          ADDITIONS: ${{ github.event.pull_request.additions }}
-          DELETIONS: ${{ github.event.pull_request.deletions }}
+          SENDER: ${{ github.event.sender.login }}
+          DOC_LINK: https://github.com/${{ github.repository }}/blob/main/docs/developer.md#contributing--please-open-an-issue-with-a-plan-first
         run: |
           set -euo pipefail
-          echo "PR=#${PR_NUMBER} author=${PR_AUTHOR} +${ADDITIONS} -${DELETIONS}"
+          echo "PR=#${PR_NUMBER} author=${PR_AUTHOR}"
 
-          # Exact-line match against the allowlist. `grep -Fxq` treats
-          # the pattern as a fixed string and requires whole-line
-          # equality, so the `[bot]` suffix isn't interpreted as a
-          # regex character class.
-          if echo "${MAINTAINERS}" | grep -Fxq "${PR_AUTHOR}"; then
+          # `grep -Fxq` requires whole-line equality against a fixed string, so
+          # the `[bot]` suffix isn't read as a regex character class and a login
+          # that merely contains a maintainer's name doesn't match.
+          is_allowlisted() {
+            echo "${MAINTAINERS}" | grep -Fxq "$1"
+          }
+
+          if is_allowlisted "${PR_AUTHOR}"; then
             echo "maintainer / allowlisted bot — pass through"
             exit 0
           fi
 
-          TOTAL=$((ADDITIONS + DELETIONS))
-          if [ "${TOTAL}" -le "${LINE_LIMIT}" ]; then
-            echo "small PR (${TOTAL} lines ≤ ${LINE_LIMIT}) — allowed"
+          # Any event a maintainer triggered is a deliberate human action on this
+          # PR — the automation must not fight it. `opened` always has
+          # sender == author, so the main path is untouched; what this protects is
+          # a maintainer retitling an outside PR they've chosen to keep (including
+          # the ones that predate this workflow), and CodeRabbit rewriting the
+          # title right after we closed.
+          if is_allowlisted "${SENDER}"; then
+            echo "event triggered by ${SENDER} (maintainer) — standing down"
             exit 0
           fi
 
-          # Large unsolicited PR — comment then close. Comment first
-          # so the closing event arrives with the explanation already
-          # attached (email notifications batch them together).
-          gh pr comment "${PR_NUMBER}" --repo "${REPO}" --body "$(cat <<EOF
-          ## This PR is being closed automatically — please open an issue first
+          # Live state, not the event payload: a `synchronize`/`edited` event
+          # generated moments before we closed still carries state=open.
+          STATE=$(gh pr view "${PR_NUMBER}" --repo "${REPO}" --json state --jq .state)
+          if [ "${STATE}" != "OPEN" ]; then
+            echo "already ${STATE} — nothing to do"
+            exit 0
+          fi
 
-          Thanks for sending this! Our contribution policy is to **agree on a plan in a GitHub issue before opening a pull request**, except for very small fixes. This PR is **${TOTAL} lines of diff** (additions + deletions) and you're not on the maintainer allowlist, so it's being closed automatically.
+          # Collect first, match second. `gh ... | grep -qF` would look equivalent,
+          # but `grep -q` exits on the first match and `gh` then dies of SIGPIPE
+          # (141); `pipefail` propagates that, the `if` reads it as "no marker",
+          # and the guard posts the duplicate comment it exists to prevent. It
+          # only misfires once the comment list is big enough to still be
+          # streaming — i.e. never in a small test, always on a busy PR.
+          COMMENTS=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" --jq '.[].body')
+          if grep -qF "${TRIAGE_MARKER}" <<< "${COMMENTS}"; then
+            # Already triaged but open again: the author reopened it (a
+            # maintainer reopening already returned above). Re-close, silently —
+            # the explanation is still sitting in the thread.
+            echo "already triaged — closing again without commenting twice"
+            gh pr close "${PR_NUMBER}" --repo "${REPO}"
+            exit 0
+          fi
 
-          ### What to do next
+          # Quoted heredoc: nothing in the body is expanded by the shell, so
+          # backticks and `$` in the template are inert. The one variable we do
+          # need is substituted afterwards with bash parameter expansion.
+          BODY=$(cat <<'EOF'
+          <!-- mulmoclaude-pr-triage -->
+          ## この pull request は自動的にクローズされました / Closed automatically
 
-          1. **Open an issue** describing the problem and your proposed plan. Keep the **first three lines a compact summary** so a maintainer can decide whether to engage at a glance. Save the longer rationale for the rest of the body.
-          2. **Wait for the plan to be agreed in the issue thread.** We may suggest scope adjustments, point out helpers you can reuse, or surface in-flight work that overlaps.
-          3. Once agreed, a maintainer drafts the pull request.
+          送っていただいてありがとうございます。ただ、MulmoClaude では **開発チーム外からの pull request は、規模によらずお受けしていません**。代わりに、次の流れでお願いしています。
 
-          Direct pull requests are welcome for typos, copy fixes, doc tweaks, dependency bumps, and single-file bug fixes under **${LINE_LIMIT} lines of diff**. The full rationale lives in [docs/developer.md → Contributing](${DOC_LINK}).
+          1. **issue を立てて、問題と実装プランを説明してください。** メンテナが一目で判断できるよう、**最初の 3 行を要約**にしてください。詳しい背景はその後ろに。
+          2. **issue のスレッドでプランを合意します。** スコープの調整、再利用できる既存のヘルパー、進行中の作業との重複などをこちらから提示します。
+          3. **合意できたら、メンテナが実装して pull request を出します。** 実装へのコメントは歓迎です。
+
+          バグ報告・機能要望の **issue はいつでも歓迎**です。制限しているのは pull request だけです。理由と詳しい手順は [docs/developer.md → Contributing](__DOC_LINK__) にあります。
+
+          ---
+
+          Thanks for sending this! MulmoClaude **does not accept pull requests from outside the development team**, regardless of size. What we ask for instead:
+
+          1. **Open an issue** describing the problem and your proposed plan. Keep the **first three lines a compact summary** so a maintainer can decide whether to engage at a glance.
+          2. **Agree on the plan in the issue thread.** We may adjust scope, point at helpers you can reuse, or surface in-flight work that overlaps.
+          3. **A maintainer then writes the pull request.** You're welcome to follow along and comment on the implementation.
+
+          **Issues — bug reports and feature requests — are always welcome**; only pull requests are restricted. The full rationale is in [docs/developer.md → Contributing](__DOC_LINK__).
           EOF
-          )"
+          )
+          gh pr comment "${PR_NUMBER}" --repo "${REPO}" --body "${BODY//__DOC_LINK__/${DOC_LINK}}"
           gh pr close "${PR_NUMBER}" --repo "${REPO}"

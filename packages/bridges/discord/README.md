@@ -4,6 +4,14 @@
 
 Discord bridge for [MulmoClaude](https://github.com/receptron/mulmoclaude). The bot responds to messages in channels it has access to.
 
+## Attachments
+
+Files posted with a message are downloaded from Discord's CDN and forwarded to MulmoClaude, so you can paste a screenshot and ask about it. A post with **only** files and no text is forwarded too, with `Describe / analyze this file.` as the body.
+
+- Up to 10 files per message, 8 MB each — anything larger is skipped and noted in the message MulmoClaude receives.
+- Images and PDFs reach Claude directly; text, DOCX, XLSX and PPTX are converted server-side. Other types are skipped with a log line.
+- Attachments arrive over the **Message Content Intent**, the same privileged intent the bot already needs to read text.
+
 ## Setup
 
 ### 1. Create a Discord Application

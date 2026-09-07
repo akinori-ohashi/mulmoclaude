@@ -15,11 +15,12 @@ files are the source of truth; you are the intelligent interface._
 
 ## Anatomy of a collection skill
 
+<!-- authoring:staged -->
 You **author** the skill under `data/skills/<slug>/` (a plain, writable data
 dir). A host-side hook then **mirrors** the files into `.claude/skills/<slug>/`,
 which is where the host actually discovers and renders the collection from:
 
-```
+```text
 data/skills/<slug>/            ← YOU write here (Write / Edit)
   SKILL.md          ← instructions you read later (how to CRUD the records)
   schema.json       ← the DSL: data model + relations + UI + actions
@@ -33,7 +34,25 @@ data/skills/<slug>/            ← YOU write here (Write / Edit)
 data/<name>/items/             ← the records (separate from the skill dir)
   <id>.json         ← one record per file (write via manageCollection putItems)
 ```
+<!-- /authoring:staged -->
+<!-- authoring:direct -->
+You **author** the skill directly under `.claude/skills/<slug>/`. This root has
+no `data/skills/` staging tree and no mirroring hook, so the skill dir is both
+where you write and where the host discovers and renders the collection from:
 
+```text
+.claude/skills/<slug>/         ← YOU write here (Write / Edit), host reads here
+  SKILL.md          ← instructions you read later (how to CRUD the records)
+  schema.json       ← the DSL: data model + relations + UI + actions
+  templates/*.md    ← natural-language bodies for actions (only if it has actions)
+  views/*.html      ← custom views (only if the schema declares any)
+
+data/<name>/items/             ← the records (separate from the skill dir)
+  <id>.json         ← one record per file (write via manageCollection putItems)
+```
+<!-- /authoring:direct -->
+
+<!-- authoring:staged -->
 - **Author under `data/skills/<slug>/`, NEVER `.claude/skills/<slug>/`
   directly.** Claude Code gates writes into `.claude/` (it's the agent's own
   config surface) and the host GUI can't answer that prompt, so a direct write
@@ -42,6 +61,16 @@ data/<name>/items/             ← the records (separate from the skill dir)
   triggers a re-scan, so the collection appears at `/collections/<slug>`
   without a restart. (Other files you drop in `data/skills/<slug>/` — a README,
   scratch notes — stay put and are NOT mirrored.)
+<!-- /authoring:staged -->
+<!-- authoring:direct -->
+- **Author under `.claude/skills/<slug>/`, NEVER `data/skills/<slug>/`.** There
+  is no staging tree here and nothing mirrors one: discovery scans
+  `.claude/skills` only, so files written under `data/skills/` are never found
+  and the collection simply never appears — with no error anywhere. Worse, the
+  stray `data/skills/<slug>/` tree left behind can shadow the real skill's files
+  on later reads. Write `SKILL.md`, `schema.json`, `templates/*.md` and any
+  `views/*.html` straight into `.claude/skills/<slug>/`.
+<!-- /authoring:direct -->
 - **To CHANGE an existing collection's schema, use `manageCollection` — not raw
   file edits.** Call `schemaDocs` for this very reference (sectioned: pass a
   heading as `topic`, e.g. `topic: "field types"`), `getSchema` to read
@@ -49,10 +78,18 @@ data/<name>/items/             ← the records (separate from the skill dir)
   to write it back. `putSchema` validates the whole schema against the same rules
   discovery enforces and reports the exact problem, where a hand-edit can
   silently fail validation and make the collection vanish from the UI. It writes
+<!-- authoring:staged -->
   the canonical `data/skills/<slug>/schema.json` and mirrors it for you — same
   destination as authoring, just validated. (Creating a _new_ collection still
   means writing `SKILL.md` + `schema.json` under `data/skills/<slug>/`, since
   there's nothing to `getSchema` yet.)
+<!-- /authoring:staged -->
+<!-- authoring:direct -->
+  the collection's `.claude/skills/<slug>/schema.json` in place — same
+  destination as authoring, just validated. (Creating a _new_ collection still
+  means writing `SKILL.md` + `schema.json` under `.claude/skills/<slug>/`, since
+  there's nothing to `getSchema` yet.)
+<!-- /authoring:direct -->
 - **Do NOT use the `mc-` prefix** for skills you create. `mc-*` is reserved for
   the bundled presets (`mc-cooking-coach`, `mc-library`, `mc-wiki-*`,
   `mc-manage-*`); the server overwrites those on every boot, so your edits would
@@ -127,9 +164,9 @@ skipped, never crashes the host):
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `title`                | Human name shown in the sidebar / header. Required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `icon`                 | A **Material Symbols** name (`receipt_long`, `people`, `schedule`, `menu_book`). Required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `dataPath`             | Workspace-relative records folder, e.g. `data/recipes/items`. Must stay under the workspace. Required — unless `dataSource` is set (declare exactly ONE of the two).                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `dataSource`           | Optional. `{ "type": "csv", "path": "data/students.csv" }` — the records ARE the rows of an external data file (workspace-relative, containment-checked like `dataPath`). Makes the collection **read-only** in every UI/tool write path; see "External data (CSV) collections" below. Mutually exclusive with `dataPath`, `singleton`, `ingest`, `spawn`, and `mutate` actions.                                                                                                                                                                                                     |
-| `storage`              | Optional. `{ "type": "sqlite", "path": "data/<name>.db" }` — records live in a single SQLite database file instead of per-record JSON files; the collection stays **writable** and behaves identically everywhere else. Declare exactly ONE of `dataPath` / `dataSource` / `storage`. Cannot combine with `spawn`, `completionField`, or `triggerField` (v1). See "Alternative storage (sqlite)" below.                                                                                                                                                            |
+| `dataPath`             | Records folder, relative to the collection's own root (the workspace or project folder it lives in) — e.g. `data/recipes/items`. Must stay under that root. **Required**, unless `dataSource` or `storage` is set instead: declare exactly ONE of the three. (There is no default — `data/<slug>/items` is a naming CONVENTION, not a fallback.)                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `dataSource`           | Optional. `{ "type": "csv", "path": "data/students.csv" }` — the records ARE the rows of an external data file (relative to the collection's own root, containment-checked like `dataPath`). Makes the collection **read-only** in every UI/tool write path; see "External data (CSV) collections" below. Mutually exclusive with `dataPath`, `singleton`, `ingest`, `spawn`, and `mutate` actions.                                                                                                                                                                                                     |
+| `storage`              | Optional. `{ "type": "sqlite", "path": "data/<name>.db" }` — records live in a single SQLite database file instead of per-record JSON files — or `{ "type": "firestore" }`, a SHARED collection whose records live in the app's Firestore (only when the user asks for sharing). Either way the collection stays **writable** and behaves identically everywhere else. Declare exactly ONE of `dataPath` / `dataSource` / `storage`. See "Alternative storage (sqlite)" and "Shared storage (firestore)" below.                                                                                                                                                            |
 | `primaryKey`           | The field name whose value is the filename. That field MUST set `primary: true`. The value must be a valid record id (see the **Records** section's id-charset rule). Required.                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `singleton`            | Optional. When set, at most one record exists, pinned to this exact id (e.g. `me`). Host pre-fills + locks the create form and hides Add once it exists.                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `fields`               | Ordered map of field-name → field spec. **Insertion order = column order** in the table. Required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -156,14 +193,30 @@ skipped, never crashes the host):
 
 Every field spec needs a `type` and a `label`. Extra keys by type:
 
-- **`datetime`** — no extra keys. Stored as a `YYYY-MM-DDTHH:MM` string and
-  edited with a native date+time picker. Use it (as `calendarField` /
-  `calendarEndField`) when an event has a real start/end clock — the calendar's
-  day view then draws each record as a proportional time block. For the common
-  "date column + separate time column" shape, keep `date` and point
-  `calendarTimeField` at the time string instead.
+- **`datetime`** — no extra keys. Stored as a `YYYY-MM-DDTHH:MM` string (seconds
+  optional) and edited with a native date+time picker. It is a **local wall
+  clock, not an instant**: no `Z`, no `+09:00` offset. `08:00` means eight in the
+  morning wherever the records are read, which is what a schedule means and what
+  the calendar can place. So a generated value must be FORMATTED, never
+  converted — `new Date(...).toISOString()` is wrong twice over: it appends the
+  `Z` (`putItems` writes the row but reports it in `lint`, a full `getItems`
+  listing warns about it, and a shared app's publish refuses it outright), and
+  it shifts the hours by the generating machine's offset, so a Tokyo 08:00 written on a US laptop reads back as the afternoon.
+  Build the string from the parts you already have (`${date}T${hh}:${mm}`). The
+  one `Z`-suffixed datetime that is legal is a shared app's server-stamped
+  field — nine fractional digits, written by the SERVER, never by you. Anything
+  else ending in `Z` (including `toISOString()`'s three digits) is linted.
+  Use it (as `calendarField` / `calendarEndField`) when an event has a real
+  start/end clock — the calendar's day view then draws each record as a
+  proportional time block. For the common "date column + separate time column"
+  shape, keep `date` and point `calendarTimeField` at the time string instead.
 - **`enum`** — `values: ["draft", "sent", "paid"]` (non-empty strings). Renders
-  a `<select>`; stored as a plain string.
+  a `<select>`; stored as a plain string. Optional `default: "draft"` pre-fills
+  a NEW record — the Add form opens on it, and a `putItems` row in `create` mode
+  that omits the field gets it. The value must be one of `values` (`putSchema`
+  refuses otherwise). `default` pairs with `required: true`: the requirement is
+  already satisfied, so the user just saves. It is NOT re-applied by `upsert` or
+  `merge` — those edit a record that already carries an answer.
 - **`money`** — `currency: "USD"` (ISO 4217, defaults to USD). Stored as a plain
   decimal; currency is display-only.
 - **`ref`** — `to: "<target-slug>"`. Stores the target record's primary-key
@@ -234,25 +287,25 @@ Every field spec needs a `type` and a `label`. Extra keys by type:
   `money` / `string` / `date`) and `currency`. **Read-only, host-computed** —
   you NEVER write derived values into the JSON; the host recomputes them on
   every render and the form refuses to persist them.
-- **`image`** — stores a **workspace-relative image path** as a plain string
+- **`image`** — stores an **image path relative to the collection's own root** as a plain string
   (e.g. `data/attachments/2026/05/<id>.jpg` — the exact path from an
   `[Attached file: ...]` marker when the user attaches a photo). The host
   renders it as an `<img>` in the **detail view** (it is intentionally not a
   list-table column — a per-row image fetch is too expensive for a large
   collection). No extra keys. Great for photos like a business card: read the
   details off the attached image and write its path into the image field.
-  Write the bare workspace-relative path — never an `/api/files/raw?...` URL.
+  Write the bare root-relative path — never an `/api/files/raw?...` URL.
   A **custom view** renders these via `GET <dataUrl>/image` (see
   `config/helps/custom-view.md` "Displaying images"; remote views declare
   `imageFields` instead) — never by base64-embedding them into the view HTML.
-- **`file`** — stores a **workspace-relative file path** as a plain string (e.g.
+- **`file`** — stores a **file path relative to the collection's own root** as a plain string (e.g.
   `artifacts/html/the-solar-system-1777158558023.html`). Rendered as a
   **clickable link** in both the list table and the detail view (unlike `image`,
   which is detail-only — a link is cheap per-row). Clicking an HTML or SVG
   artifact opens its **rendered** form in a new browser tab (the live app /
   drawing); any other path opens in the **File Explorer**. No extra keys. Ideal
   for a "my apps" collection where each record points at a generated HTML app —
-  the user launches it straight from the row. Write the bare workspace-relative
+  the user launches it straight from the row. Write the bare root-relative
   path — never an `/artifacts/...` or `/api/files/raw?...` URL.
 - **`toggle`** — `field: "<enum-field>"`, `onValue`, `offValue`. A checkbox that
   is a pure **projection** of an `enum` field — it **stores nothing** of its own
@@ -918,6 +971,25 @@ records through **`manageCollection`**, not raw file I/O:
   `mode: "merge"` with a partial row (`{ id, <changed fields> }`) when
   updating — the default upsert replaces the WHOLE record and would erase
   every optional field the row omits.
+- **Rows a script generated — `putItems` with `itemsFile`.** When the rows
+  already exist as data rather than in your head (a generated schedule, an
+  imported set — anything past a few dozen records), have the script write
+  them to a JSON file **under the workspace** and pass its **absolute** path as
+  `itemsFile` instead of `items`. The host reads the file, so the rows never
+  pass through your context: a 540-row batch is one short tool call, not 80 KB
+  you transcribe. The rules:
+  - `items` and `itemsFile` are mutually exclusive — passing both is refused,
+    not merged.
+  - The path must be **absolute** (the tool runs in the host's server process,
+    whose working directory is not yours) and **inside the workspace** — write
+    the generated file there rather than to a system temp dir. It must be a real
+    file, not a symlink.
+  - The file must hold a **non-empty JSON array of objects**, at most 8 MiB.
+  - One call writes at most **1000 rows** — over that it is refused whole,
+    with nothing written, so split the file and call again.
+
+  Everything else is identical: same per-row validation, same `mode`, same
+  `{ written, rejected }` result.
 - **Read / list — `getItems`.** The only way to see host-computed `derived` /
   `toggle` / `embed` values (the stored JSON never contains them). Pass `ids`
   / `fields` on large collections to keep the result small — e.g.
@@ -1020,7 +1092,12 @@ collection"):
    text, spaces) is hex-encoded into the record's address, and
    `displayField` is what keeps lists and notifications readable.
 5. **Write the schema** with `dataSource` instead of `dataPath`, plus a
+<!-- authoring:staged -->
    normal `SKILL.md`, under `data/skills/<slug>/` — same create flow as any
+<!-- /authoring:staged -->
+<!-- authoring:direct -->
+   normal `SKILL.md`, under `.claude/skills/<slug>/` — same create flow as any
+<!-- /authoring:direct -->
    collection. In the SKILL body, point aggregation questions at
    `manageCollection` `queryItems` (see below) — NOT at python/pandas and
    NOT at `getItems`; SKILL.md text outlives help updates, so a wrong
@@ -1132,10 +1209,59 @@ Minimal example:
 }
 ```
 
+## Shared storage (firestore) — `storage`
+
+`{ "type": "firestore" }` keeps a collection's records in a SHARED app rather
+than on this machine: they live at `apps/{aid}/collections/{cid}/items`, where
+`aid` is the app id and `cid` is this collection's slug.
+
+**Only declare this when the user asks for a shared collection.** It is not a
+faster `dataPath` — the records are remote, every read is a round trip, and the
+collection is unusable while remote-host is disconnected.
+
+Notes:
+
+- The `storage` block takes NOTHING else. No `path`, no `cid`, no `aid` —
+  writing any of them is a validation error, not a dropped key. `aid` is one per
+  APP and comes from `app.json` at the repository root; `cid` is always the slug.
+- The repository must declare its app, or the collection is refused at discovery:
+
+  `<repository root>/app.json`:
+
+  ```json
+  { "aid": "app_salon_7f3a" }
+  ```
+
+- Requires a connected remote-host session. Disconnected, every operation fails
+  with an actionable message — it never reports an empty collection.
+- Authorization is the app's member roster (keyed by email), not the path. A
+  signed-in user who is not on the roster gets `permission-denied`.
+- Live updates from OTHER members are not delivered yet; this host re-reads on
+  its own clock. Bells (`completionField` / `triggerField`) and `spawn` work.
+- Deleting the collection is REFUSED: its records are also other members', and
+  the delete can neither archive nor remove them.
+
+Minimal example:
+
+```json
+{
+  "title": "Bookings",
+  "icon": "event",
+  "storage": { "type": "firestore" },
+  "primaryKey": "id",
+  "fields": {
+    "id": { "type": "string", "label": "ID", "primary": true },
+    "customerName": { "type": "string", "label": "Customer" },
+    "startAt": { "type": "date", "label": "Start" }
+  }
+}
+```
+
 ## End-to-end: creating a new collection skill
 
 1. Pick a `<slug>` (lowercase-hyphen, no `mc-` prefix) and a `dataPath`
    (`data/<name>/items`).
+<!-- authoring:staged -->
 2. Write `data/skills/<slug>/schema.json` — `title`, `icon`, `dataPath`,
    `primaryKey` (with the matching field flagged `primary: true`), and the
    `fields` map in the order you want columns. Add `actions` +
@@ -1148,9 +1274,24 @@ Minimal example:
    with no host code. If it doesn't appear: first confirm you wrote under
    `data/skills/<slug>/` (NOT `.claude/skills/…`, which is gated and won't
    mirror); then check your `schema.json` passed validation — primary key
+<!-- /authoring:staged -->
+<!-- authoring:direct -->
+2. Write `.claude/skills/<slug>/schema.json` — `title`, `icon`, `dataPath`,
+   `primaryKey` (with the matching field flagged `primary: true`), and the
+   `fields` map in the order you want columns. Add `actions` +
+   `.claude/skills/<slug>/templates/*.md` only if the collection needs delegated
+   behaviour.
+3. Write `.claude/skills/<slug>/SKILL.md` — front-matter `name` + `description`,
+   then the record-shape bullets and CRUD conventions.
+4. Tell the user it's ready at `/collections/<slug>`. The host re-scans, so it
+   is discovered without a restart and with no host code. If it doesn't appear:
+   first confirm you wrote under `.claude/skills/<slug>/` (NOT `data/skills/…`,
+   which is never scanned here); then check your `schema.json` passed
+   validation — primary key
+<!-- /authoring:direct -->
    flagged `primary: true`, `ref`/`embed` have a valid `to`, `enum` has
    `values`, `table` has `of`, `derived` has `formula`, action ids unique,
-   `dataPath` under the workspace, `triggerField` names a real `date` field and
+   `dataPath` under the collection's root, `triggerField` names a real `date` field and
    has the completion pair, `spawn` has `triggerField` and a valid `every`,
    `calendarField` / `calendarEndField` name real `date`/`datetime` fields (and
    `calendarEndField` requires `calendarField`), `calendarTimeField` names a real
@@ -1173,8 +1314,14 @@ hand-editing the file:
    verbatim. You don't need to know where the file lives.
 3. Apply your change to that object, then `manageCollection` `putSchema`
    (slug, schema) — it validates the whole schema against the same rules
+<!-- authoring:staged -->
    discovery enforces and either writes it (canonical `data/skills/<slug>/`,
    mirrored for you) or returns the exact field + problem to fix and retry.
+<!-- /authoring:staged -->
+<!-- authoring:direct -->
+   discovery enforces and either writes it (`.claude/skills/<slug>/schema.json`,
+   in place) or returns the exact field + problem to fix and retry.
+<!-- /authoring:direct -->
 4. Call `presentCollection` to show the updated collection.
 
 Why not raw Read / Write / Edit on `schema.json`? A hand-edit that fails

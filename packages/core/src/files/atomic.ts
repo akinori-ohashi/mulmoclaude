@@ -41,13 +41,29 @@ function tmpPathFor(filePath: string, uniqueTmp: boolean | undefined): string {
 // gated to Windows because POSIX EPERM means a real perm problem (read-only fs, sticky, cross-device) — retrying
 // just adds latency before the inevitable throw.
 const IS_WINDOWS = process.platform === "win32";
-const RENAME_RETRY_DELAYS_MS = [30, 100, 300] as const;
+// The ASYNC ladder is generous because waiting is nearly free there — the call
+// yields, and a write that would otherwise throw is worth a few seconds. The
+// previous ~430 ms budget was not enough on a loaded Windows CI runner: the
+// notifier's `active.json` write lost the rename and threw, and the listener
+// waiting on it timed out ten seconds later, so the operation failed while the
+// contention it was retrying through had long since cleared (#2972 follow-up).
+const RENAME_RETRY_DELAYS_MS = [30, 100, 300, 600, 1000, 2000] as const;
+// The SYNC ladder stays short on purpose. `sleepSync` parks the whole thread,
+// so a long budget here does not delay one write — it freezes the process. A
+// caller that cannot afford to yield cannot afford to wait either; failing
+// after ~430 ms and letting the caller decide beats a four-second stall.
+const RENAME_RETRY_DELAYS_SYNC_MS = [30, 100, 300] as const;
 
 function hasErrnoCode(err: unknown): err is { code: string } {
   return typeof err === "object" && err !== null && "code" in err && typeof err.code === "string";
 }
 
 // `isWindows` is a parameter (defaulting to the real platform) so the safety-critical decision is testable on any OS.
+/** The retry budgets, exported so a test can assert what they cost rather than
+ *  hard-coding a second copy of the numbers. */
+export const RENAME_RETRY_BUDGET_MS = RENAME_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0);
+export const RENAME_RETRY_BUDGET_SYNC_MS = RENAME_RETRY_DELAYS_SYNC_MS.reduce((total, delay) => total + delay, 0);
+
 export function isTransientRenameError(err: unknown, isWindows: boolean = IS_WINDOWS): boolean {
   if (!isWindows || !hasErrnoCode(err)) return false;
   return err.code === "EPERM" || err.code === "EBUSY" || err.code === "EACCES";
@@ -80,7 +96,8 @@ export async function renameWithWindowsRetry(fromPath: string, toPath: string, d
   await deps.rename(fromPath, toPath);
 }
 
-// Atomics.wait parks the thread instead of busy-spinning. Only on the Windows-rename retry path, total ≤ ~430ms.
+// Atomics.wait parks the thread instead of busy-spinning. Only on the Windows-rename retry path, and only on the SYNC
+// ladder, whose budget is capped at ~430ms precisely because this blocks everything.
 const SYNC_SLEEP_BUF = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(millis: number): void {
   Atomics.wait(SYNC_SLEEP_BUF, 0, 0, millis);
@@ -100,7 +117,7 @@ const defaultRenameRetryDepsSync: RenameRetryDepsSync = {
 };
 
 export function renameSyncWithWindowsRetry(fromPath: string, toPath: string, deps: RenameRetryDepsSync = defaultRenameRetryDepsSync): void {
-  for (const delayMs of RENAME_RETRY_DELAYS_MS) {
+  for (const delayMs of RENAME_RETRY_DELAYS_SYNC_MS) {
     try {
       deps.rename(fromPath, toPath);
       return;

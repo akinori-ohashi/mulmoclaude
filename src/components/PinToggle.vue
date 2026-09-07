@@ -35,6 +35,10 @@ const props = defineProps<{
   /** Cached at pin time so the launcher renders without re-fetching. */
   title: string;
   icon: string;
+  /** Accent colour to cache alongside the label. Reconcile would fill this in
+   *  on the next index visit anyway, but without it a just-pinned shortcut
+   *  sits colourless until then. */
+  color?: string;
 }>();
 
 const { t } = useI18n();
@@ -46,7 +50,7 @@ function toggle(): void {
   if (pinned.value) {
     void unpin(props.kind, props.slug);
   } else {
-    void pin({ kind: props.kind, slug: props.slug, title: props.title, icon: props.icon });
+    void pin({ kind: props.kind, slug: props.slug, title: props.title, icon: props.icon, ...(props.color === undefined ? {} : { color: props.color }) });
   }
 }
 </script>

@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { writeFileAtomic, writeFileAtomicSync, isTransientRenameError, renameWithWindowsRetry } from "../../src/files/atomic.js";
+import {
+  writeFileAtomic,
+  writeFileAtomicSync,
+  isTransientRenameError,
+  renameWithWindowsRetry,
+  renameSyncWithWindowsRetry,
+  RENAME_RETRY_BUDGET_MS,
+  RENAME_RETRY_BUDGET_SYNC_MS,
+} from "../../src/files/atomic.js";
 import { writeJsonAtomic } from "../../src/files/json.js";
 import { isEnoent } from "../../src/files/safe.js";
 
@@ -136,6 +144,37 @@ describe("renameWithWindowsRetry (injected rename/sleep)", () => {
     };
     await renameWithWindowsRetry("from", "to", { rename, sleep: noSleep, isWindows: true });
     assert.equal(calls, 3);
+  });
+
+  // The budget is the point of the retry, not the retry itself: the notifier's
+  // `active.json` write lost a Windows rename, exhausted the old ~430 ms
+  // ladder, threw, and the listener waiting on it timed out ten seconds later.
+  // The async path yields while it waits, so the budget is worth spending.
+  it("waits seconds, not milliseconds, before giving up on Windows", async () => {
+    const slept: number[] = [];
+    const rename = async () => {
+      throw errWithCode("EPERM");
+    };
+    await assert.rejects(() => renameWithWindowsRetry("from", "to", { rename, sleep: async (millis) => void slept.push(millis), isWindows: true }), /EPERM/);
+    const total = slept.reduce((sum, millis) => sum + millis, 0);
+    assert.equal(total, RENAME_RETRY_BUDGET_MS);
+    assert.ok(total >= 3000, `an async rename must be retried for seconds, not ${total}ms`);
+  });
+
+  // The sync twin blocks the thread through `Atomics.wait`, so the same budget
+  // would freeze the process rather than delay one write. Different number,
+  // stated as a rule so nobody "unifies" the two ladders later.
+  it("keeps the SYNC budget short, because that one blocks the whole thread", () => {
+    const slept: number[] = [];
+    const rename = () => {
+      throw errWithCode("EPERM");
+    };
+    assert.throws(() => renameSyncWithWindowsRetry("from", "to", { rename, sleep: (millis) => void slept.push(millis), isWindows: true }), /EPERM/);
+    assert.equal(
+      slept.reduce((sum, millis) => sum + millis, 0),
+      RENAME_RETRY_BUDGET_SYNC_MS,
+    );
+    assert.ok(RENAME_RETRY_BUDGET_SYNC_MS < RENAME_RETRY_BUDGET_MS, "the blocking ladder must stay shorter than the yielding one");
   });
 
   it("does NOT retry a non-transient error — throws on the first attempt", async () => {

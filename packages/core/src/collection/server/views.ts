@@ -20,10 +20,11 @@
 // rendering is host-side), so only the canonical base's copy is unlinked.
 
 import { isErrorWithCode, isRecord, isUnknownArray } from "@mulmoclaude/common";
-import { readFile, stat, unlink } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "../../files/atomic.js";
-import { getWorkspaceRoot, isPresetSlug, skillsStagingDir } from "./host";
+import { getWorkspaceRoot, isPresetSlug } from "./host";
+import { stagedSkillDir } from "./skillAssets";
 import { resolveTemplatePath, safeSlugName, SCHEMA_FILE } from "./paths";
 import type { IoOptions } from "./io";
 import type { LoadedCollection } from "./discoveredCollection";
@@ -35,28 +36,20 @@ export type DeleteViewResult =
   | { kind: "preset" }
   | { kind: "unsafe-path"; viewId: string };
 
-async function fileExists(target: string): Promise<boolean> {
-  try {
-    await stat(target);
-    return true;
-  } catch (err) {
-    if (!isErrorWithCode(err)) throw err;
-    if (err.code === "ENOENT" || err.code === "ENOTDIR") return false;
-    throw err;
-  }
-}
-
 /** The authoritative base dir for a collection's schema.json + view HTML.
  *  For a project collection, prefer the staging tree when its schema.json is
  *  present (authoring layout); otherwise fall back to the active skill dir
  *  (imported layout — staging never materialised). For feed / user, it's
- *  always the discovered skillDir. Matches `readCustomViewHtml` so reads and
- *  deletes agree on both layouts. */
+ *  always the discovered skillDir.
+ *
+ *  Matches `readCustomViewHtml` so reads and deletes agree on both layouts —
+ *  through the SAME function now (`stagedSkillDir`), not through two copies of
+ *  one expression. The read side had drifted off it and was preferring staging
+ *  per root rather than per slug (#3031), which is precisely the drift a shared
+ *  predicate makes unrepresentable. */
 async function canonicalBase(collection: Pick<LoadedCollection, "source" | "skillDir">, workspaceRoot: string, safeSlug: string): Promise<string> {
   if (collection.source !== "project") return collection.skillDir;
-  const staging = path.join(skillsStagingDir(workspaceRoot), safeSlug);
-  if (await fileExists(path.join(staging, SCHEMA_FILE))) return staging;
-  return collection.skillDir;
+  return (await stagedSkillDir(workspaceRoot, safeSlug)) ?? collection.skillDir;
 }
 
 /** Every on-disk schema.json that must reflect the removal. The active
@@ -67,9 +60,9 @@ async function canonicalBase(collection: Pick<LoadedCollection, "source" | "skil
 async function schemaWriteTargets(collection: Pick<LoadedCollection, "source" | "skillDir">, workspaceRoot: string, safeSlug: string): Promise<string[]> {
   const active = path.join(collection.skillDir, SCHEMA_FILE);
   if (collection.source !== "project") return [active];
-  const stagingSchema = path.join(skillsStagingDir(workspaceRoot), safeSlug, SCHEMA_FILE);
+  const staging = await stagedSkillDir(workspaceRoot, safeSlug);
   const targets: string[] = [];
-  if (await fileExists(stagingSchema)) targets.push(stagingSchema);
+  if (staging !== null) targets.push(path.join(staging, SCHEMA_FILE));
   targets.push(active);
   return targets;
 }

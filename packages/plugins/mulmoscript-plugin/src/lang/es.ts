@@ -2,6 +2,8 @@ import type { Messages } from "./messages";
 
 const es: Messages = {
   beatCount: (count) => (count === 1 ? `${count} beat` : `${count} beats`),
+  editTab: "Editar",
+  mediaTab: "Medios",
   movie: "Vídeo",
   generating: "Generando…",
   rendering: "Renderizando…",

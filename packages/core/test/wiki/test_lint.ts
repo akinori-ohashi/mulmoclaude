@@ -50,17 +50,60 @@ describe("findBrokenLinksInPage — [[slug|alias]] regression", () => {
     assert.match(issue, /empty target/);
   });
 
-  it("flags links whose plain target slugifies to empty (e.g. pure non-ASCII)", () => {
-    // `[[キース]]` has no pipe; slugify strips every character.
-    // Treated as empty-target since the user has no slug to
-    // resolve against.
+  it("resolves a non-ASCII target against its own filename stem (#2940)", () => {
+    // Page files may be named in Japanese; the stem IS the slug.
+    // Slugifying the target first stripped every character and made
+    // every such link a false "broken link".
+    const content = "see [[不耕起栽培-カバークロップ4年計画]] for context";
+    const fileSlugs = new Set(["不耕起栽培-カバークロップ4年計画"]);
+    assert.deepEqual(findBrokenLinksInPage("a.md", content, fileSlugs), []);
+  });
+
+  it("resolves a link written as an index.md display title", () => {
+    // `resolvePagePath` and the graph both fall back to the index
+    // title; without the same fallback the lint called broken exactly
+    // the links they follow happily (Codex review).
+    const content = "見て [[さくらインターネット]]";
+    const fileSlugs = new Set(["sakura-internet"]);
+    const slugByTitle = new Map([["さくらインターネット", "sakura-internet"]]);
+    assert.deepEqual(findBrokenLinksInPage("a.md", content, fileSlugs, slugByTitle), []);
+  });
+
+  it("still flags a title that no index entry claims", () => {
+    const content = "見て [[知らないタイトル]]";
+    const fileSlugs = new Set(["sakura-internet"]);
+    const slugByTitle = new Map([["さくらインターネット", "sakura-internet"]]);
+    assert.equal(findBrokenLinksInPage("a.md", content, fileSlugs, slugByTitle).length, 1);
+  });
+
+  it("leaves `[[]]` alone — a zero-length body is not a wiki link at all", () => {
+    // Pins the boundary Codex read the other way twice: `[[]]` matches
+    // neither WIKI_LINK_PATTERN nor the renderer's scanner, so it is
+    // literal text, not an empty-target link.
+    assert.deepEqual(findBrokenLinksInPage("a.md", "see [[]] here", new Set(["x"])), []);
+  });
+
+  it("says a target that cannot be a filename is unusable, not merely missing", () => {
+    // `../secrets` is rejected by the write guard, so `../secrets.md
+    // not found` would invite creating a file that cannot exist.
+    const content = "see [[../secrets]] for context";
+    const issues = findBrokenLinksInPage("a.md", content, new Set<string>());
+    assert.equal(issues.length, 1);
+    const [issue] = issues;
+    assert.ok(issue);
+    assert.match(issue, /cannot be a page filename/);
+    assert.doesNotMatch(issue, /\.md` not found/);
+  });
+
+  it("reports a missing non-ASCII target as a broken link, not an empty target", () => {
     const content = "see [[キース・ラボイス]] for context";
     const fileSlugs = new Set<string>();
     const issues = findBrokenLinksInPage("a.md", content, fileSlugs);
     assert.equal(issues.length, 1);
     const [issue] = issues;
     assert.ok(issue);
-    assert.match(issue, /empty target/);
+    assert.match(issue, /Broken link.*キース・ラボイス\.md/);
+    assert.doesNotMatch(issue, /empty target/);
   });
 });
 
@@ -78,6 +121,19 @@ describe("findOrphanPages / findMissingFiles", () => {
     ];
     const fileSlugs = new Set(["a"]);
     assert.deepEqual(findMissingFiles(entries, fileSlugs), ["- **Missing file**: index.md references `b` but the file does not exist"]);
+  });
+});
+
+describe("findMissingFiles — malformed entries", () => {
+  it("names an entry with no page name as malformed, not as a missing file", () => {
+    // `- [[|日本語]]` parses to an empty slug; "references `` but the
+    // file does not exist" is unactionable (Codex review on #2946).
+    const entries: WikiPageEntry[] = [{ slug: "", title: "日本語", description: "", tags: [] }];
+    const issues = findMissingFiles(entries, new Set(["sakura-internet"]));
+    assert.equal(issues.length, 1);
+    const [issue] = issues;
+    assert.ok(issue);
+    assert.match(issue, /Malformed entry.*日本語.*no page name/);
   });
 });
 

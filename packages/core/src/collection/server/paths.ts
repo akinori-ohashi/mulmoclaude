@@ -78,15 +78,28 @@ export function isContainedInRoot(absPath: string, rootPath: string): boolean {
   }
   const ancestorReal = realpathClosestAncestor(absPath);
   if (ancestorReal === null) return false;
-  if (ancestorReal === rootReal) return true;
-  return ancestorReal.startsWith(rootReal + path.sep);
+  return isUnderRealRoot(ancestorReal, rootReal);
 }
 
-/** Workspace-bound convenience over `isContainedInRoot`. Production
- *  callers use this; the tests exercise the pure helper. */
-export function isContainedInWorkspace(absPath: string): boolean {
-  return isContainedInRoot(absPath, getWorkspaceRoot());
+/** The containment comparison itself, on two paths a caller has ALREADY
+ *  canonicalised. Exported because a caller holding a resolved path must not
+ *  re-derive it: `isContainedInRoot` canonicalises with `realpathSync`, and a
+ *  path resolved by a DIFFERENT api can be a different string for the same
+ *  file — on Windows `fs/promises.realpath` expands an 8.3 short name that
+ *  `realpathSync` leaves alone, so `C:\Users\runneradmin\…` was compared
+ *  against `C:\Users\RUNNER~1\…` and every file under the workspace looked
+ *  like it was outside it (#2972). Canonicalise both sides the same way, then
+ *  come here. */
+export function isUnderRealRoot(realPath: string, realRoot: string): boolean {
+  if (realPath === realRoot) return true;
+  return realPath.startsWith(realRoot + path.sep);
 }
+
+// NOTE: there is deliberately no `isContainedInWorkspace(absPath)` helper here.
+// It existed, had zero callers, and was exactly the shape a contributor reaches
+// for by reflex — at which point containment is checked against the AMBIENT
+// root while the operation it guards runs under an explicit one. Pass the root
+// you are operating on to `isContainedInRoot` instead.
 
 /** Resolve a schema-declared dataPath against `rootPath` (default:
  *  the live workspace), refusing anything that escapes — absolute

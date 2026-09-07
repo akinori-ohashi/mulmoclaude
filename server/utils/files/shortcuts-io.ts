@@ -8,6 +8,7 @@ import { writeFileAtomic } from "./atomic.js";
 import { readTextSafe } from "./safe.js";
 import { isRecord } from "../types.js";
 import { SHORTCUT_KINDS, sameShortcut, type Shortcut, type ShortcutsFile } from "../../../src/types/shortcuts.js";
+import { isAccentColor } from "@mulmoclaude/core/collection";
 
 function shortcutsFilePath(workspaceRoot?: string): string {
   return path.join(workspaceRoot ?? workspacePath, WORKSPACE_FILES.shortcuts);
@@ -16,24 +17,43 @@ function shortcutsFilePath(workspaceRoot?: string): string {
 /** Coerce arbitrary JSON into a clean `Shortcut[]`: drop malformed
  *  entries (bad kind / empty slug / non-string fields) and dedupe on
  *  `(kind, slug)` keeping the first occurrence. Exported for the route
- *  validator and unit tests — pure, no IO. */
+ *  validator and unit tests — pure, no IO.
+ *
+ *  This REBUILDS each entry rather than filtering the input, so any field it
+ *  does not name is silently dropped on every write — pin, unpin, reorder and
+ *  reconcile all pass through here. A new `Shortcut` field that is not listed
+ *  below never survives being persisted (#2987). */
+/** One raw JSON value as a `Shortcut`, or null when it cannot be one.
+ *
+ *  Split out of the loop below so each concern stays readable on its own: this
+ *  answers "what IS a shortcut entry", the caller answers "which of them do we
+ *  keep". */
+function toShortcut(raw: unknown): Shortcut | null {
+  if (!isRecord(raw)) return null;
+  const { slug, title, icon, color } = raw;
+  // `find` over the literal list narrows to `ShortcutKind` by construction —
+  // a membership predicate would only assert it.
+  const kind = SHORTCUT_KINDS.find((candidate) => candidate === raw.kind);
+  if (kind === undefined) return null;
+  if (typeof slug !== "string" || slug.length === 0) return null;
+  return {
+    kind,
+    slug,
+    title: typeof title === "string" ? title : slug,
+    icon: typeof icon === "string" && icon.length > 0 ? icon : "bookmark",
+    // Only a colour the palette carries is kept, so the file cannot accumulate
+    // names nothing can draw. Added conditionally rather than assigned:
+    // `color: undefined` would serialise as a null.
+    ...(isAccentColor(color) ? { color } : {}),
+  };
+}
+
 export function normalizeShortcuts(input: unknown): Shortcut[] {
   if (!Array.isArray(input)) return [];
   const out: Shortcut[] = [];
   for (const raw of input) {
-    if (!isRecord(raw)) continue;
-    const { slug, title, icon } = raw;
-    // `find` over the literal list narrows to `ShortcutKind` by construction —
-    // a membership predicate would only assert it.
-    const kind = SHORTCUT_KINDS.find((candidate) => candidate === raw.kind);
-    if (kind === undefined) continue;
-    if (typeof slug !== "string" || slug.length === 0) continue;
-    const entry: Shortcut = {
-      kind,
-      slug,
-      title: typeof title === "string" ? title : slug,
-      icon: typeof icon === "string" && icon.length > 0 ? icon : "bookmark",
-    };
+    const entry = toShortcut(raw);
+    if (entry === null) continue;
     if (out.some((existing) => sameShortcut(existing, entry))) continue;
     out.push(entry);
   }

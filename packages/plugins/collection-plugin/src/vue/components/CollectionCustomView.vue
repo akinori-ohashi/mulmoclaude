@@ -34,13 +34,17 @@ import { ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { useCollectionI18n } from "../lang";
 import { errorMessage } from "@mulmoclaude/core/collection";
 import type { CollectionCustomView } from "@mulmoclaude/core/collection";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
+import { decideSearchChannelClaim, type SearchChannelState } from "../searchChannelPolicy";
 
 const { t } = useCollectionI18n();
 
 const props = defineProps<{
   slug: string;
   view: CollectionCustomView;
+  /** Live text in the host's STANDARD table search box, relayed into the
+   *  sandboxed view so a collection needs only one search box (#2959). */
+  searchQuery?: string;
 }>();
 
 const emit = defineEmits<{
@@ -56,6 +60,29 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const srcdoc = ref<string | null>(null);
 const iframeEl = ref<HTMLIFrameElement | null>(null);
+
+// The live search channel into the current frame (see "Host search box → view"
+// below). Declared up here because `load()` closes it, and the watch that calls
+// `load()` runs during setup — a `let` declared further down would still be in
+// its temporal dead zone.
+let searchPort: MessagePort | null = null;
+
+// Rebuilds already granted since the user last switched view or collection,
+// and where the channel stands. The rule itself lives in
+// `decideSearchChannelClaim` — pure, so it is covered exhaustively by unit
+// tests rather than by racing an async iframe rebuild.
+let frameReclaims = 0;
+let searchState: SearchChannelState = "idle";
+
+function closeSearchPort(): void {
+  searchPort?.close();
+  searchPort = null;
+}
+
+// Resolved once in setup: inside a chat card this is the card's project-scoped
+// binding, elsewhere the global one. Captured here because the loads below run
+// outside setup, where the scope can no longer be injected.
+const cui = useCollectionUi();
 
 // The injected token expires (VIEW_TOKEN_TTL_MS, 1h). The sandboxed view can't
 // re-mint itself (it has no global bearer), so a view left mounted past expiry
@@ -86,12 +113,17 @@ let loadSeq = 0;
 
 async function load(): Promise<void> {
   clearRefresh();
+  closeSearchPort(); // the frame this port belonged to is being replaced
+  // Non-connectable until the new srcdoc is actually installed: the awaits
+  // below are network round trips, and the OLD document sits in the frame for
+  // all of them. `exhausted` outranks this and is not cleared here.
+  if (searchState !== "exhausted") searchState = "rebuilding";
   const seq = ++loadSeq;
   const stale = (): boolean => seq !== loadSeq;
   loading.value = true;
   error.value = null;
   srcdoc.value = null;
-  const binding = collectionUi();
+  const binding = cui;
   try {
     // 1. Mint a scoped token for this view's declared capabilities.
     const mint = await binding.mintViewToken(props.slug, props.view.id);
@@ -118,6 +150,8 @@ async function load(): Promise<void> {
     if (stale()) return;
     const i18nBoot = i18n.ok ? i18n.data : { locale: "", dict: {} };
     // 4. Render it sandboxed with the token + CSP + dict injected.
+    // The frame is the host's again from here, so its view may claim.
+    if (searchState === "rebuilding") searchState = "idle";
     srcdoc.value = binding.buildViewSrcdoc(resp.html, {
       slug: props.slug,
       token: mint.data.token,
@@ -139,7 +173,15 @@ async function load(): Promise<void> {
 // back. `localeTag()` is documented as reactive (the binding doc on
 // `CollectionUi.localeTag`); reading it inside the watch source array lets
 // Vue track that dep transparently.
-watch([() => props.slug, () => props.view.id, () => collectionUi().localeTag()], () => void load(), { immediate: true });
+watch(
+  [() => props.slug, () => props.view.id, () => cui.localeTag()],
+  () => {
+    frameReclaims = 0;
+    searchState = "idle";
+    void load();
+  },
+  { immediate: true },
+);
 
 // ── Live updates ──
 // The sandboxed iframe can't open its own authenticated pub/sub socket, so the
@@ -162,10 +204,72 @@ watch(
   (slug) => {
     changeUnsub?.();
     changeUnsub = null;
-    const subscribe = collectionUi().subscribeChanges;
+    const subscribe = cui.subscribeChanges;
     if (slug && subscribe) changeUnsub = subscribe(slug, relayChange);
   },
   { immediate: true },
+);
+
+// ── Host search box → view ──
+// The standard table's search box stays visible while a custom view renders, so
+// the user reasonably expects the one box to drive both (#2959). The iframe has
+// an opaque origin and cannot read the parent, so the host pushes the text in.
+// Host → view only: the view reacts to the query, it never writes it back.
+//
+// Over a MessageChannel port rather than `contentWindow.postMessage`, because
+// the query is the user's own typed text. A window post must name a target
+// origin, and an opaque origin can only be addressed as `"*"` — which keeps
+// delivering after the view navigates ITSELF elsewhere (nothing stops
+// `location = "https://elsewhere"`), handing the replacement document every
+// later keystroke. A port belongs to the document that received it, so that
+// navigation severs the channel instead. `relayChange` above stays on `"*"`:
+// its payload is a bare refetch ping whose slug the view already knows.
+function postSearchQuery(query: string): void {
+  searchPort?.postMessage({ type: "mc-search-query", slug: props.slug, query });
+}
+
+// Why a claim is answered this way — and why no secret would help — is in
+// `searchChannelPolicy.ts` alongside the rule itself.
+function connectSearchPort(port: MessagePort): void {
+  searchPort = port;
+  searchState = "connected";
+  // Seed a frame built after the user had already typed (a view switch, or the
+  // token re-mint). Empty is skipped — it is the frame's own initial state, so
+  // pushing it would fire every view's callback for nothing.
+  const query = props.searchQuery ?? "";
+  if (query) postSearchQuery(query);
+}
+
+function reinstallView(): void {
+  frameReclaims += 1;
+  void load(); // sets `rebuilding`, then `idle` once the new frame is installed
+}
+
+function acceptSearchPort(port: MessagePort | undefined): void {
+  if (!port) return;
+  const action = decideSearchChannelClaim(searchState, frameReclaims);
+  if (action === "ignore") {
+    port.close(); // a rebuild is already under way; keep our own port untouched
+    return;
+  }
+  if (action === "connect") {
+    connectSearchPort(port);
+    return;
+  }
+  closeSearchPort();
+  if (action === "reinstall") {
+    reinstallView();
+    return;
+  }
+  // Terminal: refusing must not read as "disconnected", or the next claim from
+  // the same document would be taken for a fresh frame and handed the channel.
+  searchState = "exhausted";
+}
+
+// Clearing the box must reach the view too, so this one relays "" as well.
+watch(
+  () => props.searchQuery,
+  (query) => postSearchQuery(query ?? ""),
 );
 
 // ── View → host action bridge ──
@@ -185,20 +289,35 @@ function handleStartChat(body: { prompt?: unknown; role?: unknown }): void {
   emit("startChat", { prompt, role: typeof body.role === "string" ? body.role : undefined });
 }
 
+/** Anything the sandboxed view may post up. Every field stays `unknown` — the
+ *  handlers below validate them; this only says "some object arrived". */
+interface BridgeMessage {
+  type?: unknown;
+  slug?: unknown;
+  id?: unknown;
+  mode?: unknown;
+  prompt?: unknown;
+  role?: unknown;
+}
+
+function isBridgeMessage(data: unknown): data is BridgeMessage {
+  return typeof data === "object" && data !== null;
+}
+
 function onWindowMessage(event: MessageEvent): void {
   if (event.source !== iframeEl.value?.contentWindow) return;
   const msg: unknown = event.data;
-  if (typeof msg !== "object" || msg === null) return;
-  if (!("slug" in msg) || msg.slug !== props.slug) return;
-  const type = "type" in msg ? msg.type : undefined;
-  if (type === "mc-open-item") handleOpenItem({ id: "id" in msg ? msg.id : undefined, mode: "mode" in msg ? msg.mode : undefined });
-  else if (type === "mc-start-chat") handleStartChat({ prompt: "prompt" in msg ? msg.prompt : undefined, role: "role" in msg ? msg.role : undefined });
+  if (!isBridgeMessage(msg) || msg.slug !== props.slug) return;
+  if (msg.type === "mc-view-ready") acceptSearchPort(event.ports[0]);
+  else if (msg.type === "mc-open-item") handleOpenItem({ id: msg.id, mode: msg.mode });
+  else if (msg.type === "mc-start-chat") handleStartChat({ prompt: msg.prompt, role: msg.role });
 }
 
 onMounted(() => window.addEventListener("message", onWindowMessage));
 
 onBeforeUnmount(() => {
   clearRefresh();
+  closeSearchPort();
   changeUnsub?.();
   changeUnsub = null;
   window.removeEventListener("message", onWindowMessage);

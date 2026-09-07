@@ -9,6 +9,8 @@
 // diagram. `mermaidPromise` memoises the module so subsequent calls
 // don't re-import.
 
+import { adoptSvg } from "../dom/adoptSvg.js";
+
 type MermaidRuntime = typeof import("mermaid").default;
 
 /** Localised strings the render pipeline surfaces when it fails.
@@ -71,30 +73,6 @@ function nextRenderId(idPrefix: string): string {
 
 function pendingNodes(root: Element | Document): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>("pre.mermaid[data-mermaid-pending]"));
-}
-
-/** Adopt a mermaid-produced SVG string into a live DOM node via
- *  DOMParser (HTML5 mode) instead of assigning to `.innerHTML`.
- *  Mermaid's `securityLevel: "strict"` already escapes user-authored
- *  diagram text before building the SVG, so the string is trusted —
- *  but going through the parser satisfies opengrep's XSS heuristic
- *  that flags every raw `innerHTML =`. HTML5 mode (not `image/svg+xml`)
- *  is required: mermaid's SVG contains `<foreignObject>` wrappers with
- *  nested HTML content for labels (line-broken text via `<br>`, `<div>`,
- *  etc.), which is well-formed HTML5 but NOT well-formed XML — the
- *  XML parser drops a `<parsererror>` root and refuses. HTML5 mode
- *  treats `<svg>` as a foreign-namespace root and correctly parses
- *  the mixed subtree.
- *
- *  Exported for regression tests in
- *  `test/utils/markdown/test_mermaidRender.ts` so the assertion
- *  exercises the real production helper instead of an inline copy. */
-export function adoptSvg(svgMarkup: string): SVGElement | null {
-  const parsed = new DOMParser().parseFromString(svgMarkup, "text/html");
-  // `<svg>` at the top level lands under `body` in HTML5 parsing.
-  const svgEl = parsed.body.querySelector("svg");
-  if (!svgEl) return null;
-  return document.importNode(svgEl, true);
 }
 
 async function renderOne(node: HTMLElement, mermaid: MermaidRuntime, labels: MermaidRenderLabels, idPrefix: string): Promise<void> {

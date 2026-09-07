@@ -212,7 +212,14 @@
           :view="activeCustomView"
           @start-chat="onCustomViewStartChat"
         />
-        <CollectionCustomView v-else :slug="collection.slug" :view="activeCustomView" @open-item="onCustomViewOpenItem" @start-chat="onCustomViewStartChat" />
+        <CollectionCustomView
+          v-else
+          :slug="collection.slug"
+          :view="activeCustomView"
+          :search-query="searchQuery"
+          @open-item="onCustomViewOpenItem"
+          @start-chat="onCustomViewStartChat"
+        />
       </div>
 
       <div v-else-if="items.length === 0 && editing?.mode !== 'create'" class="flex flex-col items-center justify-center py-20 text-sm text-slate-400 gap-2">
@@ -327,7 +334,13 @@
       @close="configOpen = false"
     />
 
-    <CollectionChatModal v-if="chatOpen && collection" :collection-title="collection.title" @close="closeChat" @submit="submitChat" />
+    <!-- `chat-modal-options` reaches the modal's footer, and ONLY on the standalone path. With
+         `sendTextMessage` set we are inside a chat card and `submitChat` sends into the session
+         already running (useCollectionChat's `dispatchSeed`), so a host control over "which chat
+         gets started" would change nothing — an option that does not apply is worse than none. -->
+    <CollectionChatModal v-if="chatOpen && collection" :collection-title="collection.title" @close="closeChat" @submit="submitChat">
+      <template v-if="!sendTextMessage" #options><slot name="chat-modal-options" /></template>
+    </CollectionChatModal>
   </div>
 </template>
 
@@ -350,7 +363,8 @@ import CollectionRemoteViewPreview from "./CollectionRemoteViewPreview.vue";
 import CollectionTable from "./CollectionTable.vue";
 import { useCollectionRendering } from "../useCollectionRendering";
 import { writeCollectionViewMode, writeCollectionSort, writeCollectionFlagFilters, type CollectionViewMode, type BuiltInViewMode } from "../collectionViewMode";
-import { collectionUi, type CollectionPushResult } from "../uiContext";
+import type { CollectionConfirmOptions, CollectionPushResult } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 import { pushProblems } from "../calendarPushResult";
 import { useTableSort } from "../composables/useTableSort";
 import { useCollectionActions } from "../composables/useCollectionActions";
@@ -360,12 +374,13 @@ import { useViewMode } from "../composables/useViewMode";
 import { useLiveCollectionRefresh } from "../composables/useLiveCollectionRefresh";
 import {
   dateOf,
+  fieldDefaultValue,
   itemMatchesQuery,
   snapshotEmptyEnums,
   rowIdOf,
   toggleChecked,
   nextUniqueItemId,
-  shortHexId,
+  newItemId,
   COMPUTED_TYPES,
   buildUpdatedRecord,
   coerceInlineValue,
@@ -437,9 +452,13 @@ const { t, locale } = useCollectionI18n();
 // All host couplings (data, routing, confirm, chat, shortcuts, notifications,
 // the pin toggle) come through the injected CollectionUi binding. The aliases
 // keep the body's call sites unchanged where the host shape matched 1:1.
-const cui = collectionUi();
-const { confirm: openConfirm, unpin, startChat } = cui;
-const appApi = { startNewChat: startChat };
+const cui = useCollectionUi();
+// Called THROUGH `cui`, never copied off it: the binding a card resolves can
+// change under this component (another card, another project), and a captured
+// method would keep confirming / unpinning / seeding chats in the old project.
+const openConfirm = (options: CollectionConfirmOptions): Promise<boolean> => cui.confirm(options);
+const unpin = (kind: "collection" | "feed", slug: string): Promise<boolean> => cui.unpin(kind, slug);
+const appApi = { startNewChat: (prompt: string, role: string): void => cui.startChat(prompt, role) };
 
 /** Embedded when a `slug` prop is supplied; standalone (route-driven)
  *  otherwise. Switches the slug/selected source and the open/close
@@ -1054,45 +1073,64 @@ const calendarTimeField = computed<string | undefined>(() => {
   return calendarAnchorField.value === schema.calendarField ? schema.calendarTimeField : undefined;
 });
 
-/** A short, slug-safe id not already used by a loaded record. Collisions
- *  are astronomically unlikely (32 bits), but we still re-roll a few
- *  times against the in-memory set before giving up and using the last
- *  candidate (the server's overwrite guard is the final backstop). */
+/** A slug-safe id not already used by a loaded record. A UUID never
+ *  collides in practice, and the loaded set is only the rows this view
+ *  holds anyway — the re-roll is kept because the server's overwrite
+ *  guard is the real backstop and this costs nothing. */
 function generateUniqueItemId(primaryKey: string): string {
-  return nextUniqueItemId(items.value, primaryKey, shortHexId);
+  return nextUniqueItemId(items.value, primaryKey, newItemId);
 }
+
+/** The draft slots for one kind of field, built through `Object.fromEntries`
+ *  rather than by assigning into an accumulator: a field may be named
+ *  `__proto__` (JSON.parse hands that over as an own key), and `draft[key] = v`
+ *  would run the prototype setter for that one name — the field would silently
+ *  have no slot. `fromEntries` defines an own property whatever the name is
+ *  (Codex review on #2910). */
+function draftSlots<T>(fields: [string, FieldSpec][], keep: (field: FieldSpec) => boolean, valueOf: (key: string, field: FieldSpec) => T): Record<string, T> {
+  return Object.fromEntries(fields.filter(([, field]) => keep(field)).map(([key, field]): [string, T] => [key, valueOf(key, field)]));
+}
+
+/** A stored `table` value as editable row drafts: anything that isn't a list of
+ *  plain objects has no rows to edit. */
+function tableRowsFromItem(raw: unknown, field: FieldSpec): TableRowDraft[] {
+  const sub = field.type === "table" ? field.of : undefined;
+  if (!sub || !Array.isArray(raw)) return [];
+  return raw
+    .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row))
+    .map((row) => rowFromItem(row, sub));
+}
+
+const isBoolField = (field: FieldSpec): boolean => field.type === "boolean";
+const isTableField = (field: FieldSpec): boolean => field.type === "table";
+/** Everything else that gets a text slot — the computed/projected kinds
+ *  (COMPUTED_TYPES: derived, embed, backlinks, rollup, toggle) have none. */
+const isTextField = (field: FieldSpec): boolean => !isBoolField(field) && !isTableField(field) && !COMPUTED_TYPES.has(field.type);
 
 function openCreate(): void {
   if (!collection.value) return;
-  const text: Record<string, string> = {};
-  const bool: Record<string, boolean> = {};
-  const boolOriginallyPresent: Record<string, boolean> = {};
-  const boolTouched: Record<string, boolean> = {};
-  const table: Record<string, TableRowDraft[]> = {};
-  for (const [key, field] of Object.entries(collection.value.schema.fields)) {
-    if (field.type === "boolean") {
-      bool[key] = false;
-      // New record — no boolean was originally present.
-      boolOriginallyPresent[key] = false;
-      boolTouched[key] = false;
-    } else if (field.type === "table") {
-      table[key] = [];
-    } else if (!COMPUTED_TYPES.has(field.type)) {
-      text[key] = "";
-    }
-    // The computed/projected kinds (COMPUTED_TYPES: derived, embed,
-    // backlinks, rollup, toggle) have no draft slot.
-  }
+  const fields = Object.entries(collection.value.schema.fields);
+  const text = draftSlots(fields, isTextField, (_key, field) => fieldDefaultValue(field) ?? "");
+  const bool = draftSlots(fields, isBoolField, () => false);
+  // New record — no boolean was originally present.
+  const boolOriginallyPresent = draftSlots(fields, isBoolField, () => false);
+  const boolTouched = draftSlots(fields, isBoolField, () => false);
+  const table = draftSlots(fields, isTableField, (): TableRowDraft[] => []);
   // Singleton collections fix the primary key to the schema-declared
   // value (e.g. "me") so the first Add can't pick an arbitrary id.
   // Otherwise pre-fill a unique, editable id so the user doesn't have to
   // invent one — the primary-key input stays enabled in create mode, so
-  // they can still override it before saving. Matches the id shape the
-  // server would generate for a blank-id POST (`generateItemId`).
+  // they can still override it before saving. Same generator the server
+  // uses for a blank-id POST (`generateItemId` delegates to `newItemId`).
   const { singleton, primaryKey } = collection.value.schema;
   if (singleton) {
     text[primaryKey] = singleton;
-  } else if (primaryKey in text) {
+  } else if (Object.hasOwn(text, primaryKey) && !text[primaryKey]) {
+    // Only when nothing filled it: an `enum` is a legal primary key, and a
+    // generated UUID is not one of its `values` — the form would open blank on
+    // a field that cannot be saved. `hasOwn` rather than `in`, so a primary key
+    // named after something on Object.prototype reads its own slot rather than
+    // an inherited one (Codex review on #2910).
     text[primaryKey] = generateUniqueItemId(primaryKey);
   }
   viewing.value = null; // one panel open at a time
@@ -1102,33 +1140,19 @@ function openCreate(): void {
 
 function openEdit(item: CollectionItem): void {
   if (!collection.value) return;
-  const text: Record<string, string> = {};
-  const bool: Record<string, boolean> = {};
-  const boolOriginallyPresent: Record<string, boolean> = {};
-  const boolTouched: Record<string, boolean> = {};
-  const table: Record<string, TableRowDraft[]> = {};
-  for (const [key, field] of Object.entries(collection.value.schema.fields)) {
-    const raw = item[key];
-    if (field.type === "boolean") {
-      bool[key] = raw === true;
-      // Track whether the key was present in the source record so
-      // we can preserve "omitted" through a save that doesn't
-      // touch this field. `typeof raw === "boolean"` is more
-      // defensive than `key in item` because a wrong-typed value
-      // (e.g. `billable: "yes"`) shouldn't be treated as a real
-      // existing boolean state.
-      boolOriginallyPresent[key] = typeof raw === "boolean";
-      boolTouched[key] = false;
-    } else if (field.type === "table" && field.of) {
-      const sub = field.of;
-      const rows = Array.isArray(raw) ? raw : [];
-      table[key] = rows
-        .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row))
-        .map((row) => rowFromItem(row, sub));
-    } else if (!COMPUTED_TYPES.has(field.type)) {
-      text[key] = raw === undefined || raw === null ? "" : String(raw);
-    }
-  }
+  // Same `draftSlots` construction as the create path, and for the same
+  // reason: a field may be named `__proto__`, which an assignment would send
+  // to the prototype setter instead of a draft slot (Codex/CodeRabbit on
+  // #2910). Without a slot the field cannot be edited at all.
+  const fields = Object.entries(collection.value.schema.fields);
+  const text = draftSlots(fields, isTextField, (key) => (item[key] === undefined || item[key] === null ? "" : String(item[key])));
+  const bool = draftSlots(fields, isBoolField, (key) => item[key] === true);
+  // Whether the key was present in the source record, so an untouched field
+  // stays omitted through a save. `typeof === "boolean"` is more defensive than
+  // `key in item`: a wrong-typed value (`billable: "yes"`) is not a real state.
+  const boolOriginallyPresent = draftSlots(fields, isBoolField, (key) => typeof item[key] === "boolean");
+  const boolTouched = draftSlots(fields, isBoolField, () => false);
+  const table = draftSlots(fields, isTableField, (key, field): TableRowDraft[] => tableRowsFromItem(item[key], field));
   const primaryRaw = item[collection.value.schema.primaryKey];
   const originalId = typeof primaryRaw === "string" ? primaryRaw : String(primaryRaw ?? "");
   viewing.value = null; // one panel open at a time

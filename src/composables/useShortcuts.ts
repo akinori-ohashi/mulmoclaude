@@ -12,7 +12,9 @@ import { API_ROUTES } from "../config/apiRoutes";
 import { apiGet, apiPut } from "../utils/api";
 import { createMutationQueue } from "../utils/mutationQueue";
 import { sameShortcut, type Shortcut, type ShortcutKind } from "../types/shortcuts";
+import type { CollectionShortcutInfo } from "@mulmoclaude/core/collection";
 import { moveShortcutByIdentity, type MoveDirection } from "./shortcutReorder";
+import { reconcileShortcuts } from "./shortcutRefresh";
 
 const shortcuts = ref<Shortcut[]>([]);
 const loadError = ref<string | null>(null);
@@ -119,30 +121,16 @@ function movePinned(kind: ShortcutKind, slug: string, direction: MoveDirection):
   });
 }
 
-/** Bulk reconcile one kind against the authoritative `{slug,title,icon}`
- *  list an index just fetched: prune dead slugs, refresh survivors'
- *  title/icon. If anything drifted, PUT the corrected list so the file
- *  self-heals (an in-memory filter alone leaves dead entries forever).
- *  Other kinds are left untouched. */
-function reconcile(kind: ShortcutKind, live: { slug: string; title: string; icon: string }[]): Promise<void> {
+/** Bulk reconcile one kind against the authoritative
+ *  `{slug,title,icon,color}` list an index just fetched: prune dead slugs,
+ *  refresh survivors' title/icon/colour. If anything drifted, PUT the
+ *  corrected list so the file self-heals (an in-memory filter alone leaves
+ *  dead entries forever). Other kinds are left untouched. */
+function reconcile(kind: ShortcutKind, live: CollectionShortcutInfo[]): Promise<void> {
   return enqueue(async () => {
     await load();
     if (!loaded.value) return; // never overwrite an unread list
-    const liveBySlug = new Map(live.map((entry) => [entry.slug, entry]));
-    let drifted = false;
-    const next = shortcuts.value.flatMap((entry) => {
-      if (entry.kind !== kind) return [entry];
-      const fresh = liveBySlug.get(entry.slug);
-      if (!fresh) {
-        drifted = true; // dead slug — prune
-        return [];
-      }
-      if (fresh.title !== entry.title || fresh.icon !== entry.icon) {
-        drifted = true; // stale label — refresh
-        return [{ ...entry, title: fresh.title, icon: fresh.icon }];
-      }
-      return [entry];
-    });
+    const { next, drifted } = reconcileShortcuts(shortcuts.value, kind, live);
     if (drifted) await persist(next, shortcuts.value);
   });
 }
@@ -155,7 +143,7 @@ export function useShortcuts(): {
   pin: (shortcut: Shortcut) => Promise<boolean>;
   unpin: (kind: ShortcutKind, slug: string) => Promise<boolean>;
   movePinned: (kind: ShortcutKind, slug: string, direction: MoveDirection) => Promise<boolean>;
-  reconcile: (kind: ShortcutKind, live: { slug: string; title: string; icon: string }[]) => Promise<void>;
+  reconcile: (kind: ShortcutKind, live: CollectionShortcutInfo[]) => Promise<void>;
 } {
   void load();
   return {

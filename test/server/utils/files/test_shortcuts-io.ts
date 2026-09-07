@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { WORKSPACE_FILES } from "../../../../server/workspace/paths.js";
 import { normalizeShortcuts, readShortcuts, writeShortcuts } from "../../../../server/utils/files/shortcuts-io.js";
 import type { Shortcut } from "../../../../src/types/shortcuts.js";
+import { ACCENT_COLORS } from "@mulmoclaude/core/collection";
 
 function makeWorkspace(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "mulmoclaude-shortcuts-"));
@@ -65,6 +66,44 @@ describe("shortcuts-io — write", () => {
       root,
     );
     assert.deepEqual(written, [sample, { kind: "feed", slug: "invoices", title: "Feed", icon: "rss_feed" }]);
+  });
+});
+
+describe("normalizeShortcuts — accent colour (#2987)", () => {
+  // `normalizeShortcuts` REBUILDS each entry, so any field it does not name is
+  // dropped on every write — and every pin / unpin / reorder / reconcile goes
+  // through it. Without these, the accent survived in memory and vanished the
+  // moment it was persisted, which is exactly how it shipped broken.
+  it("preserves a palette colour through a write/read round trip", async () => {
+    const root = makeWorkspace();
+    try {
+      await writeShortcuts([{ kind: "collection", slug: "podcasts", title: "Podcasts", icon: "podcasts", color: "violet" }], root);
+      assert.deepEqual(await readShortcuts(root), [{ kind: "collection", slug: "podcasts", title: "Podcasts", icon: "podcasts", color: "violet" }]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps every colour the palette declares", () => {
+    ACCENT_COLORS.forEach((color) => {
+      const [entry] = normalizeShortcuts([{ kind: "collection", slug: "s", title: "T", icon: "podcasts", color }]);
+      assert.equal(entry?.color, color, color);
+    });
+  });
+
+  it("drops a colour the palette does not carry rather than persisting it", () => {
+    ["puce", "Violet", "", "red", 7, null, {}].forEach((color) => {
+      const [entry] = normalizeShortcuts([{ kind: "collection", slug: "s", title: "T", icon: "podcasts", color }]);
+      assert.ok(entry, JSON.stringify(color));
+      assert.equal("color" in entry, false, JSON.stringify(color));
+    });
+  });
+
+  it("omits the key entirely when there is no colour, rather than writing a null", () => {
+    const [entry] = normalizeShortcuts([{ kind: "collection", slug: "s", title: "T", icon: "podcasts" }]);
+    assert.ok(entry);
+    assert.equal("color" in entry, false);
+    assert.equal(JSON.stringify(entry).includes("color"), false);
   });
 });
 

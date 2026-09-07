@@ -1,8 +1,8 @@
-import type { ToolPluginCore, ToolResult } from "gui-chat-protocol";
+import type { FileOps, ToolPluginCore, ToolResult } from "gui-chat-protocol";
 import { mulmoScriptSchema } from "@mulmocast/types";
 import { errorMessage } from "@mulmoclaude/common";
 import { TOOL_DEFINITION } from "./definition";
-import { normalizeStoryPath, storyFilePath } from "./paths";
+import { isAbsoluteStoryPath, normalizeStoryPath, storyFilePath } from "./paths";
 import { validateUpdateBeatBody, validateUpdateScriptBody } from "./validate";
 import type { MulmoScriptData, MulmoScriptExecuteContext, SaveMulmoScriptArgs } from "./types";
 
@@ -49,6 +49,22 @@ async function saveNewScript(context: MulmoScriptExecuteContext, script: unknown
   return { ok: true, script: validatedScript, filePath, message: `Saved MulmoScript to ${filePath}` };
 }
 
+/** The FileOps that owns a given `filePath`, plus the path in that FileOps'
+ *  terms and the wire form callers key on.
+ *
+ *  A RELATIVE path keeps going through `files.artifacts` under the stories dir
+ *  — the only capability an older host provides, and what `saveNewScript`
+ *  writes to — so its behaviour is byte-identical to before. An ABSOLUTE path
+ *  is taken as named through the host's `files.byPath`, and is its own wire
+ *  form: there is no stories-relative spelling for a file outside the stories
+ *  dir, and minting one would read back as a DIFFERENT file. */
+function locate(context: MulmoScriptExecuteContext, filePath: string): { files: FileOps; rel: string } | null {
+  const byPath = context.files.byPath;
+  if (byPath && isAbsoluteStoryPath(filePath)) return { files: byPath, rel: filePath };
+  const storyPath = normalizeStoryPath(filePath);
+  return storyPath ? { files: context.files.artifacts, rel: storyPath } : null;
+}
+
 /** Re-open an existing script: containment guard, existence, JSON parse,
  *  schema validation — same acceptance rules as the save path so a script
  *  this package saved can never be one it later refuses to load. */
@@ -56,14 +72,15 @@ async function loadExistingScript(context: MulmoScriptExecuteContext, filePath: 
   if (!filePath.toLowerCase().endsWith(".json")) {
     return badRequest("filePath must point to a .json file");
   }
-  const storyPath = normalizeStoryPath(filePath);
-  if (!storyPath) {
+  const target = locate(context, filePath);
+  if (!target) {
     return badRequest("Invalid filePath");
   }
-  if (!(await context.files.artifacts.exists(storyPath))) {
+  const storyPath = target.rel;
+  if (!(await target.files.exists(storyPath))) {
     return notFound(`File not found: ${filePath}`);
   }
-  const raw = await context.files.artifacts.read(storyPath);
+  const raw = await target.files.read(storyPath);
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -90,7 +107,7 @@ export async function executeMulmoScriptSave(
   args: SaveMulmoScriptArgs,
   now: Date = new Date(),
 ): Promise<SaveMulmoScriptOutcome> {
-  const { script, filename, filePath } = args ?? {};
+  const { script, filename, filePath, beatIndex, beat } = args ?? {};
   const hasScript = script !== undefined && script !== null;
   const hasFilePath = typeof filePath === "string" && filePath !== "";
   if (hasScript === hasFilePath) {
@@ -98,19 +115,31 @@ export async function executeMulmoScriptSave(
       hasScript ? "Provide either `script` or `filePath`, not both." : "Provide either `script` (new presentation) or `filePath` (existing presentation).",
     );
   }
-  return hasFilePath
-    ? loadExistingScript(context, filePath as string)
-    : saveNewScript(context, script, typeof filename === "string" ? filename : undefined, now);
+  if (!hasFilePath) return saveNewScript(context, script, typeof filename === "string" ? filename : undefined, now);
+
+  // `filePath` + `beatIndex` + `beat` replaces one beat before displaying, so revising a single
+  // slide does not mean re-sending a whole deck. Both halves are required together: an index
+  // with no replacement, or a replacement with no index, is a caller mistake worth reporting
+  // rather than silently ignoring — it would look like a successful edit that changed nothing.
+  const wantsBeatEdit = beatIndex !== undefined || beat !== undefined;
+  if (wantsBeatEdit) {
+    if (beatIndex === undefined || beat === undefined) {
+      return badRequest("`beatIndex` and `beat` go together — pass both to replace one beat, or neither to re-display.");
+    }
+    const updated = await executeUpdateBeat(context, { filePath, beatIndex, beat });
+    if (!updated.ok) return updated;
+  }
+  return loadExistingScript(context, filePath);
 }
 
 /** Resolve + guard a wire path for the update endpoints. */
-async function resolveExistingStory(context: MulmoScriptExecuteContext, filePath: string): Promise<{ storyPath: string } | MulmoScriptFailure> {
-  const storyPath = normalizeStoryPath(filePath);
-  if (!storyPath) return badRequest("Invalid filePath");
-  if (!(await context.files.artifacts.exists(storyPath))) {
+async function resolveExistingStory(context: MulmoScriptExecuteContext, filePath: string): Promise<{ files: FileOps; storyPath: string } | MulmoScriptFailure> {
+  const target = locate(context, filePath);
+  if (!target) return badRequest("Invalid filePath");
+  if (!(await target.files.exists(target.rel))) {
     return notFound(`File not found: ${filePath}`);
   }
-  return { storyPath };
+  return { files: target.files, storyPath: target.rel };
 }
 
 /** Overwrite one beat of an existing script (the View's per-beat source
@@ -126,7 +155,7 @@ export async function executeUpdateBeat(context: MulmoScriptExecuteContext, body
 
   let script: { beats?: unknown[] };
   try {
-    script = JSON.parse(await context.files.artifacts.read(resolved.storyPath));
+    script = JSON.parse(await resolved.files.read(resolved.storyPath));
   } catch (err) {
     return badRequest(`Invalid JSON: ${errorMessage(err)}`);
   }
@@ -134,7 +163,7 @@ export async function executeUpdateBeat(context: MulmoScriptExecuteContext, body
     return badRequest("Invalid beatIndex");
   }
   script.beats[beatIndex] = beat;
-  await context.files.artifacts.write(resolved.storyPath, stringifyScript(script));
+  await resolved.files.write(resolved.storyPath, stringifyScript(script));
   return { ok: true };
 }
 
@@ -149,7 +178,7 @@ export async function executeUpdateScript(context: MulmoScriptExecuteContext, bo
   const resolved = await resolveExistingStory(context, filePath);
   if ("ok" in resolved) return resolved;
 
-  await context.files.artifacts.write(resolved.storyPath, stringifyScript(script));
+  await resolved.files.write(resolved.storyPath, stringifyScript(script));
   return { ok: true };
 }
 

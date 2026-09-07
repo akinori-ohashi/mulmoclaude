@@ -39,6 +39,7 @@ test-results-live/
 /github/
 /models/
 /plugins/
+/config/
 /.mulmoclaude/
 /.session-token
 /.server-port

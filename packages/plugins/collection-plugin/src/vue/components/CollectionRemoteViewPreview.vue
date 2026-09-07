@@ -45,7 +45,7 @@ import {
   type RemoteViewPage,
   type RemoteViewPageRequest,
 } from "@mulmoclaude/core/remote-view";
-import { collectionUi } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 
 const { t } = useCollectionI18n();
 
@@ -66,16 +66,33 @@ const srcdoc = ref<string | null>(null);
 const bytes = ref(0);
 const iframeEl = ref<HTMLIFrameElement | null>(null);
 // Last page's inlined/omitted image counts — surfaced so the author sees how
-// many thumbnails fit the per-page budget while iterating (numeric, no locale
-// keys, like the byte caption).
+// many thumbnails fit the per-page budget while iterating.
+//
+// Since #2924 `omitted` counts the images this page hands back as a PATH — the
+// placeholders the author will actually see. Usually that means unresolvable
+// (missing file, undecodable source), because an over-budget image is deferred
+// to the next page rather than dropped; the exception is a first item forced
+// out to keep paging alive, whose over-budget images do travel as paths and are
+// counted here too. Said through `t()` because it is a WORD an author has to
+// read, unlike the byte figures beside it (Codex on #2934; the counts used to
+// be called locale-free, which stopped being true the moment the caption had to
+// name what went wrong).
 const imageStats = ref<{ inlined: number; omitted: number } | null>(null);
 
 const sizeCaption = computed(() => {
   const base = `${Math.max(1, Math.round(bytes.value / 1024))} KB / ${Math.round(REMOTE_VIEW_MAX_BYTES / 1024)} KB`;
   const stats = imageStats.value;
   if (!stats || (stats.inlined === 0 && stats.omitted === 0)) return base;
-  return stats.omitted > 0 ? `${base} · ${stats.inlined} images (${stats.omitted} over budget)` : `${base} · ${stats.inlined} images`;
+  const images =
+    stats.omitted > 0
+      ? t("collectionsView.remoteViewPreviewImagesPlaceholders", { count: stats.inlined, placeholders: stats.omitted })
+      : t("collectionsView.remoteViewPreviewImages", { count: stats.inlined });
+  return `${base} · ${images}`;
 });
+
+// Resolved once in setup (see CollectionCustomView) — the loads below run
+// outside setup, where the card's scope can no longer be injected.
+const cui = useCollectionUi();
 
 // Monotonic load id — same stale-load guard as CollectionCustomView.
 let loadSeq = 0;
@@ -86,7 +103,7 @@ async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   srcdoc.value = null;
-  const binding = collectionUi();
+  const binding = cui;
   try {
     // The host wraps the srcdoc server-side (CSP + bootstrap) — the preview
     // receives the exact artifact the phone gets over the command channel.
@@ -111,7 +128,7 @@ async function load(): Promise<void> {
 
 // Reload when the view / collection / app locale changes (the dict is picked
 // server-side per locale, like the desktop custom view).
-watch([() => props.slug, () => props.view.id, () => collectionUi().localeTag()], () => void load(), { immediate: true });
+watch([() => props.slug, () => props.view.id, () => cui.localeTag()], () => void load(), { immediate: true });
 
 // ── The parent side of the remote-view bridge ──
 // Answers ONLY what the phone parent answers — `getItems` pages and `startChat`
@@ -124,7 +141,7 @@ watch([() => props.slug, () => props.view.id, () => collectionUi().localeTag()],
 // the same host page (real thumbnails, byte budget) the phone will, over the
 // identical `createRemoteViewItems` builder (plans/done/feat-remote-view-images.md).
 async function getPage(request: RemoteViewPageRequest): Promise<RemoteViewPage> {
-  const binding = collectionUi();
+  const binding = cui;
   if (!binding.fetchRemoteViewItems) throw new Error("fetchRemoteViewItems is not wired on this host");
   const resp = await binding.fetchRemoteViewItems(props.slug, props.view.id, request);
   if (!resp.ok) throw new Error(resp.error);
@@ -139,7 +156,7 @@ async function getPage(request: RemoteViewPageRequest): Promise<RemoteViewPage> 
 // mutate (read-only / non-editable field / …) throws the host's message, which
 // the bridge relays to the view as `ok: false`.
 async function onMutate(request: RemoteViewMutateRequest): Promise<RemoteViewMutateResult> {
-  const binding = collectionUi();
+  const binding = cui;
   if (!binding.mutateRemoteView) throw new Error("mutateRemoteView is not wired on this host");
   const resp = await binding.mutateRemoteView(props.slug, props.view.id, request);
   if (!resp.ok) throw new Error(resp.error);

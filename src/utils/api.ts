@@ -51,6 +51,36 @@ export const backendReachable: Ref<boolean> = ref(true);
  *  flipped to false. Useful for the offline banner's small print. */
 export const lastBackendError: Ref<string | null> = ref(null);
 
+/** The backend is talking — re-arm the signal. Any real reply does this,
+ *  HTTP-level 4xx/5xx included; only an outage (a `fetch` throw, or a
+ *  proxy that could not reach it) flips it the other way. */
+function markBackendReachable(): void {
+  if (backendReachable.value) return;
+  backendReachable.value = true;
+  lastBackendError.value = null;
+}
+
+/** The backend could not be reached. `message` is the small print the
+ *  offline banner appends to its own copy. */
+function markBackendUnreachable(message: string): void {
+  backendReachable.value = false;
+  lastBackendError.value = message;
+}
+
+/** Small print for the banner, and the error every caller sees instead of
+ *  the bare `Bad Gateway` that `res.statusText` used to hand them.
+ *
+ *  A protocol constant and nothing else, deliberately. The banner renders
+ *  this after its own translated copy ("Can't reach the backend / the
+ *  server may not be running"), so English prose here would be both
+ *  redundant with that sentence and untranslated in the other seven
+ *  locales — the only thing it adds is the status code. The banner's
+ *  other source, a `fetch` rejection, is untranslated too, but that text
+ *  is the browser's; this one would be ours. */
+function proxyUnreachableDetail(status: number): string {
+  return `HTTP ${status}`;
+}
+
 /** A `fetch` rejection that came from caller-driven `AbortController`
  *  cancellation (the spec says it's a `DOMException` with `name ===
  *  "AbortError"`). Normal flow — must NOT flip `backendReachable`. */
@@ -121,7 +151,16 @@ function buildHeaders(opts: { headers?: Record<string, string> | undefined }, ha
   return headers;
 }
 
-async function extractError(res: Response): Promise<{ error: string; status: number }> {
+interface ExtractedError {
+  error: string;
+  status: number;
+  /** True when the body was the server's own `{ error: string }` shape.
+   *  `isProxyUnreachable` uses this to tell an app-authored 502 from one
+   *  a proxy invented — see there. */
+  fromAppBody: boolean;
+}
+
+async function extractError(res: Response): Promise<ExtractedError> {
   const { status } = res;
   // Try to parse a `{ error: string }` body first — that's the server's
   // standard error shape. `in` narrowing lets us read `body.error`
@@ -129,7 +168,7 @@ async function extractError(res: Response): Promise<{ error: string; status: num
   try {
     const body: unknown = await res.clone().json();
     if (hasStringProp(body, "error")) {
-      return { error: body.error, status };
+      return { error: body.error, status, fromAppBody: true };
     }
   } catch {
     // Body wasn't JSON — fall through.
@@ -137,7 +176,32 @@ async function extractError(res: Response): Promise<{ error: string; status: num
   return {
     error: res.statusText || `Request failed (${status})`,
     status,
+    fromAppBody: false,
   };
+}
+
+// Statuses a reverse proxy invents when it cannot reach the upstream at
+// all. Vite's dev proxy answers ECONNREFUSED with a body-less 502 — see
+// `isProxyUnreachable`.
+const GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
+
+/**
+ * True when a response is a proxy saying "I could not reach the backend",
+ * rather than the backend saying anything at all (#2975).
+ *
+ * Without this, `yarn dev` before the backend finishes booting produced a
+ * 502 that read as "the server replied": the offline banner stayed hidden
+ * and `res.statusText` — the bare string `Bad Gateway` — surfaced as the
+ * error the user saw. In production (no proxy) the same outage makes
+ * `fetch` throw, which is why the banner only ever worked there.
+ *
+ * `fromAppBody` is the discriminator, and it is load-bearing: the backend
+ * itself emits one 502 (`server/api/routes/skills.ts`, external skill
+ * install failed) and it always carries a JSON `{ error }` body, so that
+ * case must NOT read as an outage. Nothing in the app emits 503 or 504.
+ */
+export function isProxyUnreachable(status: number, fromAppBody: boolean): boolean {
+  return GATEWAY_STATUSES.has(status) && !fromAppBody;
 }
 
 // ── Core call ───────────────────────────────────────────────────────
@@ -149,60 +213,57 @@ async function extractError(res: Response): Promise<{ error: string; status: num
  * MulmoClaude `/api/*` endpoints return JSON on success); use
  * `apiFetchRaw` for binary / streaming / non-JSON responses.
  */
-export async function apiCall<T = unknown>(path: string, opts: ApiOptions = {}): Promise<ApiResult<T>> {
-  const method = opts.method ?? "GET";
+/** `fetch`'s init rejects an explicit `undefined` signal, so only set it
+ *  when the caller passed one. */
+function buildInit(opts: ApiOptions): FetchInit {
   const hasBody = opts.body !== undefined;
-  const url = `${path}${buildQueryString(opts.query)}`;
-
-  // `fetch`'s init rejects an explicit `undefined` signal, so only set it
-  // when the caller passed one.
   const init: FetchInit = {
-    method,
+    method: opts.method ?? "GET",
     headers: buildHeaders(opts, hasBody),
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
   };
   if (hasBody) {
     init.body = JSON.stringify(opts.body);
   }
+  return init;
+}
 
-  let res: Response;
+/**
+ * `fetch` itself threw. That happens on EITHER a true network failure
+ * (server stopped, DNS, CORS preflight) OR a caller-driven
+ * AbortController cancellation. The second is a normal flow (file/plugin
+ * refresh races, navigation cancel) — flipping the global offline flag
+ * for those would surface a false banner, so only the first signals.
+ */
+function transportFailure<T>(err: unknown): ApiResult<T> {
+  const message = errorMessage(err);
+  if (!isAbortError(err)) {
+    markBackendUnreachable(message);
+  }
+  return { ok: false, error: message, status: 0 };
+}
+
+/** A reply the server refused (or a proxy invented on its behalf). */
+async function failureResult<T>(res: Response): Promise<ApiResult<T>> {
+  const { error, status, fromAppBody } = await extractError(res);
+  // A proxy that could not reach the backend is an outage, not a reply,
+  // even though it arrives as one (#2975).
+  if (isProxyUnreachable(status, fromAppBody)) {
+    const detail = proxyUnreachableDetail(status);
+    markBackendUnreachable(detail);
+    return { ok: false, error: detail, status };
+  }
+  markBackendReachable();
+  return { ok: false, error, status };
+}
+
+/** A 2xx. The reachable flag is re-armed before the body is read, so a
+ *  malformed payload from a live server still counts as reachable. */
+async function successResult<T>(res: Response): Promise<ApiResult<T>> {
+  markBackendReachable();
   try {
-    res = await fetch(url, init);
-  } catch (err) {
-    const message = errorMessage(err);
-    // `fetch` throws on EITHER a true network failure (server
-    // stopped, DNS, CORS preflight) OR a caller-driven
-    // AbortController cancellation. The second case is a normal flow
-    // (file/plugin refresh races, navigation cancel) — flipping the
-    // global offline flag for those would surface a false banner.
-    // Only the first case warrants the signal.
-    if (!isAbortError(err)) {
-      backendReachable.value = false;
-      lastBackendError.value = message;
-    }
-    return {
-      ok: false,
-      error: message,
-      status: 0,
-    };
-  }
-
-  // Any reply at all means the server is talking — re-arm the
-  // reachable flag. HTTP-level errors (4xx/5xx) leave it true; only
-  // network-error throws above flip it false.
-  if (!backendReachable.value) {
-    backendReachable.value = true;
-    lastBackendError.value = null;
-  }
-
-  if (!res.ok) {
-    const { error, status } = await extractError(res);
-    return { ok: false, error, status };
-  }
-
-  // `res.json()` returns `Promise<any>`, which is assignable to T
-  // without a cast.
-  try {
+    // `res.json()` returns `Promise<any>`, which is assignable to T
+    // without a cast.
     const data: T = await res.json();
     return { ok: true, data };
   } catch (err) {
@@ -212,6 +273,17 @@ export async function apiCall<T = unknown>(path: string, opts: ApiOptions = {}):
       status: res.status,
     };
   }
+}
+
+export async function apiCall<T = unknown>(path: string, opts: ApiOptions = {}): Promise<ApiResult<T>> {
+  const url = `${path}${buildQueryString(opts.query)}`;
+  let res: Response;
+  try {
+    res = await fetch(url, buildInit(opts));
+  } catch (err) {
+    return transportFailure<T>(err);
+  }
+  return res.ok ? successResult<T>(res) : failureResult<T>(res);
 }
 
 // ── Convenience verbs ───────────────────────────────────────────────

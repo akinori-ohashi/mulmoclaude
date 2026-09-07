@@ -26,7 +26,10 @@ override the generic guidance above:
 - **Tool**: hand the finished JSON to the `presentMulmoScript` tool — that is how a deck is rendered here.
 - **Narration / TTS**: declare a speaker once in `speechParams.speakers` with `isDefault: true` and
   the **Google** provider (`"provider": "gemini", "voiceId": "Kore"`). Beats then inherit it without
-  repeating `speaker`. Both samples below include this block — keep it.
+  repeating `speaker`. Both samples below include this block — keep it. Leave `model` out unless the
+  user asks for higher-quality narration (`"model": "gemini-2.5-pro-preview-tts"`), and set it before
+  the first render — voice / model / `speechOptions` are part of the audio cache key, so a later change
+  re-records every beat. Full speaker reference: `config/helps/mulmoscript.md` → speechParams.
 - **Providers are Google-only.** This app configures only Google providers; never emit `openai`,
   `elevenlabs`, etc. Neither approach generates AI images or video, so `imageParams` / `movieParams`
   are not needed (the `slide` type renders static layouts; `html_tailwind` + `animation` renders from

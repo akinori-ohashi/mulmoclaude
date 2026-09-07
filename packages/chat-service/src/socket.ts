@@ -106,6 +106,16 @@ type BridgeOptions = Readonly<Record<string, string | number | boolean>>;
 
 type HandshakeResult = { ok: true; transportId: string; options: BridgeOptions } | { ok: false; error: string };
 
+// Hard limits to prevent oversized payloads from bridges (DoS /
+// accidental misconfiguration). Express's JSON body limit (50 MB)
+// is the outer gate; these are tighter, attachment-specific caps.
+const MAX_ATTACHMENT_COUNT = 10;
+const MAX_ATTACHMENT_TOTAL_BYTES = 20 * 1024 * 1024; // 20 MB base64
+/** Transport ceiling for one socket frame. Headroom over the attachment
+ *  budget for the rest of the payload (text, ids, options) so the
+ *  application-level cap is what a bridge actually hits. */
+const MAX_SOCKET_PAYLOAD_BYTES = MAX_ATTACHMENT_TOTAL_BYTES + 4 * 1024 * 1024;
+
 export function bridgeRoom(transportId: string): string {
   return `bridge:${transportId}`;
 }
@@ -118,6 +128,12 @@ export function attachChatSocket(server: http.Server, deps: ChatSocketDeps): Cha
     // Loopback-only deployment; skip long-polling negotiation for
     // the same reason `/ws/pubsub` does (#311).
     transports: ["websocket"],
+    // Socket.IO's default is 1 MB — below the attachment budget
+    // `parseAttachments` enforces, so a bridge shipping a 900 KB image
+    // had its connection closed before the ack instead of a reply.
+    // `parseAttachments` stays the real gate; this only has to be
+    // wide enough not to pre-empt it.
+    maxHttpBufferSize: MAX_SOCKET_PAYLOAD_BYTES,
   });
 
   io.use((socket, next) => {
@@ -307,12 +323,6 @@ function parseMessagePayload(payload: MessagePayload): ParsedMessage {
   const attachments = parseAttachments(payload.attachments);
   return { ok: true, externalChatId, text, attachments };
 }
-
-// Hard limits to prevent oversized payloads from bridges (DoS /
-// accidental misconfiguration). Express's JSON body limit (50 MB)
-// is the outer gate; these are tighter, attachment-specific caps.
-const MAX_ATTACHMENT_COUNT = 10;
-const MAX_ATTACHMENT_TOTAL_BYTES = 20 * 1024 * 1024; // 20 MB base64
 
 export function parseAttachments(raw: unknown): Attachment[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;

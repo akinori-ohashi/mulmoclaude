@@ -5,6 +5,7 @@ const es: Messages = {
   loadFailed: "⚠ Error al cargar el documento: {error}",
   refreshFailed: "⚠ Error al actualizar el documento: {error} — mostrando el último contenido cargado con éxito.",
   noContent: "No hay contenido Markdown disponible",
+  reload: "Recargar desde el disco",
   pdf: "PDF",
   pdfFailedShort: "⚠ Error de PDF",
   editSource: "Editar fuente Markdown",
@@ -26,6 +27,10 @@ const es: Messages = {
   marpSplitEditorLabel: "Fuente",
   mermaidLoadFailed: "⚠ Error al cargar Mermaid: {error}",
   mermaidRenderFailed: "⚠ Error al renderizar Mermaid: {error}",
+  mathLoadFailed: "⚠ Error al cargar MathJax: {error}",
+  mathRenderFailed: "⚠ Error al renderizar la fórmula: {error}",
+  bookmarkRailLabel: "Marcadores",
+  bookmarkJump: "Ir al marcador: {label}",
 };
 
 export default es;

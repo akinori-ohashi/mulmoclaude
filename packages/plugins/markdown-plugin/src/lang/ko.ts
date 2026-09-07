@@ -5,6 +5,7 @@ const ko: Messages = {
   loadFailed: "⚠ 문서 불러오기 실패: {error}",
   refreshFailed: "⚠ 문서 새로고침 실패: {error} — 마지막으로 성공적으로 불러온 내용을 표시합니다.",
   noContent: "사용 가능한 Markdown 콘텐츠가 없습니다",
+  reload: "디스크에서 다시 불러오기",
   pdf: "PDF",
   pdfFailedShort: "⚠ PDF 실패",
   editSource: "Markdown 원본 편집",
@@ -26,6 +27,10 @@ const ko: Messages = {
   marpSplitEditorLabel: "소스",
   mermaidLoadFailed: "⚠ Mermaid 로드 실패: {error}",
   mermaidRenderFailed: "⚠ Mermaid 렌더링 실패: {error}",
+  mathLoadFailed: "⚠ MathJax 로드 실패: {error}",
+  mathRenderFailed: "⚠ 수식 렌더링 실패: {error}",
+  bookmarkRailLabel: "북마크",
+  bookmarkJump: "북마크로 이동: {label}",
 };
 
 export default ko;

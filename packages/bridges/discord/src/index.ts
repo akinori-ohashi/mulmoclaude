@@ -13,6 +13,7 @@ import "dotenv/config";
 import { Client, GatewayIntentBits, Partials, type Message } from "discord.js";
 import { createBridgeClient } from "@mulmobridge/client";
 import { parseCsvSet } from "@mulmoclaude/common";
+import { collectAttachments, resolveMessageText, type DiscordAttachmentLike } from "./attachments.js";
 
 const TRANSPORT_ID = "discord";
 const MAX_DISCORD_LENGTH = 2000;
@@ -59,22 +60,39 @@ discord.on("messageCreate", (msg: Message) => {
 async function onMessageCreate(msg: Message): Promise<void> {
   if (msg.author.bot) return;
   const { channelId } = msg;
-  const text = msg.content.trim();
-  if (!text) return;
+  // Checked before the attachment downloads so a denied channel never
+  // makes the bridge fetch anything.
   if (!allowAll && !allowedChannels.has(channelId)) return;
 
-  console.log(`[discord] message channel=${channelId} user=${msg.author.tag} len=${text.length}`);
+  const text = msg.content.trim();
+  const files = [...msg.attachments.values()];
+  if (text.length === 0 && files.length === 0) return;
+
+  console.log(`[discord] message channel=${channelId} user=${msg.author.tag} len=${text.length} attachments=${files.length}`);
 
   try {
-    const ack = await mulmo.send(channelId, text);
-    if (ack.ok) {
-      await sendChunked(msg, ack.reply ?? "");
-    } else {
-      const status = ack.status ? ` (${ack.status})` : "";
-      await msg.reply(`Error${status}: ${ack.error ?? "unknown"}`);
-    }
+    await relayMessage(msg, text, files);
   } catch (err) {
     console.error(`[discord] message handling failed: ${err}`);
+  }
+}
+
+async function relayMessage(msg: Message, text: string, files: DiscordAttachmentLike[]): Promise<void> {
+  const { attachments, dropped } = await collectAttachments(files, { fetchFn: fetch, log: console });
+
+  // Nothing survived on a file-only post: say so instead of relaying a
+  // prompt about a file the agent never receives.
+  if (text.length === 0 && attachments.length === 0) {
+    await msg.reply("Sorry, I could not download that attachment. Please try again.");
+    return;
+  }
+
+  const ack = await mulmo.send(msg.channelId, resolveMessageText(text, dropped), attachments.length > 0 ? attachments : undefined);
+  if (ack.ok) {
+    await sendChunked(msg, ack.reply ?? "");
+  } else {
+    const status = ack.status ? ` (${ack.status})` : "";
+    await msg.reply(`Error${status}: ${ack.error ?? "unknown"}`);
   }
 }
 

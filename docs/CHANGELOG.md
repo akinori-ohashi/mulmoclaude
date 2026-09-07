@@ -8,6 +8,1725 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Added
+
+#### `@mulmoclaude/shapescript-plugin@1.0.0` — `presentShapeScript`: 3D visualizations from ShapeScript
+
+The 3D tool is now an in-tree package instead of the npm-installed
+`@gui-chat-plugin/present3d`. The ShapeScript parser, evaluator and Three.js renderer
+(CSG via `three-bvh-csg`) were copied from the upstream MIT source and ported to this
+repository's strict TypeScript settings (`noUncheckedIndexedAccess` +
+`exactOptionalPropertyTypes`), which the upstream configs do not enable.
+
+**The tool is renamed `present3D` → `presentShapeScript`**, and its endpoint moves from the
+legacy `/api/present3d` extras path to the standard META-owned `/api/shapescript`. The Artist
+role's `availablePlugins` follows the rename. Anything holding the old tool name — a saved
+session's tool results, an external caller posting to `/api/present3d` — no longer resolves.
+
+Why copy rather than keep importing: the plugin's UI and language surface are ours to evolve
+now (the role prompt still told the model "ShapeScript only accepts literal numbers", which the
+2.0 parser has not been true of for some time), and an in-tree package builds and typechecks
+under the same gates as the rest of the repo.
+
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.7.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.6.0`, `@mulmoclaude/shapescript-plugin@1.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+---
+
+## [1.15.1] - 2026-09-03
+
+**A stdio MCP server run on the host from inside the Docker sandbox now actually reaches the agent.**
+
+### Added
+
+#### `@mulmoclaude/mulmoscript-plugin@4.6.0` — `presentMulmoScript` の `filePath` が任意の絶対パスを受ける (PR #3042)
+
+Released 2026-09-03. `filePath` は `artifacts/stories/` の中しか指せず、リポジトリに置いた
+デッキや他のツールが書いた台本は、ワークスペースにコピーしない限り開けなかった。任意の絶対
+パスの `.json` スクリプトも開けるようにした。**相対パスの意味は一切変わっていない** —
+`normalizeStoryPath` → stories ディレクトリ、byte for byte。
+
+規則は新規に発明したものではなく、`presentDocument` / `presentHtml` の `path` 引数が既に採って
+いるもの (`@mulmoclaude/core/files` の byPath ops) をそのまま踏襲する: 字句チェックのみ (NUL /
+`.` / `..` / 空セグメント / 拡張子)、封じ込めチェックは意図的に無し — 名指しされたファイルを
+開くのがこの形式の目的で、エージェントは元々そのファイルを直接読み書きできる。新しいのは view
+も読めるようになること。realpath 経由で REGULAR FILE を要求し、symlink は指す先で判断する
+(解決後の拡張子も再検査 — CWE-59)。
+
+生成物 (動画 / ビートクリップ / PDF) は mulmocast がスクリプトのディレクトリから導出する
+(`buildContext` の `basedir: path.dirname(absoluteFilePath)`) ので、絶対パスのスクリプトの出力
+はその隣に出る。stories 相対の綴りが存在しないため、ワイヤ参照も絶対パスのまま返す
+(`outputRef`) — `resolveStory` がその形をそのまま読み戻す。
+
+**ホストの opt-in が全体を制御する。** 絶対パスは `files.byPath` / `backend.byPath` を供給した
+ホストでのみ有効で、渡さないホストは 4.5.2 と同じ stories 限定動作のまま (誤解決ではなく拒否)。
+core だけがそれを見て server ops が見ていない、という半分だけの opt-in は初回レビューで潰した。
+
+`root` / `extraRoots` (#3014) には触れていない。「非デフォルト root では生成を拒否」の理由は
+`generationKey(kind, filePath, key)` が root を含まず 2 つの root の同じ*相対*パスが衝突する
+からで、絶対パスはそれ自体が `filePath` として一意なのでこの衝突は起きない。
+
+新規 export: `isAbsoluteStoryPath`, `STORY_SCRIPT_EXTENSIONS`, `STORY_TARGET_EXTENSIONS`。
+
+
+### Fixed
+
+#### A stdio MCP server opted into `hostExecInDocker` never reached the agent (#3018, PR #3036)
+
+The documented opt-in that runs a stdio MCP server on the host while the Docker sandbox is on has
+never worked, for any server, since it shipped in #1421 Phase B (2026-05-18). The shim logged
+`stdio→http shim ready`, `/api/diagnostics/report` listed the server, and the agent got zero
+tools. Two independent defects, either one enough on its own.
+
+**The spec named the wrong transport.** `prepareUserServers` wrote `{ type: "http", url: "…/sse" }`,
+but `supergateway` defaults `--outputTransport` to `sse` for `--stdio` and serves a GET stream at
+`/sse` with POSTed messages at `/message` — there is no `POST /sse`. The CLI treats `type: "http"`
+as Streamable HTTP, so it POSTed `initialize` to the stream path, took a 404, and registered the
+server with no tools.
+
+**The readiness probe consumed the gateway's only session.** `supergateway` keeps a single MCP
+`Server` and calls `server.connect()` on every `GET /sse`; the second connect throws
+`Already connected to a transport` inside an Express handler, which is unhandled and takes the
+gateway down with its stdio child. `probeOnce` opened that stream and never released it, so the
+agent's connect was always the fatal second one. Closing the probe's stream does not help — the
+gateway never calls `server.close()`. Readiness is now proven by `POST /message` without a
+`sessionId`, which answers 400 from a route that never touches the `Server`.
+
+**Why both signals looked healthy.** The `shim ready` log came from a probe that validated the
+**SSE** endpoint while the caller labelled the spec `http` — the probe was quietly proving the
+mismatch. And "MCP servers" in `/api/diagnostics/report` is `Object.keys(loadMcpConfig().mcpServers)`,
+read from `config/mcp.json`: it reports what is **configured**, never what is **connected**. The
+CLI does report `status: "failed"` for the server, but nothing on the host side reads it, so no
+error surfaced.
+
+**Nothing to change in your config.** A `config/mcp.json` entry that was correct before is correct
+now. User config still accepts only `http` and `stdio`; the `sse` spec is produced internally by
+the shim and `isMcpServerSpec` continues to reject it, so the Settings UI gains no new option.
+
+Verified end to end through the real `prepareUserServers` + `startStdioHttpShim` + `claude` CLI
+against `@modelcontextprotocol/server-memory`: `status: "connected"` with all nine tools.
+
+#### `@mulmoclaude/core@4.7.0` — a version-only republish of 4.6.0, no code change
+
+Released 2026-09-03. The 4.6.0 publish had already landed when the release was re-run, and npm
+refuses to republish a version, so the repair is a new number rather than a re-publish of the old
+one (the same reasoning as 4.1.1). **The two are the same build**: the published tarballs are
+identical across all 452 files except the `version` string, and the tree between the tags differs
+by that one line.
+
+Nothing to do if you are already on 4.6.0. No dependency ranges move — every consumer declares a
+`^4.x` caret and converges on 4.7.0 on its own.
+
+#### `@mulmoclaude/core@4.6.0` — a custom view's staging base is decided per SLUG, not per root (#3031, PR #3032; mulmoterminal#1957, mulmoterminal#1955)
+
+Released 2026-09-03. Also shipped unchanged as 4.7.0 (above). `readSourceAwareFile` prepended the `data/skills/<slug>/` staging base for
+every project-scope collection whenever the ROOT had a staging tree, without checking that the
+slug itself was staged — `stagingSkillDir(root, slug)` only answers "does this root stage" and
+then joins the slug.
+
+A staged workspace does not hold only staged collections. It also holds ones imported through the
+discover panel and ones committed directly under `.claude/skills/`, and a leftover
+`data/skills/<slug>/views/*.html` beside one of those won on every read — silently, and against
+the copy the repository actually commits.
+
+The read and the custom-view delete path now share one predicate, the newly exported
+**`stagedSkillDir(workspaceRoot, safeSlug)`**, which returns `<staging>/<slug>` only when that
+slug's own `schema.json` is present. `views.ts` had always made this check in `canonicalBase` /
+`schemaWriteTargets`, and its JSDoc has claimed "Matches `readCustomViewHtml` so reads and deletes
+agree on both layouts" since #1836 — sharing the function is what makes that structurally true
+instead of a convention two files had to remember.
+
+**Unchanged**: properly staged collections (staging still wins), imported collections, roots with
+no staging tree (`skillsStagingDir` → `null`), and `user` / `feed` scope. The behaviour moves only
+for a slug that has a stale staging view but no staged schema of its own — there the committed
+copy now wins.
+
+The evidence check uses `lstat`, so a symlink standing in for `schema.json` is not evidence, and
+it **propagates** anything that is not `ENOENT` / `ENOTDIR`. Collapsing an unreadable staging tree
+into "unstaged" would quietly serve the other base's copy, which is the masking the read loop
+already refuses (Sourcery review on #3032). The delete path inherits the same `lstat` semantics —
+previously `stat`, which followed symlinks.
+
+Why this had to land in core: a host binding cannot express the decision. `skillsStagingDir` is
+`(workspaceRoot: string) => string | null` and never sees the slug, so MulmoTerminal could fix
+which ROOTS stage (mulmoterminal#1955) but not which SLUGS are staged. Fixing it here lands for
+both hosts at once.
+
+**No dependency ranges were swept.** Every consumer declares a `^4.x` caret, which floats across
+minors, so they resolve 4.6.0 on their own; nothing in this tree imports `stagedSkillDir` from the
+published package, so the sweep would be tidiness rather than delivery (the same reasoning as
+4.1.1 / 4.3.0). Also refreshed in this window: `zod` `^4.5.2` → `^4.5.4`, plus `@types/node` and
+`tsx` on the dev side (PR #3030).
+
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.7.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.6.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+---
+
+## [1.15.0] - 2026-08-30
+
+**TeX math in the markdown preview, and icons that no longer overlap their neighbour.**
+
+### Fixed
+
+#### An emoji icon rendered at the icon font's metrics and overlapped the button beside it (#2986, PR #2988; #3003, PR #3006)
+
+A `schema.icon` that is not a Material Symbols name — an emoji, most often — was handed to the
+icon font anyway. The font drew it at its own metrics, which pushed the glyph outside its box
+and over whatever sat next to it. Icons are now classified before anything renders them:
+`iconGlyph.ts` decides what a given string *is*, and the shared `IconGlyph` component is the one
+path every surface goes through — the collections index, the collection header, the related
+menu, action buttons, feeds, the roles screen and the launcher's shortcut rail.
+
+Emoji are supported deliberately rather than by accident, the icon-font path carries a11y
+attributes, a blank fallback no longer leaves an empty glyph, and the containment that keeps an
+oversized glyph inside its box no longer depends on the build configuration. Two Tailwind
+`@source` directives were needed alongside it (#2989, PR #2994): the classes that size and
+colour a glyph are spelled out in `@mulmoclaude/core`, which the collection plugin's Vite root
+does not cover, so they fell out of the plugin's own stylesheet and only the host app kept
+rendering them.
+
+#### The dev client proxied to a port the backend was not on (#2975, PR #2977; #2981, PR #2982; #2995, PR #2997)
+
+`yarn dev` starts two panes with no ordering guarantee, and the backend does not always get the
+port `PORT` asked for — a busy default makes it walk forward. The client half derived its proxy
+target from `PORT` regardless, so whenever the request could not be honoured the two addressed
+different ports and the UI sat on "Can't reach the backend".
+
+The wait now FOLLOWS the port the backend published rather than the one it was asked for, and
+Vite re-aims itself when a late publish arrives. `.server-port` is cleared before either pane
+starts so a leftover file from a dead run cannot be mistaken for this startup's, and it is
+written atomically — a reader arriving between the truncate and the write used to see an empty
+file, and one arriving mid-write could see `3002` cut to `300`, which parses as a perfectly
+valid port nothing is listening on. `PORT=0` is usable now: the OS-assigned port was unknowable
+when Vite evaluated its config, and it is knowable once the backend binds it and says so.
+
+#### A write could lose its rename on a loaded Windows runner (#2972, PR #2974)
+
+`writeFileAtomic` retried a Windows rename for about 430 ms. That was not enough under
+contention: the notifier's `active.json` write threw, and the listener waiting on it timed out
+ten seconds later — while the contention it was retrying through had long since cleared. The
+async ladder now runs to about four seconds, because waiting there is nearly free: the call
+yields. The synchronous ladder deliberately stays at 430 ms, since `sleepSync` parks the whole
+thread and a longer budget would not delay one write, it would freeze the process.
+
+### Added
+
+#### Collections and feeds carry an accent colour (#2987, PR #2998)
+
+A collection or feed can name an accent colour, which the launcher draws as a pale ground
+behind its pinned shortcut. The colour survives a reload, and an invalid one falls back
+instead of taking the whole collection down with it.
+
+#### TeX math in the markdown preview
+
+`$…$` and `$$…$$` now typeset in the markdown plugin's document preview, rendered as
+self-contained MathJax **SVG** — no stylesheet and no webfont files enter the published
+tarball, and the formula inherits the surrounding text colour through `currentColor`. Marp
+decks already rendered math (marp-core has it on by default, also via MathJax SVG), so the
+two halves of the same document now agree.
+
+The inline `$` rules are deliberately strict, because `$` is a currency symbol far more often
+than it is a delimiter: no whitespace may hug either delimiter, a digit may not follow the
+closing `$`, an ASCII alphanumeric may not precede the opening one, and the body may not span
+a line break or be shaped like money. So `牛丼は $100 と $200 です。`, `US$5`, `$5-$10` and
+`$1,000$` stay prose, while `円周率は$\pi$です。` typesets. `\$` remains a literal dollar.
+
+`mathjax-full` loads lazily on the first formula, exactly as `mermaid` does — a document with
+no math pulls in nothing.
+
+"Shaped like money" is read from the SHAPE of the number rather than from which separator
+appeared, because a comma groups thousands in English and marks the decimal in most of Europe
+while a dot does the opposite — a rule naming one of them fails half the world's authors either
+way. **Two separators or more** is a formatted amount and stays prose: `$1.000,50$`,
+`$12,345,678$`, `$1 000,50$`. **One separator is a number and typesets**, whatever follows it:
+`$1,5$`, `$3.14159$`, `$3.141$`, `$1,000$`.
+
+That last part changed in 2.2.0. Reading "three digits after one separator" as money took every
+three-decimal constant a maths article writes — π `3.141`, √2 `1.414`, e `2.718`, φ `1.618`,
+γ `0.577`, Avogadro `6.022`, g `9.807` — and left it as literal `$…$` in the prose. What it
+bought was `$1,500$`, and that turns out to be a shape currency prose never reaches: every
+realistic way of writing a price dies at the earlier rules — `$1,000 と $2,000` and
+`合計 $1,000から$500` by the no-whitespace-before-the-close rule, `$1,000-$2,000` by the
+no-digit-after-it rule, `US$1,000` by the no-alphanumeric-before-the-open rule, and
+`価格は $1,000 です` by having no closing `$` at all. What is left is `$1,000$`, both delimiters
+written out — the same shape this module already read as maths for `$5$`, since a person quoting
+a price writes `$1,000` and it is the DOUBLED delimiter that makes it a formula. One reading now
+covers both.
+
+2.0.0 rejected every digits-and-separators body instead, and that was too wide: `1秒を
+$10000$ 個のステップに割る` and `答えは $1$` are how a maths article writes a number, and both
+came out with the dollars still sitting in the prose. The shapes that actually appear in
+currency text were already covered by the other rules — `$100 と $200` by the
+no-whitespace-before-the-close rule, `$5-$10` by the no-digit-after-it rule, `US$5` by the
+no-alphanumeric-before-the-open rule.
+
+`renderMathNodes` also takes an optional EXTRA sanitising pass over the formula's SVG, run
+after the mandatory one rather than instead of it. The TeX `html` package puts `\style` and
+`\class` under the author's control the same way `\href` is, and DOMPurify's defaults keep
+both attributes. That is harmless here — the markdown is a file on the user's own disk, and
+CSS box positioning does not apply to SVG child elements — but it breaks the invariant of a
+host that renders stranger-written markdown on a signed-in origin and has banned
+author-controlled `class` / `style` outright. Such a host now passes its own policy instead of
+forking the renderer. It composes rather than replaces — the baseline runs before it, and again
+after it — so a policy that only strips attributes cannot accidentally re-admit
+`\href{javascript:…}`, and one that returns markup of its own cannot inject it. Nothing changes
+by default.
+
+`@mulmoclaude/markdown-utils` shipped this as **2.0.0** rather than 1.5.0: 1.4.0 published a
+`MathSanitizer` type that no longer exists, and the third argument it named meant "instead of
+the baseline" where it now means "as well as". Both consumers here pass two arguments and are
+unaffected, but the rename is a source break for anyone who read the published type. **2.1.0**
+follows with the narrowed inline-`$` rule described above.
+
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.7.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.5.2`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+---
+
+## [1.14.0] - 2026-08-26
+
+### Fixed
+
+#### Attachments over 1 MB never reached the server — every bridge (#2956)
+
+`attachChatSocket` never set `maxHttpBufferSize`, so Socket.IO's 1,000,000-byte default
+applied. Base64 inflates a payload by 4/3, so any attachment over roughly 730 KB of raw bytes
+closed the connection before the server could validate it or return an ack — well short of the
+20 MB base64 budget `parseAttachments` enforces, which was therefore unreachable. The bridge
+saw `timeout: socket has been disconnected`; the user saw no reply at all.
+
+Measured against the real socket: 700 KiB relayed, **900 KiB closed the connection**. After
+the fix, 15 MiB (exactly the 20 MB base64 budget) relays and nothing under it disconnects.
+The frame limit is now the attachment budget plus 4 MB of headroom, so `parseAttachments`
+— still 10 attachments and 20 MB — is the gate a bridge actually hits. The socket is
+authenticated at handshake and loopback-only.
+
+This affected Discord, Telegram, LINE and Mastodon alike. Phone photos and screenshots are
+routinely over 1 MB, so most of them were being dropped. Released as
+`@mulmobridge/chat-service@1.1.0`.
+
+#### Discord attachments were never forwarded (#2939)
+
+The bridge did not read `msg.attachments`, and an `if (!text) return;` discarded image-only
+posts before anything else ran — pasting a screenshot did nothing. The wire protocol had
+carried attachments since #382; Discord was the one bridge not connected to it.
+
+Files are now downloaded from Discord's CDN (host-restricted, so a tampered gateway payload
+cannot become an SSRF primitive) and forwarded, with a post carrying only files sent under
+`Describe / analyze this file.` — chat-service rejects an empty `text`, which is why the
+failure was silent. Caps mirror what the server accepts: 8 MB per file and 20 MB of base64
+per message, spent against Discord's declared sizes before download and re-checked against
+the bytes in hand afterwards, so nothing is truncated server-side without the user being told.
+Released as `@mulmobridge/discord@1.1.0`.
+
+#### Mastodon image-only DMs carried the bot's handle as the prompt (#2952)
+
+`stripLeadingMentions` required trailing whitespace, so a mention that ended the body survived:
+a DM of `@bot` plus an image reached the agent with `"@bot"` as its instruction. A reply
+carrying media with a genuinely empty body was rejected by `text is required` and lost the
+image outright. Fixing the strip alone would have moved the first case into the second, so the
+placeholder shipped with it.
+
+`collectImageAttachments` also had no total-size check — four images at the 8 MB cap is about
+42 MB of base64, past both the server budget and the socket frame. Images are now trimmed to
+what one message can carry, with the remainder noted in the body.
+
+Behaviour change: a bare `@bot` mention carrying neither text nor images is now ignored, where
+it previously reached the agent as `"@bot"`. Released as `@mulmobridge/mastodon@1.1.0`.
+
+### Released 2026-08-25
+
+- `@mulmobridge/chat-service@1.1.0`
+- `@mulmobridge/discord@1.1.0`
+- `@mulmobridge/mastodon@1.1.0`
+
+### Added
+
+#### Every beat type is editable, not only an all-slide deck
+
+The editor was shown only when every beat was a `slide`. That was a limit of the OLD iframe
+deck editor, which understood decks and nothing else — it stayed in place through the move to
+`@mulmocast/beat-editor` and kept a markdown script read-only for no reason. The editor handles
+all eight types (`textSlide` / `markdown` / `chart` / `mermaid` / `image` / `movie` / `slide` /
+`html_tailwind`).
+
+The per-beat list is still there, and is still what opens first — rendering each beat's image
+happens on its mount, so it stays the default. The editor is one click away on an **Edit** tab.
+
+#### `presentMulmoScript` can revise one beat instead of resending the deck (#2949)
+
+`filePath` + `beatIndex` + `beat` replaces that one beat and presents the result. Asking the
+agent to change a single slide used to mean re-sending the whole script: expensive on a long
+deck, and it overwrites anything edited in the canvas meanwhile.
+
+`beatIndex` and `beat` are required together — an index with no replacement is reported rather
+than ignored, since ignoring it would look like a successful edit that changed nothing.
+
+#### Leaving the deck editor writes the pending edit (#2949)
+
+Asking the agent to change a script means moving focus out of the editor first — and in
+MulmoTerminal the agent is a terminal, so there is no "message sent" event a plugin could hook.
+Flushing on the way out lands ahead of every request without the host announcing one.
+
+The debounce is short enough that it has usually fired already; this closes the case where it
+has not, which would otherwise have the agent read a file missing the last thing the user typed.
+
+#### An agent's edit to a MulmoScript now appears in an open canvas (#2949)
+
+The preview only updated when the person in front of it typed. An agent writing the same
+script left the canvas showing the old file until it was reopened — the plugin's pubsub
+channel carries image / audio / movie generation, and nothing carried the script itself.
+
+`updateScript` / `updateBeat` now broadcast after the write lands, and an open View reloads
+from disk. Every write carries an `origin`, and a View ignores the echo of its own: without
+that, a save would come back and rebuild the element the caret is in on every keystroke.
+
+This is the first half of "a human and an agent taking turns on the same script". Flushing the
+editor's pending keystrokes when a request is sent to the agent, and locking the editor while
+the agent works, are still to come.
+
+### Changed
+
+#### The MulmoScript deck editor now runs on `@mulmocast/beat-editor` (#2945)
+
+`@mulmocast/deck-web` is deprecated as a rename, but the component the plugin used —
+`MulmoScriptDeckEditor` — was removed along with the iframe editor, so this is a swap rather
+than a rename. `BeatListEditor` takes and emits a beat array, and the script goes through
+`beatsOf` / `withBeats` on the way in and out; writing `{ ...script, beats }` by hand would drop
+`presentationStyle` and `slideParams` silently.
+
+The `layout="compact"` prop is gone: the editor lays itself out from its own width, so inside
+the plugin card the editing pane moves below the beat list instead of beside it.
+
+This also fixes a stylesheet gap that predates the migration. Nothing imported the editor's
+`style.css`, and Tailwind only scans the package it is building, so the deck editor had been
+rendering without `w-96`, `min-h-0`, `overflow-auto` or `border-r`. It is imported from the
+plugin now, which keeps it correct on any host rather than one that remembers to add an
+`@source`.
+
+`@mulmoclaude/mulmoscript-plugin` goes to **4.0.0** — the peer dependency change is breaking.
+
+### Fixed
+
+#### The lint called a Japanese wiki page both missing and orphaned at the same time (#2944)
+
+`index.md` supports three shapes, and one of them — `- [[page name]]` — derives
+the entry's slug by slugifying the text between the brackets. For a page file
+named in Japanese that produced `-4`, while the file itself is indexed under its
+real stem. The two never met, so the same page was reported as an index entry
+whose file is missing AND as a file the index never mentions. Following either
+diagnostic makes it worse.
+
+Entries whose only identifier is human-written text now keep a safe non-ASCII
+name verbatim, the same rule the "create this page" hint uses. ASCII entries are
+untouched: `- [[Sakura Internet]]` still indexes `sakura-internet`, and a name no
+file could carry still falls back to the old slug rather than becoming an empty
+entry.
+
+An index entry written with no page name at all — `- [[|display text]]` — used to
+borrow the display half as its slug, so a typo could quietly name a real page and
+disappear from the report. It is now reported as a malformed entry instead, with
+a message that says what is wrong rather than the old "references `` but the file
+does not exist".
+
+One consequence worth knowing about: `findTagDrift` looks its pages up by
+`entry.slug`, so for these pages it has been silently skipping the check
+entirely. It now runs, and a wiki with genuine frontmatter/index tag differences
+on non-ASCII pages will start reporting them.
+
+#### Wiki pages named in Japanese could not be opened, and every link to one was reported broken (#2940)
+
+A wiki page's slug IS its filename stem, so a page saved as
+`不耕起栽培-カバークロップ4年計画.md` is indexed under exactly that name. Every
+lookup, though, ran the target through `wikiSlugify` first — which strips all
+non-ASCII — and then searched for the remnant, `-4`. Nothing could match: opening
+the page returned `pageExists: false` and told the agent to create
+`wiki/pages/-4.md`, the lint flagged each `[[…]]` link to it as broken, and the
+graph dropped the edge. One reporter had 44 of 50 pages in this state; the six
+that worked were the ones whose index.md title happened to equal their filename,
+which is the only fallback that existed.
+
+Resolution now goes through one shared rule, `matchWikiSlug`: try the untouched
+name against the known page slugs first, then the slugified form. ASCII links are
+unaffected — `[[Sakura Internet]]` still finds `sakura-internet.md` — and a page
+file whose name carries capitals (`MyPage.md`) now resolves too, which it did not
+before. The page resolver, the lint and the graph all call it, so they cannot
+disagree again, and a "page not found" now names the file the author actually
+meant.
+
+The lint also gained the index.md title fallback the resolver and the graph
+already had, so a link written as a page's display title is no longer reported
+broken while both of them follow it.
+
+The write path never had this problem: it validates with `isSafeSlug`, which
+accepts non-ASCII names, as does the router guard. Only reads were broken.
+
+#### A phone view's page ends early instead of coming back with a hole in it (#2924)
+
+A mobile view's images are inlined host-side as `data:` thumbnails, inside a
+900 KB per-page budget — a phone view gets no view token and no `dataUrl`, so
+unlike a desktop view it cannot resolve an image on demand afterwards. When the
+budget ran out, the offending field was left as its path and the walk carried
+ON, so a smaller thumbnail later in the same page still fitted. The page then
+arrived with one arbitrary record showing a placeholder while its neighbours
+were fine — which reads as a corrupt record, not as a page that was too heavy.
+No error anywhere, and on mobile no way to recover: that image was simply never
+going to appear.
+
+The budget now ends the page instead. The records that did not fit travel on the
+NEXT page, with their thumbnails. `total` still counts every record behind the
+view and `limit` reports what was actually returned, so the documented paging
+idiom — `getItems({ offset: loaded.length })`, stop on `loaded.length >= total` —
+carries on unchanged and skips nothing. A view that instead advances by the limit
+it requested would skip records; both examples in `custom-view-remote.md` use
+`loaded.length`, and the help now states the guarantee explicitly.
+
+Measured on real photographs through the shipped resize (rotate → fit inside →
+JPEG q72), at `imageMaxEdge: 384` and the default page limit of 50:
+
+| thumbnail | before                        | after                    |
+| --------- | ----------------------------- | ------------------------ |
+| ≤17 KB    | 50 shown, 0 placeholders      | unchanged                |
+| 18 KB     | 48 shown, **2 placeholders**  | 48 items, 0 placeholders |
+| 20 KB     | 43 shown, **7 placeholders**  | 43 items, 0 placeholders |
+| 25 KB     | 34 shown, **16 placeholders** | 34 items, 0 placeholders |
+
+The same images render either way; what changes is whether the rest of the page
+arrives broken now or intact on the next scroll. A real photo at 384 px inlines
+to about 15 KB, which puts the default 50-record page just under the budget —
+close enough that a collection of ordinary photos lands on the boundary and
+loses one or two, which is what #2924 reported.
+
+Two things deliberately keep the old behaviour: an image that is **unresolvable**
+(missing file, undecodable source) is skipped in place rather than ending the
+page, because a smaller page cannot fix it and stopping there would wedge paging
+at that record forever; and a page is **never empty** — a first record whose own
+thumbnail cannot fit keeps its path, so paging always advances.
+
+Those two are the only ways a path still reaches a view, and both are now
+**counted**: the preview caption reads `N images (M placeholders)`, where `M` is
+every image the page hands back as a path rather than a `data:` URL. An image
+that was merely deferred to the next page is not counted, because it is not on
+this one. Leaving the forced first item uncounted would have let the caption
+claim a page with no holes while showing one.
+
+### Added
+
+#### `@mulmoclaude/core@4.3.0` — `putItems` reports the value shapes it does not refuse (mulmoterminal#1763)
+
+Released 2026-08-17. `manageCollection` `putItems` gains a **`lint`** block beside
+`written` and `rejected`: the strict-tier findings on the rows it just wrote.
+
+Only `core`'s version and the launcher's DEP RANGE move. The plugins keep their
+declared ranges — a `^4.x` caret floats across minors, so they resolve 4.3.0 on
+their own, and ratcheting them here would force a publish cascade for a change
+none of them calls (the same reasoning as 4.1.1). The launcher's OWN version
+stays 1.13.2, which `/publish-mulmoclaude` owns.
+
+Record validation has had two tiers since the ontology work. The **enforced**
+tier is the write gate — required fields, enum values, `primaryKey` = record id,
+the things that make a record unopenable. The **strict** tier adds the per-type
+checks (a `number` holds something numeric, a `date` is a real day, a `datetime` is the
+civil `YYYY-MM-DDTHH:MM` shape the calendar can place) and is deliberately
+report-only, so a collection whose rows predate the typed rules stays writable.
+`getItems` reports it and `presentCollection` reports it. `putItems` did not —
+so the one surface that could still fix the generator was the silent one.
+
+What that costs, from the session that prompted this: an agent building a
+tennis-court booking app generated 720 slots with `new Date(...).toISOString()`,
+and `putItems` answered `{ written: [720 ids], rejected: [] }`. Publishing the
+shared app then refused every record, because publish reads the strict tier. The
+format was only half of it — `toISOString()` also converts, so a Tokyo court's
+`08:00` became `15:00Z` on a US machine; had the shape passed, the app would have
+published with every slot seven hours wrong (eight, the other side of a DST
+change).
+
+The rows are still written — turning these into rejections is the thing the
+strict tier exists NOT to do. What changed is that the call now says so:
+
+- `lint.rows` carries `{ id, problem }` for each flagged row, capped at
+  `MAX_PUT_LINT` (10) — a generated batch is wrong the same way in every row, so
+  ten samples say what a thousand would — with `lint.total` reporting the true
+  count, so a capped list can never be read as a total.
+- `lint.note` says what the reader has to know to act: the rows WERE written,
+  the gate does not check value shapes, a full `getItems` listing warns about
+  the same rows, and a shared app's publish refuses them outright.
+- The key is ABSENT when every written row is clean, so a clean call reads
+  exactly as it always did.
+- Findings are computed on the record as WRITTEN (post-default, post-merge) —
+  what a later read lints is what landed, not what the caller sent — and are
+  skipped under `ablateValidation`, like the rest of the gate.
+
+The tool's own prompt said `putItems` "validates every row against the schema",
+which reads as full validation and is what makes a clean `rejected` look like
+proof. It now names what the gate covers, says the shape of a value is reported
+rather than refused, and tells the model to prove ONE batch before generating
+thousands. The `datetime` entry in the authoring reference (`schemaDocs`,
+`Field types`) now says outright that the type is a local wall clock rather than
+an instant, that a generated value is FORMATTED and never converted, and that
+the one legal `Z`-suffixed datetime is the one a shared app's server stamps.
+
+### Fixed
+
+#### The log says whether the broker PROCESS existed, not just whether it answered (#2842)
+
+`brokerEverReady=false` was carrying two different failures with two different
+fixes: a broker that launched and never finished booting, and one that never
+launched at all. `error-recovery.md` resolved the ambiguity by asserting the
+second — "no `broker ready` line anywhere → the broker never started" — and
+measuring showed that inference is wrong for exactly the case that costs the
+most time.
+
+The broker now announces itself before it loads anything, through an `--import`
+preload that runs ahead of its own entry module. Two signals, because they fail
+for unrelated reasons and neither is worth losing: a marker file written
+synchronously, and an HTTP beacon. The file is the one that beats a slow boot —
+node is single threaded and tsx's transcode blocks the event loop, so the fetch
+cannot complete until the boot it is meant to precede has finished. Measured on
+the tsx path, both beacons reached the host 2 ms apart, while the marker landed
+59 ms into a process whose boot went on for another 890 ms. The beacon stays
+because it needs no shared filesystem, and the host accepts either.
+
+`MCP tools were unavailable this turn` now carries `brokerEverStarted` and picks
+its hint from it: the boot (the mount, the `tsx` path) when the process was
+there, the spawn (the command, the paths, a missing module) when it was not.
+
+**What this deliberately does not do.** The reporter's third suggestion was to
+give up early rather than sit out the connect timeout, and the startup signal
+above is what that would have been built on. Measuring it first is what stopped
+it from being built. A broker that cannot be spawned does not cost 60 s: with
+the command pointed at a binary that does not exist, the CLI surfaced the error
+in 8.9 s, having already streamed text and run two tools, because a failed spawn
+is immediate and it simply proceeds without the tool. The case that DOES cost
+the full wait is a broker that launched and is still booting — where the signal
+reports `started` and a fail-fast would have to hold off, or else kill a turn
+that was about to succeed. So the only case a watchdog could catch is already
+fast, and the slow case is one it must not touch. It would have added a way to
+kill live turns and bought nothing.
+
+#### A broker that never starts is not replayed into a second full connect wait (#2842)
+
+When a turn dies on `MCP tool mcp__mulmoclaude__handlePermission … not found`,
+the host waited 3 s and replayed it once. That wait was built for #2057, where
+the broker comes up moments after losing the race and the replay genuinely
+recovers the turn. It does nothing for the case #2842 reported: a broker that
+never connects at all. There the replay sits out a second full connect wait and
+ends in the identical error — the reporter measured 100.8 s to return one.
+
+The startup beacon (#2898) is now read on BOTH sides of that wait, and only the
+second reading can tell the two apart. The beacon is sent when the broker
+answers `initialize`, so a broker that lost the race by a moment has not sent
+one yet at the instant the turn fails — deciding on the first reading alone
+would refuse exactly the replay that works. Reading it again after the wait
+separates them: a beacon that arrived during the wait means the broker is
+connected now and the turn is replayed as before; nothing on either side means
+it is not coming, and the turn fails there instead of buying a second connect
+wait first — one wait plus a few seconds rather than two. The retry warn carries
+the verdict (`reason=never-ready` / `ready-during-wait`), so which of the two
+happened is answerable from the log.
+
+The connect-wait ceiling itself is untouched at 60 s. It exists for brokers that
+are slow but do arrive, and lowering it would bring #2201's flake back — the
+condition for giving up early has to be the absence of a liveness signal, not
+elapsed time.
+
+Refusing the replay made the beacon load-bearing, so it also had to stop being
+droppable: it was one fire-and-forget POST, and any transient failure lost it for
+good. It now makes up to three attempts, each bounded at 2 s and half a second
+apart, and writes a line to the broker's stderr if every one of them fails. A
+short timeout tried repeatedly beats one patient attempt here — the retry is what
+absorbs a busy host, while a long timeout only delays the retry that would have
+worked.
+
+That budget is not decoration: the host reads readiness for a window derived from
+it (8 s against the 7 s the attempts can take) rather than deciding at the end of
+a fixed pause, because "no beacon" may only be read as "no broker" once delivery
+has actually run out of attempts. Deciding sooner would refuse the replay for a
+broker whose beacon is merely still in flight, which is the recovery this feature
+is supposed to protect. The inequality between the two is a test, so they cannot
+drift apart. A beacon that lands decides immediately, so the replay path still
+costs the same 3 s — only the give-up path pays the longer window.
+
+The error the turn died on is surfaced either way. It was being swallowed for a
+replay; when the replay is refused, it is emitted instead of the turn ending
+silently.
+
+#### `yarn dev` served the SPA instead of an HTML page outside `artifacts/html/` (#2928)
+
+`presentHtml`'s `path` form opens ANY page on disk, and the pane's iframe reaches
+one outside the artifacts tree through the backend's `/htmlfile/<scope>/…` mount.
+Vite's dev proxy never listed that prefix, so the SPA catch-all answered it —
+with `index.html`, HTTP 200. The sandboxed iframe then tried to load the injected
+`@vite/client` from its opaque origin, the browser refused it as cross-origin,
+and the pane rendered blank. Dev only; production has no Vite in front.
+
+The entry carries `xfwd: true` for the same reason `/artifacts/html` does — the
+CSP names the browser-visible origin, which `changeOrigin` would otherwise hide —
+and it bites harder here, because this mount also serves the page's images and
+media.
+
+`/htmlfile` joins the dev server's loopback-only guard in the same change, so
+`MULMOCLAUDE_DEV_LAN=1` refuses it from the network like every other proxied
+backend prefix. `test/config/test_viteDevProxy.ts` now checks the URLs the View
+actually builds against the proxy table, and the proxy table against that guard,
+so neither list can silently fall behind the other again.
+
+#### `@mulmoclaude/core@4.2.0` / `@mulmoclaude/collection-plugin@4.2.0` — a server-stamped datetime reaches a page as a string
+
+A shared collection can pin a `datetime` to the server's clock:
+`public.submit.<cid>.stampField` makes the rules require
+`request.resource.data[field] == request.time` on create and freeze it
+afterwards. What is stored is therefore a Firestore `Timestamp` — and that is
+what stops somebody writing yesterday into the field that decides who was
+first.
+
+A `Timestamp` does not survive the trip to a page. Structured clone drops the
+CLASS and leaves `{ seconds, nanoseconds }`; JSON leaves
+`{ type: "firestore/timestamp/1.0", … }`. `String()` of either is
+`"[object Object]"`, so a page sorting by that field compares every row equal
+and a stable sort leaves them in the order they were read — document id order.
+MulmoTerminal's bundled first-come template ships exactly that sort, so its
+queue ranked by id rather than by time. Nothing errored, and the ranks looked
+plausible.
+
+`core` now normalises at the store's read boundary, to one form:
+
+```text
+2026-08-15T23:05:54.605987654Z
+```
+
+UTC, nine fractional digits, `Z`, and each of those is load-bearing. RFC3339
+allows offsets, and two strings with different offsets do not sort in time
+order. Rounding to milliseconds makes two submissions in the same millisecond
+compare equal — the burst a first-come app exists for. Fixed WIDTH matters as
+much as the precision, for a reason easy to get backwards: trimming trailing
+zeros is order-preserving, but MIXING widths is not (`…605Z` and `…605987654Z`
+compare at the fourth fraction character, where `Z` outranks any digit). The
+upshot is that lexicographic order IS chronological order, so an author's page
+sorts with a plain string compare and is right.
+
+Both halves are needed. A record is read, edited and written back WHOLE, so a
+decoded stamp would return as a string; the rules freeze that field by
+comparing `diff().affectedKeys()`, which refuses the write and every later one.
+Dropping the key does not help — a removed key is affected too. So the write
+puts the instant back, and it decides by PROVENANCE rather than by format: the
+stored document is read first, and only a field that WAS an instant is
+converted. A `datetime` holding a canonical-looking string that was never an
+instant (imported data, a value somebody typed) stays the string it is. That
+costs one extra round trip per update of a shared record, paid knowingly — the
+alternative is guessing from the format, and a wrong guess silently changes the
+stored type of somebody's data.
+
+Decoding is scoped the other way, by DECLARATION: only fields the schema calls
+`datetime`. Records may carry keys the schema never mentions, and rewriting one
+because it happens to have `seconds` and `nanoseconds` would re-type live data
+on a guess. Two concerns, two mechanisms.
+
+Also in `core`: the record lint accepts the canonical instant for a `datetime`
+(and nothing looser); the calendar converts an instant to LOCAL civil time at
+the point of placement, leaving `parseIsoDateTime` civil and strict, because
+that strictness is what stops an instant being placed on a civil grid with no
+zone; and canonical validation is semantic, so `2026-02-30T…` (which the shape
+alone accepted, and `Date.parse` then moved to March 2) and year `0000`
+(outside Firestore's range, an exception at the write) are refused.
+
+`collection-plugin` stops offering a stamped value for editing. A
+`datetime-local` control cannot hold that string, so it rendered EMPTY — and
+saving the record then wrote the empty value over a field the rules refuse to
+see move, failing the whole update with a permission error that names nothing.
+It is recognised by the value, because the declaration that pins it lives in
+the app's `app.json`, which no UI reads.
+
+Only `core` and `collection-plugin` move, plus the LAUNCHER's ranges for both —
+`workspace-lockstep` requires the launcher's lower bound to match a bumped
+workspace package, so that ratchet is not optional. The other plugins keep
+`^4.1.0` on core: a caret floats across minors, so they resolve 4.2.0 on their
+own, and ratcheting them would force a publish cascade for no gain. The one
+that imports the new `isCanonicalServerTime` goes to `^4.2.0` because it needs
+it. npm publish is a follow-up (`/publish`), and the two hosts bump after it:
+mulmoserver (receptron/mulmoserver#188) applies the same decode at its own
+Firestore read — it never goes through this store — and MulmoTerminal
+(receptron/mulmoterminal#1747) carries the template and skill text plus the
+ranking regression test. Design: mulmoterminal `plans/fix-shared-app-server-time.md`.
+
+#### `@mulmoclaude/core@4.1.0` on npm is not the 4.1.0 in this tree — republished as 4.1.1
+
+npm's 4.1.0 was published at 2026-08-14 18:56 UTC. PR #2915 merged at 23:16 UTC
+and added `putItems`' `itemsFile` to the SAME version number, so two different
+builds of `@mulmoclaude/core` now answer to 4.1.0: the published one has zero
+occurrences of `itemsFile` in `dist/`, and zero in `assets/` — neither the code
+nor the `collection-skills.md` / `error-recovery.md` text that documents it.
+The tree's 4.1.0 carries 345 more lines across those three files.
+
+A version is a promise about bits, so the repair is a new number rather than a
+re-publish of the old one: nothing that already resolved 4.1.0 would fetch it
+again, and a `^` range that picked up the drifted copy would keep it forever.
+4.1.1 gives every consumer one copy to converge on.
+
+Only `core`'s version and the launcher's DEP RANGE move. The plugins keep
+`^4.1.0` — a caret floats across patches, so they resolve 4.1.1 on their own,
+and ratcheting them here would force a publish cascade for no gain. The
+launcher's own `version` stays at 1.13.2: that field is the `/publish-mulmoclaude`
+flow's to move, and 1.13.2 already declares `^4.1.0`, which floats to 4.1.1 too.
+
+Note for whoever publishes: this delivers the core half only. The host half of
+#2915 — `server/agent/containerPaths.ts` and the `mcp-tools` binding that
+supplies `sandboxWorkspacePath` — lives under `server/`, which reaches npm users
+ONLY through a `mulmoclaude` publish. Until that happens, an npm-installed
+sandboxed agent gets the `itemsFile` argument without the container-path
+translation behind it.
+
+### Changed
+
+#### `@mulmoclaude/mulmoscript-plugin@4.4.0` — the deck editor's peer moves to `@mulmocast/deck-web@^2.0.0` (#2941)
+
+Released 2026-08-24. The plugin's peer declaration still read `^1.1.1` while both
+hosts had moved to deck-web 2.0.0, so every install printed
+`incorrect peer dependency` and npm 7+ consumers would have hit `ERESOLVE`.
+
+The declaration was stale rather than wrong: the plugin uses exactly two things
+from deck-web — `MulmoScriptDeckEditor` (one dynamic import in `View.vue`, mounted
+when every beat is a `slide`) and the `SlideLayout` / `SlideTheme` types — and
+`MulmoScriptDeckEditor.vue.d.ts` is byte-identical between 1.1.1 and 2.0.0. The
+2.0.0 major adds the `BeatListEditor` family and deprecates the iframe editor; it
+does not change the contract this plugin consumes.
+
+That also settles the stylesheet question 2.0.0 raises. Its new
+`@mulmocast/deck-web/style.css` carries the Tailwind utilities `beatToHtml` and
+`generateSlideFragment` emit — neither of which is in the shipped bundle. The path
+this plugin takes, `MulmoScriptDeckEditor` -> `SlidePreview`, renders through
+`<iframe srcdoc>` with a complete document from `generateSlideHTML()`, so it
+depends on no host stylesheet and none was added.
+
+No behaviour change and no source change — only the declared floor moves, which is
+what stops a host from assembling a deck-web 1.x combination the code is not
+tested against. Hosts satisfy the peer themselves; the launcher's dep range follows
+the workspace-lockstep ratchet, and its OWN version stays put.
+
+The deck editor's rendering has no automated coverage in this repo — nothing
+references the `mulmo-script-deck-editor` testid and `mulmo-script-edit.spec.ts`
+does not exercise a slide deck — so this rests on the contract being identical,
+not on a run.
+
+### Package releases
+
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.4.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.4.2`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@4.4.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+## [1.13.2] - 2026-08-15
+
+**Google sign-in on the remote host works again, and the plugin family that had
+been sitting unpublished since June finally reaches npm.**
+
+### Added
+
+#### `putItems` reads its rows from a file, so a generated batch never passes through the model (#2914)
+
+`manageCollection` `putItems` gains **`itemsFile`** — an absolute path to a JSON
+file of record objects, read by the host — as the alternative to `items`.
+
+The old shape had one way in, and it was the model's own output: to store 540
+generated booking slots the agent had to write ~80 KB of JSON token by token,
+even though a script had already produced exactly that JSON as a file. In the
+session that prompted this, the agent declined to — and instead spawned the MCP
+bridge itself and spoke JSON-RPC to it from a script it wrote. The judgement was
+right (that batch cannot go through `items`); only the workaround was wrong, and
+a hand-written MCP client fails invisibly and can leave a half-written
+collection. The skill telling it to "let the script do the counting, then pass
+the output to putItems" was asking for something the tool could not do.
+
+The path is resolved against the workspace, on both sides. Under Docker the
+sandbox mounts the workspace at `/home/node/mulmoclaude`
+(`server/agent/config.ts`), so a sandboxed agent's absolute paths into it are
+CONTAINER paths while this tool body runs on the host. A verbatim read would
+ENOENT on every host whose workspace is not literally that directory — i.e. all
+of them — so that one prefix is translated back to the workspace root, injected
+as `ManageCollectionDeps.sandboxWorkspacePath`. No other mount is translated,
+and the translated path still has to pass containment.
+
+Refusals keep the new door from failing quietly, or opening too wide:
+
+- **Absolute paths only.** The tool body runs in the HOST'S SERVER PROCESS
+  (`server/agent/mcp-server.ts` POSTs to `/api/mcp-tools/<name>`), whose working
+  directory is not the agent's. A relative path would not reliably error; it
+  would resolve against an unrelated directory and either miss or read a
+  different file of the same name. So it is refused, with the reason.
+- **Inside the workspace only.** `manageCollection` is always available to the
+  sandboxed agent, so an unconstrained absolute path would make this host-side
+  handler a read primitive for the whole host filesystem: point it at any JSON
+  array the server user can open, store the rows, read them back with
+  `getItems`. Confinement denies that while costing the feature nothing — the
+  workspace is where the agent's own generated files land.
+- **One descriptor, not two lookups.** The file is opened once (`O_NOFOLLOW`,
+  so a symlink is refused rather than followed; `O_NONBLOCK`, so a fifo cannot
+  park the call on `open` itself) and every later decision is made about THAT
+  descriptor. Checking a pathname and then `stat`ing and reading the same
+  pathname would leave a TOCTOU window the containment check cannot close: the
+  agent can write anywhere in the workspace, so it could point `rows.json` at an
+  in-workspace file, call the tool, and swap in a symlink to a host file while
+  the first `await` was pending. `realpath` + a `dev`/`ino` comparison against
+  the open descriptor is what ties the checked path and the read bytes together;
+  a mismatch refuses rather than reads.
+- **A bounded read, not a read to EOF.** The size check bounds nothing on its
+  own: `FileHandle.readFile()` runs to end-of-file, and appending does not
+  change the inode, so a file that grows between the `stat` and the read slips
+  past both the byte cap and the identity check. Measured on a real descriptor,
+  a 2-byte file that passed the gate handed back 9,437,186 bytes. The read is
+  therefore into a buffer of the CHECKED size plus one — the cap holds on the
+  bytes actually taken, and that extra byte is what detects the growth, so a
+  file still being written is refused rather than parsed as the truncated half
+  it would otherwise resemble.
+- **`items` and `itemsFile` are mutually exclusive.** Two row sets in one call
+  has no correct reading: honouring one silently discards the other, and
+  concatenating them writes rows nobody asked to write together.
+- **1000 rows per call, and 8 MiB per file.** `putOneItem` validates and writes
+  one record at a time, so an unbounded file holds the call open for minutes.
+  Over the cap the call is refused WHOLE, before the first write — a truncating
+  write that reported success would leave a half-filled collection nobody knows
+  is half-filled. The row cap is checked on the resolved rows, so it holds for
+  `items` too; the byte cap comes from `stat` before any read, because the row
+  count only exists after the file has been read and parsed whole. A
+  non-regular file (`/dev/zero`, a fifo) is refused at the same gate.
+
+Everything else is unchanged: same per-row schema validation, same `mode`, same
+`{ written, rejected }`. `collection-skills.md` documents the file route and
+`error-recovery.md` names the bridge-spawning workaround so the agent meets the
+answer before it improvises one.
+
+#### An `enum` field can declare the value a new record starts on (#2839)
+
+```jsonc
+"status": { "type": "enum", "values": ["todo","doing","done"], "required": true, "default": "todo" }
+```
+
+The Add form opens on it, and a `putItems` row in `create` mode that omits the
+field gets it — both paths, because a default the form fills but the tool
+ignores is worse than none. `required: true` and a `default` go together: the
+requirement is already satisfied, so the user just saves. `upsert` and `merge`
+do NOT re-apply it; those edit a record that already carries an answer.
+
+Only `enum` for now. Literals for the scalar types and `today` / `now`
+sentinels for dates are the same request's later tiers, deliberately left until
+this one has been used.
+
+**Note for anyone who already wrote `default`.** The key parsed but did nothing
+before this change, so a schema may carry one that is not among its `values`.
+Two deliberate choices keep that harmless:
+
+- **Nothing that loads today stops loading.** Membership is checked when
+  `putSchema` WRITES a schema, not when discovery parses one. Rejecting at parse
+  time would drop the whole collection out of the index over one cosmetic key —
+  it would vanish from the UI with a log line as the only clue.
+- **A stale value is treated as no default.** The Add form starts blank rather
+  than on a value the `<select>` cannot offer, which would otherwise fail the
+  save for a reason nothing on screen explains.
+
+So a pre-existing `default` either starts working as written, or goes on being
+ignored exactly as before. The only new refusal is at authoring time, where the
+error names the offending field and lists the allowed values.
+
+#### The collections index has a search box (#2837)
+
+A substring over title and slug, case-insensitive, ANDed with the existing
+Editable/Data chips. No match shows the same empty state the record list uses,
+and its link clears both narrowings — either one can be the reason the grid went
+empty.
+
+The issue proposed user-defined tags with chips. Search goes first because tags
+start empty on every collection that already exists: the filter only works once
+someone (or the agent, at creation time) has classified things, and until then a
+tag chip row narrows nothing. A search box works on the first workspace it meets,
+needs no schema field, no agent-facing documentation, and no registry export — the
+summary the index already fetches carries both searched values.
+
+What it deliberately does not do is hide anything by default, so the "human vs
+internal collection" half of the request is untouched and stays open.
+
+#### The projection says what each audience may CHANGE, and who may change it (#2891)
+
+`{tier}/config` gains `write[]`: per collection, the status field a transition
+moves, the transitions THIS audience may make, the assignee field, and the mail
+one queues. Nothing here grants anything — `firestore.rules` already allows
+every one of these writes — it tells a page which buttons exist and lets a
+refusal name itself instead of arriving as a permission error that names
+nothing.
+
+The transition tables differ per tier and that is the point. Staff move along
+`collections[cid].transitions`; the person who booked moves along
+`public.submit[cid].selfTransitions`. Publishing one table to both draws an
+approve button on a customer's page that the rules refuse when pressed.
+
+`writers` (owner / editor) and `rowWriters` (assignee) travel with it, into the
+`member` tier only. One `member/config` is read by everybody `staffOf` admits,
+and holding a role somewhere is not the same as being able to change a given
+collection — a `viewer` reads the same entry as the front desk. It cannot be
+answered per principal (one document, many readers) and the reader cannot look
+their own role up: `apps/{aid}` is `readerOf(a, '*')`, which a per-collection
+role does not satisfy. So the roster's answer travels with the declaration and
+the page compares its own address to it. The assignment CANDIDATES are the two
+lists together, derived rather than published a third time.
+
+At publish the write tables follow the PROMOTED collection config, beside
+`participantRead` and for the same reason: a manifest edited since the last
+deploy would otherwise advertise transitions the live rules deny.
+
+Design: mulmoterminal `plans/feat-shared-app-member-write.md`. The runtime is
+mulmoserver#171 and #172; both go out before a host publishes any of this.
+
+#### A shared app can declare a page per audience, not only a public one (#2877)
+
+`public.view` named ONE page, for anonymous visitors. `views[]` names as many as
+the app needs, each saying who it is for:
+
+```json
+"views": [
+  { "id": "public", "audience": "public", "path": "views/booking.html", "collections": ["slots"] },
+  { "id": "desk",   "audience": "member", "path": "views/desk.html",    "collections": ["bookings"] }
+]
+```
+
+`audience` decides which DOCUMENT the page is published to, and therefore who
+may read it — a rule cannot hide a field, so "the front desk sees this" is a
+place rather than a filter. `member` lands under `apps/{aid}/member` (anyone
+holding a role) and `participant` under `apps/{aid}/roster` (the whole roster);
+`public` keeps `config/view`, which is already deployed. `id` becomes the
+document id, so it carries a grammar rather than merely being unique.
+
+The declaration is projected PER TIER (`projectAppViews`). A participant cannot
+read `apps/{aid}` — their classmates' addresses are on it — so the datasets
+their page draws, and the field their own row is found by, can only reach them
+through their tier's own config. One shared projection could not serve both:
+handed the staff datasets, a participant's page builds a query the rules refuse,
+which fails rather than showing less.
+
+`public.view` still parses and normalizes to `id: "public"`. Declaring both is
+refused rather than resolved silently. Only one `public` view is allowed —
+`config/view` is a single document, so a second would be published nowhere and
+which was live would depend on declaration order.
+
+Publish refuses a `participant` page naming a collection a participant cannot
+reach, and judges that against the `participantRead` publish will PROMOTE (what
+deploy staged) rather than what `app.json` says now.
+
+Design: mulmoterminal `plans/feat-shared-app-member-view.md`. The rules are
+mulmoserver#168 and the runtime mulmoserver#169; both go out before a host
+writes any of this.
+
+### Removed
+
+#### The shared-app compiler leaves this package (`@mulmoclaude/core@4.0.0`)
+
+`app.json` -> the documents a published app is made of, and the gate that refuses a
+declaration, are no longer here. `AuthoredAppZ`, `projectApp`, `projectAppViews`,
+`projectDeploy`, `projectPublish`, `publishProblems`, `normalizeViews` and everything
+around them moved to [`receptron/sharedapp`](https://github.com/receptron/sharedapp), which
+MulmoTerminal and MulmoServer consume by git ref.
+
+They left because nothing in this monorepo consumed them. MulmoClaude neither writes nor
+reads a shared collection: `projectApp` had no caller outside `packages/core` except
+MulmoTerminal's deploy, and `setSharedCollectionsSupport(true)` is called in production only
+by that host — without it `discovery.ts` refuses rather than skips. Meanwhile every change
+to a shared app was a change to this package, a CI run, a merge, and a HUMAN npm publish
+before the work could continue. In the 90 days before the split, **24 commits** paid that
+toll, the most common of them being a new key in `app.json`.
+
+The collection RUNTIME stays: discovery, the store, the Firestore backend, the host seam,
+`appManifest`. MulmoClaude does use those. The line is declaration to document — anything
+that reads or writes a live collection is on this side of it.
+
+`test_sharedHostSurface.ts` is the ledger for it, and got shorter on purpose: what a host
+still needs from this package is the runtime half, and a test now asserts the compiler does
+not come back. Two implementations of one projection is the failure nothing here would
+notice — this package's tests would pass on its copy while the host compiled with the other.
+
+The seven bundled plugins move up a major with it. None of them use the removed exports;
+what changes is their `@mulmoclaude/core` peer range, from `^3.6.0` to `^4.0.0`, which
+excludes the version they were published against. Leaving the range alone would let a strict
+peer resolution reject a fresh launcher install, so the range moves and the plugins are
+released with it.
+
+Design: mulmoterminal `plans/refactor-shared-app-module.md`.
+
+### Package releases
+
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@3.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+### Fixed
+
+#### Remote host: Google sign-in failed with `Database is closing/hidden` (#2835, #2912)
+
+Pressing **Sign in with Google** left the remote host offline behind a red
+`Database is closing/hidden`, reproducibly, in both Chrome and Safari on macOS.
+Nothing in MulmoClaude was wrong: `@firebase/auth` 1.13.4 added a
+`visibilitychange` listener to `IndexedDBLocalPersistence` that treats a hidden
+document as page teardown. The sign-in popup backgrounds the opener, so the
+credential write `signInWithPopup` performs on return hits `_openDb()` while the
+database is closed and throws. Reads degrade to an empty result; writes are
+fatal and `_withRetries` does not retry them, so there is no recovery path — the
+idToken is never handed back and `/connect` is never reached.
+
+Upstream fixed it in firebase-js-sdk#10300 but has not published it, and
+`firebase@12.17.1` still carries the broken auth. `firebase` is therefore pinned
+to an exact `12.16.0` — the newest 12.x on `@firebase/auth` 1.13.3 — in the root
+and in the launcher alike, since `server/remoteHost/` resolves `firebase` from
+the launcher at runtime. The caret is deliberately gone so nothing floats back
+to 12.17.x; #2835 stays open until a fixed release lets the pin be lifted.
+
+#### A Web Push that does not arrive now says why in the log (#2903)
+
+`sendWebPush` answered `null` for every failure — not signed in, non-2xx,
+offline, timeout, unparseable body — and wrote nothing. Its caller logged only
+the case where the push succeeded and reached zero devices. So the two answers a
+reader actually needs, "tried and failed" and "never tried", were the same
+observation from outside: #2886's reporter grepped the log for `web-push` and
+got no lines at all, and settling it took reading the source.
+
+Never throwing is the right design for a push fired from a turn-end hook, and
+that has not changed. What changed is that failing is no longer invisible:
+`SendWebPushOptions` takes an `onFailure` callback carrying a typed reason
+(`not-signed-in` / `http-error` with its status / `network` with the thrown
+message / `bad-response`), and the host logs it. The return type is untouched,
+so this is not a breaking change for anything already calling it.
+
+The caller now accounts for all three outcomes rather than one: a warn when the
+push did not deliver, an info with the delivery counts when it did, and a debug
+line when push is simply disabled in settings. That last one is deliberately
+debug — the file sink records debug while the console starts at info, so it
+lands in `server/system/logs/` where the search was run, without a line per turn
+on anyone's terminal.
+
+Ships as `@mulmobridge/web-push@1.1.0`.
+
+#### An embed whose optional `idField` is empty reads as unset, not as a broken link (#2863)
+
+`embedTargetId()` resolves an absent or empty `idField` to `""`, and the schema
+contract calls that a fail-soft "no record". The detail panel had only two
+branches — `found` and everything else — so a reference the author simply had
+not filled in got the red "missing" card, with the id blank in the message
+(「projects に「」のレコードが見つかりません」). An optional link that is
+normally empty (task → project, task → goal) therefore made every healthy record
+look broken, one red card per embed.
+
+An embed with no target id now renders the same em-dash the panel's other empty
+fields use. The card stays for the case it was written for: an `idField` naming
+a record the target collection does not have.
+
+#### A shared record's identity is its document id, not a field a submitter can name
+
+The security rules can pin the DOCUMENT ID of a submission — `idFrom` ties it to
+the submitter's uid, or to uid plus a field — and they cannot pin the VALUE of a
+field: `validateOk` checks which keys are present and `keyFieldsOk` checks a
+declared enum, but nothing compares `request.resource.data[primaryKey]` with the
+path being written.
+
+The firestore store returned a document's fields verbatim, so whatever the
+writer put in the primary-key field became the record's identity to every
+reader. A public submitter writing at their one permitted document id could
+therefore claim a duplicate — or another member's record id — and be believed.
+
+`firestoreStore` now takes the identity from the document id and overwrites the
+field on read. For a record written through the store the two already agree
+(`firestoreWrite` writes at the id it was given), so nothing changes for an
+honest write; the spoof simply becomes unreachable.
+
+`publish` refuses the declaration that made it reachable: a `public.submit[cid]`
+whose `createFields` names the schema's `primaryKey`. There is nothing for that
+field to do now — a submitted value is either equal to the id or a lie that is
+discarded — and publishing a form field whose value is thrown away is worse than
+not having it, because the author will believe submitters choose their ids.
+
+This reverses a check added earlier in this release, which required the primary
+key in `createFields` for the opposite reason (a record without one was rejected
+by every reader). That was right about the symptom and wrong about the cure: the
+identity belongs to the id the rules can pin, not to a field they cannot.
+
+### Added
+
+#### `app.json` may declare the URL name an app is handed out under
+
+`AuthoredAppZ` accepts an optional `slug` — the name in `https://<host>/{slug}`,
+kept separate from the `aid` for the reason the aid is a UUID: `apps/{aid}` is a
+shelf every user of a deployment shares, its `allow create` asks only that you
+name yourself owner, and availability cannot be checked because the app document
+is unreadable until you are on its roster. A memorable id there is
+first-come-first-served; a memorable NAME costs nothing to change, so that is
+where the fightable one belongs.
+
+It lives in the declaration rather than beside it because a reservation has to
+travel with the repository. `appSlugs/{slug}` is unreadable until the app is
+published (`allow read: if resource.data.published == true`), so nothing can ask
+Firestore which slug an app holds — and a second file to keep in step with
+`app.json` is the kind of pair that goes out of step silently. The host reserves
+a slug and writes back the one it got (a wanted name can be taken), which a
+strict schema would have made unwriteable.
+
+Nothing in this package reads the key: reserving and publishing a slug is the
+host's operation. The shape is stricter than a collection name — lowercase
+alphanumerics separated by single hyphens — because it is BOTH a URL path
+segment people retype and a Firestore document id, and a case rule would make
+one name for a person and two reservations for Firestore.
+
+#### A row-scoped writer (`assignee`), and the two keys a first-come queue needs
+
+Three additions to the shared-app declaration, all of them paired with rules in
+`mulmoserver`.
+
+**`assignee`**, a fifth role, plus `collections.<cid>.assigneeField`. It reads
+every row and writes only the ones assigned to it — the stylist who approves
+their own bookings and not a colleague's. The four-role split could not express
+that: `writerOf` does not look at the row, and `ownRow` identifies the SUBMITTER
+(the customer), not the person the work belongs to. Putting the scope on the
+collection instead would have made the receptionist inexpressible, so it goes on
+the roster. Reads stay unscoped deliberately — a stylist who cannot see the
+day's schedule cannot work. The field holds an ADDRESS, because that is the only
+thing the rules can compare a member against; a `ref` to a staff collection
+stores that record's primary key and matches nobody.
+
+**`public.submit.<cid>.stampField`** pins a field to the server clock on create
+and freezes it afterwards. A first-come app takes its capacity from RANK rather
+than from a count — the rules cannot count documents, so "the first 8" can only
+ever be a reading of the rows — and a rank is exactly as honest as the field it
+sorts by. `idFrom` stops one person holding two places; nothing else stopped
+them writing yesterday into the field that decides who was first.
+
+**`public.submit.<cid>.window.fromField`** is an opening time that lives on
+another record: `{ ref, collection, field }`, where the target carries epoch
+millis. `window.from` is one instant for the whole collection, which is enough
+for a survey and useless for anything recurring. The bound is not computed in
+the rules — they have no usable date arithmetic and `request.time` is UTC, which
+is the wrong answer for "08:00" — it is computed by whoever schedules the class
+and merely compared. Not spelled `in`: that is an operator in the rules
+language, and `w.fromField.in` does not parse there.
+
+Publish refuses three new fail-closed traps: an `assignee` with no
+`assigneeField` (which fails closed for that ONE member while the app keeps
+working for everybody else), a `stampField` outside `createFields` (which
+refuses every submission), and a `fromField` naming an unknown collection or a
+field the submission never writes (which shuts the window for good). A member's
+per-collection keys also joined the unknown-cid sweep.
+
+#### One booking per slot: a document id that is a CLAIM about another record
+
+The other answer to "who got there first". A class has a capacity, the rules
+cannot count, so a first-come queue reads an order off `stampField`. A slot is
+not countable at all — it is ONE thing — so the contested identity goes into the
+document id, where Firestore decides it atomically: the second person to want
+that slot is writing a document that already exists, which is an update, which
+the public submission path never allows. No transaction and no retry.
+
+**`public.submit.<cid>.idFrom: "field"`** with **`idField`** makes the booking's
+id the slot's id. **`idIn`** (`{ collection, where? }`) is what makes that claim
+worth anything: uniqueness alone only stops the same string being written twice,
+and nothing stops a client bypassing the page and inventing a slot. `exists()`
+is a FLOOR — a cancelled slot exists too — so the declaration may pin a state as
+well. Publish REQUIRES `idIn` in this mode; without it the app silently accepts
+bookings for things that do not exist.
+
+**`public.submit.<cid>.window.untilField`** is the closing bound's per-record
+twin, and it ships with the mode rather than later: a desk that opens per slot
+and never closes is not a booking desk. Exclusive where `fromField` is
+inclusive, so one slot's closing instant and the next one's opening instant may
+be the same number.
+
+**`public.submit.<cid>.mirror`** and **`collections.<cid>.mirrorOf`** are the
+two halves of a public projection. A booking carries a name, an address and a
+phone number, and Firestore rules cannot hide a field, so the public page must
+not read bookings at all — it reads a slot row whose `state` is a COPY of "does
+a booking with this id exist". The rules accept the two writes only as one
+batch, in BOTH directions, so the copy cannot drift into advertising a slot
+somebody already holds. Anybody may write the projection, because the only value
+that passes is the true one and `state` is the only field that may move — which
+is how a visitor who was just refused repairs the row that offered it to them.
+
+**`public.view`** names one HTML file and the datasets it is handed. A form is
+enough to ANSWER something and not enough to CHOOSE from what is available, and
+a stylist-by-hour grid is not the far end of a table. The datasets are declared
+rather than inferred from `public.read`, because inferring them produces this
+feature's worst failure: the view renders, the data never arrives, and it draws
+an empty grid with nothing anywhere to say why.
+
+Publish refuses, each for a failure nothing else would report: a `field` id with
+no `idIn` or naming a collection that does not exist (or itself, which a create
+can never satisfy); either half of a mirror without the other, a mirror of
+itself, and — the one a manifest-only check misses — a mirror whose `mirrorOf`
+was never DEPLOYED, since publish takes one half from `app.json` and the other
+from staging; an `untilField` naming an unknown collection or an unwritten
+field; a view fed a collection outside `public.read`; and a `view.path` that is
+not exactly one HTML file directly under `views/` (the host reads that path to
+decide what to publish, and what it publishes is world-readable).
+
+#### Publishing a shared app: `manageCollection` action `publishApp`
+
+A repository that declares a shared app (`app.json` + collections with
+`storage.type: "firestore"`) can now publish it — the member roster, the public
+read/submit configuration, and every shared collection's schema — to
+`apps/{aid}` in Firestore, where the deployed security rules read it.
+
+Publishing is the one operation in the collection surface that changes what
+every member sees the moment it runs, so the action is built as a gate rather
+than an upload:
+
+- **The declaration is compiled, not copied.** `app.json` is what a human
+  writes; the Firestore document is what the rules read, and the differences
+  are stated in one place (`publishProject.ts`). The load-bearing one is the
+  submit window: authored as ISO strings, published as epoch millis, because
+  the rules do not coerce a string to a timestamp — comparing one with
+  `request.time` is a type error, which denies, so an ISO string that reached
+  Firestore would present as "nobody can submit" with nothing saying why.
+  `memberEmails` is likewise derived from `members`, never authored.
+- **It refuses declarations that are silently permissive** — chiefly a
+  submission bound to its submitter (`idFrom: "auth.uid"`, `emailField`,
+  `audience: "participant"`) in a collection that does not declare
+  `submitOnly`, which is the difference between "the submitter said this" and
+  "someone with a writer role said this on their behalf".
+- **It refuses declarations that would silently deny everyone** — an
+  `initialStatus` with no `statusField`, a required field outside
+  `createFields`, a mail transition the state machine forbids. Each of these
+  produces a permission denial that carries no explanation to the person
+  hitting it.
+- **It refuses to publish over live records the new schemas would break**,
+  listing them, until the caller passes `confirm`.
+- **It signs what it writes** (`publishedBy` / `publishedCommit` /
+  `publishedAt`, plus `publishedDirty` when the working tree was modified) and
+  keeps the previous app document in `previousPublished` for rollback.
+
+CI publishing is deliberately not included: an owner-role service account is a
+new kind of principal in a permission model that currently assumes the roster
+is people.
+
+### Changed
+
+- **`manageCollection` の `publishApp` を削除**（API の削除だが **3.10.0**。理由は下記）。
+  publish は**ホストの操作**になった（順序・staging・取り下げを持つのはホスト）。
+  能力を宣言したホストで両方が並ぶと、**staging を飛ばして `public` を先に書く 2 本目の
+  書き込み経路**になり、fail-closed の順序が意味を失う。`publish.ts` と対応するテストも
+  削除した。`projectApp` は残る（mulmoserver の emulator ルールテストが fixture 生成に使う）。
+  **メジャーにしない判断**: この API を参照している公開パッケージは無く（プラグインは
+  どれも UI 側）、唯一の呼び出し元だった MulmoClaude はもう共有コレクションを扱わない。
+  一方メジャーにすると `@mulmoclaude/*` プラグイン 7 本の peer 範囲が外れ、それぞれの
+  バージョンを上げて出し直すことになる（`auditLauncherSync` が検出する）。守る相手が
+  いないところで 7 本を動かす方が事故が大きい。
+- **`appSlugs/{slug}` の置き場所と形を core が持つ**（`APP_SLUGS_COLLECTION` /
+  `appSlugDoc` / `AppSlugDoc`）。URL の予約は deploy が `{ aid, published: false }` で作り、
+  publish が反転させる。人間可読な slug なので、読めるままだと URL を当てるだけで aid が
+  取れてしまう（aid は `/staging/{aid}` の入口）。
+- **ホストが必要とする export を 1 本のテストで固定した**（`test_sharedHostSurface.ts`）。
+  この分割は「ホストが二度とこのパッケージに戻ってこなくて済む」ことに価値があるので、
+  シンボルを落とす変更は**別リポジトリのリリース**になる。ここで落ちるようにしてある。
+- **`deploy` と `publish` を別々に実行するための投影を追加**（`projectDeploy` /
+  `projectPublish` / `promoteSchema` / `appStagingPath`、
+  `@mulmoclaude/core/collection/server`）。既存の `projectApp` と `publishApp` は不変で、
+  これは**追加のみ**。
+  - **どちらも完全なアプリ文書を返す。ホストは `set` で置換する（merge しない）。**
+    merge は**削除できない**ので、`members.<email>` を消しても権限が残る — しかも
+    ルールが `memberEmails` と `members` の一致を要求するため、merge した削除は
+    そもそも拒否される。`public` を `app.json` から外して非公開に戻すこともできない。
+    相手の操作が持つフィールドは `existing` から**そのまま持ち越す**ので、置換しても
+    公開を落としたり招待を巻き戻したりしない
+  - `projectDeploy` が返す文書には **`public` が入らない**。ルールが匿名アクセスを
+    判定するのは `apps/{aid}.public` であって世界に読める `config/public` ではないので、
+    deploy で書くと「テストのために deploy した」がそのまま公開になる
+  - **`collections` と `participantRead` も staging に載る。** これらはルールが
+    **公開の書き込みを判定するときに読む**設定なので、deploy で着地させると、
+    スキーマは staging に留めたまま公開の挙動だけが変わってしまう。代償として
+    `/staging/{aid}` は「新しいスキーマ × 現在公開中のルール設定」で試すことになるが、
+    間違える方向としてはこちらが安全
+  - **`PublishStamp.dirty`** を追加し、`publishedDirty` を publish 所有のキーにした。
+    旧 `publishApp` は投影の外でこれを立てていたので、分割でそのまま落ちていた —
+    deploy が既存の印を消し、きれいな再 publish が古い印を引き継いで永久に残す、という
+    両方向の誤りになる。汚れた作業ツリーから publish したときだけ立ち、きれいな
+    publish が消す
+  - **`projectPublish` は昇格する `staging/{cid}` を受け取る。** ルール設定
+    （`collections` / `participantRead`）は**staged の文書から**組み立てる — いまの
+    `app.json` から作り直すと、revision A を deploy → `app.json` を B に編集 → publish で、
+    「A のスキーマ × B の認可挙動」という誰も試していない組み合わせが公開される。
+    `public` だけは staged ではなく manifest から取る（publish の時点で下す判断であって、
+    試す対象ではない）
+  - **`public` は投影から分けて返す**（`PublishedFace.public`）。**最後に、単独の更新
+    として書く**（`undefined` なら削除 = 非公開に戻す）。publish の 3 つの書き込みのうち
+    権限を与えるのはこれだけなので、置換文書に混ぜると、昇格したスキーマと
+    `config/public` が揃う前にアプリが開いてしまう。最後に書けば、途中で失敗しても
+    非公開のまま止まる。再 publish は「`public` が無い瞬間」を通るが、それは短い拒否で
+    あって短い露出ではない
+  - **provenance を 2 つに分けた。** deploy は `deployed*`、publish は `published*` と
+    `previousPublished`。同じキーを両方が書くと、草稿を deploy しただけで「いま公開されて
+    いる版」と rollback 先の記録が動いてしまう
+  - スキーマは `apps/{aid}/staging/{cid}`（`appStagingPath`）へ。名簿しか読めないので、
+    公開中のアプリに deploy しても訪問者の見ているビューは差し替わらない。
+    **フィールドではなく別ドキュメント**なのは、ルールがフィールド単位で隠せないから
+  - `publish` は git から作り直すのではなく `staging/{cid}` を `collections/{cid}` へ
+    **昇格**させる（`promoteSchema` が押し直す）。名簿の人が試したものがそのまま出る
+  - `public` は**最後に書く**。3 つのうち権限を与えるのはこれだけなので、途中で失敗しても
+    非公開のまま止まる（fail closed）
+- **共有コレクションは、ホストが「自分は共有コレクションを扱う」と宣言したときだけ
+  成立する**（`setSharedCollectionsSupport`、`@mulmoclaude/core/collection/server`）。
+  宣言の無いホストでは、firestore ストレージのスキーマを**受け入れの時点で拒否**する
+  （skip しない — skip すると「このコレクションは空」に見え、設定ミスが症状として
+  現れない）。engine がホストの名前を知る形（MulmoClaude のワークスペースかどうかを
+  判定する）にはしていない。表現したいルール — 共有コレクションはプロジェクト
+  リポジトリに置く — は**ホストが自分について知っている性質**だからで、共有コードに
+  特定ホストの名前を持ち込むと、片方のホストだけの変更が毎回このパッケージの変更に
+  なる。`configureCollectionHost` のフィールドではなく独立した setter なのは、
+  accessor と同じ理由（一度きりのバインドに混ぜると、engine を叩くテストが自分で
+  能力を立てられない）。**既定は false**。共有コレクションを扱っていなかったホストは
+  何もしなくてよいが、**`setFirestoreAccessor` を呼んで共有コレクションを使っていた
+  ホストは、宣言しないと受け入れの時点で拒否される** — 破壊的変更であり、opt-in が要る。
+- **MulmoClaude は Firestore のバインドを行わなくなった。** ここは単一の管理
+  ワークスペースで、無関係なコレクションが並んでいる。`app.json` を 1 つ置くと
+  全部が同じ名簿になり、「顧客リストの共有相手が血液検査の結果も見える」形になる。
+  共有コレクションのホストは MulmoTerminal（root がプロジェクトリポジトリ）。
+- **`FirestoreHandle` now carries `uid`** alongside `email`
+  (`@mulmoclaude/core/collection/server`). The roster is keyed by email and
+  every record operation resolves a role from it, but the app document's
+  `owner` is a uid — the rules require `owner == request.auth.uid` when an app
+  is created — so a session that can read and write records still could not
+  create an app. Required rather than optional so the gap is a compile error
+  instead of a permission denial that says nothing about identity. **Breaking
+  for a host that calls `setFirestoreAccessor`**; MulmoClaude's binding is
+  updated here, and MulmoTerminal binds no accessor.
+
+## [1.13.1] - 2026-08-10
+
+**A Google Calendar collection now actually receives the calendar, and the multi-root
+groundwork lands without changing anything for a single-workspace host.**
+
+### Highlights
+
+#### A calendar collection could sit at a handful of records forever (#2850, #2853)
+
+A `googleCalendar` collection would stall at 0, 1, or a couple of dozen records out of
+years of history, reporting success with **no error**, and further Sync presses added
+nothing. Only events touched after the collection existed kept arriving.
+
+A Google sync token is keyed by `calendarId` and nothing else, so every consumer of that
+calendar shares one cursor. Whoever walked first stored it, and the next collection
+resumed from a window it had never received — its "first sync" was a delta. Two ways in,
+both hit by the reporter: the standalone `google` tool's `calendarSync` stores a token
+(and discards its events), and a second collection created on a calendar a sibling had
+already synced. The on-create first sync (#2427) asked the same wrong question — it read
+"the calendar has a token" as "this has already synced" — so for an affected collection
+it never ran at all.
+
+A collection now records its own backfill beside its records
+(`<dataPath>/.calendar-sync.json`) and the sync walks the whole calendar while any
+collection on it still lacks one. The `google` tool keeps a separate cursor. A walk cut
+short by the page guard used to be byte-identical to a completed one; it now reports
+itself and withholds the backfill marker instead of leaving a half-copied calendar
+looking finished.
+
+#### Remote host stopped mistaking its own downtime for a dead channel (#2845, #2846)
+
+Presence and give-up are counted in beats that actually ran rather than by wall clock, so
+a laptop that slept no longer reads as a phone that went away.
+
+#### Multi-root groundwork (#2844, #2848, #2849, #2852)
+
+Collections, the accounting engine and card scope can each operate against an explicit
+project root, and a root may declare that it has no user scope. **None of it is reachable
+from MulmoClaude**, which is a single workspace and passes no root anywhere — behaviour is
+unchanged here. It is what lets a multi-root host (MulmoTerminal) stop resolving one
+project's records against another's.
+
+Ships `@mulmoclaude/core@3.4.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+### Package releases
+
+#### A project root can declare that it has no user scope
+
+`@mulmoclaude/core@3.3.0`. `~` and a project are separate worlds: standing in a project
+directory, a collection under `~/.claude/skills` must not be reachable at all — not listed, and
+not resolvable by slug. A host with one workspace could not say that before, because the user
+skills dir was a single string applied to every root. MulmoClaude is one workspace and is
+unaffected: it returns the same path for its one root, user scope still merges in, and a project
+slug still shadows a user one.
+
+- `CollectionHost.paths.userSkillsDir` accepts `(workspaceRoot) => string | null` — the shape
+  `skillsStagingDir` already has. The bare `string` form still works, read as "this path, for
+  every root", which is what keeps this a minor: a caret range floats across minors, so a host
+  pinned at `^3.2.0` installs this version without touching its code, and a required callable
+  would turn that into a TypeError on its first discovery — a crash, not an opt-out. Prefer the
+  function form; the string is deprecated.
+- `null` skips the user pass in `discoverCollections` AND the user fallback in `loadCollection`.
+  The second half is the one that matters: `loadCollection` is what `getSchema`, `getItems`,
+  `putItems`, the detail route, the view-token mint and the watcher all go through, so a listing
+  filter alone would leave a slug typed by the agent — or arriving in a URL — resolving into
+  another world and writing to its data dir. A user-only slug is now a MISS for such a root, and
+  `putSchema` / `putItems` answer "unknown collection" instead of writing into `~/.claude/skills`.
+- `DiscoveryOptions.userSkillsDir` accepts `null` for "this call has no user scope"; `undefined`
+  still means "ask the host binding". The two are distinguished explicitly rather than with `??`,
+  which could not express the difference.
+
+#### The two pieces a multi-root host was still missing
+
+`@mulmoclaude/core@3.2.0`, `@mulmoclaude/collection-plugin@3.1.0`. Both are additive, and
+MulmoClaude — one workspace — behaves exactly as before: it stamps no card scope and its worker
+runner ignores the new field.
+
+- `AgentWorkerRunner` receives the `workspaceRoot` the refresh was called with. The agent-ingest
+  seed prompt addresses records ROOT-RELATIVELY (`promptPathsFor`), so a host that was handed only
+  the message resolved `data/collections/<slug>/items` against whatever root the worker ran in —
+  a scheduled refresh for one project writing into another project's same-named collection, with
+  no error on either side. Declarative RSS/JSON feeds were never affected (they write through the
+  engine under an explicit root), but a host cannot register only those: the refresh walks a
+  root's collections internally.
+- A presented card now READS the `scope` core 3.1.0 taught it to carry. The chat payload parser
+  kept the slug and dropped the scope, so a card fetched through whatever project was ambient when
+  it rendered rather than the one it was made in. `CollectionUi.withScope(scope)` is the new
+  optional host capability; the card provides the resolved binding to its own subtree and every
+  component reads it through `useCollectionUi()` instead of the global `collectionUi()`, link
+  activation included, so a plain click lands in the same project as the `href` beside it. The
+  mounted view is keyed by `collectionCardKey`, so a card switched to the same slug in another
+  project remounts rather than showing one project's records while writing to another's. A host
+  that omits `withScope` — and a card with no scope — resolve to the global binding, unchanged.
+
+#### Accounting can follow a project root, the way collections already do
+
+`@mulmoclaude/accounting-plugin@2.2.0`. The engine was root-parameterised down in the io and
+service layers but bound to one workspace at the top: every dispatch action resolved the
+ambient root, and everything keyed by `bookId` alone would collide the moment two project
+directories each held a book of that name. MulmoClaude wires none of the new options and its
+requests, channel names and card envelopes are byte-identical to before.
+
+- `AccountingServerDeps.workspaceRoot` widens to `string | null`. `null` is explicit-root
+  mode: `defaultWorkspaceRoot()` throws rather than guessing, because with N roots a
+  forgotten option is not a crash but a silent write to the wrong project.
+- `createAccountingRouter({ resolveWorkspaceRoot })` resolves a root per request, threaded
+  through all 15 dispatch actions. The resolver is host-owned; the package never reads a root
+  or project id off a request body, and `manageAccounting`'s tool schema has no project
+  parameter (now pinned by a test), so the model cannot pick a project.
+- `bookChannel(bookId, scope?)` / `booksChannel(scope?)`, fed by the new
+  `channelScopeForRoot` dep, namespace the pub/sub names by the host's OPAQUE project id —
+  an id, never a path, because these names reach the browser.
+- The snapshot rebuild queue is keyed by `(root, bookId)`. Previously one project's write
+  cancelled another's in-flight rebuild and `awaitRebuildIdle` returned early.
+- An `openBook` result carries that scope — explicitly `null` for a scoped host's default
+  root, since an absent field means "resolve the host's active project" — and the mounted
+  View binds itself to it:
+  every request and both channel subscriptions in the card's subtree go to the project the
+  card was opened for, not to whatever the host has selected later, and they re-bind if the
+  surface is retargeted at another card. The Vue surface also takes a `projectScope` seam for
+  surfaces the host scopes itself.
+- The `listAccountingBooks` remote-host handler resolves a scope from its params, defaulting
+  to the host root, so a phone-side project picker is an added parameter and not a protocol
+  change.
+
+#### Multi-root, finished: identity, the authoring docs, and per-root operation
+
+`@mulmoclaude/core@3.1.0`. A collection's identity is `(root, slug)`, but everything that
+referred to one across a boundary still carried the slug alone — including the authoring
+reference both hosts serve to the agent, which told it to write where only a managed
+workspace can. MulmoClaude's behaviour is unchanged throughout: every item is additive with
+a default that preserves today's path.
+
+- `manageCollection` `schemaDocs` now serves a root-appropriate authoring guide
+  (`stagedSkillAuthoring`, default `true`). Without the flag the text is byte-identical to
+  before; with `false` it tells the agent to author under `.claude/skills/<slug>/`, which is
+  the only location a bridge-less project root ever discovers.
+- `CollectionHost.paths.skillsStagingDir` may return `null` for a root with no staging tree.
+  A host that supplies a `(root) => string` still type-checks (the widening is on the return
+  the ENGINE reads, not on what the host must provide), which is why this is a minor.
+- Completion-bell ids and navigate targets carry the root when one was passed, and only
+  then, so a single-workspace host's `active.json` entries keep matching while two projects'
+  same-slug records stop deduping into one bell.
+- The watcher runs one generation per root, concurrently; `stopCollectionWatchers({ workspaceRoot })`
+  stops just one. `WATCHER_ROOT_CONFLICT` is no longer thrown (still exported).
+- A presented card carries an optional host-opaque `scope`, part of its reconciliation identity.
+  It is stamped by the host via `withCardScope`; the executor drops any `scope` in the tool args,
+  since those are model-controlled and the scope decides which project the card reads.
+- `feedRefreshTaskDef({ workspaceRoot })` is root-parameterised, with a per-root task id.
+
+**For a multi-root host, three of these change behaviour and want a deliberate upgrade**, even
+though a caret floats here:
+
+- A bell id built with an explicit root has a new shape. Entries written before this release
+  carry no root, so a rooted sweep would skip them forever while the reconcile published a
+  second, rooted bell beside each one. The sweep therefore CLEARS a rootless entry when it is
+  running for a root, and the reconcile republishes it rooted if the record is still pending —
+  that is the migration, and it runs once on the first boot after upgrading.
+- `feedRefreshTaskDef({ workspaceRoot })` returns a new task id, so the old scheduler-state row
+  is orphaned and should be dropped.
+- `WATCHER_ROOT_CONFLICT` is no longer thrown: a second root now mounts a second generation
+  instead of being refused.
+
+None of the three is reachable from a single-workspace host, which passes no root anywhere.
+
+Roots are canonicalised (`path.resolve`) wherever one becomes an identity — a generation key, a
+change payload, a bell id — so `/work/proj` and `/work/proj/` are one project rather than two.
+Symlinks are deliberately not resolved; see `canonicalRoot`.
+
+Ships `@mulmoclaude/core@3.4.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.2.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.1.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.2.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+#### `@mulmoclaude/core` 3.3.0 → 3.4.0 — a calendar collection now receives the calendar (#2850)
+
+A `googleCalendar` collection could sit at a handful of records forever — 0, 1, a couple of
+dozen out of years of history — reporting success with **no error**, with further Sync presses
+adding nothing. Only events touched after the collection existed kept arriving.
+
+A Google sync token is keyed by `calendarId` and nothing else, so it is shared by every consumer
+of that calendar. Whoever walked first stored a cursor, and the next collection resumed from a
+window it had never received: its "first sync" was a delta. Two ways in, both in the reporter's
+timeline — the standalone `google` tool's `calendarSync` stores a token (and throws its events
+away), and a second collection created on a calendar a sibling had already synced. The on-create
+first sync (#2427) made it worse by asking the same wrong question: it treated "the calendar has
+a token" as "this has already synced", so for an affected collection it never ran at all.
+
+- A collection records its own backfill beside its records, `<dataPath>/.calendar-sync.json`, and
+  the sync walks the whole calendar while ANY collection on it still lacks one. Kept next to the
+  records rather than in the shared calendar state so the two reset together — deleting a
+  collection's data, however it is deleted, correctly asks for a new walk.
+- The `google` tool keeps its own cursor (`tool:<calendarId>`), so the two consumers stop eating
+  each other's windows. Its next `calendarSync` walks once more, then resumes as before.
+- A walk cut short by the page guard used to be byte-identical to a completed one, so a partial
+  calendar read as success and repeated silently forever. `CalendarSyncResult.pagesExhausted`
+  now says so; the sync reports it, holds the token and the baseline back, and names the usual
+  cause (a recurring event with no end date, expanded decades into the future).
+
+#### `@mulmoclaude/core` 3.0.0 → 3.0.1 — remote host stops mistaking its own downtime for a dead channel (#2845, #2846)
+
+The remote host judged "can my phone still reach this Mac?" by wall clock, so any stretch where the
+process was not running — sleep, a clock jump, a stalled event loop — was counted as time the channel
+had been failing. A user saw `no presence write acknowledged for 459s`, which a genuine outage cannot
+produce: with a 60s heartbeat and a 3-beat threshold, a real disconnect always reports at 180s. 459s
+means the 60s timer did not fire for roughly five minutes.
+
+It failed twice over: the false "disconnected" report, and then the outer ring — whose give-up budget
+was also wall-clock — spending its whole 5-minute allowance on the gap and giving up **without
+attempting a single reconnect**, leaving the user to reconnect by hand.
+
+- Presence now counts **beats that actually ran** (`staleAfterBeats`) instead of elapsed milliseconds,
+  so a beat that never fired cannot age the channel. A real outage still reports on the third beat.
+- The resilient runner treats a task firing more than `RESUME_GAP_MS` (1 min) late as evidence the
+  process was not running: it resets the outage window and backoff, and that task becomes the first
+  attempt after the gap. Give-up remains measured in time, as specified.
+- Elapsed-time measurement moved to a monotonic clock, with the wall clock kept separately for
+  `changedAt` timestamps.
+- The error string now reads `no presence write acknowledged across 3 beats (180s)` — surfaced in
+  MulmoTerminal as `Last error:` — so a future report distinguishes "the clock jumped" from "the host
+  is genuinely down" on one line.
+
+`staleAfterMs` → `staleAfterBeats` is internal to core; the published `presenceStaleAfterMs()` and
+`createPresenceProbe` signatures are unchanged, so downstream hosts need no change. Every consumer's
+declared range was swept to `^3.0.1`; a caret floats across a patch, so no plugin or launcher
+republish is required to deliver it.
+
+Ships `@mulmoclaude/accounting-plugin@2.1.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@3.0.1`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+## [1.13.0] - 2026-08-09
+
+**A package-line release: it carries the 3.x core and plugins to npm. No app behaviour changes.**
+
+Nothing under `server/` or `src/` changed since 1.12.0 — this launcher exists to deliver the `@mulmoclaude/core@3.0.0` line and the seven plugins republished against it. `mulmoclaude@1.12.0` is internally consistent on the 2.x line and is not broken; it simply cannot reach 3.x, because a caret does not float across a major.
+
+### Highlights
+
+#### The collection engine is safely multi-root (#2838)
+
+`@mulmoclaude/core` 3.0.0 makes the server-side collection engine safe to drive with a per-request workspace root, so a downstream host — MulmoTerminal — can serve a collection out of any project directory rather than only the one shared workspace.
+
+**MulmoClaude's behaviour is unchanged.** It is a single-workspace host, it keeps passing no root, and every item is additive with a default that preserves today's path. The back-compat pin is explicit rather than assumed: the watcher suite compares published payloads with `deepStrictEqual`, so an added `root: undefined` key would have failed it, and `test_changePayloadBackCompat.ts` states that contract in its own test.
+
+What the change buys upstream: the live-update ping now carries the root it was given, so a write to project A's `tasks` can no longer refresh project B's open view of a collection with the same slug; a host can bind `workspaceRoot: null` and have `getWorkspaceRoot()` throw rather than guess, turning a forgotten root from a silent read against the wrong project into an error; and `stopCollectionWatchers()` became a production API, since `stop()` → `start(otherRoot)` is the project-switch path. Watcher startup is serialized and roots are normalized, so two overlapping starts cannot both claim a generation.
+
+Breaking for library consumers, not for this app: `isContainedInWorkspace(absPath)` is gone (zero callers; it checked containment against the ambient root — the exact silent-wrong-project failure the rest of the release exists to prevent) in favour of the pure `isContainedInRoot(absPath, rootPath)`, and `CollectionHost.workspaceRoot` widened to `string | null`.
+
+### Package releases
+
+The seven plugins that depend on `@mulmoclaude/core` were republished so their corrected `^3.0.0` range actually reaches npm. The ranges were swept when core went to 3.0.0 (#2838), but a caret does not float across a major, so the published plugins still required `^2.x` and the correction reached nobody.
+
+Left as-is, a fresh install of this launcher would resolve a **second, nested `@mulmoclaude/core@2.x`** beside the top-level 3.0.0. The concrete hazard is `@mulmoclaude/core/plugin-vue`, imported by `html-plugin`, `markdown-plugin` and `accounting-plugin`: two copies of a Vue-side runtime in one bundle is how a plugin registers into one copy while the host reads the other. Publishing the plugins ahead of this launcher is what keeps the tree resolving to a single core.
+
+Major where core is a **peerDependency** (moving a peer range across a major is breaking for that plugin's consumers), minor where it is a plain dependency (internal, invisible to consumers):
+
+| package                           | version           | why                                |
+| --------------------------------- | ----------------- | ---------------------------------- |
+| `@mulmoclaude/collection-plugin`  | 2.0.0 → **3.0.0** | core is a peerDependency           |
+| `@mulmoclaude/html-plugin`        | 2.1.0 → **3.0.0** | declares core as both dep and peer |
+| `@mulmoclaude/markdown-plugin`    | 2.3.0 → **3.0.0** | declares core as both dep and peer |
+| `@mulmoclaude/accounting-plugin`  | 2.0.0 → **2.1.0** | core is a plain dependency         |
+| `@mulmoclaude/chart-plugin`       | 2.0.0 → **2.1.0** | core is a plain dependency         |
+| `@mulmoclaude/google-plugin`      | 2.0.0 → **2.1.0** | core is a plain dependency         |
+| `@mulmoclaude/mulmoscript-plugin` | 2.0.0 → **2.1.0** | core is a plain dependency         |
+
+No plugin source changed — that was a version + range release; each plugin's code already declared what it needs. This launcher is what carries the result to npm users.
+
+### Also in this release
+
+- The launcher audit walks the repo root rather than only its own directory, so a dependency imported from `server/` can no longer pass the check by being absent from the launcher's own tree (#2827, #2830).
+- A CI check compares the CHANGELOG's `Ships` roster against the launcher's declared dependencies, so a release note claiming a package version the launcher does not actually pull in fails rather than shipping (#2829, #2831).
+- The Codex review workflow moved to the latest CLI and model (#2832, #2833).
+- `nanoid` 3.3.16 → 3.3.18 (#2840).
+
+Ships `@mulmoclaude/core@3.0.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.1.0`, `@mulmoclaude/chart-plugin@2.1.0`, `@mulmoclaude/collection-plugin@3.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.1.0`, `@mulmoclaude/html-plugin@3.0.0`, `@mulmoclaude/markdown-plugin@3.0.0`, `@mulmoclaude/mulmoscript-plugin@2.1.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+## [1.12.0] - 2026-08-07
+
+**Bridges stop pasting the whole SKILL.md into their replies — the bot answers your question instead of reciting its instructions.**
+
+### Highlights
+
+#### SKILL.md bodies no longer reach bridge replies (#2821, #2824)
+
+Asking a Skill-invoking role anything over Discord — or Telegram, Slack, or any of the other 22 bridges — got you the entire SKILL.md back, several thousand characters of it, before the actual answer. The answer then arrived twice. The web canvas showed the same session correctly, so only the bridges were visibly broken.
+
+The cause was one discarded fact. Claude CLI delivers the SKILL.md body as a `user`-role message — context it injected into the conversation, not something the assistant said — but the stream parser mapped every text block to the same event regardless of which role produced it. The server therefore could not tell injected context from the assistant's own prose, published it immediately, and only re-classified it as a skill entry at the next flush. The canvas could undo that by replacing the card it had just drawn; a bridge, which accumulates text events as they arrive, could not.
+
+The role is now preserved. Injected text becomes an internal event that is never published, and turns into the skill entry on arrival instead of after the fact. Bridges need no change and no reinstall — the fix reaches them through this launcher. The duplicated answer is gone too, since the reply no longer shares a flush with the body.
+
+Measured against real captured CLI streams rather than assumption, and those streams ship as test fixtures: if a future CLI version moves the body back onto an assistant block, the suite fails rather than the bridges.
+
+#### Bookmark rail in the presentDocument source editor (#2819)
+
+The markdown source editor gained a bookmark rail for navigating long documents.
+
+### Also in this release
+
+- `repo.json` and a square mascot icon for the repository (#2818).
+- `@mulmoclaude/core` dependency ranges swept to `^2.1.0` across six plugins, which the core 2.1.0 publish had missed (#2825).
+- Retroactive release tags for `@mulmoclaude/core@2.1.0` and `@mulmoclaude/markdown-plugin@2.3.0`, both published without one. Their npm tarballs were byte-compared against this tree before tagging, so neither needed republishing.
+
+Ships `@mulmoclaude/core@2.1.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.0.0`, `@mulmoclaude/chart-plugin@2.0.0`, `@mulmoclaude/collection-plugin@2.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.0.0`, `@mulmoclaude/html-plugin@2.1.0`, `@mulmoclaude/markdown-plugin@2.3.0`, `@mulmoclaude/mulmoscript-plugin@2.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+## [1.11.0] - 2026-08-05
+
+**The composer stops losing your work — drafts now survive a reload and stay with the session you wrote them in.**
+
+### Highlights
+
+#### Per-session chat drafts that survive a reload (#2811, #2814)
+
+Text in the chat input was a single global value held nowhere but memory. Reloading the page threw it away, and switching sessions carried the previous session's text — and its attachment chips — into the next one.
+
+Drafts are now keyed by session and mirrored into `sessionStorage`: a reload restores what you were typing, closing the tab discards it, and two tabs never overwrite each other. Attachments are keyed the same way but stay in memory, since they are data URLs that would blow the storage quota.
+
+The harder half was deciding when a draft must die, so old text never reappears where it doesn't belong. It is dropped on send, on clearing the input, when the session is deleted (including from another tab, via the sessions broadcast), and when an empty never-sent-to session is evicted. Two failure modes found during review are covered too: a send that fails after its attachment upload now hands the message back to the session it was composed in — merged with anything typed there meanwhile, rather than overwriting it — and a send whose upload outlives a session switch still lands in the origin session, under that session's role, instead of the one now on screen.
+
+Text typed before the app has resolved which session to open (arriving on `/chat` without an id in the URL) is held aside and handed to the first session that materialises, appended after any draft that session restored.
+
+#### Split source editor beside the document on wide panes (#2812)
+
+The markdown source editor takes the free horizontal space on wide viewports instead of stacking below, so the source and the rendered document are visible at once.
+
+#### Reload button on document and HTML views (#2816)
+
+An icon-only reload control on the present views, for re-reading a file that changed underneath the canvas.
+
+#### Session history stops re-rendering every row (#2809, #2813)
+
+Selecting a session re-rendered the entire history list, delaying all feedback by 100-300 ms. Only the rows whose selection actually changed re-render now, and the clicked row highlights immediately rather than after the transcript round trip.
+
+### Also in this release
+
+- `sonarjs/void-use` promoted from warning to error (#2800, #2801).
+- The three open jscpd duplicate-code clones collapsed to single sources (#2807, #2808).
+- CI: e2e worker cap (#2794, #2795), install-deps hang (#2805, #2806), concurrency groups (#2791, #2792), test tempdir leak (#2789, #2797).
+
+Ships `@mulmoclaude/core@2.0.2`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/accounting-plugin@2.0.0`, `@mulmoclaude/chart-plugin@2.0.0`, `@mulmoclaude/collection-plugin@2.0.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@2.0.0`, `@mulmoclaude/html-plugin@2.1.0`, `@mulmoclaude/markdown-plugin@2.2.0`, `@mulmoclaude/mulmoscript-plugin@2.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
+### Packages published alongside
+
+- `@mulmoclaude/common@1.2.0` — adds `splitJwtSegments`, the shared JWT-segment parser the relay and Google Chat bridges had each open-coded.
+- `@mulmobridge/webhook-runtime@1.1.0` — adds `registerMetaWebhook`, shared by the Messenger and WhatsApp bridges.
+- `@mulmoclaude/core@2.0.2` — jscpd dedup in `skillDescription` (no behaviour change).
+- `@mulmobridge/relay@1.0.5`, `@mulmobridge/google-chat@1.0.4` — adopt `splitJwtSegments`. The relay's `tsconfig` also gained an explicit `rootDir`, which TypeScript 6 requires alongside `outDir` (TS5011) and without which its build — and therefore `prepack` — failed.
+- `@mulmobridge/messenger@1.0.3`, `@mulmobridge/whatsapp@1.0.4` — adopt `registerMetaWebhook`.
+
 ## [1.10.0] - 2026-08-03
 
 **The first launcher release since 1.9.0 — it carries 38 merged PRs of app code that no package publish could deliver.**
@@ -40,7 +1759,7 @@ Stored in a `Map`, not a plain object: the key is a tool name off the wire, and 
 
 Two independent bugs, either of which produces the reported shape — the system prompt advertises `mcp__mulmoclaude__google`, calling it fails. The issue's own hypothesis (runtime plugins failing to load in the MCP child) was **measured and disproved**: driving the broker over stdio the way the CLI does publishes `google` from both the bundled and the tsx build.
 
-1. **Broker stdout carried log lines.** The shared logger routes `info`/`debug` to stdout, but in the broker stdout *is* the JSON-RPC channel, so plugin-loader "loaded" lines flowed between protocol frames — and once a response is large enough to split across writes, into the middle of one. The parent now sets `LOG_CONSOLE_STREAM=stderr` when it builds the child's spawn spec, since the child cannot know its own stdout is a protocol.
+1. **Broker stdout carried log lines.** The shared logger routes `info`/`debug` to stdout, but in the broker stdout _is_ the JSON-RPC channel, so plugin-loader "loaded" lines flowed between protocol frames — and once a response is large enough to split across writes, into the middle of one. The parent now sets `LOG_CONSOLE_STREAM=stderr` when it builds the child's spawn spec, since the child cannot know its own stdout is a protocol.
 2. **`tools/list` answered before runtime plugins were loaded.** A client that snapshots the tool list at session start kept the static-only list for the whole session, while the prompt was assembled on the parent where the registry was complete. The first `tools/list` now waits for the load, capped at 2 s so `handlePermission` cannot starve (#2201); the `list_changed` notification remains as a backstop.
 
 #### A Map-tab API key could be typed, accepted, and silently not saved (#2764)
@@ -73,7 +1792,7 @@ Both read their range through a **numbers-only** reader, which dropped text cell
 
 #### A long derived formula crashed the caller instead of reporting (#2711)
 
-Only the *evaluation* step of `evaluateDerived` sat outside its try/catch, so a long operator chain raised `RangeError: Maximum call stack size exceeded` straight through to the caller. `evaluate()` no longer recurses at all — it walks an explicit stack in post-order, which is the root fix rather than a bigger catch.
+Only the _evaluation_ step of `evaluateDerived` sat outside its try/catch, so a long operator chain raised `RangeError: Maximum call stack size exceeded` straight through to the caller. `evaluate()` no longer recurses at all — it walks an explicit stack in post-order, which is the root fix rather than a bigger catch.
 
 #### A plugin's `fetch` sent the string `"104,105,33"` instead of its bytes
 
@@ -89,14 +1808,14 @@ The bulk of this cycle was two codebase-wide ratchets, kept out of the highlight
 
 ### Packages published during this cycle
 
-- **`@mulmoclaude/core@2.0.1`** (PR #2788) — released 2026-08-03. A release with **no code change**: `dist` is byte-identical to 2.0.0. It exists to deliver 32 lines of `assets/helps/error-recovery.md` that 2.0.0 was published without. core ships that directory (`files: ["dist", "assets"]`) and the agent reads `error-recovery.md` **before** asking the user a clarifying question on a tool failure, so a section that never reaches npm is a section the agent never has — the new one covers *"A tool your own instructions describe returns 'No such tool available'"*, with Symptoms / Cause / Fix. **How it went missing is the part worth keeping**: #2782 added the section together with a `1.14.1 → 1.14.2` patch bump; main then re-versioned the workspace to `2.0.0` for the protocol migration (#2783); the two collided in `package.json` and the conflict was resolved by taking main's `2.0.0` wholesale, which kept the asset and dropped the bump. `@mulmoclaude/core@2.0.0` had been published 28 minutes earlier, so from that merge onward the tag and the source disagreed while `version` still read `2.0.0` — indistinguishable from "already published" to any later reader, which is exactly the state the tagging rule exists to make visible. `yarn audit:releases --code-only` called it `code drift`; after the bump it reads `version ahead of npm`, which is the honest description of a release that is owed. Found by a review agent re-checking a merge, not by the person who made it. Verified by re-downloading the published tarball from the registry rather than trusting the local build: `assets/helps/error-recovery.md` is 897 lines, against 865 in 2.0.0. Consumers keep `^2.0.0`, which floats to 2.0.1 on its own; only the launcher's declared range was swept, and the launcher's own `version` was not touched.
-- **`gui-chat-protocol` 2.0.0 migration — 15 packages to `2.0.0`** (#2758/PR #2783) — released 2026-08-03. Protocol 2.0.0 removed the four APIs that let a CALLER name the type of a value it had never seen — `dispatch` / `subscribe` / `getConfig` / `publish`. Its own release note states the rule: *a type parameter that appears only in the return position is a type assertion with nicer syntax.* `dispatch<Bookmark[]>(args)` and `(await dispatch(args)) as Bookmark[]` were the same thing, except the second is visible to a reviewer. They now take a reader, so the shape a call site claims is the shape that was checked. Bumping the dependency produced **77 compiler errors across six plugins**, every one of the "explicit type argument" shape; the other three routes the release note warns about (handler annotation, assignment target, `getConfig` target) did not occur here. Each was fixed by passing a reader rather than by dropping the type argument and operating on `unknown`, which would have reopened the same hole one line further down. Readers live where each package already keeps its contract: the four shipping zod (bookmarks, recipe-book, debug, spotify) got response schemas beside their request ones — spotify's in `schemas.ts`, whose stated purpose is keeping both halves of one contract from drifting — while html and markdown, which have `contract.ts` with argument guards and no zod, got result readers there. `readMarpThemes` drops a malformed entry rather than failing the list, since one bad theme file should not leave the deck with no themes at all. **Two host-side implementations had to change, and one was nearly shipped broken.** `BrowserPluginRuntime.dispatch` was left at the single-arity form, so every migrated call site passed a reader and the host threw it away — the validation this migration exists to add would have been absent at runtime while every call site read as validated, which is worse than not migrating. It type-checked because a one-arg function is assignable to the overloaded signature: the same class of hole protocol 2.0.0 closed, reintroduced at the host boundary. Caught in review (#2783), fixed, and pinned by tests that fail against the previous implementation — verified by reverting it. `subscribe` gained the second arity with the opposite rule: a `parse` that throws is a **drop**, not a rethrow, because a channel is shared with every other subscriber and the documented idiom is `Schema.parse(raw)`, which throws — one malformed frame would otherwise take the channel down for everyone. A `parse` returning `null` drops too, and neither ends the subscription. Those rules were unreachable from a test (`makeScopedPubSub` opens a socket), so they were extracted into `parsedFrameDelivery` and tested directly. spotify's View now holds zod-inferred wire types rather than the server's: they differ under `exactOptionalPropertyTypes`, since an absent optional survives JSON as absent and zod models that as `| undefined`; `types.ts` stays the server's shape. `ParseOptions` is written out rather than imported from the protocol because this repo runs ESLint without `projectService`, so a type followed across a package boundary resolves to `any` and every use of `parse` reads as an unsafe call. **All 15 publishable workspaces went to 2.0.0 rather than a minor**: `gui-chat-protocol` is a peerDependency in every one, and a peer range moving to a new major is breaking — a consumer on protocol 1.x can no longer satisfy it, and npm 7+ fails the install rather than warning. The gui-chat-plugin family made the same 1.x → 2.0.0 move for the same reason. Published: `@mulmoclaude/core@2.0.0` and the 14 `@mulmoclaude/*-plugin@2.0.0`, core first and verified resolvable on npm before the plugins followed. The `mulmoclaude` launcher's declared ranges follow but its own version does not — that field belongs to the `/publish-mulmoclaude` flow — and `@mulmochat-plugin/ui-image` stays at 0.4.1, which has no 2.0.0. **Not exercised against a running app**: unit tests and a clean-room install only.
-- **`@mulmoclaude/core@1.14.1`** (#2765/PR #2769) — released 2026-08-03. Two fixes the #2736 sweep deliberately left as "explicit but unchanged". **A daily task whose `time` is not `HH:MM` now says so.** `registerTask` accepted it without complaint, `isDue` answered `false` for it forever, and nothing was logged — so "the task I scheduled has never run once" was a bug with no evidence anywhere to start from. The manager reports it through the injected logger and otherwise behaves exactly as before: still registered, still never due. Deliberately not a throw, because a consumer whose task has been quietly dead for months would get a boot crash instead of a log line; `updateSchedule` is checked too, since a schedule override applied at run time never passes through `registerTask`. **`assignLanes` is linear again**: the cluster split had been rebuilding both of its arrays on every block, O(n²) allocations for a day whose events all overlap. Output is unchanged, verified against the previous implementation over 20,005 layouts — and the corpus was first shown to *detect* a deliberately broken variant, because the initial attempt to prove that used a mutation (`>=` → `>`) that turns out not to change output at all. A regression test pins the shape 20,000 random layouts never produced: a long block that still contains a later short one must keep it in the same cluster. No API change, no new exports. All declared ranges swept to `^1.14.1`.
+- **`@mulmoclaude/core@2.0.1`** (PR #2788) — released 2026-08-03. A release with **no code change**: `dist` is byte-identical to 2.0.0. It exists to deliver 32 lines of `assets/helps/error-recovery.md` that 2.0.0 was published without. core ships that directory (`files: ["dist", "assets"]`) and the agent reads `error-recovery.md` **before** asking the user a clarifying question on a tool failure, so a section that never reaches npm is a section the agent never has — the new one covers _"A tool your own instructions describe returns 'No such tool available'"_, with Symptoms / Cause / Fix. **How it went missing is the part worth keeping**: #2782 added the section together with a `1.14.1 → 1.14.2` patch bump; main then re-versioned the workspace to `2.0.0` for the protocol migration (#2783); the two collided in `package.json` and the conflict was resolved by taking main's `2.0.0` wholesale, which kept the asset and dropped the bump. `@mulmoclaude/core@2.0.0` had been published 28 minutes earlier, so from that merge onward the tag and the source disagreed while `version` still read `2.0.0` — indistinguishable from "already published" to any later reader, which is exactly the state the tagging rule exists to make visible. `yarn audit:releases --code-only` called it `code drift`; after the bump it reads `version ahead of npm`, which is the honest description of a release that is owed. Found by a review agent re-checking a merge, not by the person who made it. Verified by re-downloading the published tarball from the registry rather than trusting the local build: `assets/helps/error-recovery.md` is 897 lines, against 865 in 2.0.0. Consumers keep `^2.0.0`, which floats to 2.0.1 on its own; only the launcher's declared range was swept, and the launcher's own `version` was not touched.
+- **`gui-chat-protocol` 2.0.0 migration — 15 packages to `2.0.0`** (#2758/PR #2783) — released 2026-08-03. Protocol 2.0.0 removed the four APIs that let a CALLER name the type of a value it had never seen — `dispatch` / `subscribe` / `getConfig` / `publish`. Its own release note states the rule: _a type parameter that appears only in the return position is a type assertion with nicer syntax._ `dispatch<Bookmark[]>(args)` and `(await dispatch(args)) as Bookmark[]` were the same thing, except the second is visible to a reviewer. They now take a reader, so the shape a call site claims is the shape that was checked. Bumping the dependency produced **77 compiler errors across six plugins**, every one of the "explicit type argument" shape; the other three routes the release note warns about (handler annotation, assignment target, `getConfig` target) did not occur here. Each was fixed by passing a reader rather than by dropping the type argument and operating on `unknown`, which would have reopened the same hole one line further down. Readers live where each package already keeps its contract: the four shipping zod (bookmarks, recipe-book, debug, spotify) got response schemas beside their request ones — spotify's in `schemas.ts`, whose stated purpose is keeping both halves of one contract from drifting — while html and markdown, which have `contract.ts` with argument guards and no zod, got result readers there. `readMarpThemes` drops a malformed entry rather than failing the list, since one bad theme file should not leave the deck with no themes at all. **Two host-side implementations had to change, and one was nearly shipped broken.** `BrowserPluginRuntime.dispatch` was left at the single-arity form, so every migrated call site passed a reader and the host threw it away — the validation this migration exists to add would have been absent at runtime while every call site read as validated, which is worse than not migrating. It type-checked because a one-arg function is assignable to the overloaded signature: the same class of hole protocol 2.0.0 closed, reintroduced at the host boundary. Caught in review (#2783), fixed, and pinned by tests that fail against the previous implementation — verified by reverting it. `subscribe` gained the second arity with the opposite rule: a `parse` that throws is a **drop**, not a rethrow, because a channel is shared with every other subscriber and the documented idiom is `Schema.parse(raw)`, which throws — one malformed frame would otherwise take the channel down for everyone. A `parse` returning `null` drops too, and neither ends the subscription. Those rules were unreachable from a test (`makeScopedPubSub` opens a socket), so they were extracted into `parsedFrameDelivery` and tested directly. spotify's View now holds zod-inferred wire types rather than the server's: they differ under `exactOptionalPropertyTypes`, since an absent optional survives JSON as absent and zod models that as `| undefined`; `types.ts` stays the server's shape. `ParseOptions` is written out rather than imported from the protocol because this repo runs ESLint without `projectService`, so a type followed across a package boundary resolves to `any` and every use of `parse` reads as an unsafe call. **All 15 publishable workspaces went to 2.0.0 rather than a minor**: `gui-chat-protocol` is a peerDependency in every one, and a peer range moving to a new major is breaking — a consumer on protocol 1.x can no longer satisfy it, and npm 7+ fails the install rather than warning. The gui-chat-plugin family made the same 1.x → 2.0.0 move for the same reason. Published: `@mulmoclaude/core@2.0.0` and the 14 `@mulmoclaude/*-plugin@2.0.0`, core first and verified resolvable on npm before the plugins followed. The `mulmoclaude` launcher's declared ranges follow but its own version does not — that field belongs to the `/publish-mulmoclaude` flow — and `@mulmochat-plugin/ui-image` stays at 0.4.1, which has no 2.0.0. **Not exercised against a running app**: unit tests and a clean-room install only.
+- **`@mulmoclaude/core@1.14.1`** (#2765/PR #2769) — released 2026-08-03. Two fixes the #2736 sweep deliberately left as "explicit but unchanged". **A daily task whose `time` is not `HH:MM` now says so.** `registerTask` accepted it without complaint, `isDue` answered `false` for it forever, and nothing was logged — so "the task I scheduled has never run once" was a bug with no evidence anywhere to start from. The manager reports it through the injected logger and otherwise behaves exactly as before: still registered, still never due. Deliberately not a throw, because a consumer whose task has been quietly dead for months would get a boot crash instead of a log line; `updateSchedule` is checked too, since a schedule override applied at run time never passes through `registerTask`. **`assignLanes` is linear again**: the cluster split had been rebuilding both of its arrays on every block, O(n²) allocations for a day whose events all overlap. Output is unchanged, verified against the previous implementation over 20,005 layouts — and the corpus was first shown to _detect_ a deliberately broken variant, because the initial attempt to prove that used a mutation (`>=` → `>`) that turns out not to change output at all. A regression test pins the shape 20,000 random layouts never produced: a long block that still contains a later short one must keep it in the same cluster. No API change, no new exports. All declared ranges swept to `^1.14.1`.
 - **`@receptron/task-scheduler@1.0.3`** (#2765/PR #2769) — released 2026-08-03. **One task with an unparseable `time` no longer takes the whole catch-up batch with it.** `TaskSchedule.time` is a bare `string` on this package and only some hosts validate it, so `"9"` does arrive; `parseTimeToMs` answered `NaN`, and since every comparison against `NaN` is false, `listMissedWindows` could not detect the end of its range — it filled itself to the cap with `NaN` timestamps and `computeCatchUpPlan` then threw `RangeError: Invalid time value`, killing the plan for **every** task in the batch rather than the one misconfigured task. `nextWindowAfter` now answers `null` for a time it cannot parse, which is the value its callers already treat as "nothing to run". **`parseTimeToMs` keeps its exported signature** (`number`, still `NaN`) — changing the return type would break consumers, so the guard sits at the point of use. Known and deliberate: `"::"` and `"08:00:00"` are still accepted, as 00:00 and 08:00, because they parse to a finite time and rejecting them would also stop an `"08:00:00"` schedule that fires correctly today; pinned by test so it reads as a decision rather than an oversight.
-- **`@mulmoclaude/accounting-plugin@1.3.0`** (#2765/PR #2769) — released 2026-08-03. **A report period is checked for its FORMAT now, not just its type.** `optionalReportPeriod` asked `typeof period.period === "string"` and nothing more, so `{ kind: "month", period: "banana" }` reached the engine: the balance sheet came back with `asOf: "banana-NaN"`, and `previousPeriod` returned `"0NaN-NaN"` — which `getOrBuildSnapshot` then **wrote into the book as `banana.json` / `0NaN-NaN.json`**. A month period must match `YYYY-MM` and a range's bounds must be real calendar dates, checked with a `Date.UTC` round trip so `2026-02-30` is refused rather than rolled into March. **Behaviour change**: a payload that returned 200 with a wrong report now returns 400. No new message was introduced — malformed reads as *absent*, landing on the existing 400 that already spells out both accepted shapes. `getReport ledger` needed one extra decision: its period is optional, so a malformed one falling through to "absent" would silently widen the answer to full history, wider than the caller asked for — a period that was **sent but unusable** is an error for every kind, while an explicit `null` still counts as not sent, since that is how a JSON caller spells "I am not using this optional field". Declared range swept to `^1.3.0`.
+- **`@mulmoclaude/accounting-plugin@1.3.0`** (#2765/PR #2769) — released 2026-08-03. **A report period is checked for its FORMAT now, not just its type.** `optionalReportPeriod` asked `typeof period.period === "string"` and nothing more, so `{ kind: "month", period: "banana" }` reached the engine: the balance sheet came back with `asOf: "banana-NaN"`, and `previousPeriod` returned `"0NaN-NaN"` — which `getOrBuildSnapshot` then **wrote into the book as `banana.json` / `0NaN-NaN.json`**. A month period must match `YYYY-MM` and a range's bounds must be real calendar dates, checked with a `Date.UTC` round trip so `2026-02-30` is refused rather than rolled into March. **Behaviour change**: a payload that returned 200 with a wrong report now returns 400. No new message was introduced — malformed reads as _absent_, landing on the existing 400 that already spells out both accepted shapes. `getReport ledger` needed one extra decision: its period is optional, so a malformed one falling through to "absent" would silently widen the answer to full history, wider than the caller asked for — a period that was **sent but unusable** is an error for every kind, while an explicit `null` still counts as not sent, since that is how a JSON caller spells "I am not using this optional field". Declared range swept to `^1.3.0`.
 - **`@mulmoclaude/core@1.14.0`** (#2735/PR #2737, #2692/PRs #2700, #2726, #2727, #2729) — released 2026-08-02. One behaviour fix and the `as`-cast sweep that found three latent bugs by deleting casts and reading the errors that appeared. **The behaviour fix** (#2735): pushing to a calendar the user has not added to their own list could never work, because `calendars.get` — the fallback that supplied such a calendar's timezone — accepts only full-calendar scopes and this app requests none of them, so it answered 403 for every account ever linked. The zone now comes from `events.list`, reachable with the `calendar.events` scope the push already writes with; the same envelope carries `accessRole`, so an unlisted calendar the user can only read is refused up front with the real reason instead of an opaque per-event 403. **`getCalendar` is REMOVED** — a function that answers 403 for every caller is a trap, and it had already claimed the #2602 verification suite as its first victim. Nothing outside this repo called it (checked against MulmoTerminal and mulmoserver). **The cast sweep** removed 12 casts from `derivedFormula` by making `Token` a discriminated union (#2700) — the parser reads payloads without asserting, and equivalence was pinned by running 21 record shapes × 91 expressions through both implementations with zero differences; cut `JSON.parse(...) as T` from 21 sites to 2 (#2726), routing each into the failure path its own file already had rather than adding new throws, and finding **a real bug on the way**: one accounting journal line missing `lines` crashed that whole book's report with `TypeError: entry.lines is not iterable`; cut `x as unknown as T` double casts from 25 to 10 (#2727), where the DuckDB shim was found declaring `runAndReadAll(values?: unknown[])` against a driver that accepts only `DuckDBValue[]` — latent, since every current caller passes zod-validated scalars, and fixed by using the real types the dependency ships; and replaced 23 DOM-narrowing casts with runtime checks (#2729), which caught its own regression when `instanceof Element` threw `ReferenceError` under the Node + jsdom harness that installs `window`/`document` but not the DOM constructors. New exports: `getCalendarMeta`, `toCalendarMeta`, `CalendarMeta`, `reportedAccessRole`. Removed: `getCalendar`. Published as a MINOR despite that removal — the function could not succeed for any caller, and no consumer in or out of the monorepo referenced it. All 13 declared ranges swept to `^1.14.0`. **The calendar fix is NOT verified against a live Google account** — this repo has no linked account; #2602 tracks the live re-run, and items 1, 3 and 4 there (duplicate-id 409, stale-etag 412, all-day round trip) remain unobserved.
 - **`@mulmoclaude/markdown-utils@1.3.3`** (#2692/PR #2729) — released 2026-08-02. `handleExternalLinkClick` narrows its event target with a `nodeType === 1` guard instead of `event.target as HTMLElement`. Deliberately not `instanceof Element`: this package is consumed outside a browser, where the Node + jsdom test harness installs `window`/`document` but not the DOM constructors and the bare `Element` global is a `ReferenceError` — which is exactly how the first attempt broke 11 unit tests. The guard stops at `Element` rather than `HTMLElement` so an inline `<svg>` inside a link still resolves to its anchor. No API change; published because `@mulmoclaude/core` depends on this package at RUNTIME rather than bundling it, so an unpublished fix here keeps reaching npm consumers as the old copy.
-- **`@mulmoclaude/core@1.13.0`** (#2683/PR #2686, #2684/PR #2687, #2688/PR #2689, #2679/PR #2690, #2696/PR #2704, #2693/PR #2712) — released 2026-08-02. Four separate ways a user's edit was destroyed with nothing reported, plus the cross-process lock #2678 deferred. They share one cause: **a record file is written whole** (`writeItem`), so anything mirroring a remote source into a collection must lay its values OVER the stored record and must refuse when the record holds an edit the source has not seen. The calendar pull learned half of that in 1.11.0 (#2620) and the rest was never applied. **(1) A collection without `autoPush` was never in the protected set at all** — `pushAutoCollections` filtered on the flag, so no map entry was created, `unpushedFor` answered the empty set, and the pull overwrote its unsent edits while advancing the shared baseline past them, after which the next push saw a one-sided edit and no conflict to report. No concurrency and no failure were needed; one scheduled sync sufficed. "The push did not run" is now the condition that matters, not why, so the `protectUnsentEdits` path 1.11.0 added for a *failed* push covers a *never-declared* one too. **(2) The protected set was a snapshot taken when the push finished**, so an edit made while the window was in flight was invisible to it — and on a full re-walk (`restartFullSync` after a 410, or a first sync) that window is every event and minutes wide, so Google need not have changed anything for the edit to be lost. The apply now decides per event immediately before its own write (`unsentEditGuard`, built once per collection) and reports what it refused through a new `withheld` field, which `heldBack` unions into the baseline holdback — the record write and the baseline write must skip exactly the same events. A withheld event does **not** hold the sync token: it is a decision, not a failure, so re-fetching would only refuse it again; only the baseline holds back, which is what keeps the conflict reportable. The baseline is snapshotted **after** the push and **before** the window is read — after, because the push writes a baseline per record it sends and an earlier snapshot would read those as locally edited; before, because `restartFullSync` clears the baseline and reading it live would answer "no baseline" for every event exactly when the window is widest. `shadowUpdates` also carries the pre-run value forward for held-back events, because omission is enough on an incremental run (the file is merged) but drops the entry for good on a full re-walk, after which the next push read a conflicted record as a create and hit Google's duplicate-id 409 instead of reporting the conflict. **(3) A cancellation in Google deleted the record regardless** — the guard sat in front of the overwrite but not the delete. `applyPlanFor` now asks "is there something local to lose here?" *before* "what did Google do to it?"; the push-side message dropped its "sync first, then re-create it" advice, which sent people nowhere since Google never resends a cancellation and the sync that *did* see it was the thing deleting the record. **(4) The feeds ingest replaced records whole** — `upsertItems` wrote the retrieved item straight in, so a note beside an article vanished on refresh, and the `maxItems` prune then deleted annotated records once they aged out. Both now respect content the feed did not produce; which fields belong to the feed is answered by **what it returned this run** as well as its declared `map`, because `registerRetriever` lets a host return fields the map never names and trusting the map alone would mark every record as user-owned and silently switch the cap off. `mergeIntoExisting` moved to `collection/core/project.ts` so both callers share it (the `@mulmoclaude/core/google` surface is unchanged). **The cross-process lock** (#2679) closes the last item: `.sync-state.json` and `.push-state.json` are read-modify-write over a whole file, ordered inside one process by a write queue and by nothing at all between them, so two hosts sharing a workspace each read the same snapshot and the later write dropped the earlier one's entry. The lock spans the **file mutation**, not the sync run — one read plus one atomic write — which is what keeps it cheap: no "another host is busy" result has to reach the routes, and a dead holder is reclaimed on a ten-second timer rather than needing a heartbeat sized against a multi-minute walk. The in-process queue stays, since the lock spans one mutation and two of this process's own would still interleave without it. Staleness is read from the filesystem's **mtime**, never from a timestamp in the payload: one host's wall clock compared against another's breaks it in both directions, and `open("wx")` creates the file empty so every healthy lock is briefly unparsable — reclaiming on sight unlinked live locks. It **fails open** (a workspace that cannot create the lock still syncs), it does **not** prevent two hosts walking the same calendar (API cost, not data), and `O_EXCL` gives **no exclusion in a consumer sync folder** (Dropbox, iCloud, Drive) where the file is replicated after the fact — stated in code rather than hidden. Finally, `assets/helps/error-recovery.md` gains three sections (#2693) keyed by the symptom rather than an error string, because none of these surfaces as a tool failure: the user just says "my edit came back" or "this conflict will not clear". Each names 1.13.0, so checking the host's version is a real first step and a recurrence on 1.13.0 is treated as a new bug. New exports: `pullProtectionFor`, `pushAndProtect`, `PullProtectionDeps`, `unsentEditGuard`, `heldBack`, `applyPlanFor`, `withCalendarStateLock`, `stateLockPath`, `LockClock`, plus `hasLocalContent` / `ingestedFields` on `@mulmoclaude/core/feeds/server`. No state-file migration is needed. All 13 declared ranges swept to `^1.13.0`. **Not verified against a live Google account or a running feed** — unit and end-to-end tests against real temp directories only. Known limits, all deliberate: a workspace in a consumer sync folder cannot be protected; removing a field from a feed's `ingest.map` stops its cap pruning (storage only, and the kept count is logged); duplicate full walks are not prevented.
+- **`@mulmoclaude/core@1.13.0`** (#2683/PR #2686, #2684/PR #2687, #2688/PR #2689, #2679/PR #2690, #2696/PR #2704, #2693/PR #2712) — released 2026-08-02. Four separate ways a user's edit was destroyed with nothing reported, plus the cross-process lock #2678 deferred. They share one cause: **a record file is written whole** (`writeItem`), so anything mirroring a remote source into a collection must lay its values OVER the stored record and must refuse when the record holds an edit the source has not seen. The calendar pull learned half of that in 1.11.0 (#2620) and the rest was never applied. **(1) A collection without `autoPush` was never in the protected set at all** — `pushAutoCollections` filtered on the flag, so no map entry was created, `unpushedFor` answered the empty set, and the pull overwrote its unsent edits while advancing the shared baseline past them, after which the next push saw a one-sided edit and no conflict to report. No concurrency and no failure were needed; one scheduled sync sufficed. "The push did not run" is now the condition that matters, not why, so the `protectUnsentEdits` path 1.11.0 added for a _failed_ push covers a _never-declared_ one too. **(2) The protected set was a snapshot taken when the push finished**, so an edit made while the window was in flight was invisible to it — and on a full re-walk (`restartFullSync` after a 410, or a first sync) that window is every event and minutes wide, so Google need not have changed anything for the edit to be lost. The apply now decides per event immediately before its own write (`unsentEditGuard`, built once per collection) and reports what it refused through a new `withheld` field, which `heldBack` unions into the baseline holdback — the record write and the baseline write must skip exactly the same events. A withheld event does **not** hold the sync token: it is a decision, not a failure, so re-fetching would only refuse it again; only the baseline holds back, which is what keeps the conflict reportable. The baseline is snapshotted **after** the push and **before** the window is read — after, because the push writes a baseline per record it sends and an earlier snapshot would read those as locally edited; before, because `restartFullSync` clears the baseline and reading it live would answer "no baseline" for every event exactly when the window is widest. `shadowUpdates` also carries the pre-run value forward for held-back events, because omission is enough on an incremental run (the file is merged) but drops the entry for good on a full re-walk, after which the next push read a conflicted record as a create and hit Google's duplicate-id 409 instead of reporting the conflict. **(3) A cancellation in Google deleted the record regardless** — the guard sat in front of the overwrite but not the delete. `applyPlanFor` now asks "is there something local to lose here?" _before_ "what did Google do to it?"; the push-side message dropped its "sync first, then re-create it" advice, which sent people nowhere since Google never resends a cancellation and the sync that _did_ see it was the thing deleting the record. **(4) The feeds ingest replaced records whole** — `upsertItems` wrote the retrieved item straight in, so a note beside an article vanished on refresh, and the `maxItems` prune then deleted annotated records once they aged out. Both now respect content the feed did not produce; which fields belong to the feed is answered by **what it returned this run** as well as its declared `map`, because `registerRetriever` lets a host return fields the map never names and trusting the map alone would mark every record as user-owned and silently switch the cap off. `mergeIntoExisting` moved to `collection/core/project.ts` so both callers share it (the `@mulmoclaude/core/google` surface is unchanged). **The cross-process lock** (#2679) closes the last item: `.sync-state.json` and `.push-state.json` are read-modify-write over a whole file, ordered inside one process by a write queue and by nothing at all between them, so two hosts sharing a workspace each read the same snapshot and the later write dropped the earlier one's entry. The lock spans the **file mutation**, not the sync run — one read plus one atomic write — which is what keeps it cheap: no "another host is busy" result has to reach the routes, and a dead holder is reclaimed on a ten-second timer rather than needing a heartbeat sized against a multi-minute walk. The in-process queue stays, since the lock spans one mutation and two of this process's own would still interleave without it. Staleness is read from the filesystem's **mtime**, never from a timestamp in the payload: one host's wall clock compared against another's breaks it in both directions, and `open("wx")` creates the file empty so every healthy lock is briefly unparsable — reclaiming on sight unlinked live locks. It **fails open** (a workspace that cannot create the lock still syncs), it does **not** prevent two hosts walking the same calendar (API cost, not data), and `O_EXCL` gives **no exclusion in a consumer sync folder** (Dropbox, iCloud, Drive) where the file is replicated after the fact — stated in code rather than hidden. Finally, `assets/helps/error-recovery.md` gains three sections (#2693) keyed by the symptom rather than an error string, because none of these surfaces as a tool failure: the user just says "my edit came back" or "this conflict will not clear". Each names 1.13.0, so checking the host's version is a real first step and a recurrence on 1.13.0 is treated as a new bug. New exports: `pullProtectionFor`, `pushAndProtect`, `PullProtectionDeps`, `unsentEditGuard`, `heldBack`, `applyPlanFor`, `withCalendarStateLock`, `stateLockPath`, `LockClock`, plus `hasLocalContent` / `ingestedFields` on `@mulmoclaude/core/feeds/server`. No state-file migration is needed. All 13 declared ranges swept to `^1.13.0`. **Not verified against a live Google account or a running feed** — unit and end-to-end tests against real temp directories only. Known limits, all deliberate: a workspace in a consumer sync folder cannot be protected; removing a field from a feed's `ingest.map` stops its cap pruning (storage only, and the kept count is logged); duplicate full walks are not prevented.
 - **`@mulmoclaude/collection-plugin@1.2.3`** (#2721) — released 2026-08-02. `modalTeleportTarget` can now return a `ShadowRoot`. The record modal teleports into a target the host supplies, and when the host mounts the collection UI inside a shadow DOM that target IS the shadow root — which the previous signature could not express, so the modal escaped the shadow tree and lost the styles scoped to it. Published separately from the range-only wave above because it merged shortly AFTER 1.2.2 went out: the fix sat on main while npm still served 1.2.2, which `yarn audit:releases` reports as code drift rather than manifest drift. The only change to the package since 1.2.2.
 - **Range-only maintenance wave** — released 2026-08-02. Sixteen workspaces republished with **no shipped source change**: `yarn audit:releases` reported manifest drift alone for every one of them, so what moved is what they DECLARE, not what they do. The eight `@mulmoclaude/*` plugins had been left pointing at `@mulmoclaude/core` floors as old as `^1.5.0` (`chart`, `mulmoscript`), `^1.7.0` (`collection`), `^1.8.0` (`html`) and `^1.12.0` (`accounting`, `google`, `markdown`) after successive sweeps landed in the tree but never reached a tarball; `email-plugin` carried an `imapflow` floor of `^1.5.0` against a tree at `^1.6.5`. The eight `@mulmobridge/*` packages carried an `express-rate-limit` patch bump. **Nothing an installer resolves changes today** — every one of these is a `1.x` caret, so `^1.5.0` already floated to core 1.13.0 and `^8.6.0` to express-rate-limit 8.6.1. What a publish fixes is the declared **floor**: a consumer pinning an older core could otherwise assemble a combination the plugin's code does not actually support, which is the failure mode the repo's own range rule exists to prevent. All patch bumps, since a dependency-range update is not a behaviour change. `@mulmobridge/webhook-runtime@1.0.3` went first and its range was swept into the six bridges that depend on it (`google-chat`, `line`, `line-works`, `messenger`, `viber`, `whatsapp`) before any of them shipped; the plugins have no inter-dependencies and followed in any order once core 1.13.0 was on npm. The launcher's declared ranges followed to keep the launcher-sync ratchet green, but its OWN version stayed at 1.9.0 — that field belongs to the `/publish-mulmoclaude` flow. Published: `@mulmobridge/webhook-runtime@1.0.3`, `@mulmobridge/{email,google-chat,line,line-works,messenger,viber,whatsapp}@1.0.2`, `@mulmoclaude/accounting-plugin@1.2.1`, `@mulmoclaude/chart-plugin@1.0.4`, `@mulmoclaude/collection-plugin@1.2.2`, `@mulmoclaude/email-plugin@1.0.3`, `@mulmoclaude/google-plugin@1.2.2`, `@mulmoclaude/html-plugin@1.2.1`, `@mulmoclaude/markdown-plugin@1.4.1`, `@mulmoclaude/mulmoscript-plugin@1.1.3` (#2720).
 - **`@mulmoclaude/accounting-plugin@1.2.0`** (#2692/PR #2694, #2695/PR #2708) — released 2026-08-02. Two rounds of input-validation hardening on the `/api/accounting` dispatch route, both fixing cases where the route answered with something worse than an error. **A malformed `period` returned a wrong financial statement** (PR #2694): `period` arrived as `unknown` and was cast to the `ReportPeriod` union, so any shape passed straight through and the report layer aggregated it as "no period at all" — `period: "2026-02"` (a string rather than the union object) answered **200 with an all-zero balance sheet for a book holding 500 in assets**, which is harder to notice than a crash, while `{ kind: "month" }` with the field missing reached the report builders and threw on `undefined.split`. Both are 400s now, spelling out the two accepted shapes so an LLM caller can repair its own payload; `bookId: 42` also moved from `book 42 not found` (404) to `bookId is required` (400), and 27 type assertions left the router. **`entries: [null]` / `lines: [null]` returned 500** (PR #2708): the three remaining `as never` casts handed raw request bodies to service functions declared as taking already-validated shapes (`AddEntriesItem[]`, `JournalLine[]`, `Account`), so the validators written to turn bad input into a structured 400 read `item.date` / `line.accountCode` off values that may not be objects and threw — the opaque 500 their own doc comment promised to prevent. The same casts were hiding **three silent 200s that persisted unchecked data**: an opening line with `debit: "abc"` wrote the string into the journal jsonl, an entry with `memo: 42` wrote the number, and `account: {code:"1500"}` wrote an account with `name`/`type` undefined — invisible to every report, which groups its rows by type. Each validator is now a parser (takes `unknown`, narrows internally, returns the narrowed value), so the service signatures are honest and no cast remains; per-field messages are preserved, and the imbalance check reports only when every line was readable, since a line dropped from the sum would otherwise tell a caller that a balanced entry does not balance. **Behaviour to be aware of**: `upsertAccount` now requires `code`, `name` and `type` — the published tool schema already declared all three as required, so this makes the server match the contract it was advertising. Opening balances deliberately still accept a line carrying both debit and credit, matching what the opening form can post. Existing data is not repaired: a book already holding a string `debit` or a typeless account keeps it, so this release stops new corruption only. The launcher's declared range was swept to `^1.2.0`.
@@ -108,9 +1827,9 @@ Ships `@mulmoclaude/core@1.14.1`, `@receptron/task-scheduler@1.0.3`, `@mulmoclau
 
 #### The two 2026-08-03 drift waves
 
-Both waves republish packages whose **source** had moved past their last tarball — `yarn audit:releases --code-only` calls this *code drift*, as against the manifest-only drift of the 2026-08-02 wave above. Almost all of it is the `as`-ban and `noUncheckedIndexedAccess` / `exactOptionalPropertyTypes` sweeps landing in package source; the two behaviour changes are named individually.
+Both waves republish packages whose **source** had moved past their last tarball — `yarn audit:releases --code-only` calls this _code drift_, as against the manifest-only drift of the 2026-08-02 wave above. Almost all of it is the `as`-ban and `noUncheckedIndexedAccess` / `exactOptionalPropertyTypes` sweeps landing in package source; the two behaviour changes are named individually.
 
-**Wave 1 — 18 workspaces** (PR #2752). `@mulmobridge/discord@1.0.2`, `@mulmobridge/line-works@1.0.3`, `@mulmobridge/line@1.0.3`, `@mulmobridge/mattermost@1.0.2`, `@mulmobridge/nostr@1.0.2`, `@mulmobridge/slack@1.0.2`, `@mulmobridge/viber@1.0.3`, `@mulmobridge/whatsapp@1.0.3`, `@mulmobridge/chat-service@1.0.2`, `@mulmobridge/relay@1.0.3`, `@mulmoclaude/markdown-utils@1.3.4`, `@mulmoclaude/accounting-plugin@1.2.2`, `@mulmoclaude/collection-plugin@1.2.4`, `@mulmoclaude/form-plugin@1.0.3`, `@mulmoclaude/mulmoscript-plugin@1.1.4`, `@mulmoclaude/spotify-plugin@1.0.4`, `@mulmoclaude/x-plugin@1.0.2`, `@receptron/task-scheduler@1.0.2`. **`@mulmobridge/relay@1.0.3` is the one carrying a behaviour change**: the Google Chat webhook fix described under *Fixed* above reached users here, not in 1.0.4.
+**Wave 1 — 18 workspaces** (PR #2752). `@mulmobridge/discord@1.0.2`, `@mulmobridge/line-works@1.0.3`, `@mulmobridge/line@1.0.3`, `@mulmobridge/mattermost@1.0.2`, `@mulmobridge/nostr@1.0.2`, `@mulmobridge/slack@1.0.2`, `@mulmobridge/viber@1.0.3`, `@mulmobridge/whatsapp@1.0.3`, `@mulmobridge/chat-service@1.0.2`, `@mulmobridge/relay@1.0.3`, `@mulmoclaude/markdown-utils@1.3.4`, `@mulmoclaude/accounting-plugin@1.2.2`, `@mulmoclaude/collection-plugin@1.2.4`, `@mulmoclaude/form-plugin@1.0.3`, `@mulmoclaude/mulmoscript-plugin@1.1.4`, `@mulmoclaude/spotify-plugin@1.0.4`, `@mulmoclaude/x-plugin@1.0.2`, `@receptron/task-scheduler@1.0.2`. **`@mulmobridge/relay@1.0.3` is the one carrying a behaviour change**: the Google Chat webhook fix described under _Fixed_ above reached users here, not in 1.0.4.
 
 **Wave 2 — 15 workspaces**, published alongside the launcher: `@mulmoclaude/common@1.1.2`, `@mulmoclaude/markdown-utils@1.3.5`, `@mulmoclaude/x-plugin@1.0.3`, `@mulmobridge/client@1.0.2`, `@mulmobridge/chat-service@1.0.3`, `@mulmobridge/mock-server@1.0.2`, `@mulmobridge/{bluesky,chatwork,irc,telegram,zulip}@1.0.2`, `@mulmobridge/{email,google-chat}@1.0.3`, `@mulmobridge/line@1.0.4`, `@mulmobridge/relay@1.0.4`. Each is a strictness-sweep-only patch — `@mulmobridge/mock-server` (96 lines) and `@mulmobridge/telegram`'s router (65) are the largest, and no exported signature changed in any of them.
 
@@ -136,7 +1855,7 @@ When the push cannot run at all — an access role degraded to `reader`, a revok
 
 #### Fixed: syncing a calendar deleted collection columns it did not map (#2620, PR #2666)
 
-A record file is written whole, so each pull rewrote it from the field map alone — silently deleting every column the map did not name. Keeping a personal note beside a mirrored event was therefore impossible; it vanished the next time Google touched that event. Mapped fields are still Google's to own, but everything else now survives. The flip side: a field *removed* from the map keeps its last synced value rather than disappearing.
+A record file is written whole, so each pull rewrote it from the field map alone — silently deleting every column the map did not name. Keeping a personal note beside a mirrored event was therefore impossible; it vanished the next time Google touched that event. Mapped fields are still Google's to own, but everything else now survives. The flip side: a field _removed_ from the map keeps its last synced value rather than disappearing.
 
 #### Attachments keep their original filename (#2308, PRs #2670 / #2672)
 
@@ -167,7 +1886,6 @@ Ships `@mulmoclaude/core@1.11.0`.
 ## [1.8.0] - 2026-07-29
 
 **The Mac said it was online while the phone saw it offline — and an icon you can start it from.**
-
 
 ### Highlights
 
@@ -227,7 +1945,7 @@ Not reachable from a phone: the server binds to `127.0.0.1` and the RemoteHost c
 
 #### `yarn dev` no longer reloads the page while the agent is working (#2632)
 
-Running from source, the chat page fully reloaded several times per agent turn — every ten seconds in the worst bursts — closing the Settings modal and losing whatever transient state was on screen. It was reported once before (#1940) and could not be reproduced, because it needs a setup detail nobody had written down: **the workspace has to live inside the checkout**. `MULMOCLAUDE_WORKSPACE_PATH` defaults to `~/mulmoclaude`, so cloning the repo there makes the runtime workspace *be* Vite's watch root.
+Running from source, the chat page fully reloaded several times per agent turn — every ten seconds in the worst bursts — closing the Settings modal and losing whatever transient state was on screen. It was reported once before (#1940) and could not be reproduced, because it needs a setup detail nobody had written down: **the workspace has to live inside the checkout**. `MULMOCLAUDE_WORKSPACE_PATH` defaults to `~/mulmoclaude`, so cloning the repo there makes the runtime workspace _be_ Vite's watch root.
 
 Two unrelated things were reaching that watcher.
 
@@ -267,7 +1985,7 @@ The launcher already knew which keys had lost — `mergeLaunchEnv` returns them 
 
 `yarn dev` reached a `.env` by a second route that got none of this (#2610): the server's own `import "dotenv/config"` read `<cwd>/.env` with the same shell-wins rule and discarded what it skipped — the same dead end with even less to go on, since the launcher's log line is not there either. That import is now a reporting loader, and both routes feed one notification.
 
-Along the way, `error-recovery.md` — the file the agent reads before asking you a clarifying question about a tool failure — gained a section for this state. It needed one: the section already there told the agent to *"add the missing key to `.env` (restart the server)"*, which is precisely the advice that fails silently here. It also corrects two things the obvious guidance gets wrong: an **empty** export (`export GEMINI_API_KEY=`) shadows just as hard, and `echo "$VAR"` cannot detect that case because unset and set-but-empty both print blank.
+Along the way, `error-recovery.md` — the file the agent reads before asking you a clarifying question about a tool failure — gained a section for this state. It needed one: the section already there told the agent to _"add the missing key to `.env` (restart the server)"_, which is precisely the advice that fails silently here. It also corrects two things the obvious guidance gets wrong: an **empty** export (`export GEMINI_API_KEY=`) shadows just as hard, and `echo "$VAR"` cannot detect that case because unset and set-but-empty both print blank.
 
 Ships the same scoped package versions as 1.7.1, except `@mulmoclaude/core@1.7.1` (the `error-recovery.md` addition).
 
@@ -297,7 +2015,7 @@ Ships the same scoped package versions as 1.7.0, except `@mulmoclaude/collection
 
 #### Push a collection back to Google Calendar (#2598, #2600)
 
-A `googleCalendar` collection could only ever be filled *from* Google. There was no setting for a write-back, which is why a beta user trying to set up "two-way sync" could not find one — and why the conversation with the agent went in circles: the thing being looked for did not exist.
+A `googleCalendar` collection could only ever be filled _from_ Google. There was no setting for a write-back, which is why a beta user trying to set up "two-way sync" could not find one — and why the conversation with the agent went in circles: the thing being looked for did not exist.
 
 The collection view now has a **Push to Google** button beside Sync. It creates events for records added locally and updates the fields actually edited, leaving attendees, reminders and recurrence untouched. It deliberately **never deletes** — a Google delete removes the event for every attendee and cannot be undone — and it **skips a record edited on both sides** rather than picking a winner.
 
@@ -309,7 +2027,7 @@ Not yet verified against a live calendar — tracked in #2602.
 
 #### Self-service triage when something looks broken (#2571, #2579, #2586)
 
-"Is this a bug?" now starts with an attempt to *solve* it rather than to file it. The agent takes the symptom through one form, checks whether settings or documented behaviour already explain it, then searches existing issues — and only files something new if none of that accounted for the behaviour. Diagnostics are masked server-side before they are shown.
+"Is this a bug?" now starts with an attempt to _solve_ it rather than to file it. The agent takes the symptom through one form, checks whether settings or documented behaviour already explain it, then searches existing issues — and only files something new if none of that accounted for the behaviour. Diagnostics are masked server-side before they are shown.
 
 #### Security and robustness sweep
 
@@ -352,7 +2070,7 @@ The sync calls the Calendar API directly instead of routing events through the a
 
 The `google` tool could create and list, but never change or remove — so "move that meeting" or "delete that task" had no path. It now covers the full round trip: `calendarUpdateEvent`, `calendarDeleteEvent`, `tasksUpdate`, `tasksDelete`, and `tasksUncomplete` for putting a completed task back on the list. **No re-linking needed** — the OAuth scope already granted write access.
 
-Editing is a PATCH, and the builders encode that "leave this alone" and "clear this" are different, so *remove the description* cannot be silently dropped. An update that would change nothing is rejected rather than reported as a successful edit that never happened.
+Editing is a PATCH, and the builders encode that "leave this alone" and "clear this" are different, so _remove the description_ cannot be silently dropped. An update that would change nothing is rejected rather than reported as a successful edit that never happened.
 
 #### The same commands from your phone (#2573, #2575)
 
@@ -399,7 +2117,7 @@ Three shared packages published. No launcher release — these reach `npx mulmoc
 - **Google Calendar / Tasks write API completed** (#2572, closes #2569) — `updateCalendarEvent` / `deleteCalendarEvent` / `updateTask` join the existing create/list/sync calls. Editing is a PATCH; the pure `buildEventPatch` / `buildTaskPatch` builders encode that `undefined` (leave alone) and `""` (clear it) are different, so "remove the description" cannot be silently dropped.
 - **`canonicalTaskListId`** mirrors the existing `canonicalCalendarId` — a blank or whitespace `taskListId` falls back to `@default` instead of building `/lists//tasks`. Pre-existing bug affecting `tasksList` / `tasksCreate` / `tasksComplete`, not only the new calls.
 - **Calendar-backed collections sync on creation and on demand** (#2566, closes #2427) — `syncNewCalendarCollections`, `syncCalendarForCollection`, `unsyncedGroups`, `withKeyedLock` exported for the host.
-- **New agent help `assets/helps/google.md`** — every `google` tool kind, the timezone-offset requirement, patch semantics, failure modes. The calendar-collection help claimed *"there is no calendar tool"*; corrected, and the two now cross-link.
+- **New agent help `assets/helps/google.md`** — every `google` tool kind, the timezone-offset requirement, patch semantics, failure modes. The calendar-collection help claimed _"there is no calendar tool"_; corrected, and the two now cross-link.
 - Corrected a security claim in both the help and the tool prompt: the refresh token **does** go to Google's token endpoint to mint access tokens. It never goes to claude.ai or any other service.
 - First README for the package, plus `repository` / `homepage` / `bugs` (#2576).
 
@@ -517,7 +2235,6 @@ Ships `@mulmoclaude/core@1.3.0`, `@mulmoclaude/collection-plugin@1.0.2`, `@mulmo
 > **Note for npm users:** `mulmoclaude@1.4.0` shipped dep ranges pinned to `@mulmoclaude/core@^0.28.0` and `0.x` ranges for every other internal package. A caret range on a `0.x` package does not float across minors, so installs of 1.4.0 could not receive anything published since — which, this cycle, was everything: core 1.0.0 through 1.3.0, all 14 plugins, and the entire `@mulmobridge/*` 1.0.0 suite. 1.5.0 is the first launcher that actually delivers it. This is the second consecutive release with this footnote (1.4.0 carried it for 1.3.0); the underlying cause — `0.x` packages — is now gone, since every internal package is on the 1.x line.
 
 ---
-
 
 ## [1.4.0] - 2026-07-20
 
@@ -642,7 +2359,7 @@ Hosts wiring the package's save/update executes must apply a realpath symlink-co
 
 #### Link Google with no Cloud setup (#2131, #2135)
 
-Google requires a client secret at its token endpoint even under PKCE, so users without their own Cloud project could not finish a link — the "OAuth クライアント認証情報が見つかりません" dead end. The **mulmoserver broker** (receptron/mulmoserver#54) now applies that secret. It is **stateless**: it stores no token and no authorization code, and its callback hands the *code* — never a token — back to your machine, which does the exchange itself. **Refresh tokens still live only on your machine** (`~/.config/mulmo/`), so there is no central store to breach.
+Google requires a client secret at its token endpoint even under PKCE, so users without their own Cloud project could not finish a link — the "OAuth クライアント認証情報が見つかりません" dead end. The **mulmoserver broker** (receptron/mulmoserver#54) now applies that secret. It is **stateless**: it stores no token and no authorization code, and its callback hands the _code_ — never a token — back to your machine, which does the exchange itself. **Refresh tokens still live only on your machine** (`~/.config/mulmo/`), so there is no central store to breach.
 
 - Bring your own OAuth client? A **desktop** client JSON in `~/.secrets/` still wins and keeps the entire flow local — self-hosters lose nothing.
 - Tokens record which client minted them (`issuedVia`), so renewals use the right one. Existing links keep working untouched.
@@ -846,34 +2563,42 @@ Windows Docker sandbox is now fully functional end-to-end (the ESM half of the r
 ### Highlights
 
 #### Windows Docker sandbox: end-to-end fix (#1982)
+
 - New `server/agent/mcp-esm-loader.mjs` + `mcp-esm-bootstrap.mjs` — an ESM resolver hook registered via `tsx --import` on the MCP child in Docker mode. NODE_PATH is CJS-only per Node's spec, so the previous 0.9.4 fix restored preset loading but left static ESM imports (`import { readXPost } from "@mulmoclaude/x-plugin"`) broken. Now every `@mulmoclaude/*` specifier resolves.
 - Windows CI probe (`test/sandbox-repro/probe.ts` + `.github/workflows/docker_sandbox_windows.yaml`) grew an ESM `import()` step, so this class of regression can't slip through again.
 - **No-op on Linux / macOS** — the hook's fallback only fires when primary resolution fails; the ESM loader is unchanged everywhere else.
 
 #### HEIC / HEIF / TIFF / BMP / AVIF attachments (#1996)
+
 - Uploader auto-converts these formats to JPEG server-side before the chat surface sees them (heic-convert on the launcher deps).
 - Pre-send preview chip decodes HEIC in the browser (#2000), so the confirmation thumbnail is legible instead of a broken image.
 
 #### User-extensible sandbox CSP (#1989)
+
 - Sandboxed collection views can now whitelist third-party origins via workspace `config/csp.json`.
 - A CSP-violation notice + boot-time warnings surface misconfigurations to the user instead of failing silently.
 
 #### Remote host offline queueing (step 1 of #1993)
+
 - Mobile companion's `startChat` requests queue while the host is offline; the host + `@mulmoclaude/core` layer replay them once the presence doc goes live.
 - `advertise host capabilities in the presence doc` (#1992) lands as the discovery half — mobile now knows what the host supports before submitting.
 
 #### Lint: assertions-in-tests as an error (batches #1999 / #2001 / #2005)
+
 - 26 flagged tests (server / utils / plugins node:test + e2e Playwright specs) rewritten to wrap the target call in `assert.doesNotThrow(...)` / `assert.doesNotReject(...)` — no semantic change, contracts made explicit.
 - Includes a new real boundary test for `deleteProjectSkill`'s user-scope refusal path (was an empty placeholder before), driven by a `userDir` seam so the guard is actually exercised.
 - Rule promoted to `error` in `eslint.config.mjs` — CI blocks a new assertion-less test.
 
 #### Files: "Open in OS" button (#1985)
+
 - Binary / unsupported previews get an OS-native open button so the file view isn't a dead end when MulmoClaude can't render inline.
 
 #### Sandbox: allow collection view downloads (#1997)
+
 - File downloads now work from sandboxed collection views (were being blocked by the iframe sandbox flags).
 
 ### Added
+
 - ESM resolver hook + bootstrap for Windows Docker MCP child (#1982 / #1995).
 - HEIC / HEIF / TIFF / BMP / AVIF → JPEG on upload + browser-side HEIC preview (#1996 / #2000).
 - Sandbox CSP allowlist via `config/csp.json` + violation surface (#1989 / #1990).
@@ -883,6 +2608,7 @@ Windows Docker sandbox is now fully functional end-to-end (the ESM half of the r
 - Smoke: resolve first-party deps from the workspace instead of public npm (#1994) — trims flakiness when a shared package is mid-publish.
 
 ### Changed
+
 - `sonarjs/assertions-in-tests` promoted from `warn` to `error` (#2005). Every existing hit rewritten in advance across #1999 / #2001.
 - Windows Docker CI probe now runs an ESM step (`docker_sandbox_windows.yaml`).
 - `resolvePresetRoot` delegates to Node's resolver for NODE_PATH (#1984, tidies the fallback path #1974 introduced).
@@ -891,11 +2617,13 @@ Windows Docker sandbox is now fully functional end-to-end (the ESM half of the r
 - `remote-host` transport extracted into `@mulmoclaude/core` (#1980) — reusable across host + mobile pairs.
 
 ### Fixed
+
 - Sandboxed collection view file downloads blocked by iframe flags (#1997).
 - Ref-crossing derived fields in mobile `getItems` failing to resolve (#1978).
 - The `mulmoclaude@0.9.5` launcher publish itself required a cascade publish of `@mulmoclaude/collection-plugin@0.7.4` (skill §2 drift check covers only `@mulmobridge/*` scope). PR #2006 updates the skill so the manual `@mulmoclaude/*` check is now a documented step.
 
 ### Security
+
 - User-extensible sandbox CSP (#1989) narrows what a sandboxed collection view can reach — the default remains locked down; only origins explicitly listed in `config/csp.json` are allowed through.
 
 ---
@@ -907,24 +2635,29 @@ Retrospective release entry for the `mulmoclaude@0.9.4` npm publish that shipped
 ### Highlights
 
 #### Windows Docker sandbox: CJS-side fix (#1946)
+
 - `packages/mulmoclaude/package.json` gets a NODE_PATH fallback so `@mulmoclaude/*` workspace packages resolve inside the Linux container even when the yarn workspace symlinks (Windows junctions) dangle.
 - Follow-up ESM half landed in 0.9.5; the 0.9.4 fix restored the preset loader path only.
 
 #### Remote host / mobile companion polish
+
 - **Remote view attachments** (#1954): mobile can now share photos / videos / PDFs into a chat via Storage, without pulling them through localhost.
 - **listSkills + free-form `startChat`** (#1947): mobile can enumerate host skills and start chats without picking a role first.
 - **List accounting books + choose role on startChat** (#1962): mobile-side workflow selects a role at chat creation.
 - **Popover UI help** (#1955): explanations for the presence popover so users understand the same-Google-account contract.
 
 #### Collections + Files
+
 - **Dynamic collection icons** based on data state (#1900 / #1957).
 - **Hide agent-internal top-level dirs by default** (#1896 / #1963) — the file tree stops leaking `chat/` / `summaries/` unless the user opts in.
 
 #### Session history: summary-first
+
 - **Summary-first, hover for full** (#1958 / #1959) — the session list surfaces the LLM-generated summary; hovering reveals the full first message.
 - **Journal + chat-index: configurable mode + always-on origin filter** (#1944 follow-ups: #1949 / #1951).
 
 ### Added
+
 - Remote-view attachments via Storage (#1954).
 - Mobile `listSkills` + free-form `startChat` (#1947); accounting book picker (#1962).
 - Popover UI help copy on the remote-host presence indicator (#1955).
@@ -934,10 +2667,12 @@ Retrospective release entry for the `mulmoclaude@0.9.4` npm publish that shipped
 - Docs: consolidate what runs in Docker vs host (#1966); Remote Access README section (#1970); CLAUDE.md rule forbidding preemptive launcher version bumps in `chore(release)` (#1948).
 
 ### Changed
+
 - Journal + chat-index: configurable mode + always-on origin filter (#1944 / #1949 / #1951).
 - `mulmocast` bumped to 2.7.0 (#1952).
 
 ### Fixed
+
 - Collections: 409 on file-ancestor import path is Windows-safe (#1967).
 - Windows cross-platform path bugs failing lint_test_windows (#1965).
 - Address CodeRabbit review comments from #1951 (#1953).
@@ -1099,13 +2834,14 @@ Three threads run through this release: **multi-registry collections**, **collec
 
 ## [0.9.0] - 2026-06-25
 
-Three things shape this release: **local voice input** (push-to-talk via on-device `whisper.cpp`, macOS first); a wave of **collection runtime power** (custom views can open records in a host modal *and* start chats with seed prompts referencing a specific record, live view updates over pubsub, field-driven spawn intervals, `manageCollection` schema management); and the **plugin-extraction sweep** that lifts the entire `presentCollection`, `presentHtml`, `presentForm`, `presentDocument` (markdown / marp), `presentChart`, and X-tools surfaces — server core, Vue View / Preview, 8-locale i18n — into standalone npm packages so MulmoTerminal can run them end-to-end with no MulmoClaude code reuse. A separate `packages/services/*` tree carves out headless-backend services on the same logic. Whisper input also lands as a shared `@mulmoclaude/whisper`. Side dishes: 16-connector claude.ai allowlist, a critical MCP handlePermission race fix that could lose the first turn of a fresh session, Windows `claude.exe` spawn, Docker broker path, attachment traversal hardening, vite pinned to 8.0.13 to dodge a dual-runtime e2e crash, CI dev-server pre-warming, Playwright/puppeteer browser caches, and the `mc-zenn` preset skill.
+Three things shape this release: **local voice input** (push-to-talk via on-device `whisper.cpp`, macOS first); a wave of **collection runtime power** (custom views can open records in a host modal _and_ start chats with seed prompts referencing a specific record, live view updates over pubsub, field-driven spawn intervals, `manageCollection` schema management); and the **plugin-extraction sweep** that lifts the entire `presentCollection`, `presentHtml`, `presentForm`, `presentDocument` (markdown / marp), `presentChart`, and X-tools surfaces — server core, Vue View / Preview, 8-locale i18n — into standalone npm packages so MulmoTerminal can run them end-to-end with no MulmoClaude code reuse. A separate `packages/services/*` tree carves out headless-backend services on the same logic. Whisper input also lands as a shared `@mulmoclaude/whisper`. Side dishes: 16-connector claude.ai allowlist, a critical MCP handlePermission race fix that could lose the first turn of a fresh session, Windows `claude.exe` spawn, Docker broker path, attachment traversal hardening, vite pinned to 8.0.13 to dodge a dual-runtime e2e crash, CI dev-server pre-warming, Playwright/puppeteer browser caches, and the `mc-zenn` preset skill.
 
 ### Added
+
 - **Local voice input — push-to-talk via on-device `whisper.cpp`** (#1773 + #1775) — toggle the mic icon in chat input, hold to talk, release to send. Audio is streamed to a sidecar `whisper.cpp` process bundled with the launcher, so transcription stays on-device (no cloud STT). macOS is the first-class target. Sticky session mic with auto-resume each turn, pause-based segmentation, single-flight guard on mic start, residual-duplicate-sidecar guard, in-memory armed-mic reset on session change. Extracted as the shared `@mulmoclaude/whisper` package (also published at 0.1.2) so MulmoTerminal can reuse the same core; the launcher declares it as a dependency instead of carrying the sidecar code inline. Model validation, graceful shutdown, stale-error handling live in the package.
 - **Pre-allowlist 16 additional claude.ai connectors** (#1711) — agent-side pre-allowlist expansion covering the new connectors the user can configure in claude.ai (Gmail, Drive, Calendar, Slack, GitHub, Linear, Notion, Asana, Atlassian, etc.). Removes the per-connector approval friction on first use.
 - **Collection custom views can open records in the host modal** (#1748) — a custom view button can now navigate the host into the same record-detail modal the table/calendar uses (instead of being limited to in-iframe rendering). The view dispatches `openItem` and the host pops the modal.
-- **Collection custom views can start a draft chat with a seed prompt** (#1752) — a button can dispatch `startChat` with a templated body referencing the record, and the host opens a new draft chat in a chosen role with that seed text. Composable with the open-item view (#1755) — open a record, kick off a chat about *that specific record*.
+- **Collection custom views can start a draft chat with a seed prompt** (#1752) — a button can dispatch `startChat` with a templated body referencing the record, and the host opens a new draft chat in a chosen role with that seed text. Composable with the open-item view (#1755) — open a record, kick off a chat about _that specific record_.
 - **Field-driven spawn interval** (#1738) — collection schema `spawn.every` can now read its interval from a record field (`every.fromField` + `map`), so a single recurrence definition handles "weekly / biweekly / monthly" branching off a record's own dropdown rather than splitting into separate schemas.
 - **Live view updates via pubsub** (#1740) — built-in `table` / `calendar` and **custom views** now subscribe to a per-collection pubsub channel, so a record change from any tab / session / agent ticks instantly into the open view. Removes the "edit in chat, switch to view, no update until refresh" surprise.
 - **`manageCollection` schema management** (#1734) — extends the MCP tool with `schemaDocs` / `getSchema` / `putSchema` actions so Claude edits collection schemas through a validated surface instead of raw file writes. Wired through `@mulmoclaude/workspace-setup@0.1.2`'s `collection-skills.md` help doc.
@@ -1115,6 +2851,7 @@ Three things shape this release: **local voice input** (push-to-talk via on-devi
 - **Headless-backend `packages/services/*` carve-out** (#1733) — services that don't need the Vite frontend (collection-watchers, scheduler, journal, notifier, plugin-host, skill-bridge, whisper, workspace-setup) move to a sibling `packages/services/*` workspace tree with its own `tsconfig.packages.json` entry + CI cache key. Independent versioning, independent publishing, no implicit coupling to the launcher.
 
 ### Plugin extraction (NEW shared packages)
+
 - **`@mulmoclaude/form-plugin`** (#1713) — `presentForm` tool's schema + execute logic extracted into a MulmoTerminal-consumable package. MulmoClaude host shrinks to a thin adapter.
 - **`@mulmoclaude/markdown-plugin@0.1.0 → 0.1.4`** (#1715 + #1717 + #1719) — `presentDocument` extraction. **0.1.0**: server core. **0.1.2**: shared `renderMarp` + image-fill render core. **0.1.4**: Marp directive slides emit a title-prompt image generation request so the slide isn't left blank when the directive doesn't pre-supply an asset.
 - **`@mulmoclaude/x-plugin` + `@mulmoclaude/chart-plugin`** (#1721) — X tools + `presentChart` extraction into shared packages. Both follow the chart-plugin / form-plugin server-then-Vue extraction pattern.
@@ -1124,6 +2861,7 @@ Three things shape this release: **local voice input** (push-to-talk via on-devi
 - **`@mulmoclaude/workspace-setup@0.1.2 → 0.1.8`** — bundles the new `mc-zenn` preset; `collection-skills.md` help doc steers schema edits through `manageCollection` `schemaDocs` / `getSchema` / `putSchema` instead of raw file edits, and documents the record-id charset rule referencing `safeRecordId` as the single source of truth.
 
 ### Changed
+
 - **`mulmocast 2.6.22`** — diagnostic-error sweep from receptron/mulmocast-cli #1452-#1457 + #1459 picks up. TTS Gemini no longer masks ffmpeg SIGABRT as `"TTS Gemini Error"`; Whisper CLI splits ffmpeg / OpenAI / fs into 3 phases; Replicate image / lipsync / movie + OpenAI image + TTS ElevenLabs agents now interpolate `error.message` into catch-all throws so the underlying provider message reaches mulmoclaude server logs instead of a generic opaque label (the original `error="TTS Gemini Error"` report at mulmocast-cli #1451 motivated this).
 - **e2e dev-server pre-warming** — Playwright's `globalSetup` now warms the Vite dev server before any test starts so the first `page.goto` doesn't pay the on-demand compile penalty and the e2e `(1)` / `(2)` shards stop occasionally timing out on the first navigation.
 - **`tsconfig.json` `types: ["vite/client", "node"]`** — adds `"node"` so `vue-tsc` resolves the `node:*` imports in `src/lib/wiki-page/*` (Node-only files that happen to live under `src/`). Unblocks the lint_test typecheck step on lockfile-only PRs.
@@ -1132,6 +2870,7 @@ Three things shape this release: **local voice input** (push-to-talk via on-devi
 - **CI bump guard** (#1737 + #1788) — a CI guard script blocks PRs that change a shared package's `src/` but forget to bump its `version`. #1788 exempts non-shipping `package.json` diffs from the guard so doc-only or comment-only `package.json` changes don't require a version bump.
 
 ### Fixed
+
 - **MCP `handlePermission` race could lose the first turn of a fresh session** (#1712 / #1698) — `handlePermission` is now served immediately so session start can't race MCP load. The fresh-session failure mode was: send a message before MCP finished registering tools → the first tool call returned a permission error and the session sat stuck.
 - **Windows `claude.exe` spawn** (#1769 / #1757) — cross-platform `claude` CLI resolver via a typed `ClaudeCliNotFoundError`, Windows shell for the spawn probes, `try/catch` around `spawnClaude` to surface the real error, and pnpm global probing made version-agnostic.
 - **MCP broker path in Docker** (#1771 / #1770) — broker source path resolves relative to `config.ts` and the same fix applies under Docker bind mounts too.
@@ -1143,13 +2882,16 @@ Three things shape this release: **local voice input** (push-to-talk via on-devi
 - **`fix-vite-workspace-path`** (#1570) — dev token plugin honours `MULMOCLAUDE_WORKSPACE_PATH` instead of assuming `$HOME/mulmoclaude`.
 
 ### Infrastructure
+
 - **Cache Playwright browsers in the e2e job** (#1728) and **cache puppeteer browsers in the test jobs** (#1749) — drops the per-job 60-90s Chrome download to a sub-second cache hit. Also de-flakes against the puppeteer CDN's occasional `End-of-central-directory signature not found` ZIP corruption.
 - **Collection View move + UI-context plumbing** (#1729 / #1725) — the host injects collection-aware navigation, modal teleport target, recordHref, and i18n through a single `configureCollectionUi()` binding instead of N separate props. Same pattern the chart/form plugins already use.
 
 ### Docs
+
 - **`collections-vibe-crafting-help.md`** (#1758) — new help doc on the iterative "vibe-craft a collection from a sample" workflow. Surfaces collections + custom views as the headline feature.
 
 ### Refactor
+
 - **frontend `toError` helper** (#1766) — single helper for `unknown → Error` narrowing on the frontend.
 - **`errorMessage` codemod sweep** (#1767) — replaces the inlined `err instanceof Error ? err.message : String(err)` pattern across 12 sites with the shared `errorMessage(err)` helper. No behaviour change.
 - **Consolidate `hasTraversalSegment()`** (#1760) and **`makePathValidator()` factory** (#1762) — both feed the attachment traversal fix above.
@@ -1161,24 +2903,28 @@ Three things shape this release: **local voice input** (push-to-talk via on-devi
 Collections graduate from "spreadsheets with bells" into a real DSL platform. The headline change is **custom views** — LLM-authored HTML pages that render alongside the built-in table/calendar, sandboxed in an iframe with the collection's records JSON injected for live filtering, charting, dashboards, even podcast players. A companion **`manageCollection` MCP tool** gives Claude the same affordances the host has — computed-aware reads + schema-validated writes — replacing the previous "Claude writes JSON files directly via Write" pattern. **`spawnBackgroundChat`** lands as a generic parallel-chat primitive that underpins collection-level actions and broader fan-out workflows. Side dishes: per-column sort with localStorage persistence, multi-file attach in the chat input (up to 10), expandable notification bodies, and a fistful of UI / scheduler / CSP fixes.
 
 ### Added
+
 - **Custom views for collections** — drop an `views/<slug>.html` (or `.html.tmpl`) under a collection's data folder and a new view picker appears next to table/calendar. The page renders inside a sandbox iframe with the records JSON injected, so vanilla JS / CSS / chart libraries / `<audio>` / `<video>` all work end to end. A view config modal in the CollectionView header lets users reorder, rename, and delete views without leaving the canvas. The (rarely-used) built-in dashboard view is replaced by "author one as a custom view". (#1686, #1687)
 - **`manageCollection` MCP tool** — LLM-callable read/write API symmetric to CollectionView. Reads include computed / derived fields; writes go through the same schema validator the UI uses, so a bad record is rejected at call time rather than silently corrupting the data folder. Becomes the canonical way for LLMs to mutate collection records. (#1681)
 - **`spawnBackgroundChat` agent primitive** — any tool can now spawn a sibling chat in a different role with a templated seed prompt and get a handle back for status polling. Foundation for the new collection-level actions and broader fan-out workflows (e.g. an invoice action spawning a parallel payment-recording chat). (#1678)
-- **Tracked-lessons collection recipe + collection-level actions** — second canonical collection recipe (after invoicing). Demonstrates a *collection-level* action button (vs. the existing per-record kind), the `presentHtml` action target, and the schema-validated write contract end to end. (#1669)
+- **Tracked-lessons collection recipe + collection-level actions** — second canonical collection recipe (after invoicing). Demonstrates a _collection-level_ action button (vs. the existing per-record kind), the `presentHtml` action target, and the schema-validated write contract end to end. (#1669)
 - **Per-column sort in CollectionView's table** — clickable column header cycles ascending → descending → off; the choice persists per (workspace × collection) in localStorage so revisits restore the same order. (#1674, #1677)
-- **Multi-file attach in chat input** — paste / drop / file-picker up to 10 attachments per turn (was 1). Each attachment renders in the composer with its own remove button; the send-enabled rule treats text *or* any attachment as a valid send. (#1660)
+- **Multi-file attach in chat input** — paste / drop / file-picker up to 10 attachments per turn (was 1). Each attachment renders in the composer with its own remove button; the send-enabled rule treats text _or_ any attachment as a valid send. (#1660)
 - **Notification body expansion** — clicking a bell entry now expands its full body (markdown / record snapshot) inline. Faster triage for the daily news brief and collection completion bells. (#1619)
 
 ### Changed
+
 - **Dashboard view mode removed** — the fixed, enum-driven dashboard rarely earned its keep; anyone who wants one can now author a custom view tuned to their schema. A persisted `dashboard` value in localStorage falls through to `table` via the existing unknown-mode safety net. All dashboard i18n keys are dropped from the 8 locales. (#1687)
 - **CollectionView header shorter** — shaves ~24px off the chrome so on small canvas cards the table body gets more rows visible above the fold without scrolling. (#1689)
 - **`MarpSplitEditor` extracted as a shared component** — the marp split-pane editor moves into a reusable component so other markdown surfaces can adopt the same chrome. (#1665)
 
 ### Fixed
+
 - **Scheduler state persistence race** — replaced the static `scheduler.tmp` write path with a unique-tmp helper so two scheduler ticks landing in the same millisecond can no longer trample each other's writes (one would publish a half-written JSON). (#1693)
 - **CSP blocked audio/video in custom views** — the custom-view CSP omitted `media-src`, so a podcast-feed custom view's `<audio src="https://...mp3">` fell through to `default-src 'none'` and the browser refused to load. Added a `media-src` with the same `https:` + `data:` + `blob:` allowlist as the existing iframe CSP. (#1688)
 
 ### Docs / Research
+
 - **"DSLs as Harnesses"** arXiv pre-print — theoretical scaffolding for the collections-as-DSL bet: a DSL can serve as a harness that constrains, validates, and structures an agent's reasoning. CC BY 4.0 + a revision after external review. (#1691, #1692, #1694)
 - **"The Workspace Is the Self-Improving Agent"** arXiv pre-print — companion paper framing the workspace + collection corpus as the substrate for "owning the learning loop", from single user up to firm scale. (#1683, #1695, #1696)
 - **"Software for an Audience of One"** essay — refines the collections-and-custom-views thesis: applications are data, the schema is the harness, Claude is the runtime. (#1690)
@@ -1191,9 +2937,11 @@ Collections graduate from "spreadsheets with bells" into a real DSL platform. Th
 Three large built-ins move out of the launcher in favour of the schema-driven collections model: **Calendar**, the **Todo plugin**, and the **Encore** recurring-obligation built-in are all removed; their use cases are now expressed as collections (`calendarField` for dated items, `config/helps/todo-collection.md` for todo lists, `triggerField` + `spawn` for recurring obligations). The bundled **invoicing suite** moves the same way — from preset skills to on-demand help-file recipes. No data is deleted; the records on disk are left in place.
 
 ### Changed
+
 - The **invoicing suite** (`clients`, `worklog`, `invoice`, `profile`) moved from bundled `mc-*` preset skills to on-demand **help-file recipes** (`config/helps/billing-clients-worklog.md` + `config/helps/billing-invoice.md`), discoverable via two Personal-role sample prompts ("Set up client and time tracking…", "Set up invoicing…"). New workspaces no longer carry the four presets in the skill catalog; the recipes scaffold bare-slug collections (`/collections/invoice`, etc.) over the same prefix-free `data/*/items` record folders. On launch, any lingering starred `mc-{clients,worklog,invoice,profile}` skill is **removed** from `.claude/skills/` (records under `data/*/items` are left untouched), and a one-time bell explains the change — re-running a recipe re-attaches to the same data, so existing records reappear. No data is ever deleted.
 
 ### Removed
+
 - The standalone **Calendar view** and the **`manageCalendar`** tool have been removed. Dated items are now modelled as schema-driven collections with a `calendarField` (the collection-native calendar view) — see `config/helps/collection-skills.md`. The `/calendar` launcher button, the `/calendar` route (now redirects to `/automations`), and the `data/scheduler/items.json` file-preview special case are gone. **Automations is unaffected** — `manageAutomations`, the `/automations` view, the `/api/scheduler` routes, and the task-manager all keep working (automations now owns the shared scheduler API namespace). Existing `data/scheduler/items.json` is left in place on disk.
 - The **Todo plugin** (`@mulmoclaude/todo-plugin`, the `manageTodoList` tool, the `/todos` route, and the `TodoExplorer` kanban / table / list view) has been removed. Todo lists are now built as schema-driven collections via the `config/helps/todo-collection.md` recipe (status enum + `done` toggle + priority bells), which is the canonical replacement. Existing todo-plugin data (`data/plugins/%40mulmoclaude%2Ftodo-plugin/todos.json`) is left in place on disk and is **not** migrated automatically — re-author the list as a collection following the recipe.
 - The **Encore** built-in (recurring-obligation DSL, hourly tick, dashboard, `defineEncore` / `manageEncore` tools, `/encore` route) has been removed. Collections now covers recurring obligations via time-driven bells (`triggerField` / `triggerLeadDays`) and host-driven recurrence (`spawn`); the only Encore-unique capability left was graduated multi-phase severity escalation, which did not justify maintaining a second time-driven harness.
@@ -1205,10 +2953,12 @@ Three large built-ins move out of the launcher in favour of the schema-driven co
 Fixes a production regression where `npx mulmoclaude@latest` failed to load the ToDo and Spotify runtime plugins (e.g. "ToDo の読み込みに失敗しました" on first launch) because the published tarball did not ship them. They now travel with `mulmoclaude` as regular npm dependencies, so a fresh `npx` install boots with ToDo and Spotify available out of the box. Other runtime plugins (`debug`, `edgar`) stay dev-only by design and no longer log misleading `preset package not resolvable` warns in production.
 
 ### Fixed
+
 - `npx mulmoclaude` no longer fails to mount ToDo / Spotify on first launch — `@mulmoclaude/todo-plugin@^0.1.0` and `@mulmoclaude/spotify-plugin@^0.1.0` are now real npm dependencies of `mulmoclaude` (#1513, #1515).
 - Preset loader downgrades the missing-package log to `debug` for entries flagged `devOnly: true`, so legitimately dev-only presets stop scaring production users (#1513).
 
 ### Added
+
 - Two new published npm packages backing the runtime plugins:
   - [`@mulmoclaude/todo-plugin@0.1.0`](https://www.npmjs.com/package/@mulmoclaude/todo-plugin/v/0.1.0)
   - [`@mulmoclaude/spotify-plugin@0.1.0`](https://www.npmjs.com/package/@mulmoclaude/spotify-plugin/v/0.1.0)
@@ -1222,23 +2972,28 @@ Four-day patch focused on a new **Encore** built-in (cycle-state planning + bell
 ### Highlights
 
 #### Encore — cycle-state planning + bell-reconciled todos
+
 - New **`/encore` dashboard page** with an icon-only top-bar entry, backed by an Encore built-in plugin (#1427, #1443).
 - Split **structural `defineEncore`** (one-shot schema definition) from **operational `manageEncore`** (ongoing ticket ops) so the LLM can't confuse the two (#1437).
 - Single-reconciler bell-state model with **unsnooze**, timezone-correct triggers, directory hygiene, ticket-rename support, and ghost-ticket rescue (#1433, #1440, #1441).
 
 #### CodeMirror-based inline JSON editor (#833 Phase 1)
+
 - Workspace JSON configs now open in an in-page editor (Files view, #1418).
 - Lazy-loaded CodeMirror 6 backend with syntax-aware editing replaces the textarea (#1450, #1448).
 
 #### MCP catalog becomes transport-aware (#1421)
+
 - Docker-only stdio MCPs get a clear **"this won't run inside the sandbox"** note in the catalog; GitHub MCP now points at the HTTP transport (#1422).
 - Opt-in **stdio→HTTP shim** lets stdio-only MCP servers run inside the Docker sandbox via a side-process bridge — covers the previous gap (#1436).
 
 #### Role split — General + Personal (#1430)
+
 - `General` is split into a lean `General` (research / coding) and a new **`Personal`** role (memory, journal, calendar, TODO, photos). Encore's seed role is pinned to Personal.
 - Roles now rely directly on the per-role prompt files; the old `helps`-injection layer is deleted (#1431).
 
 #### Wiki / image / UI polish
+
 - `<img>` / `<source>` **`srcset` rewriter** in both wiki and PDF surfaces (#1407, closes #1275).
 - Wiki external/workspace markdown links restyled for clarity (#1453).
 - TODO kanban **done-column menu** with check icon and click-outside dismiss (#1452); plugin-seeded first turns render as a **skill-style card** (#1447).
@@ -1246,9 +3001,11 @@ Four-day patch focused on a new **Encore** built-in (cycle-state planning + bell
 - NotificationBell **collapses history beyond 5 rows** behind a toggle (#1439); notifier gains an **update op + action-style priority alerts** for todos (#1451).
 
 #### Skill catalog UX
+
 - Add-repo flow now offers **fill-form suggestions**, repo link, and expandable description for each preset (#1415, closes #1413).
 
 ### Added
+
 - **Encore** built-in: dashboard page, `defineEncore` / `manageEncore` tools, unified bell reconciler with unsnooze (#1427, #1437, #1433, #1443).
 - CodeMirror 6 JSON editor for workspace files (#1418, #1450).
 - MCP transport-aware catalog + stdio→HTTP shim (#1421 / #1422 / #1436).
@@ -1261,12 +3018,14 @@ Four-day patch focused on a new **Encore** built-in (cycle-state planning + bell
 - Plugin-seeded text-response renders as a skill-style card (#1447).
 
 ### Changed
+
 - System prompt internals refactored: static literals extracted to `server/prompts/`, `helps`-injection deleted, topic-memory context is index-only, dead readLegacyMemoryFile / buildWikiContext branches removed (#1425, #1431, #1434, #1435).
 - Wiki external-link styling distinguishes workspace vs external (#1453).
 - `Skill` tool added to the agent allowlist so user-installed `.claude/skills/` are invokable (#1445).
 - Built hook dispatcher relocated to `server/build/`, sourcemap dropped (#1449).
 
 ### Fixed
+
 - `optionalDeps` notification title/body wording (#1429).
 - e2e-live `L-ERR` / `L-15b` flakiness on real-Claude runs (#1446).
 - `publish smoke` Puppeteer Chromium download + plugin-probe race (#1442, #1428).
@@ -1275,6 +3034,7 @@ Four-day patch focused on a new **Encore** built-in (cycle-state planning + bell
 - Playwright browsers auto-installed via the test script chain (#1411).
 
 ### Security
+
 - Opt-in stdio→HTTP shim (#1436) lets stdio MCP servers run inside the Docker sandbox via a bridged HTTP transport, closing a gap where catalog entries were silently host-only.
 
 ---
@@ -1286,29 +3046,36 @@ Three-day patch centred on the **external skill catalog** (a multi-PR `#1383` / 
 ### Highlights
 
 #### External skill catalog (#1383 / #1335)
+
 - Skills are split into **catalog** (browsable, not in the system prompt) vs **active** (loaded). Star to activate; Preview and Run-once before committing.
 - Catalog can pull skills from **external Git repos** (backend C1, hierarchical UI C2, per-repo Update button C3). Recommended presets seeded, including `obra/superpowers`.
 - `/skills` legend now shows inline category icons; nested preset scanning.
 
 #### MCP reliability trio
+
 - **Boot-time preflight (#1352)** — catalog-backed MCP servers with missing required config are skipped with a warning instead of spawning a subprocess that fails every call silently.
 - **Runtime failure monitor (#1353)** — a server that fails repeatedly raises a bell notification.
 - **Error hint chip (#1354)** — MCP tool errors in the right sidebar carry a catalog-derived "how to fix" hint.
 
 #### Graceful degradation for optional host dependencies (#1385)
+
 - Missing `ffmpeg` / `docker` / other optional host tools degrade gracefully (clear notification + affected-feature list) instead of hard-exiting at startup.
 - New `--disable-sandbox` flag plus bundled boolean CLI flags (#1089 / #1397).
 
 #### Multi-day calendar events (#1368)
+
 - Calendar now renders events that span multiple days.
 
 #### Role-aware empty state
+
 - A fresh chat shows clickable starter queries tailored to the active role.
 
 #### Investor role gains X (Twitter) access
+
 - `searchX` / `readXPost` added to the Investor role.
 
 ### Added
+
 - External skill catalog: catalog/active split, Star, Preview, Run-once, external Git repo install + update (#1383, #1335).
 - MCP boot preflight (#1352), runtime failure monitor (#1353), error-hint chip (#1354).
 - Optional-dependency graceful degradation + `--disable-sandbox` / bundled boolean CLI flags (#1385, #1089, #1397).
@@ -1319,16 +3086,19 @@ Three-day patch centred on the **external skill catalog** (a multi-PR `#1383` / 
 - Scheduled Claude-free e2e-live workflow (daily 03:00 JST) + expanded fake-echo scenario coverage.
 
 ### Changed
+
 - Dropped `?result=` URL persistence — sessions default to the latest result on load.
 - `helps` model names aligned with the `presentMulmoScript` canonical structure (#1009).
 - `auth-token` persistence across server restarts documented (#1351); ffmpeg prerequisite documented.
 
 ### Fixed
+
 - `presentMulmoScript`: silent beats now advance by duration during Play (#1073); inline error chip + retry on movie-generation failure (#1197).
 - `StackView`: `flex-1` neutralisation scoped to vertical flex only (#1277).
 - CodeRabbit sweep follow-up — starter-query key collision, magic-number / hardcoded-path cleanup, and a pre-existing `@types/which` typecheck break on `main` (#1379 / #1364 / #1371).
 
 ### Security
+
 - MCP boot preflight (#1352) stops half-configured catalog servers from spawning subprocesses that would otherwise fail every tool call silently (401 / missing-credentials), reducing the chance of a misconfigured server being mistaken for a working one.
 
 ---
@@ -1340,27 +3110,35 @@ Three-day patch focused on **Settings UX**, **agent control surface**, and **bri
 ### Highlights
 
 #### Configurable reasoning effort (#1320 / #1323)
+
 - New **Model** tab in Settings exposes the `claude --effort` level (`low` / `medium` / `high` / `xhigh` / `max`). Persisted under `<workspace>/config/settings.json`; unset → Claude's default. Settings reload per-run, so the change applies on the next message without restart.
 
 #### Settings menu reorganised (#1333)
+
 - The horizontal tab strip is now a **grouped left sidebar** (LLM / Servers / Workspace / Plugins). Modal grows from 36rem to 52rem but caps at 95vw on smaller viewports. Existing `data-testid` selectors preserved — no e2e breakage. Active item carries `aria-current="page"`; nav label is fully translated.
 
 #### File drop on the chat panel (#1289)
+
 - Drag-and-drop now lights up the entire chat panel (was: just the input), with a clear visual affordance. The window default guard prevents the browser from navigating away when the drop lands outside the panel.
 
 #### EDGAR + SEC built-in plugin
+
 - New `edgar` plugin (server-only — no Views) gives the agent direct access to SEC EDGAR filings. Bundled into a new **Investor** role alongside Yahoo Finance instructions.
 
 #### presentSVG plugin
+
 - New built-in plugin renders generated SVGs as inline canvas surfaces. Roles can opt in via `availablePlugins`.
 
 #### Preset skills replace fixed roles
+
 - `cookingCoach` role → `mc-cooking-coach` preset skill (#1286). `settings` role → `mc-settings` preset skill (#1283), then split into 3 focused skills. Preset skills are user-editable and version-controllable; fixed roles aren't.
 
 #### Agent permission scaffolding
+
 - Workspace-scoped allow rules are now provisioned at server startup, so first-run permission prompts no longer block routine tool invocations.
 
 ### Added
+
 - `effortLevel` field in app settings + `--effort` CLI plumbing (#1323).
 - Settings **Model** + **Sidebar** UI; nav `aria-label` localised across all 8 locales.
 - `presentSVG` and `edgar` built-in plugins.
@@ -1372,6 +3150,7 @@ Three-day patch focused on **Settings UX**, **agent control surface**, and **bri
 - Stdio-MCP-under-Docker warning surfaced in the MCP settings UI (#1334).
 
 ### Changed
+
 - Settings modal: top tabs → sidebar with 4 groups (#1333).
 - Accounting amount formatting consolidated into one helper (#1308).
 - Date formatting in plugin Views routed through `src/utils/format/date.ts` (#1307).
@@ -1383,6 +3162,7 @@ Three-day patch focused on **Settings UX**, **agent control surface**, and **bri
 - `uuid` bumped to 14.0.0.
 
 ### Fixed
+
 - pdf.ts: switched to `waitUntil: "load"` for Puppeteer 24 type compatibility.
 - wiki: score-based fuzzy resolve replaces iteration-order matching (#1194).
 - chat: generated-file references in LLM replies now linkify reliably (#1300).
@@ -1394,6 +3174,7 @@ Three-day patch focused on **Settings UX**, **agent control surface**, and **bri
 - Codex/Sourcery follow-ups across #1316, #1318, #1325, #1326, #1328, #1331.
 
 ### Security
+
 - All 6 webhook bridges: express-rate-limit added on POST + `env`-driven trust-proxy.
 - Bridges: `hub.challenge` echoed as `text/plain` with whitelisted shape (CodeQL `js/reflected-xss`).
 - wiki: HTML-escape target + display in `renderWikiLinks` (XSS).
@@ -1408,24 +3189,29 @@ Two-day patch with several visible additions: a **wiki-syntax embed** family (`[
 ### Highlights
 
 #### Wiki-syntax embeds (#1221)
+
 - Author markdown can now write `[[amazon:B00ICN066A]]`, `[[isbn:9780062316097]]`, or `[[youtube:dQw4w9WgXcQ]]` instead of raw URLs and get a clickable card / link / inline player. The renderer is registry-driven so future prefixes plug in cleanly.
 - **YouTube** plays inline via `youtube-nocookie.com` (no profile cookies until click), wrapped in a 16:9 box. **Amazon** shows the product cover thumbnail and links to the user's locale-appropriate storefront (`amazon.co.jp` for `ja`, `amazon.de` for `de`, …, falls back to `.com`). **ISBN** links to OpenLibrary.
 - External markdown links across wiki / files / chat artifact / sources / skill body now open in a new tab on click instead of being dead-clicks.
 
 #### Photo locations (#1222)
+
 - Every photo MulmoClaude saves (chat attachments, bridge-forwarded images, file uploads) now has its EXIF parsed: lat/lng + timestamp + camera + lens captured into a sidecar JSON under `data/photo-locations/`. HEIC / HEIF / TIFF supported alongside JPEG.
 - New built-in `managePhotoLocations` plugin lets the agent and user list / search / open photos by date, place, or camera.
 - Photos tab in Settings exposes the auto-capture toggle.
 - LINE bridge now forwards inbound image messages to the agent for the same processing.
 
 #### Map plugin (#1227)
+
 - Integrated `@gui-chat-plugin/google-map@0.4.0`. Add a Google Maps API key under Settings → Map and the agent can show locations, add markers, find places, and request directions inline in the chat canvas.
 - Available in `general` / `guide` / `debug` roles.
 
 #### Notifications open the source chat (#1262)
+
 - When the `notify` MCP tool fires from inside a chat session (typically a scheduled background chat reporting completion), the bell entry now carries a navigate target. Clicking opens that chat session instead of just dismissing.
 
 ### Added
+
 - `[[amazon:...]]` / `[[isbn:...]]` / `[[youtube:...]]` wiki-embed renderers + extension registry (#1252 / #1261 / #1265 / #1269).
 - `managePhotoLocations` built-in plugin + Photos settings tab (#1247 / #1250 / #1251).
 - Map plugin wiring + Settings → Map tab + role enablement (#1241 / #1255 / `4c5b3e1`).
@@ -1434,12 +3220,14 @@ Two-day patch with several visible additions: a **wiki-syntax embed** family (`[
 - Plan files for #1221, #1222, #1244, and Encore Phase 2 (DSL + compiler + runtime architecture).
 
 ### Changed
+
 - Runtime plugins relocated from `packages/<name>-plugin/` to `packages/plugins/<name>-plugin/` for a cleaner monorepo layout (#1242). No npm package names change.
 - `marked` config: external links inject `target="_blank" rel="noopener noreferrer"` automatically — wired into all 6 markdown / sheet renderers (#1252).
 - Roles now gate runtime plugins by `availablePlugins` (#1266); previously runtime plugins were universally exposed regardless of role.
 - DOMPurify call sites for skill body / manageSkills / sources description now go through a shared `sanitizeMarkdownHtml` wrapper that selectively allows YouTube embeds while keeping every other iframe stripped.
 
 ### Fixed
+
 - StackView no longer over-grows iframes on remeasure or in stack layout — postMessage height path now caps at the viewport (`a2017c4` / `0ae82df` / `5817790` / `4aa6461`).
 - Map plugin: `googleMapKey` flows through StackView; View force-remounts when the key transitions null → set; key gated to `mapControl` only so other plugins can't read it (`f45067c` / `894ef3c` / `79a7cbf` / `1b04a34`).
 - presentMulmoScript: beat edits now persist across page reload + in-SPA nav (#1074, `adcca77` / `7dc74b0`).
@@ -1449,6 +3237,7 @@ Two-day patch with several visible additions: a **wiki-syntax embed** family (`[
 - CI cache path now includes `packages/plugins/*/dist` after the workspace move (`830a5145`).
 
 ### Security
+
 - DOMPurify wrapper enforces a strict allowlist for iframes — only `https://www.youtube-nocookie.com/embed/<11-char-id>` survives the hook; foreign hosts and the cookie-tracking `youtube.com` host are stripped.
 - Map plugin: `googleMapKey` only reaches the `mapControl` plugin; other plugins receive `null` (`1b04a34`).
 
@@ -1540,7 +3329,7 @@ A two-week release. The themes: a usable **Accounting plugin**, the start of the
 - **Image rendering in HTML / PDF** — LLM-generated content emitting `<img src="/artifacts/images/…">` (web-rooted convention) now renders correctly. The path-traversal hardening from #384 was correct but didn't recognise the leading-slash form, so:
   - PDF generation logged `image path escapes workspace` and produced a broken `<img>`.
   - presentHtml plugin's iframe srcdoc 404'd the image because `/artifacts/` isn't served at the SPA origin.
-  Both paths now treat leading-slash as workspace-rooted while keeping the workspace boundary check intact (e.g. `/etc/passwd` is still rejected). (#961)
+    Both paths now treat leading-slash as workspace-rooted while keeping the workspace boundary check intact (e.g. `/etc/passwd` is still rejected). (#961)
 
 ---
 

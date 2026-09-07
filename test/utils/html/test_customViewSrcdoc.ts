@@ -91,6 +91,20 @@ describe("buildCustomViewSrcdoc", () => {
     assert.ok(out.includes("},v.origin)"), "startChat must post to the parent origin, not '*'");
   });
 
+  it("injects the search-query channel so the host's search box can drive the view", () => {
+    const out = buildCustomViewSrcdoc("<head></head>", boot);
+    // Always empty in the boot JSON — the live value arrives over the port, so
+    // that a keystroke never rebuilds the srcdoc (token re-mint + reload).
+    assert.match(out, /"searchQuery":""/);
+    assert.match(out, /mc-search-query/);
+    assert.match(out, /v\.onSearchQueryChange=function/);
+    // A MessageChannel, not a window post: the query is the user's own text and
+    // an opaque origin can only be addressed as "*", which survives the view
+    // navigating itself elsewhere.
+    assert.match(out, /new MessageChannel\(\)/);
+    assert.match(out, /mc-view-ready/);
+  });
+
   it("keeps the onChange bootstrap free of a </script> breakout sequence", () => {
     const out = buildCustomViewSrcdoc("<head></head>", boot);
     // The bootstrap is inlined in a <script>; a literal </script> inside it would
@@ -140,5 +154,250 @@ describe("buildCustomViewSrcdoc", () => {
       assert.equal(scripts?.length, 1, "only the bootstrap's own closing </script> may appear");
       assert.match(out, /\\u003c\/script>/);
     });
+  });
+});
+
+// ── The bridge, actually running ──
+// Everything above asserts the SHAPE of a hand-written one-line script string,
+// which cannot tell a working listener from a typo in it. These evaluate the
+// injected bootstrap for real, in a vm with a fake window, so the host→view
+// channels are covered by behaviour.
+
+/** The subset of `window.__MC_VIEW` the bootstrap installs at runtime. */
+interface ViewBridge {
+  slug: string;
+  searchQuery: string;
+  onChange: (callback: () => void) => () => void;
+  onSearchQueryChange: (callback: (query: string) => void) => () => void;
+}
+
+interface FakeMessage {
+  source: unknown;
+  data: unknown;
+}
+
+/** Minimal MessagePort pair — delivery is synchronous so the fake clock stays
+ *  the only source of ordering in these tests. */
+interface FakePort {
+  peer?: FakePort;
+  onmessage: ((event: { data: unknown }) => void) | null;
+  postMessage: (data: unknown) => void;
+  close: () => void;
+}
+
+function makePort(): FakePort {
+  const port: FakePort = {
+    onmessage: null,
+    postMessage: (data) => port.peer?.onmessage?.({ data }),
+    close: () => {},
+  };
+  return port;
+}
+
+/** What the bootstrap handed up to the parent, port included. */
+interface ReadyPing {
+  data: { type?: unknown; slug?: unknown };
+  origin: unknown;
+  port: FakePort | undefined;
+}
+
+interface FakeClock {
+  setTimeout: (task: () => void) => number;
+  clearTimeout: (timerId: number) => void;
+  /** Run every pending timer — the clock's only tick. */
+  flush: () => void;
+}
+
+function makeFakeClock(): FakeClock {
+  const pending = new Map<number, () => void>();
+  let nextTimerId = 1;
+  return {
+    setTimeout: (task) => {
+      const timerId = nextTimerId++;
+      pending.set(timerId, task);
+      return timerId;
+    },
+    clearTimeout: (timerId) => {
+      pending.delete(timerId);
+    },
+    flush: () => {
+      const due = [...pending.values()];
+      pending.clear();
+      due.forEach((task) => task());
+    },
+  };
+}
+
+interface Harness {
+  view: ViewBridge;
+  /** The `mc-view-ready` handshake, as the host would receive it. */
+  ready: ReadyPing;
+  /** Send a search query the way the host does — over the port it was given. */
+  search: (query: unknown) => void;
+  /** Deliver a window message. `fromParent: false` fakes a foreign sender. */
+  send: (data: unknown, options?: { fromParent?: boolean }) => void;
+  flush: () => void;
+}
+
+/** Pull the bootstrap out of the built srcdoc — it is the whole <script> body,
+ *  `window.__MC_VIEW = {…}` assignment included. */
+function extractBootstrap(srcdoc: string): string {
+  return srcdoc.slice(srcdoc.indexOf("<script>") + "<script>".length, srcdoc.indexOf("</script>"));
+}
+
+/** Run the injected bootstrap against a fake window + clock. It reads only
+ *  `window`, `document`, `setTimeout`, `clearTimeout` and `MessageChannel`, so
+ *  passing those as parameters is enough to sandbox it. */
+function runBootstrap(win: object, clock: FakeClock): void {
+  const bootstrapSource = extractBootstrap(buildCustomViewSrcdoc("<head></head>", boot));
+  const channel = function (this: { port1: FakePort; port2: FakePort }) {
+    const [port1, port2] = [makePort(), makePort()];
+    [port1.peer, port2.peer] = [port2, port1];
+    [this.port1, this.port2] = [port1, port2];
+  };
+  // eslint-disable-next-line sonarjs/code-eval -- running the generated bridge IS the test: the bootstrap ships to the browser as a hand-written one-line string, and shape assertions can't tell a working listener from a typo (proved by mutation: every deliberate break goes red here, ~0 in the string checks). The source is this repo's own builder output, and the globals it touches are passed in as parameters.
+  new Function("window", "document", "setTimeout", "clearTimeout", "MessageChannel", bootstrapSource)(
+    win,
+    { addEventListener: (): void => {} },
+    clock.setTimeout,
+    clock.clearTimeout,
+    channel,
+  );
+}
+
+function mountBridge(): Harness {
+  const listeners: ((event: FakeMessage) => void)[] = [];
+  const handshakes: ReadyPing[] = [];
+  const clock = makeFakeClock();
+  const parent = {
+    postMessage: (data: { type?: unknown; slug?: unknown }, origin: unknown, transfer?: FakePort[]) => handshakes.push({ data, origin, port: transfer?.[0] }),
+  };
+  const win: { __MC_VIEW?: ViewBridge; parent: unknown; addEventListener: (type: string, callback: (event: FakeMessage) => void) => void } = {
+    parent,
+    addEventListener: (type, callback) => {
+      if (type === "message") listeners.push(callback);
+    },
+  };
+  runBootstrap(win, clock);
+  const view = win.__MC_VIEW;
+  assert.ok(view, "the bootstrap must install window.__MC_VIEW");
+  const ready = handshakes.find((ping) => ping.data.type === "mc-view-ready");
+  assert.ok(ready, "the bootstrap must hand a search port up to the host");
+  return {
+    view,
+    ready,
+    search: (query) => ready.port?.postMessage({ type: "mc-search-query", slug: boot.slug, query }),
+    send: (data, options = {}) => {
+      const source = options.fromParent === false ? {} : parent;
+      listeners.forEach((callback) => callback({ source, data }));
+    },
+    flush: clock.flush,
+  };
+}
+
+describe("the injected bridge at runtime — search query (#2959)", () => {
+  it("hands its port up to the host's own origin, never to `*`", () => {
+    const host = mountBridge();
+    assert.equal(host.ready.origin, boot.origin);
+    assert.notEqual(host.ready.origin, "*");
+    assert.equal(host.ready.data.slug, boot.slug);
+    assert.ok(host.ready.port, "the ready ping must transfer a port");
+    // Deliberately carries no secret: anything injected into a view can be
+    // forwarded by that view to the page it navigates to, so the host
+    // authenticates nothing here — it reinstalls the view on a second claim.
+    assert.deepEqual(Object.keys(host.ready.data).sort(), ["slug", "type"]);
+  });
+
+  it("updates searchQuery immediately and fires subscribers on the debounce", () => {
+    const host = mountBridge();
+    const seen: string[] = [];
+    host.view.onSearchQueryChange((query) => seen.push(query));
+    host.search("kafka");
+    // Immediate, so a view re-reading it mid-render is never a keystroke behind…
+    assert.equal(host.view.searchQuery, "kafka");
+    // …while the callback waits for the burst to settle.
+    assert.deepEqual(seen, []);
+    host.flush();
+    assert.deepEqual(seen, ["kafka"]);
+  });
+
+  it("collapses a typed word into one callback carrying the final query", () => {
+    const host = mountBridge();
+    const seen: string[] = [];
+    host.view.onSearchQueryChange((query) => seen.push(query));
+    ["k", "ka", "kaf", "kafk", "kafka"].forEach((query) => host.search(query));
+    host.flush();
+    assert.deepEqual(seen, ["kafka"], "one callback per settled burst, not one per keystroke");
+  });
+
+  it("relays a cleared box (empty query) rather than swallowing it", () => {
+    const host = mountBridge();
+    const seen: string[] = [];
+    host.search("kafka");
+    host.flush();
+    host.view.onSearchQueryChange((query) => seen.push(query));
+    host.search("");
+    host.flush();
+    assert.deepEqual(seen, [""]);
+    assert.equal(host.view.searchQuery, "");
+  });
+
+  it("does NOT accept a search query over the window — only over the port", () => {
+    // The regression guard for the leak: a window post has to name a target
+    // origin, and an opaque origin can only be addressed as "*", which keeps
+    // delivering after the view navigates itself elsewhere. Nothing but the
+    // port may move the user's typed text.
+    const host = mountBridge();
+    const seen: string[] = [];
+    host.view.onSearchQueryChange((query) => seen.push(query));
+    host.send({ type: "mc-search-query", slug: boot.slug, query: "kafka" });
+    host.flush();
+    assert.equal(host.view.searchQuery, "");
+    assert.deepEqual(seen, []);
+  });
+
+  it("coerces a non-string query to empty instead of leaking the raw value", () => {
+    const host = mountBridge();
+    host.search(42);
+    assert.equal(host.view.searchQuery, "");
+  });
+
+  it("stops calling back after unsubscribe", () => {
+    const host = mountBridge();
+    const seen: string[] = [];
+    const unsubscribe = host.view.onSearchQueryChange((query) => seen.push(query));
+    unsubscribe();
+    host.search("kafka");
+    host.flush();
+    assert.deepEqual(seen, []);
+    assert.equal(host.view.searchQuery, "kafka", "the value still tracks — only the callback is gone");
+  });
+
+  it("keeps onChange and onSearchQueryChange on separate wires", () => {
+    const host = mountBridge();
+    const changes: string[] = [];
+    const queries: string[] = [];
+    host.view.onChange(() => changes.push("change"));
+    host.view.onSearchQueryChange((query) => queries.push(query));
+
+    host.send({ type: "mc-collection-changed", slug: boot.slug });
+    host.flush();
+    assert.deepEqual(changes, ["change"]);
+    assert.deepEqual(queries, [], "a data change is not a search change");
+
+    host.search("kafka");
+    host.flush();
+    assert.deepEqual(queries, ["kafka"]);
+    assert.deepEqual(changes, ["change"], "a search change must not force a refetch");
+  });
+
+  it("still honours the sender + slug checks on the change wire", () => {
+    const host = mountBridge();
+    const changes: string[] = [];
+    host.view.onChange(() => changes.push("change"));
+    host.send({ type: "mc-collection-changed", slug: "other-collection" });
+    host.send({ type: "mc-collection-changed", slug: boot.slug }, { fromParent: false });
+    host.flush();
+    assert.deepEqual(changes, []);
   });
 });

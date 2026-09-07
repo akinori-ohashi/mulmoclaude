@@ -195,6 +195,24 @@ const HOST_API_ROUTES = {
     unlink: "/api/google/unlink",
   },
 
+  /** Startup beacon from the mulmoclaude MCP broker (#2842). The broker is a
+   *  GRANDCHILD of this server — Claude CLI spawns it and owns its stderr — so
+   *  this endpoint is the only path by which its cold-boot timing reaches our
+   *  logs. Without it, "the broker is slow" and "the broker never came up" are
+   *  indistinguishable from the host side. */
+  mcp: {
+    brokerReady: "/api/mcp/broker-ready",
+    /** Fired from an `--import` preload before the broker loads anything, so
+     *  it says "the process exists" without waiting for the cold boot.
+     *
+     *  Diagnostic only — nothing acts on it while a turn runs. It is read
+     *  AFTER the CLI exits, to say whether a turn that lost its tools had a
+     *  broker that never launched (the spawn) or one that launched and never
+     *  finished booting (the boot). The fail-fast this was originally built
+     *  for was measured and deliberately not shipped; see #2842. */
+    brokerStarting: "/api/mcp/broker-starting",
+  },
+
   mcpTools: {
     list: "/api/mcp-tools",
     invoke: "/api/mcp-tools/:tool",
@@ -249,7 +267,6 @@ const HOST_API_ROUTES = {
     quiz: "/api/quiz",
     // `form` and `canvas` migrated to META — exposed at top-level
     // `API_ROUTES.presentForm.dispatch` / `API_ROUTES.canvas.dispatch`.
-    present3d: "/api/present3d",
     // mapControl — `@gui-chat-plugin/google-map` external package.
     googleMap: "/api/google-map",
     // Runtime-loaded plugins (#1043 C-2). One generic dispatch

@@ -9,7 +9,7 @@
     <form class="flex flex-col overflow-y-auto" data-testid="collections-mutate-modal" @submit.prevent="submit">
       <div class="flex items-center justify-between px-6 pt-5 pb-3">
         <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-          <span v-if="action.icon" class="material-symbols-outlined text-base text-indigo-600">{{ action.icon }}</span>
+          <span v-if="action.icon" class="text-indigo-600"><IconGlyph :icon="action.icon" size-class="text-base" /></span>
           <span>{{ action.label }}</span>
         </h2>
         <button
@@ -109,6 +109,7 @@
 
 <script setup lang="ts">
 import { reactive } from "vue";
+import { IconGlyph } from "@mulmoclaude/core/plugin-vue";
 import { useCollectionI18n } from "../lang";
 import CollectionRecordModal from "./CollectionRecordModal.vue";
 import { inputTypeFor, stepForFieldType } from "../useCollectionRendering.helpers";

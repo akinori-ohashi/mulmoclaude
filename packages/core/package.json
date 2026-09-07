@@ -1,6 +1,6 @@
 {
   "name": "@mulmoclaude/core",
-  "version": "2.0.1",
+  "version": "4.7.0",
   "description": "Shared server-side core for MulmoClaude and MulmoTerminal — the always-shipped-together subsystems consolidated behind subpath exports so the two hosts can't drift. Server-only except the browser-safe ./artifacts, ./whisper/client, ./workspace-setup/slug, ./translation/client, ./remote-view, ./remote-host and ./plugin-vue entries. All host specifics are injected.",
   "repository": {
     "type": "git",
@@ -49,6 +49,12 @@
       "require": "./dist/google/index.cjs",
       "default": "./dist/google/index.js"
     },
+    "./global-config": {
+      "types": "./dist/global-config/index.d.ts",
+      "import": "./dist/global-config/index.js",
+      "require": "./dist/global-config/index.cjs",
+      "default": "./dist/global-config/index.js"
+    },
     "./collection/server": {
       "types": "./dist/collection/server/index.d.ts",
       "import": "./dist/collection/server/index.js",
@@ -60,6 +66,12 @@
       "import": "./dist/collection/paths.js",
       "require": "./dist/collection/paths.cjs",
       "default": "./dist/collection/paths.js"
+    },
+    "./collection/firestore": {
+      "types": "./dist/collection/firestore.d.ts",
+      "import": "./dist/collection/firestore.js",
+      "require": "./dist/collection/firestore.cjs",
+      "default": "./dist/collection/firestore.js"
     },
     "./collection/registry": {
       "types": "./dist/collection/registry/index.d.ts",
@@ -213,14 +225,14 @@
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.5-r.2",
-    "@mulmoclaude/common": "^1.1.2",
-    "@mulmoclaude/markdown-utils": "^1.3.5",
+    "@mulmoclaude/common": "^1.2.0",
+    "@mulmoclaude/markdown-utils": "^2.2.0",
     "dompurify": "^3.4.13",
-    "fast-xml-parser": "^5.10.1",
+    "fast-xml-parser": "^5.11.1",
     "google-auth-library": "^10.9.1",
     "iconv-lite": "^0.7.3",
-    "js-yaml": "^5.2.3",
-    "zod": "^4.4.3"
+    "js-yaml": "^5.4.1",
+    "zod": "^4.5.4"
   },
   "peerDependencies": {
     "@receptron/task-scheduler": "^1.0.3",
@@ -242,14 +254,14 @@
   },
   "devDependencies": {
     "@receptron/task-scheduler": "^1.0.3",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.4.1",
     "gui-chat-protocol": "^2.0.0",
-    "tsx": "^4.23.5",
+    "tsx": "^4.23.13",
     "typescript": "^6.0.3",
-    "vite": "^8.2.0",
+    "vite": "^8.2.2",
     "vite-plugin-dts": "^5.0.3",
-    "vue": "^3.5.40",
-    "vue-i18n": "^11.4.7"
+    "vue": "^3.5.42",
+    "vue-i18n": "^11.4.10"
   },
   "license": "MIT",
   "keywords": [

@@ -8,7 +8,7 @@
 // touches `node:path`; nothing here touches disk).
 
 import { parseWikiLink } from "./link.js";
-import { wikiSlugify } from "./slug.js";
+import { wikiPageStem, wikiSlugify } from "./slug.js";
 
 export interface WikiPageEntry {
   title: string;
@@ -140,6 +140,16 @@ export function extractSlugFromBulletHref(rawHref: string): string {
   return lastSegment.replace(/\.md$/i, "");
 }
 
+/** Slug for an entry whose only identifier is human-written text.
+ *  A page file may be named in Japanese, and its slug IS that filename
+ *  stem — slugifying would index `-4` and leave the real file reported
+ *  as both missing and orphaned (#2944). `wikiPageStem` keeps the
+ *  hyphenated convention for ASCII and returns null for a name no file
+ *  could carry, where the old slug is still the best guess. */
+function entrySlugFor(name: string): string {
+  return wikiPageStem(name) ?? wikiSlugify(name);
+}
+
 function parseBulletLinkRow(trimmed: string): WikiPageEntry | null {
   const match = BULLET_LINK_PATTERN.exec(trimmed);
   if (!match) return null;
@@ -148,10 +158,10 @@ function parseBulletLinkRow(trimmed: string): WikiPageEntry | null {
   const raw = match[3]?.trim() ?? "";
   const { description, tags } = extractHashTags(raw);
   // Prefer the slug embedded in the href so non-ASCII titles keep
-  // a navigable slug. Fall back to slugifying the title only when
-  // the href has no recognisable slug (rare — usually means the
-  // author put an external URL here).
-  const slug = extractSlugFromBulletHref(href) || wikiSlugify(title);
+  // a navigable slug. Fall back to the title only when the href has
+  // no recognisable slug (rare — usually means the author put an
+  // external URL here).
+  const slug = extractSlugFromBulletHref(href) || entrySlugFor(title);
   return { title, slug, description, tags };
 }
 
@@ -166,7 +176,11 @@ function parseBulletWikiLinkRow(trimmed: string): WikiPageEntry | null {
   // produces a wrong slug — Codex review on PR #1312.
   const { target, display } = parseWikiLink(match[1] ?? "");
   const title = (display || target).trim();
-  const slug = target ? wikiSlugify(target) : wikiSlugify(title);
+  // No title fallback: an explicitly empty target (`- [[|display]]`) is
+  // malformed, and borrowing the display half would let it name a real
+  // page — silently accepting the typo instead of reporting it. An
+  // empty slug reaches `findMissingFiles`, which says so (#2944).
+  const slug = entrySlugFor(target);
   const raw = match[2]?.trim() ?? "";
   const { description, tags } = extractHashTags(raw);
   return { title, slug, description, tags };

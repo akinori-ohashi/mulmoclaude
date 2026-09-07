@@ -253,35 +253,135 @@ function inlineFields(view: CollectionCustomView, schema: CollectionSchema, requ
   return declared.filter((name) => schema.fields[name]?.type === "image" && (kept === null || kept.has(name)));
 }
 
-/** Replace declared image paths with thumbnail `data:` URLs in place, stopping
- *  once the accumulated thumbnail bytes would exceed `budget` — a field left as
- *  its path (over budget, unresolvable, or already inlined) counts as `omitted`
- *  and the view renders it as a placeholder. */
-async function inlineImages(
-  items: RemoteViewItem[],
-  fields: string[],
-  maxEdge: number,
-  resolve: typeof resolveThumbnail,
-  budget: number,
-): Promise<{ inlined: number; omitted: number }> {
-  let used = 0;
-  let inlined = 0;
-  let omitted = 0;
+/** Replace declared image paths with thumbnail `data:` URLs in place, and say
+ *  how many items were fully served before the byte budget ran out (#2924).
+ *
+ *  Running out of budget STOPS the walk rather than skipping the offending
+ *  field and carrying on. That distinction is the whole fix: skipping meant a
+ *  page came back with one arbitrary hole in it — the item whose thumbnail
+ *  happened not to fit, while smaller ones after it still did — which reads as
+ *  a corrupt record rather than as a page that was too heavy. The caller turns
+ *  `fitted` into a SHORT PAGE instead, and the view pages on for the rest.
+ *
+ *  `omitted` survives for the one case a short page cannot express: a field
+ *  that is unresolvable (missing file, unsupported format) rather than merely
+ *  over budget. Those are skipped in place, as before — stopping on them would
+ *  wedge the page at that item forever. */
+async function inlineImages(items: RemoteViewItem[], fields: string[], maxEdge: number, resolve: typeof resolveThumbnail, budget: number): Promise<PageTotals> {
+  const totals: PageTotals & { used: number } = { used: 0, inlined: 0, omitted: 0, served: 0 };
   for (const item of items) {
-    for (const field of fields) {
-      const value = item[field];
-      if (typeof value !== "string" || value.length === 0 || value.startsWith("data:")) continue;
-      const dataUrl = used < budget ? await resolve(value, maxEdge) : null;
-      if (dataUrl && used + dataUrl.length <= budget) {
-        item[field] = dataUrl;
-        used += dataUrl.length;
-        inlined += 1;
-      } else {
-        omitted += 1;
-      }
-    }
+    const resolved = await resolveItemImages({ item, fields, maxEdge, resolve, remaining: budget - totals.used });
+    // An item whose images do not all fit belongs to the NEXT page, so nothing
+    // about it is committed: not its thumbnails, not its counts. The exception
+    // is the FIRST item — dropping that one would return an empty page and the
+    // view would ask for the same offset forever, so it goes out with whatever
+    // fitted (the old placeholder degradation).
+    if (resolved.overflowed && totals.served > 0) break;
+    commitItem(item, resolved, totals);
+    if (resolved.overflowed) break;
   }
-  return { inlined, omitted };
+  return { inlined: totals.inlined, omitted: totals.omitted, served: totals.served };
+}
+
+interface PageTotals {
+  inlined: number;
+  omitted: number;
+  /** Items this page carries — what the caller slices to. */
+  served: number;
+}
+
+/** Write one item's resolved thumbnails and fold its counts into the page's.
+ *
+ *  The write happens HERE, not during the walk, because an item that turns out
+ *  not to fit is sliced away — and without a `fields` projection these are the
+ *  store's own record objects, not copies. */
+function commitItem(item: RemoteViewItem, resolved: ItemImages, totals: PageTotals & { used: number }): void {
+  for (const [field, dataUrl] of resolved.thumbnails) item[field] = dataUrl;
+  totals.used += resolved.bytes;
+  totals.inlined += resolved.thumbnails.length;
+  // Every image this page hands back as a PATH is counted, whatever the reason.
+  // On a forced first item that includes ones that were merely over budget: it
+  // is still a placeholder the author will see, and leaving it uncounted was the
+  // one hole the no-hole guarantee did not cover (Codex on #2934). Deferred
+  // items are not counted because they are not on this page.
+  totals.omitted += resolved.unresolvable + resolved.deferred;
+  // Counted because it is going out, overflowed or not — `served` is "what this
+  // page carries", so the never-empty rule lives HERE and the caller just slices
+  // to it. Splitting the two is how the guard gets lost (Sourcery on #2934).
+  totals.served += 1;
+}
+
+/** Resolve one item's declared image fields against what is left of the budget,
+ *  WITHOUT touching the item. The caller commits or discards the whole result,
+ *  so an item can never go out half-inlined while its counters say otherwise
+ *  (Codex + CodeRabbit on #2934).
+ *
+ *  `deferred` counts the fields left un-inlined once the budget ran out. It
+ *  matters only for a forced first item, which goes out anyway: those fields
+ *  travel as paths, and the caller counts them so nothing reaches the view as a
+ *  placeholder without being reported. */
+interface ItemImages {
+  thumbnails: [string, string][];
+  bytes: number;
+  unresolvable: number;
+  /** Fields left un-inlined once the budget ran out. */
+  deferred: number;
+  overflowed: boolean;
+}
+
+interface ItemImageRequest {
+  item: RemoteViewItem;
+  fields: string[];
+  maxEdge: number;
+  resolve: typeof resolveThumbnail;
+  /** What is left of the page's byte budget. */
+  remaining: number;
+}
+
+async function resolveItemImages({ item, fields, maxEdge, resolve, remaining }: ItemImageRequest): Promise<ItemImages> {
+  const pending = pendingImageFields(item, fields);
+  const thumbnails: [string, string][] = [];
+  let bytes = 0;
+  let unresolvable = 0;
+  for (const [index, [field, path]] of pending.entries()) {
+    const dataUrl = await resolve(path, maxEdge);
+    // Not a budget problem, so a smaller page cannot fix it — ending the page
+    // here would wedge paging at this item forever. Leave the path, keep going.
+    if (dataUrl === null) {
+      unresolvable += 1;
+      continue;
+    }
+    // Over budget. Everything still pending — this field and the ones after it —
+    // travels as a path, which the caller reports if the item is forced out.
+    if (bytes + dataUrl.length > remaining) return { thumbnails, bytes, unresolvable, deferred: pending.length - index, overflowed: true };
+    thumbnails.push([field, dataUrl]);
+    bytes += dataUrl.length;
+  }
+  return { thumbnails, bytes, unresolvable, deferred: 0, overflowed: false };
+}
+
+/** The `(field, path)` pairs on `item` that still want inlining — absent, empty
+ *  and already-inlined `data:` values are not among them.
+ *
+ *  Collected up front so the resolver can count what is left from its own
+ *  position (`pending.length - index`) instead of re-scanning the record with a
+ *  second copy of the same predicate (CodeRabbit on #2934). */
+/** The stored path on `item.field` that still wants inlining, or null when the
+ *  field holds nothing to inline — absent, empty, or an already-inlined `data:`
+ *  URL. Named rather than inlined because it is the rule that decides what an
+ *  "image to fetch" even is. */
+function inlinablePath(item: RemoteViewItem, field: string): string | null {
+  const value = item[field];
+  return typeof value === "string" && value.length > 0 && !value.startsWith("data:") ? value : null;
+}
+
+function pendingImageFields(item: RemoteViewItem, fields: string[]): [string, string][] {
+  const pending: [string, string][] = [];
+  for (const field of fields) {
+    const path = inlinablePath(item, field);
+    if (path !== null) pending.push([field, path]);
+  }
+  return pending;
 }
 
 export const createRemoteViewItems =
@@ -309,9 +409,33 @@ export const createRemoteViewItems =
     // Budget the thumbnails against what's left of the doc after the base JSON,
     // so the serialized page stays under the cap.
     const budget = REMOTE_VIEW_ITEMS_MAX_BYTES - baseBytes;
-    const { inlined, omitted } = await inlineImages(page.items, fields, clampImageMaxEdge(view.imageMaxEdge), deps.resolveThumbnail, Math.max(0, budget));
-    return { kind: "ok", page, inlined, omitted };
+    const { inlined, omitted, served } = await inlineImages(
+      page.items,
+      fields,
+      clampImageMaxEdge(view.imageMaxEdge),
+      deps.resolveThumbnail,
+      Math.max(0, budget),
+    );
+    return { kind: "ok", page: truncateToServed(page, served), inlined, omitted };
   };
+
+/** Cut the page down to the items `inlineImages` served, so the rest travel on
+ *  the NEXT page with their thumbnails intact (#2924).
+ *
+ *  `total` is deliberately untouched: it counts the records behind the view, not
+ *  the ones on this page, and it is what the documented paging idiom stops on
+ *  (`loaded.length >= total` — see `custom-view-remote.md`). `limit` reports what
+ *  was actually returned, so a view advancing by the RESPONSE's limit is also
+ *  correct; the idiom advances by `items.length`, which is correct either way.
+ *
+ *  No never-empty guard here: `served` is already "what this page carries", and
+ *  it is zero only when the page had no items to begin with (an offset past the
+ *  end), where an empty page is the right answer. */
+function truncateToServed(page: RemoteViewPage, served: number): RemoteViewPage {
+  if (served >= page.items.length) return page;
+  const items = page.items.slice(0, served);
+  return { ...page, items, limit: items.length };
+}
 
 export const remoteViewItems = createRemoteViewItems({ listRecords: (collection) => storeFor(collection).list(), enrichItems, resolveThumbnail });
 

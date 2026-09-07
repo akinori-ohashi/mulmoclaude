@@ -12,7 +12,6 @@ import { existsSync } from "node:fs";
 import { readFile, appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import {
-  type TaskSchedule,
   type TaskExecutionState,
   type TaskLogEntry,
   type CatchUpTask,
@@ -24,7 +23,6 @@ import {
   updateAndSave,
   appendLogEntry,
   queryLog,
-  SCHEDULE_TYPES,
   TASK_RESULTS,
   TASK_TRIGGERS,
   type MISSED_RUN_POLICIES,
@@ -33,9 +31,9 @@ import {
   type LogDeps,
 } from "@receptron/task-scheduler";
 import type { ITaskManager, TaskDefinition, SchedulerLogger } from "./task-manager.js";
+import { latestWindowAtOrBefore, toLibrarySchedule, unfireableScheduleReason, windowToIso } from "./schedule-window.js";
 import { errorMessage } from "../utils/errors.js";
 
-const ONE_SECOND_MS = 1000;
 const SCHEDULER_CONFIG_DIR = "config/scheduler";
 const SCHEDULER_DATA_DIR = "data/scheduler/logs";
 
@@ -125,15 +123,7 @@ export async function initScheduler(taskManager: ITaskManager, tasks: SystemTask
   systemTasks.push(...tasks);
   taskManagerRef = taskManager;
 
-  // Run catch-up
-  const catchUpTasks: CatchUpTask[] = tasks.map((taskDef) => ({
-    id: taskDef.id,
-    name: taskDef.name,
-    schedule: toCoreSchedule(taskDef.schedule),
-    missedRunPolicy: taskDef.missedRunPolicy,
-    enabled: true,
-  }));
-  const plan = computeCatchUpPlan(catchUpTasks, stateMap, Date.now());
+  const plan = computeCatchUpPlan(catchUpTasksFor(tasks), stateMap, Date.now());
 
   for (const skip of plan.skipped) {
     logger().info("catch-up skipped", { taskId: skip.taskId, windows: skip.windowCount });
@@ -155,14 +145,39 @@ export async function initScheduler(taskManager: ITaskManager, tasks: SystemTask
       id: task.id,
       description: task.description,
       schedule: task.schedule,
-      run: async () => {
-        const windowIso = computeCurrentWindow(task);
+      run: async (ctx) => {
+        const windowIso = computeCurrentWindow(task, ctx.now.getTime());
         await executeAndLog(task, windowIso, TASK_TRIGGERS.scheduled);
       },
     });
   }
 
   logger().info("initialized", { tasks: tasks.map((taskDef) => taskDef.id), stateEntries: stateMap.size });
+}
+
+/** The catch-up input, with the tasks that can never fire left out. Their
+ *  windows come back NaN rather than null, which `listMissedWindows` cannot
+ *  see the end of — it fills to its cap and the first `new Date(NaN)` throws
+ *  `RangeError`, taking every other task's catch-up down with it at startup.
+ *  Registration still happens, so the task-manager reports the bad schedule. */
+function catchUpTasksFor(tasks: SystemTaskDef[]): CatchUpTask[] {
+  return tasks
+    .filter((taskDef) => {
+      const reason = unfireableScheduleReason(taskDef.schedule);
+      if (reason === null) return true;
+      logger().error(`schedule has an unusable ${reason.field} — skipping catch-up, this task will never run`, {
+        taskId: taskDef.id,
+        [reason.field]: reason.value,
+      });
+      return false;
+    })
+    .map((taskDef) => ({
+      id: taskDef.id,
+      name: taskDef.name,
+      schedule: toLibrarySchedule(taskDef.schedule),
+      missedRunPolicy: taskDef.missedRunPolicy,
+      enabled: true,
+    }));
 }
 
 /** Apply a schedule override to a running system task. Updates the
@@ -355,27 +370,20 @@ async function safeUpdateState(taskId: string, patch: Partial<TaskExecutionState
 /** Compute the window boundary that the current tick belongs to. For
  *  scheduled runs, this is the epoch-aligned window — not the wall-clock
  *  time of execution. This keeps lastRunAt consistent with catch-up's
- *  window-based accounting. */
-function computeCurrentWindow(task: SystemTaskDef): string {
-  const coreSchedule = toCoreSchedule(task.schedule);
-  // The window that just fired is the latest one at or before now.
-  const nowMs = Date.now();
-  const windowMs = nextWindowAfter(coreSchedule, nowMs - (coreSchedule.type === SCHEDULE_TYPES.interval ? coreSchedule.intervalSec * ONE_SECOND_MS : 0));
-  return windowMs !== null && windowMs <= nowMs ? new Date(windowMs).toISOString() : new Date(nowMs).toISOString();
+ *  window-based accounting. `tickMs` is the tick's own clock, not
+ *  `Date.now()`: the two drift apart by however long the tick took to reach
+ *  this task, and under an injected clock they are unrelated. */
+function computeCurrentWindow(task: SystemTaskDef, tickMs: number): string {
+  return windowToIso(latestWindowAtOrBefore(task.schedule, tickMs)) ?? new Date(tickMs).toISOString();
 }
 
 function computeNextScheduledFor(schedule: TaskDefinition["schedule"]): string | null {
-  const coreSchedule = toCoreSchedule(schedule);
-  const next = nextWindowAfter(coreSchedule, Date.now() + 1);
-  return next !== null ? new Date(next).toISOString() : null;
-}
-
-function toCoreSchedule(schedule: TaskDefinition["schedule"]): TaskSchedule {
-  if (schedule.type === SCHEDULE_TYPES.interval) {
-    return {
-      type: SCHEDULE_TYPES.interval,
-      intervalSec: Math.round(schedule.intervalMs / ONE_SECOND_MS),
-    };
-  }
-  return schedule;
+  // The engine will never fire this one, so promising a next run in the UI
+  // would be a lie — and the library still hands back a window for some of
+  // them (`"24:00"` resolves to tomorrow's midnight).
+  if (unfireableScheduleReason(schedule) !== null) return null;
+  // `windowToIso` is what keeps a window that is not a date (NaN from a
+  // degenerate schedule, or an interval so large the next window is past the
+  // end of `Date`) from throwing here and taking the whole state write down.
+  return windowToIso(nextWindowAfter(toLibrarySchedule(schedule), Date.now() + 1));
 }

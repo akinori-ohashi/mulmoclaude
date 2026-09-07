@@ -90,6 +90,17 @@ function emitMessage(client: ClientSocket, payload: unknown): Promise<{ ok: bool
   });
 }
 
+/** Like `emitMessage`, but resolves to null instead of hanging when the
+ *  ack never arrives — a frame that closes the socket must fail the test
+ *  in seconds, not stall the CI job. */
+function emitMessageWithTimeout(client: ClientSocket, payload: unknown, timeoutMs: number): Promise<{ ok: boolean; reply?: string } | null> {
+  return new Promise((resolve) => {
+    client.timeout(timeoutMs).emit(CHAT_SOCKET_EVENTS.message, payload, (err: Error | null, ack: { ok: boolean; reply?: string } | undefined) => {
+      resolve(err ? null : (ack ?? null));
+    });
+  });
+}
+
 describe("chat-service socket — no auth", () => {
   let harness: Harness;
 
@@ -116,6 +127,39 @@ describe("chat-service socket — no auth", () => {
     assert.equal(harness.relayCalls[0].transportId, "cli");
     assert.equal(harness.relayCalls[0].externalChatId, "terminal");
     assert.equal(harness.relayCalls[0].text, "hi");
+
+    client.disconnect();
+  });
+
+  it("relays an attachment past Socket.IO's default 1 MB frame", async () => {
+    // Without an explicit `maxHttpBufferSize`, Socket.IO closes the
+    // connection at 1 MB — below the 20 MB `parseAttachments` budget, so
+    // a bridge shipping a ~900 KB screenshot got a dropped socket instead
+    // of a reply. Measured before the fix: 700 KB relayed, 900 KB killed
+    // the connection.
+    const client = connectClient(harness.url, { transportId: "cli" });
+    await waitConnect(client);
+    let disconnected = false;
+    client.on("disconnect", () => {
+      disconnected = true;
+    });
+
+    const data = Buffer.alloc(2 * 1024 * 1024, 7).toString("base64"); // ~2.7 MB of base64
+    const ack = await emitMessageWithTimeout(
+      client,
+      {
+        externalChatId: "terminal",
+        text: "look",
+        attachments: [{ mimeType: "image/png", data }],
+      },
+      5000,
+    );
+
+    assert.notEqual(ack, null, "no ack — the frame closed the socket");
+    assert.equal(disconnected, false, "the frame must not close the socket");
+    assert.equal(ack?.ok, true);
+    assert.equal(harness.relayCalls.at(-1)?.attachments?.length, 1);
+    assert.equal(harness.relayCalls.at(-1)?.attachments?.[0]?.data.length, data.length);
 
     client.disconnect();
   });

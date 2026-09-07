@@ -25,7 +25,7 @@
         <div class="absolute left-0 top-0 bottom-0 w-1 rounded-l-xl bg-teal-500"></div>
         <div class="flex items-center gap-3">
           <div class="h-11 w-11 flex items-center justify-center rounded-xl bg-teal-50 text-teal-600 border border-teal-100/50 shadow-sm shrink-0">
-            <span class="material-symbols-outlined text-2xl">{{ entry.icon || "dataset" }}</span>
+            <IconGlyph :icon="entry.icon" fallback="dataset" size-class="text-2xl" />
           </div>
           <div class="flex-1 min-w-0">
             <span class="block font-semibold text-slate-800 text-[15px] truncate">{{ entry.title }}</span>
@@ -88,11 +88,13 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { IconGlyph } from "@mulmoclaude/core/plugin-vue";
 import { useCollectionI18n } from "../lang";
-import { collectionUi, type RegistryEntry } from "../uiContext";
+import type { RegistryEntry } from "../uiContext";
+import { useCollectionUi } from "../scopedUi";
 
 const { t } = useCollectionI18n();
-const cui = collectionUi();
+const cui = useCollectionUi();
 // Emitted after a successful import so the parent can refresh its installed list
 // (the newly-installed collection should show up on the Installed tab right away).
 const emit = defineEmits<{ imported: [] }>();

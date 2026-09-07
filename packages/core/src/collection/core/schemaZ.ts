@@ -19,6 +19,7 @@
 import { isRecord, isUnknownArray } from "@mulmoclaude/common";
 import { z } from "zod";
 import { isSafeSlug } from "./ids";
+import { ACCENT_COLORS } from "./accentColor";
 import { isSafeActionTemplatePath, isSafeCustomViewI18nPath, isSafeCustomViewPath } from "./templatePath";
 import { INGEST_KINDS, AGENT_INGEST_KIND, FEED_SCHEDULES } from "./schema";
 import {
@@ -198,11 +199,23 @@ const MoneyFieldZ = z
   .refine(hasCurrencySource, currencyMessage);
 
 /** A closed set of allowed string values. The form renders a `<select>`
- *  populated from `values`; storage is a plain string. */
+ *  populated from `values`; storage is a plain string.
+ *
+ *  `default` pre-fills a NEW record — the Add form starts on it, and a
+ *  `putItems` row in `create` mode that omits the field gets it. Never applied
+ *  on `merge` / `upsert`: those edit a record that already answered this.
+ *
+ *  Membership in `values` is NOT checked here on purpose. This schema is what
+ *  discovery parses on every load, and a rejection there drops the whole
+ *  collection out of the index (`discovery.ts`) — too steep a price for a
+ *  cosmetic key, and the key was silently ignored before #2839, so a stale one
+ *  may already sit in someone's file. `putSchema` refuses a non-member instead,
+ *  where the author is present to read the reason. */
 const EnumFieldZ = z.object({
   type: z.literal("enum"),
   ...fieldBase,
   values: z.array(z.string().trim().min(1)).min(1),
+  default: z.string().trim().min(1).optional(),
 });
 
 // Sub-fields inside a `table.of` map: the regular field types minus `table`
@@ -682,15 +695,42 @@ export const DataSourceZ = z.object({
 /** Alternative WRITABLE storage backend for a collection's records —
  *  unlike `dataSource` (external read-only file), a `storage` collection
  *  behaves like a normal writable collection; only where the rows live
- *  changes. v1: `sqlite` — records in a single SQLite database file
- *  (`node:sqlite`, one JSON record per row keyed by the primaryKey).
- *  `path` is workspace-relative and containment-checked exactly like
- *  `dataPath`. The store factory registry (`server/store.ts`) picks the
- *  implementation by `type` (plans/done/refactor-storage-virtualization.md). */
-export const StorageZ = z.object({
-  type: z.literal("sqlite"),
-  path: z.string().min(1),
-});
+ *  changes. The store factory registry (`server/store.ts`) picks the
+ *  implementation by `type` (plans/done/refactor-storage-virtualization.md).
+ *
+ *  A discriminated union rather than one shape with optional keys, because
+ *  only the sqlite variant is a workspace FILE: its `path` is
+ *  workspace-relative and containment-checked exactly like `dataPath`, while
+ *  the firestore variant has no path to check — its records are not on this
+ *  machine at all. Optional keys would let each arm accept the other's, and
+ *  the compiler would stop being the thing that tells you which. */
+export const StorageZ = z.discriminatedUnion("type", [
+  /** Records in a single SQLite database file (`node:sqlite`, one JSON
+   *  record per row keyed by the primaryKey). */
+  z.object({
+    type: z.literal("sqlite"),
+    path: z.string().min(1),
+  }),
+  /** Records as Firestore documents of a SHARED collection, at
+   *  `apps/{aid}/collections/{cid}/items/{id}`.
+   *
+   *  This variant declares NO location, and that is the whole shape of it:
+   *  `aid` comes from the repository's `app.json` (it is one per app, not one
+   *  per collection — four collections share one member roster), and `cid` is
+   *  always this collection's slug. There is nothing left for a schema to say.
+   *
+   *  `.strict()` (the same reason the `spawn` arms use it): stripping an
+   *  unknown key silently would confirm a wrong mental model — an author who
+   *  writes `path` believes their records land there, and an author who writes
+   *  `cid` believes the collection can be named something other than its slug.
+   *  Only this new arm is strict; the sqlite arm stays permissive so an
+   *  existing schema carrying a stray key doesn't start failing. */
+  z
+    .object({
+      type: z.literal("firestore"),
+    })
+    .strict(),
+]);
 
 // ---------------------------------------------------------------------------
 // The whole schema
@@ -701,6 +741,22 @@ export const StorageZ = z.object({
  *  this parses to, and nothing narrower. */
 const CollectionObjectZ = z.object({
   title: z.string().min(1),
+  // Optional accent colour, drawn as a pale chip behind the launcher glyph so
+  // collections sharing a generic icon stay distinguishable (#2987).
+  //
+  // `.catch(undefined)` is load-bearing, not defensive dressing: discovery
+  // treats a schema that fails validation as NO COLLECTION AT ALL
+  // (`safeParse` fails -> `return null`, the row vanishes from every index).
+  // A bare `z.enum(...).optional()` would therefore make one mistyped colour
+  // cost the user their whole collection — a catastrophic price for a
+  // cosmetic field. Catching normalises the unknown value away instead: the
+  // key is dropped, the collection loads, and the launcher draws it unstyled.
+  color: z.enum(ACCENT_COLORS).optional().catch(undefined),
+  // A Material Symbols ligature name, or a single emoji. Deliberately not
+  // pattern-constrained: every renderer goes through `resolveIconGlyph`
+  // (core/iconGlyph.ts), which decides which of the two a value is and cuts
+  // anything else down to one grapheme — so a bad value degrades to a plain
+  // character instead of being rejected at write time.
   icon: z.string().min(1),
   // Exactly one of `dataPath` (native JSON-file records), `dataSource`
   // (external read-only data file), or `storage` (alternative writable
@@ -796,8 +852,12 @@ const BareCollectionSchemaZ = CollectionObjectZ
   // NOTE: `storage` collections support the full write machinery
   // (`spawn` / `completionField` / `triggerField` / `singleton` / `ingest`
   // / mutate actions) — spawn and the watcher reconcilers go through the
-  // CollectionStore seam, and a db-file watcher drives their
-  // reconciliation (collection-watchers/watcher.ts).
+  // CollectionStore seam. What DRIVES that reconciliation differs by
+  // backend: `sqlite` has a db-file watcher, while `firestore` has no file
+  // to watch and is reconciled on the clock tick instead
+  // (`tickUnwatchedCollections`) until the snapshot listener lands. Either
+  // way the declared behaviour runs — that equivalence is what lets this
+  // refine stay backend-agnostic.
   // A `dataSource` collection is read-only by definition, so schema-level
   // write machinery can never fire: `singleton` pins CREATES, `ingest`
   // REFILLS records, `spawn` WRITES successor records. Rejecting them at

@@ -10,6 +10,7 @@
 // unchanged.
 
 import { spawn, type ChildProcessByStdio } from "child_process";
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import type { Readable, Writable } from "stream";
 import { buildCliArgs, buildDockerSpawnArgs, buildUserMessageLine, resolveSystemPromptPaths, type CliArgsParams } from "../config.js";
 import { writeFileAtomic } from "../../utils/files/atomic.js";
@@ -17,6 +18,8 @@ import { resolveSandboxAuth } from "../sandboxMounts.js";
 import { getCachedReferenceDirs, referenceDirMountArgs } from "../../workspace/reference-dirs.js";
 import { createStreamParser, type AgentEvent, type RawStreamEvent } from "../stream.js";
 import { createMcpFailureMonitor } from "../mcpFailureMonitor.js";
+import { getBrokerReady, getBrokerStarted } from "../brokerReadiness.js";
+import { BUILTIN_MCP_TOOL_PREFIX } from "../activeTools.js";
 import { isMcpBrokerNotReadyError } from "../mcpBrokerFailover.js";
 import { log } from "../../system/logger/index.js";
 import { errorMessage } from "../../utils/errors.js";
@@ -59,30 +62,52 @@ function spawnClaude(useDocker: boolean, workspacePath: string, cliArgs: string[
   return spawn("docker", dockerArgs, { stdio: ["pipe", "pipe", "pipe"] });
 }
 
-// Track MCP tool usage to detect silent MCP server failures.
-// If ToolSearch was called but no mcp__* tool was ever invoked,
-// the MCP server likely crashed on startup (e.g. module resolution
-// failure inside Docker). See #430.
-function createMcpTracker() {
-  let toolSearchCalled = false;
-  let mcpToolCalled = false;
+// Counts the tools a turn ran FROM THE BUILT-IN BROKER. Scoped to
+// `mcp__mulmoclaude__` rather than `mcp__`, because the beacon only speaks for
+// that broker: a working `mcp__github__…` call says nothing about whether OUR
+// broker loaded, and counting it would hide the very startup failure this
+// feeds (Codex review on #2906).
+//
+// A Set rather than a boolean so the state stays `const` and the count can go
+// into the log line. Which names count is the half of #2886 that went wrong,
+// so this is exported and pinned by tests.
+export function createBuiltinMcpToolWatcher() {
+  const called = new Set<string>();
   return {
-    track(event: AgentEvent) {
+    track(event: AgentEvent): void {
       if (event.type !== EVENT_TYPES.toolCall) return;
-      if (event.toolName === "ToolSearch") toolSearchCalled = true;
-      if (event.toolName.startsWith("mcp__")) mcpToolCalled = true;
+      if (event.toolName.startsWith(BUILTIN_MCP_TOOL_PREFIX)) called.add(event.toolName);
     },
-    logIfSuspicious() {
-      if (toolSearchCalled && !mcpToolCalled) {
-        log.warn(
-          "agent",
-          "ToolSearch was used but no MCP tool was called — the MCP server may have crashed. " +
-            "Check Docker volume mounts and package.json exports. " +
-            "Run: npx tsx --test test/agent/test_mcp_docker_smoke.ts",
-        );
-      }
-    },
+    count: (): number => called.size,
   };
+}
+
+/** Did this turn look like the broker never delivered its tools?
+ *
+ *  All four conditions are required, and each rules out a way of being wrong.
+ *  They are listed in the order the predicate reads them:
+ *
+ *  - `mcpConfigured` — a turn that was never given MCP cannot be missing it.
+ *  - `!aborted` — a turn the user stopped never got the chance to use its
+ *    tools. Hitting the stop button straight away produces "configured, no
+ *    beacon, no calls" every time, so without this the diagnostic fires on an
+ *    ordinary cancellation (Codex review on #2906).
+ *  - `!brokerEverReady` — the startup beacon (#2898) is direct evidence, where
+ *    the old check inferred a crash from the SHAPE of the tool names: it fired
+ *    whenever ToolSearch ran without a following `mcp__*` call. ToolSearch also
+ *    resolves CLI built-ins (`WebFetch`, `PushNotification`), so a perfectly
+ *    healthy turn satisfied it — which is how #2886 came to be filed against a
+ *    working MCP server.
+ *  - `builtinMcpToolsCalled === 0` — the beacon is a POST from the broker back
+ *    to the host, so a relay or firewall can swallow it (#2842's socat setup is
+ *    exactly that). Built-in tools that ran prove the broker delivered whether
+ *    or not its beacon arrived; without this the fix would re-create the false
+ *    positive in the very environment that reported it. Only the BUILT-IN
+ *    broker's tools count — a user-configured MCP server answering says nothing
+ *    about ours.
+ */
+export function shouldWarnMcpUnavailable(turn: { mcpConfigured: boolean; aborted: boolean; brokerEverReady: boolean; builtinMcpToolsCalled: number }): boolean {
+  return turn.mcpConfigured && !turn.aborted && !turn.brokerEverReady && turn.builtinMcpToolsCalled === 0;
 }
 
 // Exit codes the claude CLI reports when it is terminated by one of the
@@ -147,7 +172,125 @@ function logAgentStderr(line: string): void {
   else log.error("agent-stderr", line);
 }
 
-async function* readAgentEvents(proc: ClaudeProc, abortSignal?: AbortSignal): AsyncGenerator<AgentEvent> {
+// What the turn's tool availability is judged against once the CLI exits. The
+// readiness lookup needs the session key, and "was MCP configured at all" is
+// the orchestrator's decision, not something to re-derive here.
+interface TurnMcpContext {
+  chatSessionId: string;
+  mcpConfigured: boolean;
+  /** Host-side path of the broker's start marker, when this turn has a broker
+   *  (#2842). Read once, after the CLI exits. */
+  startMarkerPath?: string | undefined;
+  /** What that marker must contain to count. */
+  spawnId?: string | undefined;
+}
+
+// Did the broker PROCESS ever exist? Answered by two independent signals,
+// because they fail for unrelated reasons: a marker file the broker writes
+// synchronously before loading anything, and an HTTP beacon it fires at the
+// same moment. See `mcp-start-beacon.mjs` for why both.
+//
+// Read after the CLI exits, so this costs nothing on a healthy turn.
+function brokerEverStarted(turn: TurnMcpContext): boolean {
+  // Both halves are scoped to THIS spawn. A replay starts a second broker for
+  // the same session within seconds, and either half answered per-session would
+  // credit it to the attempt that already failed.
+  if (turn.spawnId === undefined) return false;
+  if (getBrokerStarted(turn.chatSessionId, turn.spawnId)) return true;
+  return turn.startMarkerPath !== undefined && markerHolds(turn.startMarkerPath, turn.spawnId);
+}
+
+/** Longest a marker may be and still be read. It holds one uuid; anything
+ *  larger is not one. Enforced by the READ — a fixed buffer — rather than by
+ *  slicing afterwards, or a planted multi-gigabyte file would be pulled into
+ *  memory in full before the cap applied (Codex review on #2932), which is the
+ *  trap `docs/large-file-reading.md` exists for. */
+export const MARKER_MAX_BYTES = 128;
+
+/** Does the marker say THIS broker wrote it?
+ *
+ *  `lstat` rather than `existsSync`, and a regular file rather than any entry,
+ *  because a symlink planted at that path would otherwise report a broker that
+ *  never ran as having started. The content check rules out the cheaper version
+ *  of the same trick — a file merely pre-created at the path (Codex review on
+ *  #2932).
+ *
+ *  It does NOT make the signal unforgeable, and cannot: under Docker the marker
+ *  path, the spawn id, and the bearer token all live in the per-session MCP
+ *  config inside the workspace mount, so anything that can plant the file can
+ *  also read what to put in it — or POST the beacon directly. This is a
+ *  diagnostic that nothing acts on (the fail-fast this signal was built for was
+ *  measured and dropped), so the bar is "not wrong by accident", not "cannot be
+ *  lied to by the sandbox about its own turn". */
+export function markerHolds(markerPath: string, spawnId: string): boolean {
+  // Three flags, each closing a way this path can be turned against the host —
+  // it is inside the workspace mount, so the sandbox chooses what is there:
+  //
+  //  - `O_NOFOLLOW` on the OPEN rather than an `lstat` first, because the
+  //    two-step version can be raced.
+  //  - `O_NONBLOCK`, because opening a FIFO waits for a writer FOREVER, and
+  //    this open is synchronous — a planted pipe would freeze the event loop,
+  //    not merely mislead a log line (Codex review on #2932; reproduced:
+  //    `openSync` never returned and a pending timer never fired).
+  //  - `fstat` on the descriptor we are about to read, so anything that is not
+  //    a regular file is refused after the open rather than read from.
+  //
+  // The first two are POSIX-only; on Windows the constants are absent and fall
+  // out of the mask, where neither symlinks-without-privilege nor FIFOs at a
+  // path like this arise, and the `fstat` check still applies.
+  const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+  let handle: number;
+  try {
+    handle = openSync(markerPath, flags);
+  } catch {
+    return false;
+  }
+  try {
+    // Size as well as type. Reading only the first `MARKER_MAX_BYTES` bounds
+    // the read, but it does not REJECT a larger file: an id followed by
+    // whitespace inside the cap, then arbitrary content past it, survives the
+    // `trim()` below. Our own marker is one uuid, so anything larger is not one
+    // (CodeRabbit review on #2932).
+    const stat = fstatSync(handle);
+    if (!stat.isFile() || stat.size > MARKER_MAX_BYTES) return false;
+    const buffer = Buffer.alloc(MARKER_MAX_BYTES);
+    const bytes = readSync(handle, buffer, 0, MARKER_MAX_BYTES, 0);
+    return buffer.subarray(0, bytes).toString("utf-8").trim() === spawnId;
+  } catch {
+    return false;
+  } finally {
+    closeSync(handle);
+  }
+}
+
+// `aborted` is the abort SIGNAL, not `isAbortCausedExit`: the question here is
+// whether the turn was cut short, not whether this particular exit code was
+// ours. A cancel that lets the CLI exit 0 cleanly is still a turn that never got
+// to use its tools, and `isAbortCausedExit` reads that one as a normal finish.
+function logIfMcpUnavailable(turn: TurnMcpContext, builtinMcpToolsCalled: number, aborted: boolean): void {
+  // Spawn-scoped like `brokerEverStarted`, and for the same reason: this runs
+  // after the CLI exited, by which time a replay may have started a second
+  // broker for the same session. A session-keyed read would let that one
+  // suppress the diagnosis for the attempt that actually failed.
+  const brokerEverReady = turn.spawnId !== undefined && getBrokerReady(turn.chatSessionId, turn.spawnId) !== null;
+  if (!shouldWarnMcpUnavailable({ mcpConfigured: turn.mcpConfigured, aborted, brokerEverReady, builtinMcpToolsCalled })) return;
+  // `brokerEverStarted` splits this warn's one symptom into the two failures it
+  // was hiding, and they are fixed in different places: a broker that launched
+  // and never answered is the boot (the mount, the `tsx` path), while one that
+  // never launched is the spawn (the command, the paths, a missing module).
+  const started = brokerEverStarted(turn);
+  log.warn("agent", "MCP tools were unavailable this turn — the broker never reported ready and none of its tools ran", {
+    chatSessionId: turn.chatSessionId,
+    brokerEverStarted: started,
+    brokerEverReady,
+    builtinMcpToolsCalled,
+    hint: started
+      ? "The broker process started and never answered `initialize` — it is still loading (see `broker=`; `tsx` is the slow path) or it died while loading. Its own error is not in this log: Claude CLI owns its stderr."
+      : "The broker process never started — check the spawn command and the paths it resolves to.",
+  });
+}
+
+async function* readAgentEvents(proc: ClaudeProc, turn: TurnMcpContext, abortSignal?: AbortSignal): AsyncGenerator<AgentEvent> {
   let stderrOutput = "";
   let stderrBuffer = "";
   proc.stderr.on("data", (chunk: Buffer) => {
@@ -166,10 +309,10 @@ async function* readAgentEvents(proc: ClaudeProc, abortSignal?: AbortSignal): As
   // text is suppressed. See createStreamParser() in stream.ts.
   const parser = createStreamParser();
 
-  const mcpTracker = createMcpTracker();
-  // Runtime failure monitor (#1353). Lives next to mcpTracker
-  // because they share the same event stream — the tracker spots
-  // the "MCP never invoked" pattern, the monitor spots the
+  const builtinMcpToolWatcher = createBuiltinMcpToolWatcher();
+  // Runtime failure monitor (#1353). Lives next to builtinMcpToolWatcher
+  // because they share the same event stream — the watcher feeds the
+  // "MCP never invoked" check, the monitor spots the
   // "MCP invoked but consistently failing" pattern.
   const mcpFailureMonitor = createMcpFailureMonitor();
 
@@ -193,7 +336,7 @@ async function* readAgentEvents(proc: ClaudeProc, abortSignal?: AbortSignal): As
         continue;
       }
       for (const agentEvent of parser.parse(event)) {
-        mcpTracker.track(agentEvent);
+        builtinMcpToolWatcher.track(agentEvent);
         mcpFailureMonitor.track(agentEvent);
         yield agentEvent;
       }
@@ -204,7 +347,7 @@ async function* readAgentEvents(proc: ClaudeProc, abortSignal?: AbortSignal): As
 
   if (stderrBuffer.trim()) logAgentStderr(stderrBuffer);
   log.info("agent", "claude exited", { exitCode, signal });
-  mcpTracker.logIfSuspicious();
+  logIfMcpUnavailable(turn, builtinMcpToolWatcher.count(), abortSignal?.aborted === true);
 
   const errorEvent = buildExitErrorEvent(exitCode, signal, abortSignal, stderrOutput) ?? brokerNotReadyErrorEvent(stderrOutput);
   if (errorEvent) yield errorEvent;
@@ -307,7 +450,11 @@ async function* runClaudeAgent(input: AgentInput): AsyncGenerator<AgentEvent> {
   input.abortSignal?.addEventListener("abort", onAbort, { once: true });
 
   try {
-    yield* readAgentEvents(proc, input.abortSignal);
+    yield* readAgentEvents(
+      proc,
+      { chatSessionId: input.sessionId, mcpConfigured: input.mcpConfigPath !== undefined, startMarkerPath: input.startMarkerPath, spawnId: input.spawnId },
+      input.abortSignal,
+    );
   } finally {
     input.abortSignal?.removeEventListener("abort", onAbort);
     if (!proc.killed) proc.kill();

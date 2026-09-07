@@ -1,5 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { roleIcon, roleName } from "../../../src/utils/role/icon.js";
 import type { Role } from "../../../src/config/roles";
 
@@ -33,7 +35,7 @@ describe("roleIcon", () => {
     assert.equal(roleIcon(roles, "tutor"), "school");
   });
 
-  it("falls back to smart_toy when the icon contains non-letter chars", () => {
+  it("falls back to smart_toy when the icon is not a name the font can resolve", () => {
     assert.equal(roleIcon(roles, "broken"), "smart_toy");
   });
 
@@ -44,41 +46,40 @@ describe("roleIcon", () => {
     assert.equal(roleIcon(roles, "no-such-role"), "smart_toy");
   });
 
-  it("accepts only lowercase letters and underscores as valid icons", () => {
-    const testRoles: Role[] = [
-      {
-        id: "a",
-        name: "",
-        icon: "valid_name",
-        prompt: "",
-        availablePlugins: [],
-      },
-      {
-        id: "b",
-        name: "",
-        icon: "Has_Caps",
-        prompt: "",
-        availablePlugins: [],
-      },
-      {
-        id: "c",
-        name: "",
-        icon: "with-dash",
-        prompt: "",
-        availablePlugins: [],
-      },
-      {
-        id: "d",
-        name: "",
-        icon: "123",
-        prompt: "",
-        availablePlugins: [],
-      },
+  it("accepts lowercase letters, digits and underscores as valid icons", () => {
+    // `123` is a REAL Material Icons name. This case previously expected
+    // `smart_toy` — the test asserted the defect, which is why a letters-only
+    // pattern survived: it rejected 151 of the 2122 shipped names and every
+    // assertion still passed.
+    const cases: [icon: string, expected: string][] = [
+      ["valid_name", "valid_name"],
+      ["123", "123"],
+      ["10k", "10k"],
+      ["3d_rotation", "3d_rotation"],
+      ["18_up_rating", "18_up_rating"],
+      ["Has_Caps", "smart_toy"],
+      ["with-dash", "smart_toy"],
+      ["has space", "smart_toy"],
+      ["", "smart_toy"],
+      ["🤖", "smart_toy"],
+      ["日本語", "smart_toy"],
     ];
-    assert.equal(roleIcon(testRoles, "a"), "valid_name");
-    assert.equal(roleIcon(testRoles, "b"), "smart_toy");
-    assert.equal(roleIcon(testRoles, "c"), "smart_toy");
-    assert.equal(roleIcon(testRoles, "d"), "smart_toy");
+    const testRoles: Role[] = cases.map(([icon], index) => ({ id: `role-${index}`, name: "", icon, prompt: "", availablePlugins: [] }));
+    cases.forEach(([icon, expected], index) => {
+      assert.equal(roleIcon(testRoles, `role-${index}`), expected, icon);
+    });
+  });
+
+  // The guard that actually prevents this coming back: ask the SHIPPED icon
+  // set, not a remembered idea of what its names look like.
+  it("accepts every name the shipped Material Icons set declares", () => {
+    const require_ = createRequire(import.meta.url);
+    const declarations = readFileSync(require_.resolve("material-icons/index.d.ts"), "utf8");
+    const names = [...declarations.matchAll(/"([^"]+)"/g)].map((match) => match[1] ?? "");
+    assert.ok(names.length > 2000, `expected the full icon list, got ${names.length}`);
+    const testRoles: Role[] = names.map((icon, index) => ({ id: `n${index}`, name: "", icon, prompt: "", availablePlugins: [] }));
+    const rejected = names.filter((icon, index) => roleIcon(testRoles, `n${index}`) !== icon);
+    assert.deepEqual(rejected, []);
   });
 });
 

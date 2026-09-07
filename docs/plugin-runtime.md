@@ -63,7 +63,7 @@ Both sources merge into the same registry. The user-installed plugin sees preset
 
 There are three flavours of collision and the behaviour differs by source:
 
-1. **Runtime plugin name collides with a manifest-listed GUI plugin or a pure MCP tool** (everything fed into `MCP_PLUGIN_NAMES` plus `mcpToolDefs` keys: `notify`, `readXPost`, `searchX`, plus the manifest entries in [`config/plugins.registry.ts`](../config/plugins.registry.ts)). The runtime loader **rejects** the entry at registration time. The boot log records this:
+1. **Runtime plugin name collides with a manifest-listed GUI plugin or a pure MCP tool** (everything fed into `MCP_PLUGIN_NAMES` plus `mcpToolDefs` keys: `notify`, `readXPost`, `searchX`, plus the manifest entries in [`src/plugins/server.ts`](../src/plugins/server.ts)). The runtime loader **rejects** the entry at registration time. The boot log records this:
 
    ```text
    [plugins/registry] skipping runtime plugin — name collides with static tool plugin=@x/notify-clone tool=notify

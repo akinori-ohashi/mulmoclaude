@@ -6,6 +6,9 @@ export { nextFileVersion, type FileChangePayload } from "./fileWatch.ts";
 export { useMarkdownDoc } from "./useMarkdownDoc.ts";
 export { formatScalarField, buildMarkdownDocView, type MarkdownDocField, type MarkdownDocView } from "./markdownDoc.ts";
 export { useClipboardCopy, type UseClipboardCopyHandle } from "./useClipboardCopy.ts";
+// The one renderer for a schema-authored `icon` value. Shared so a value the icon
+// font cannot resolve can never reach it and overflow its box (#2986).
+export { IconGlyph, type IconGlyphProps } from "./IconGlyph.ts";
 // Shared with the hosts' own markdown surfaces: a view that injects `marked`
 // output with `v-html` renders content this app did not necessarily write.
 export { sanitizeMarkdownHtml, _resetSanitizeForTests } from "./sanitizeMarkdownHtml.ts";

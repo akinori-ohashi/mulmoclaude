@@ -5,6 +5,7 @@ const en: Messages = {
   loadFailed: "⚠ Failed to load document: {error}",
   refreshFailed: "⚠ Failed to refresh document: {error} — showing last successfully loaded content.",
   noContent: "No markdown content available",
+  reload: "Reload from disk",
   pdf: "PDF",
   pdfFailedShort: "⚠ PDF failed",
   editSource: "Edit Markdown Source",
@@ -26,6 +27,10 @@ const en: Messages = {
   marpSplitEditorLabel: "Source",
   mermaidLoadFailed: "⚠ Mermaid failed to load: {error}",
   mermaidRenderFailed: "⚠ Mermaid render failed: {error}",
+  mathLoadFailed: "⚠ MathJax failed to load: {error}",
+  mathRenderFailed: "⚠ Math render failed: {error}",
+  bookmarkRailLabel: "Bookmarks",
+  bookmarkJump: "Jump to bookmark: {label}",
 };
 
 export default en;

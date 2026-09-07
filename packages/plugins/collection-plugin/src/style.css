@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+/* The enum palette spells its classes out in core, which this package's Vite root
+   does not cover — so they drop out of dist/style.css and only the host app, whose
+   root IS the repository, keeps rendering them (#2989). The FILE, not its directory:
+   scanning core/src harvests ordinary words out of the TypeScript (`contents`, `grow`,
+   `ring`) and emits utilities nothing asked for. */
+@source "../../../core/src/collection/core/enumColors.ts";
+
+/* IconGlyph does the same thing one file over: it spells out the classes that
+   size and colour a collection's icon, and it lives in core rather than here
+   (#2986). Same reasoning as above, including naming the FILE — the gate in
+   `scripts/packages/check-plugin-tailwind-source.mjs` went red the moment the
+   two landed together. */
+@source "../../../core/src/plugin-vue/IconGlyph.ts";

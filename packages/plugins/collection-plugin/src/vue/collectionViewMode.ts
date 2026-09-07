@@ -13,9 +13,16 @@ export type BuiltInViewMode = "table" | "calendar" | "kanban";
 export type CustomViewMode = `custom:${string}`;
 export type CollectionViewMode = BuiltInViewMode | CustomViewMode;
 
+const CUSTOM_VIEW_PREFIX = "custom:";
+
 /** Build the `custom:<id>` selector key for a custom view. */
 export function customViewKey(viewId: string): CustomViewMode {
-  return `custom:${viewId}`;
+  return `${CUSTOM_VIEW_PREFIX}${viewId}`;
+}
+
+/** Is this mode one of the LLM-authored custom views (rather than a built-in)? */
+export function isCustomViewMode(view: CollectionViewMode): view is CustomViewMode {
+  return view.startsWith(CUSTOM_VIEW_PREFIX);
 }
 
 /** Every view mode a schema can render, in selector order: `table`
@@ -46,8 +53,8 @@ export function resolveActiveViewMode(
 ): CollectionViewMode {
   if (view === "calendar" && hasCalendar) return "calendar";
   if (view === "kanban" && hasKanban) return "kanban";
-  if (view.startsWith("custom:")) {
-    const viewId = view.slice("custom:".length);
+  if (isCustomViewMode(view)) {
+    const viewId = view.slice(CUSTOM_VIEW_PREFIX.length);
     if (customViewIds.includes(viewId)) return view;
   }
   return "table";
@@ -76,7 +83,7 @@ function readEntries(source: object): [string, unknown][] {
  *  and type-guards `string` first: a corrupted localStorage entry could hold a
  *  number/object, and calling `.startsWith` on that would throw. */
 function isValidViewMode(value: unknown): value is CollectionViewMode {
-  return typeof value === "string" && (BUILT_IN_MODES.some((mode) => mode === value) || value.startsWith("custom:"));
+  return typeof value === "string" && (BUILT_IN_MODES.some((mode) => mode === value) || value.startsWith(CUSTOM_VIEW_PREFIX));
 }
 
 type ViewModeMap = Record<string, CollectionViewMode>;

@@ -8,6 +8,7 @@ export interface Messages {
   loadFailed: string;
   refreshFailed: string;
   noContent: string;
+  reload: string;
   pdf: string;
   pdfFailedShort: string;
   editSource: string;
@@ -29,4 +30,8 @@ export interface Messages {
   marpSplitEditorLabel: string;
   mermaidLoadFailed: string;
   mermaidRenderFailed: string;
+  mathLoadFailed: string;
+  mathRenderFailed: string;
+  bookmarkRailLabel: string;
+  bookmarkJump: string;
 }

@@ -58,6 +58,20 @@ describe("buildWikiGraph", () => {
     assert.deepEqual(graph.edges, [{ from: "alpha", to: "sakura-internet" }]);
   });
 
+  it("resolves a non-ASCII [[link]] against a non-ASCII page slug (#2940)", () => {
+    // The page file is named in Japanese, so the link target IS the
+    // slug — no index entry needed. Slugifying first stripped it to
+    // an ASCII remnant and the edge was silently dropped.
+    const graph = buildWikiGraph(
+      [
+        { slug: "alpha", content: "見て [[不耕起栽培-カバークロップ4年計画]]" },
+        { slug: "不耕起栽培-カバークロップ4年計画", content: "" },
+      ],
+      [entry("alpha", "Alpha")],
+    );
+    assert.deepEqual(graph.edges, [{ from: "alpha", to: "不耕起栽培-カバークロップ4年計画" }]);
+  });
+
   it("drops links to non-existent pages", () => {
     const graph = buildWikiGraph(
       [

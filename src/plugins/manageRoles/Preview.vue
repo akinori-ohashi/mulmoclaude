@@ -5,7 +5,7 @@
       <span>{{ t("pluginManageRoles.previewCount", customRoles.length, { named: { count: customRoles.length } }) }}</span>
     </div>
     <div v-for="role in customRoles" :key="role.id" class="text-xs text-gray-600 flex items-center gap-1">
-      <span class="material-icons" style="font-size: 12px">{{ role.icon }}</span>
+      <IconGlyph :icon="role.icon" font-class="material-icons" size-class="!text-xs" />
       {{ role.name }}
     </div>
   </div>
@@ -14,6 +14,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { IconGlyph } from "@mulmoclaude/core/plugin-vue";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import type { ManageRolesData, CustomRole } from "./index";
 import { useFreshPluginData } from "../../composables/useFreshPluginData";

@@ -2,6 +2,8 @@ import type { Messages } from "./messages";
 
 const ptBR: Messages = {
   beatCount: (count) => (count === 1 ? `${count} beat` : `${count} beats`),
+  editTab: "Editar",
+  mediaTab: "Mídia",
   movie: "Vídeo",
   generating: "Gerando…",
   rendering: "Renderizando…",

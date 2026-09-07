@@ -22,6 +22,7 @@ export interface FeedSummarySource {
   schema: {
     title: string;
     icon: string;
+    color?: string | undefined;
     ingest?: { kind?: string | undefined; schedule?: string | undefined } | undefined;
   };
 }
@@ -34,6 +35,7 @@ const summarize = (feed: FeedSummarySource, lastFetchedAt: string | null): FeedS
   slug: feed.slug,
   title: feed.schema.title,
   icon: feed.schema.icon,
+  ...(feed.schema.color !== undefined ? { color: feed.schema.color } : {}),
   kind: feed.schema.ingest?.kind ?? DEFAULT_KIND,
   schedule: feed.schema.ingest?.schedule ?? DEFAULT_SCHEDULE,
   lastFetchedAt,

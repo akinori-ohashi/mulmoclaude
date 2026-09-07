@@ -128,3 +128,16 @@ Desktop and phone views have **incompatible runtime contracts** — a desktop vi
 records with an injected token, while a `target: "mobile"` view gets them over a postMessage bridge
 and cannot `fetch` at all. A view authored against the wrong contract renders empty with no error.
 Check which target it is registered as before treating it as a rendering fault.
+
+## The narration is not the voice I asked for, or a small tweak re-recorded every beat
+
+help: mulmoscript.md
+help: error-recovery.md
+
+Speech settings resolve through fallbacks that raise no error, so read the script's own
+`speechParams` block against the speaker reference in `mulmoscript.md` (§ speechParams) before
+treating it as a bug. Three mechanisms explain nearly every report: a `lang` entry replaces the
+whole speaker rather than extending it, each delivery option reaches some providers and is dropped
+by others, and the audio cache key of each beat is built from the speaker's own fields — so editing
+one of them re-records every beat that speaker narrates. Which field is missing decides which
+symptom you are looking at.

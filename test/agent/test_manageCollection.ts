@@ -9,11 +9,19 @@ import "../../server/workspace/collections/configure.js"; // configure @mulmocla
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { makeManageCollectionTool, MAX_UNSELECTIVE_ITEMS, MAX_SCHEMA_ISSUES } from "../../server/agent/mcp-tools/manageCollection.js";
+import {
+  makeManageCollectionTool,
+  MAX_UNSELECTIVE_ITEMS,
+  MAX_SCHEMA_ISSUES,
+  MAX_PUT_ITEMS,
+  MAX_PUT_LINT,
+  MAX_ITEMS_FILE_BYTES,
+  type PutItemsLint,
+} from "../../server/agent/mcp-tools/manageCollection.js";
 import { mcpTools } from "../../server/agent/mcp-tools/index.js";
 
 let workdir: string;
@@ -105,8 +113,8 @@ describe("manageCollection — argument validation", () => {
   it("rejects malformed ids / fields / items / mode", async () => {
     assert.match(await run({ action: "getItems", slug: "portfolio", ids: [42] }), /`ids` must be an array/);
     assert.match(await run({ action: "getItems", slug: "portfolio", fields: "name" }), /`fields` must be an array/);
-    assert.match(await run({ action: "putItems", slug: "portfolio" }), /`items` is required/);
-    assert.match(await run({ action: "putItems", slug: "portfolio", items: [[1]] }), /`items` is required/);
+    assert.match(await run({ action: "putItems", slug: "portfolio" }), /putItems needs `items`.*or `itemsFile`/);
+    assert.match(await run({ action: "putItems", slug: "portfolio", items: [[1]] }), /putItems needs `items`.*or `itemsFile`/);
     assert.match(await run({ action: "putItems", slug: "portfolio", items: [{ id: "a" }], mode: "replace" }), /`mode` must be/);
   });
 
@@ -342,6 +350,277 @@ describe("manageCollection — putItems", () => {
     assert.equal(rejectedRow?.id, "bad");
     assert.match(rejectedRow?.problem ?? "", /malformed stored file/);
     assert.equal(stored("h1").status, "closed"); // the healthy row landed
+  });
+});
+
+// The write gate refuses what makes a record unopenable; the SHAPE of a value it
+// only reports (`lint-not-lock`, so a collection whose legacy rows predate the
+// typed rules stays writable). Before mulmoterminal#1763 it did not report it
+// either: 720 slots seeded with `toISOString()` came back as 720 written and
+// nothing else, and the app that published from them refused every one.
+describe("manageCollection — putItems lint", () => {
+  const slot = (itemId: string, startAt: string) => ({ id: itemId, startAt });
+
+  beforeEach(() => {
+    writeSkill("slots", {
+      title: "Slots",
+      icon: "event",
+      dataPath: "data/slots/items",
+      primaryKey: "id",
+      fields: {
+        id: { type: "string", label: "ID", primary: true, required: true },
+        startAt: { type: "datetime", label: "Start" },
+        day: { type: "date", label: "Day" },
+        price: { type: "number", label: "Price" },
+        note: { type: "string", label: "Note" },
+      },
+    });
+  });
+
+  it("writes a Z-suffixed datetime and says so, naming what a later reader will do about it", async () => {
+    const result = await runJson({ action: "putItems", slug: "slots", items: [slot("s1", "2026-08-17T15:00:00.000Z")] });
+    assert.deepEqual(result.written, ["s1"], "the row is written — the strict tier reports, it does not refuse");
+    assert.deepEqual(result.rejected, []);
+    assert.ok(existsSync(path.join(workdir, "data/slots/items/s1.json")));
+    const lint = result.lint as PutItemsLint;
+    assert.equal(lint.total, 1);
+    assert.equal(lint.rows[0]?.id, "s1");
+    assert.match(lint.rows[0]?.problem ?? "", /not a YYYY-MM-DDTHH:MM datetime/);
+    assert.match(lint.note, /WERE written/);
+    assert.match(lint.note, /publishing a shared app REFUSES the row/);
+  });
+
+  // Not a datetime special case: the strict tier is the whole per-type layer, and
+  // a day the calendar cannot place fails it the same way (CodeRabbit on #2925).
+  it("reports an impossible date the same way", async () => {
+    const result = await runJson({ action: "putItems", slug: "slots", items: [{ id: "s1", day: "2026-02-30" }] });
+    assert.deepEqual(result.written, ["s1"]);
+    assert.deepEqual(result.rejected, []);
+    const lint = result.lint as PutItemsLint;
+    assert.match(lint.rows[0]?.problem ?? "", /not a real YYYY-MM-DD date/);
+  });
+
+  // What "numeric" means is `coerceNumeric`, shared with rollup sums — so a
+  // stored "42" is a number to every reader and must NOT be linted, while text
+  // that is not a number at all must be. Pinned because the tool prompt names
+  // this case, and the two have to say the same thing (codex on #2925).
+  it("accepts a numeric string in a number field, and reports one that is not a number", async () => {
+    const clean = await runJson({ action: "putItems", slug: "slots", items: [{ id: "s1", price: "42" }] });
+    assert.deepEqual(clean.written, ["s1"]);
+    assert.equal("lint" in clean, false);
+    const bad = await runJson({ action: "putItems", slug: "slots", items: [{ id: "s2", price: "free" }] });
+    assert.deepEqual(bad.written, ["s2"]);
+    assert.match((bad.lint as PutItemsLint).rows[0]?.problem ?? "", /is not numeric/);
+  });
+
+  // The strict tier accepts exactly one `Z`-suffixed datetime: the instant a
+  // shared app's server stamps, at nine fractional digits. `toISOString()`'s
+  // three digits are NOT that shape — which is the whole reason the seeded app
+  // in mulmoterminal#1763 was refused at publish. Both halves pinned, because
+  // the prompt now draws the line between them (codex on #2925).
+  it("accepts a server-stamped instant and still reports toISOString's", async () => {
+    const stamped = await runJson({ action: "putItems", slug: "slots", items: [slot("s1", "2026-08-15T01:45:54.605987654Z")] });
+    assert.deepEqual(stamped.written, ["s1"]);
+    assert.equal("lint" in stamped, false, "nine fractional digits is the canonical server instant");
+    const converted = await runJson({ action: "putItems", slug: "slots", items: [slot("s2", "2026-08-15T01:45:54.605Z")] });
+    assert.deepEqual(converted.written, ["s2"]);
+    assert.match((converted.lint as PutItemsLint).rows[0]?.problem ?? "", /not a YYYY-MM-DDTHH:MM datetime/);
+  });
+
+  it("has no lint key at all when every written row fits its types", async () => {
+    const result = await runJson({ action: "putItems", slug: "slots", items: [slot("s1", "2026-08-17T08:00")] });
+    assert.deepEqual(result.written, ["s1"]);
+    assert.equal("lint" in result, false, "absence is the signal — an empty block would read as noise");
+  });
+
+  it("reports the true total while showing only the first rows", async () => {
+    const rows = Array.from({ length: MAX_PUT_LINT + 2 }, (unused, index) => slot(`s${index}`, "2026-08-17T15:00:00.000Z"));
+    const result = await runJson({ action: "putItems", slug: "slots", items: rows });
+    const lint = result.lint as PutItemsLint;
+    assert.equal((result.written as string[]).length, MAX_PUT_LINT + 2);
+    assert.equal(lint.total, MAX_PUT_LINT + 2, "a capped list must never be readable as a total");
+    assert.equal(lint.rows.length, MAX_PUT_LINT);
+  });
+
+  it("lints only the rows it wrote — a rejected row already has its problem", async () => {
+    const result = await runJson({
+      action: "putItems",
+      slug: "slots",
+      items: [slot("s1", "2026-08-17T15:00:00.000Z"), { startAt: "2026-08-17T15:00:00.000Z" }],
+    });
+    assert.deepEqual(result.written, ["s1"]);
+    assert.equal((result.rejected as unknown[]).length, 1);
+    const lint = result.lint as PutItemsLint;
+    assert.equal(lint.total, 1);
+    assert.equal(lint.rows[0]?.id, "s1");
+  });
+
+  it("lints the record as WRITTEN, so a merge that leaves a bad value in place still reports it", async () => {
+    writeRecord("data/slots/items", "s1", slot("s1", "2026-08-17T15:00:00.000Z"));
+    const result = await runJson({ action: "putItems", slug: "slots", items: [{ id: "s1", note: "held" }], mode: "merge" });
+    assert.deepEqual(result.written, ["s1"]);
+    const lint = result.lint as PutItemsLint;
+    assert.match(lint.rows[0]?.problem ?? "", /not a YYYY-MM-DDTHH:MM datetime/, "the merged result is what a later read will lint");
+  });
+
+  it("stays silent under ablateValidation, like the rest of the gate", async () => {
+    const ablated = makeManageCollectionTool({ workspaceRoot: workdir, userSkillsDir: emptyUserDir, ablateValidation: true });
+    const result = JSON.parse(await ablated.handler({ action: "putItems", slug: "slots", items: [slot("s1", "2026-08-17T15:00:00.000Z")] })) as Record<
+      string,
+      unknown
+    >;
+    assert.deepEqual(result.written, ["s1"]);
+    assert.equal("lint" in result, false);
+  });
+});
+
+// `itemsFile` exists so a generated set of rows never has to pass through the
+// model's context (issue #2914 — the agent hand-spawned the MCP bridge rather
+// than write 540 records inline). The failure modes it must NOT have: reading a
+// path that resolved somewhere unintended, and writing part of an over-cap file.
+describe("manageCollection — putItems from itemsFile", () => {
+  const record = (itemId: string, extra: Record<string, unknown> = {}) => ({ id: itemId, name: `Name ${itemId}`, status: "open", ...extra });
+  const stored = (itemId: string) => JSON.parse(readFileSync(path.join(workdir, `data/portfolio/items/${itemId}.json`), "utf-8")) as Record<string, unknown>;
+  const writeItemsFile = (name: string, rows: unknown): string => {
+    const file = path.join(workdir, name);
+    writeFileSync(file, JSON.stringify(rows));
+    return file;
+  };
+  // #2972: these refused the file as "outside the workspace" on Windows, where
+  // `os.tmpdir()` yields the 8.3 short form. A bare `assert.match` reports only
+  // the refusal text, which names the path as PASSED and so cannot show which
+  // side of the containment comparison failed to canonicalise. This does.
+  const pathDetail = (file: string): string => `workdir=${workdir} workdirReal=${realpathSync(workdir)} file=${file} fileReal=${realpathSync(file)}`;
+
+  it("writes the rows the file holds, with the same per-row results as inline items", async () => {
+    const itemsFile = writeItemsFile("rows.json", [record("f1"), { id: "noname", status: "open" }]);
+    const result = await runJson({ action: "putItems", slug: "portfolio", itemsFile });
+    assert.deepEqual(result.written, ["f1"]);
+    assert.match((result.rejected as { problem: string }[])[0]?.problem ?? "", /missing required field 'name'/);
+    assert.deepEqual(stored("f1"), record("f1"));
+  });
+
+  it("honours mode, so a file can be a create-only batch", async () => {
+    const itemsFile = writeItemsFile("dup.json", [record("dup")]);
+    assert.deepEqual((await runJson({ action: "putItems", slug: "portfolio", itemsFile, mode: "create" })).written, ["dup"]);
+    const again = await runJson({ action: "putItems", slug: "portfolio", itemsFile, mode: "create" });
+    assert.deepEqual(again.written, []);
+    assert.match((again.rejected as { problem: string }[])[0]?.problem ?? "", /already exists/);
+  });
+
+  it("refuses items and itemsFile together rather than picking one", async () => {
+    const itemsFile = writeItemsFile("both.json", [record("fromfile")]);
+    const result = await run({ action: "putItems", slug: "portfolio", items: [record("inline")], itemsFile });
+    assert.match(result, /either `items` or `itemsFile`.*not both/);
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/inline.json")), "neither source may be written");
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/fromfile.json")), "neither source may be written");
+  });
+
+  it("refuses a relative path — the server process's cwd is not the agent's", async () => {
+    const result = await run({ action: "putItems", slug: "portfolio", itemsFile: "rows.json" });
+    assert.match(result, /must be an ABSOLUTE path/);
+  });
+
+  // Unconstrained, this handler would be a host-filesystem read primitive for a
+  // sandboxed agent: any JSON array on the host, stored and then read back out
+  // with getItems. The workspace is also the only region the sandbox shares.
+  it("refuses a path outside the workspace, and a symlink that leaves it", async () => {
+    const outside = path.join(emptyUserDir, "elsewhere.json");
+    writeFileSync(outside, JSON.stringify([record("smuggled")]));
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: outside }), /must be inside the workspace/);
+
+    const bridge = path.join(workdir, "bridge.json");
+    symlinkSync(outside, bridge);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: bridge }), /must be inside the workspace/);
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/smuggled.json")), "nothing outside the workspace may be read in");
+  });
+
+  // The containment check and the read must be bound to ONE descriptor. Checking
+  // a pathname and reading that pathname again leaves a window in which the
+  // agent — which can write anywhere in the workspace — swaps the symlink for
+  // one pointing outside, restoring the read primitive containment denies.
+  it("refuses a symlink even when it points inside the workspace", async () => {
+    const real = writeItemsFile("real.json", [record("linked")]);
+    const link = path.join(workdir, "link.json");
+    symlinkSync(real, link);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: link }), /is a symbolic link/);
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/linked.json")), "a symlink is never followed, contained or not");
+  });
+
+  it("never reads what the path was swapped to mid-call", async () => {
+    const outside = path.join(emptyUserDir, "swapped-in.json");
+    writeFileSync(outside, JSON.stringify([record("swapped")]));
+    const target = writeItemsFile("racy.json", [record("honest")]);
+
+    // Swap the file for a symlink out of the workspace while the call is in
+    // flight. Either outcome is safe — the descriptor's own bytes, or a refusal
+    // once the swap is noticed — but the swapped-in target must never be read.
+    const inFlight = run({ action: "putItems", slug: "portfolio", itemsFile: target });
+    rmSync(target, { force: true });
+    symlinkSync(outside, target);
+    const result = await inFlight;
+
+    assert.ok(!result.includes("swapped"), `the swapped-in target must never be read, got: ${result}`);
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/swapped.json")), "the swapped-in target must never be written");
+  });
+
+  // A sandboxed agent's absolute paths are CONTAINER paths; the host mounts the
+  // workspace elsewhere. Read verbatim they ENOENT on every real host.
+  it("translates a sandbox mount prefix back to the workspace root", async () => {
+    const sandboxed = makeManageCollectionTool({ workspaceRoot: workdir, userSkillsDir: emptyUserDir, sandboxWorkspacePath: "/home/node/mulmoclaude" });
+    writeItemsFile("from-sandbox.json", [record("boxed")]);
+    const result = JSON.parse(
+      await sandboxed.handler({ action: "putItems", slug: "portfolio", itemsFile: "/home/node/mulmoclaude/from-sandbox.json" }),
+    ) as Record<string, unknown>;
+    assert.deepEqual(result.written, ["boxed"], "the container path must resolve to the same bytes on the host");
+  });
+
+  it("reports an unreadable file, a non-regular file and bad JSON as fixable text, not a throw", async () => {
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: path.join(workdir, "ghost.json") }), /could not read `itemsFile`/);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: path.join(workdir, "data") }), /is not a regular file/);
+    const notJson = path.join(workdir, "bad.json");
+    writeFileSync(notJson, "{not json");
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: notJson }), /could not be read as JSON/);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: writeItemsFile("empty.json", []) }), /non-empty JSON array/);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: writeItemsFile("scalars.json", [1, 2]) }), /non-empty JSON array/);
+  });
+
+  // The row cap cannot bound this: the file is read and parsed WHOLE before
+  // there are rows to count, so an oversized blob is paid for in full first.
+  it("refuses an oversized file from stat, before reading it", async () => {
+    const fat = path.join(workdir, "fat.json");
+    writeFileSync(fat, `[${" ".repeat(MAX_ITEMS_FILE_BYTES)}]`);
+    assert.match(await run({ action: "putItems", slug: "portfolio", itemsFile: fat }), new RegExp(`over the limit of ${MAX_ITEMS_FILE_BYTES}`));
+  });
+
+  // A size check bounds nothing if the read then runs to EOF: appending keeps
+  // the same inode, so neither the cap nor the identity check would notice a
+  // 2-byte file turning into gigabytes between the stat and the read.
+  it("reads no further than the size it checked, when the file grows underneath", async () => {
+    const growing = writeItemsFile("growing.json", [record("small")]);
+    const inFlight = run({ action: "putItems", slug: "portfolio", itemsFile: growing });
+    appendFileSync(growing, " ".repeat(MAX_ITEMS_FILE_BYTES));
+    const result = await inFlight;
+    // Which gate catches it depends on whether the append lands before the
+    // stat or after; all three outcomes are bounded reads. What must never
+    // happen is the call taking the grown file as its rows.
+    assert.ok(
+      /over the limit of/.test(result) || /grew while it was being read/.test(result) || /"written":\["small"\]/.test(result),
+      `expected a bounded read, got: ${result}`,
+    );
+  });
+
+  it("refuses an over-cap file WHOLE, leaving nothing written", async () => {
+    const rows = Array.from({ length: MAX_PUT_ITEMS + 1 }, (_unused, index) => record(`cap${index}`));
+    const itemsFile = writeItemsFile("toomany.json", rows);
+    const result = await run({ action: "putItems", slug: "portfolio", itemsFile });
+    assert.match(result, new RegExp(`over the putItems limit of ${MAX_PUT_ITEMS}`), pathDetail(itemsFile));
+    assert.ok(!existsSync(path.join(workdir, "data/portfolio/items/cap0.json")), "an over-cap call must not write its first rows");
+  });
+
+  it("applies the same cap to inline items", async () => {
+    const items = Array.from({ length: MAX_PUT_ITEMS + 1 }, (_unused, index) => record(`inline${index}`));
+    assert.match(await run({ action: "putItems", slug: "portfolio", items }), new RegExp(`over the putItems limit of ${MAX_PUT_ITEMS}`));
   });
 });
 
@@ -663,5 +942,120 @@ describe("manageCollection — deleteItems", () => {
     mkdirSync(path.join(workdir, "data"), { recursive: true });
     writeFileSync(path.join(workdir, "data/students.csv"), "student_id,name\ns1,Ada\n");
     assert.match(await run({ action: "deleteItems", slug: "students", ids: ["s1"] }), /read-only/);
+  });
+});
+
+// Field-level `default` (#2839): a starting value for a NEW record, so the
+// same two values don't have to be typed on every add.
+describe("manageCollection — enum field defaults", () => {
+  const TASKS = {
+    title: "Tasks",
+    icon: "task_alt",
+    dataPath: "data/tasks/items",
+    primaryKey: "id",
+    fields: {
+      id: { type: "string", label: "ID", primary: true, required: true },
+      title: { type: "string", label: "Title", required: true },
+      status: { type: "enum", label: "Status", values: ["todo", "doing", "done"], required: true, default: "todo" },
+      priority: { type: "enum", label: "Priority", values: ["high", "low"], default: "low" },
+    },
+  };
+  const storedTask = (itemId: string) => JSON.parse(readFileSync(path.join(workdir, `data/tasks/items/${itemId}.json`), "utf-8")) as Record<string, unknown>;
+
+  beforeEach(() => writeSkill("tasks", TASKS));
+
+  it("fills the fields a create row omits, satisfying a required enum on its own", async () => {
+    const result = await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t1", title: "Write it" }], mode: "create" });
+    assert.deepEqual(result.rejected, []);
+    assert.equal(storedTask("t1").status, "todo");
+    assert.equal(storedTask("t1").priority, "low");
+  });
+
+  // An `enum` is a legal primary key (`primary` lives on every field type), so
+  // a default can be what supplies the record id — which means the merge has to
+  // happen before the id is resolved, not after (Codex review on #2910).
+  it("supplies the id when the primary key is an enum with a default", async () => {
+    writeSkill("phases", {
+      title: "Phases",
+      icon: "list",
+      dataPath: "data/phases/items",
+      primaryKey: "phase",
+      fields: {
+        phase: { type: "enum", label: "Phase", values: ["intake", "review"], primary: true, required: true, default: "intake" },
+        note: { type: "string", label: "Note" },
+      },
+    });
+    const result = await runJson({ action: "putItems", slug: "phases", items: [{ note: "no id given" }], mode: "create" });
+    assert.deepEqual(result.rejected, []);
+    assert.deepEqual(result.written, ["intake"]);
+    const stored = JSON.parse(readFileSync(path.join(workdir, "data/phases/items/intake.json"), "utf-8")) as Record<string, unknown>;
+    assert.equal(stored.phase, "intake");
+  });
+
+  it("never overrides a value the row carries", async () => {
+    await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t2", title: "Urgent", status: "doing", priority: "high" }], mode: "create" });
+    assert.equal(storedTask("t2").status, "doing");
+    assert.equal(storedTask("t2").priority, "high");
+  });
+
+  // An edit is not a create: the record already answered this question, and
+  // re-applying the default would put the answer back to the starting value.
+  it("does not apply on upsert or merge", async () => {
+    await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t3", title: "Done one", status: "done", priority: "high" }], mode: "create" });
+
+    const merged = await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t3", title: "Renamed" }], mode: "merge" });
+    assert.deepEqual(merged.rejected, []);
+    assert.equal(storedTask("t3").status, "done", "merge must keep the stored answer");
+    assert.equal(storedTask("t3").priority, "high");
+
+    const upserted = await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t3", title: "Replaced", status: "doing" }] });
+    assert.deepEqual(upserted.rejected, []);
+    assert.equal(storedTask("t3").status, "doing");
+    assert.equal(storedTask("t3").priority, undefined, "upsert replaces WHOLE — no default sneaks back in");
+  });
+});
+
+describe("manageCollection — putSchema and a stale default", () => {
+  let putTool: ReturnType<typeof makeManageCollectionTool>;
+  const putRun = (args: Record<string, unknown>) => putTool.handler(args);
+  const withStatus = (status: Record<string, unknown>) => ({
+    title: "Tasks",
+    icon: "task_alt",
+    dataPath: "data/tasks/items",
+    primaryKey: "id",
+    fields: { id: { type: "string", label: "ID", primary: true, required: true }, status },
+  });
+
+  beforeEach(() => {
+    putTool = makeManageCollectionTool({ workspaceRoot: workdir, userSkillsDir: emptyUserDir, refreshAfterWrite: async () => {} });
+    writeSkill("tasks", withStatus({ type: "enum", label: "Status", values: ["todo", "done"] }));
+  });
+
+  it("accepts a default that is one of the values", async () => {
+    const schema = withStatus({ type: "enum", label: "Status", values: ["todo", "done"], default: "todo" });
+    const result = JSON.parse(await putRun({ action: "putSchema", slug: "tasks", schema })) as Record<string, unknown>;
+    assert.equal(result.written, true);
+  });
+
+  it("refuses a default the values do not offer, naming what was allowed", async () => {
+    const schema = withStatus({ type: "enum", label: "Status", values: ["todo", "done"], default: "未着手" });
+    const msg = await putRun({ action: "putSchema", slug: "tasks", schema });
+    assert.match(msg, /schema rejected/);
+    assert.match(msg, /未着手/);
+    assert.match(msg, /todo, done/);
+    assert.ok(!existsSync(path.join(workdir, "data/skills/tasks/schema.json")), "no staging file on rejection");
+  });
+
+  // The compatibility guarantee. `default` was silently ignored before #2839,
+  // so a file may already carry one the values no longer offer. Refusing it at
+  // PARSE time would drop the collection out of discovery's index entirely —
+  // the collection would vanish from the UI with only a log line. It must keep
+  // loading, and simply start blank.
+  it("keeps loading a collection whose stored default is not a member", async () => {
+    writeSkill("tasks", withStatus({ type: "enum", label: "Status", values: ["todo", "done"], default: "未着手" }));
+    const created = await runJson({ action: "putItems", slug: "tasks", items: [{ id: "t9" }], mode: "create" });
+    assert.deepEqual(created.rejected, [], "the collection is still discoverable and writable");
+    const stored = JSON.parse(readFileSync(path.join(workdir, "data/tasks/items/t9.json"), "utf-8")) as Record<string, unknown>;
+    assert.equal(stored.status, undefined, "an impossible default is not handed to the record");
   });
 });

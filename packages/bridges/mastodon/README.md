@@ -4,6 +4,15 @@
 
 Mastodon bridge for [MulmoClaude](https://github.com/receptron/mulmoclaude). Subscribes to your bot account's streaming notifications and forwards DMs (and optionally public mentions) to MulmoClaude. Outbound-only WebSocket — **no public URL / tunnel / relay needed**.
 
+## Images
+
+Images attached to a DM are downloaded and forwarded, so you can post a screenshot and ask about it. A DM with **only** images and no caption is forwarded too, with `Describe / analyze this file.` as the body.
+
+- 8 MB per image. Images that fail to download are noted in the body MulmoClaude receives.
+- If every image in a caption-less DM fails to download, the bridge replies with an error instead of relaying.
+- Only Mastodon's `image` media type is forwarded — `video`, `gifv` and `audio` are left alone.
+- A DM whose entire body is the bot's handle counts as "no caption" — the handle is not sent as the prompt.
+
 ## Setup
 
 ### 1. Create a bot account + access token

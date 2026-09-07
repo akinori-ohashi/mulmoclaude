@@ -3,6 +3,10 @@
  *  `common.cancel`); interpolated / pluralized keys become functions. */
 export interface Messages {
   beatCount(count: number): string;
+  /** Tab: edit every beat in place. */
+  editTab: string;
+  /** Tab: the per-beat list, where audio / image / movie generation lives. */
+  mediaTab: string;
   movie: string;
   generating: string;
   rendering: string;

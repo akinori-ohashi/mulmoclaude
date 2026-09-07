@@ -46,11 +46,11 @@
   "author": "Receptron Team",
   "dependencies": {
     "@mulmobridge/protocol": "^1.0.1",
-    "@mulmoclaude/common": "^1.1.2",
+    "@mulmoclaude/common": "^1.2.0",
     "socket.io-client": "^4.0.0"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.4.1",
     "typescript": "^6.0.3"
   },
   "homepage": "https://github.com/receptron/mulmoclaude/tree/main/packages/client#readme",
