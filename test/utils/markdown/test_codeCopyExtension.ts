@@ -52,7 +52,7 @@ afterEach(() => _resetCodeCopyLabelsForTests());
 describe("codeCopyExtension", () => {
   it("wraps a fenced block with a copy button and keeps the highlight class shape", () => {
     const html = markedLikeHost().parse("```ts\nconst a = 1;\n```") as string;
-    assert.match(html, new RegExp(`<div class="relative" ${CODE_COPY_BLOCK_ATTR}>`));
+    assert.match(html, new RegExp(`<div class="relative" ${CODE_COPY_BLOCK_ATTR}="fenced">`));
     assert.match(html, new RegExp(`<button type="button" ${CODE_COPY_ATTR} `));
     assert.match(html, /<pre><code class="hljs language-ts">/);
   });
@@ -101,13 +101,23 @@ describe("codeCopyExtension", () => {
     assert.match(html, /<code class="hljs language-ts">/);
   });
 
-  it("gives an indented code block a button too — deliberately", () => {
+  it("gives an indented code block a button too — deliberately, and marks the style", () => {
     // marked renders a 4-space block as the same `<pre><code>` a fence
     // produces, so a reader has the same reason to copy it. Skipping it
     // would make the affordance appear and vanish for no visible reason.
+    // The style is recorded because the two copy differently: only the
+    // indented one carries a trailing newline nobody wrote.
     const html = markedLikeHost().parse("paragraph\n\n    indented();\n") as string;
     assert.match(html, new RegExp(CODE_COPY_ATTR));
     assert.match(html, /<code class="hljs">/);
+    assert.match(html, new RegExp(`${CODE_COPY_BLOCK_ATTR}="indented"`));
+  });
+
+  it("marks a fenced block as fenced, whatever its tag", () => {
+    const tagged = markedLikeHost().parse("```ts\nx\n```") as string;
+    const bare = markedLikeHost().parse("```\nx\n```") as string;
+    assert.match(tagged, new RegExp(`${CODE_COPY_BLOCK_ATTR}="fenced"`));
+    assert.match(bare, new RegExp(`${CODE_COPY_BLOCK_ATTR}="fenced"`));
   });
 
   it("renders the provider's labels and escapes them", () => {
@@ -115,6 +125,17 @@ describe("codeCopyExtension", () => {
     const html = markedLikePlugin().parse("```\nx\n```") as string;
     assert.match(html, /aria-label="Copy &quot;code&quot;"/);
     assert.match(html, /title="Copy &quot;code&quot;"/);
+  });
+
+  it("writes BOTH label states into the button", () => {
+    // The delegated listener reads them from here rather than from a
+    // provider of its own: only the first install on a document keeps
+    // its listener, so a captured provider would caption the other
+    // bundle's buttons too.
+    setCodeCopyLabelProvider(() => ({ copy: "コードをコピー", copied: "コピーしました" }));
+    const html = markedLikePlugin().parse("```\nx\n```") as string;
+    assert.match(html, /data-code-copy-idle="コードをコピー"/);
+    assert.match(html, /data-code-copy-copied="コピーしました"/);
   });
 
   it("re-reads the provider on every render, so a locale switch takes effect", () => {

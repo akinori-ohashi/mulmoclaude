@@ -270,8 +270,9 @@ const codeCopyLabels = () => ({ copy: t("codeCopyLabel"), copied: t("codeCopiedL
 setCodeCopyLabelProvider(codeCopyLabels);
 // No-op when the host already installed its own listener on this
 // document; the guard lives on the document, not in module state, so it
-// holds across the two bundled copies of this package.
-installCodeCopyHandler(document, codeCopyLabels);
+// holds across the two bundled copies of this package. It needs no
+// labels — each button carries its own, written by the renderer above.
+installCodeCopyHandler(document);
 const { dispatch } = useRuntime();
 
 const props = defineProps<{

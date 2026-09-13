@@ -65,8 +65,24 @@ export function _resetCodeCopyLabelsForTests(): void {
 
 /** Marks the button for the delegated click listener. */
 export const CODE_COPY_ATTR = "data-code-copy";
-/** Marks the wrapper the listener searches for the block's `<code>`. */
+/** Marks the wrapper the listener searches for the block's `<code>`. Its
+ *  VALUE is the block style, because the two are indistinguishable once
+ *  rendered and they must be copied differently: marked leaves a
+ *  trailing newline on an indented block, while the same newline on a
+ *  FENCED block is a blank line the author actually wrote. */
 export const CODE_COPY_BLOCK_ATTR = "data-code-copy-block";
+/** Value of the above for a 4-space block — the only style that carries
+ *  a renderer-added trailing newline. */
+export const CODE_BLOCK_STYLE_INDENTED = "indented";
+/** Value for every fenced block. */
+export const CODE_BLOCK_STYLE_FENCED = "fenced";
+
+/** The button carries BOTH label states, so the delegated listener needs
+ *  no label provider of its own. It cannot have a correct one: only the
+ *  first install on a document keeps its listener, so a plugin's buttons
+ *  would otherwise be captioned by whichever provider registered first. */
+export const CODE_COPY_IDLE_LABEL_ATTR = "data-code-copy-idle";
+export const CODE_COPY_COPIED_LABEL_ATTR = "data-code-copy-copied";
 
 // A fence tag is author-controlled text that lands in a class attribute,
 // so anything outside the shape marked already treats as a language name
@@ -119,10 +135,13 @@ export const codeCopyExtension: MarkedExtension = {
       // replaces it rather than wrapping it — nothing calls through to
       // highlight's renderer once we return a string.
       const codeClass = language === "" ? "hljs" : `hljs language-${language}`;
-      const label = escapeHtml(labelProvider().copy);
+      const labels = labelProvider();
+      const idle = escapeHtml(labels.copy);
+      const copied = escapeHtml(labels.copied);
+      const style = token.codeBlockStyle === "indented" ? CODE_BLOCK_STYLE_INDENTED : CODE_BLOCK_STYLE_FENCED;
       return [
-        `<div class="relative" ${CODE_COPY_BLOCK_ATTR}>`,
-        `<button type="button" ${CODE_COPY_ATTR} class="${CODE_COPY_BUTTON_CLASS}" aria-label="${label}" title="${label}">`,
+        `<div class="relative" ${CODE_COPY_BLOCK_ATTR}="${style}">`,
+        `<button type="button" ${CODE_COPY_ATTR} ${CODE_COPY_IDLE_LABEL_ATTR}="${idle}" ${CODE_COPY_COPIED_LABEL_ATTR}="${copied}" class="${CODE_COPY_BUTTON_CLASS}" aria-label="${idle}" title="${idle}">`,
         CODE_COPY_ICON,
         "</button>",
         `<pre><code class="${codeClass}">${body}</code></pre>`,

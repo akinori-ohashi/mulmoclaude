@@ -65,7 +65,10 @@ export function setupMarked(): void {
   marked.use(mermaidExtension);
   // One delegated listener for every copy button the extension emits,
   // now and after each streamed re-render. Idempotent, so the markdown
-  // plugin's own install is a no-op on this document.
-  installCodeCopyHandler(document, codeCopyLabels);
+  // plugin's own install is a no-op on this document — which is exactly
+  // why it takes no labels: whichever bundle installs first would
+  // otherwise caption the other one's buttons. Each button carries its
+  // own two label states instead.
+  installCodeCopyHandler(document);
   installed = true;
 }

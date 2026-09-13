@@ -5,10 +5,18 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM, type DOMWindow } from "jsdom";
+import { Marked } from "marked";
 import { installCodeCopyHandler, codeTextOf, _resetCodeCopyHandlerForTests } from "@mulmoclaude/markdown-utils/markdown/codeCopyClipboard";
-import { CODE_COPY_ATTR, CODE_COPY_BLOCK_ATTR, type CodeCopyLabels } from "@mulmoclaude/markdown-utils/markdown/codeCopyExtension";
+import {
+  codeCopyExtension,
+  CODE_COPY_ATTR,
+  CODE_COPY_BLOCK_ATTR,
+  CODE_COPY_IDLE_LABEL_ATTR,
+  CODE_COPY_COPIED_LABEL_ATTR,
+  CODE_BLOCK_STYLE_FENCED,
+  CODE_BLOCK_STYLE_INDENTED,
+} from "@mulmoclaude/markdown-utils/markdown/codeCopyExtension";
 
-const LABELS: CodeCopyLabels = { copy: "Copy code", copied: "Copied" };
 /** The listener awaits `clipboard.writeText`, so the assertions have to
  *  come after at least one microtask turn. */
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
@@ -43,8 +51,8 @@ function harness(): Harness {
     },
   });
   document.body.innerHTML = [
-    `<div class="relative" ${CODE_COPY_BLOCK_ATTR}>`,
-    `<button type="button" ${CODE_COPY_ATTR} class="text-gray-600" aria-label="Copy code" title="Copy code"><svg><rect></rect></svg></button>`,
+    `<div class="relative" ${CODE_COPY_BLOCK_ATTR}="${CODE_BLOCK_STYLE_FENCED}">`,
+    `<button type="button" ${CODE_COPY_ATTR} ${CODE_COPY_IDLE_LABEL_ATTR}="Copy code" ${CODE_COPY_COPIED_LABEL_ATTR}="Copied" class="text-gray-600" aria-label="Copy code" title="Copy code"><svg><rect></rect></svg></button>`,
     '<pre><code class="hljs language-ts"><span class="hljs-keyword">const</span> a = 1;</code></pre>',
     "</div>",
   ].join("");
@@ -88,19 +96,23 @@ describe("codeTextOf", () => {
     assert.equal(codeTextOf(env.button), "const a = 1;");
   });
 
-  it("drops the one trailing newline the renderer leaves on the block", () => {
-    // marked keeps it on an indented block and strips it from a fenced
-    // one; copying the two shapes must not differ.
+  it("drops the renderer's trailing newline on an INDENTED block", () => {
+    const block = env.document.querySelector(`[${CODE_COPY_BLOCK_ATTR}]`);
     const code = env.document.querySelector("code");
+    assert.ok(block);
     assert.ok(code);
+    block.setAttribute(CODE_COPY_BLOCK_ATTR, CODE_BLOCK_STYLE_INDENTED);
     code.textContent = "indented();\n";
     assert.equal(codeTextOf(env.button), "indented();");
   });
 
-  it("keeps a deliberate blank line, dropping only the terminator", () => {
+  it("keeps the same newline on a FENCED block — there it is a blank line the author wrote", () => {
+    // marked strips a fence's own terminator, so a surviving `\n` is
+    // content. The two shapes are indistinguishable from the text alone,
+    // which is why the style travels in the wrapper attribute.
     const code = env.document.querySelector("code");
     assert.ok(code);
-    code.textContent = "a();\n\n";
+    code.textContent = "a();\n";
     assert.equal(codeTextOf(env.button), "a();\n");
   });
 
@@ -110,23 +122,53 @@ describe("codeTextOf", () => {
   });
 });
 
+describe("codeTextOf over real marked output", () => {
+  // The unit tests above set `textContent` by hand, which can only pin
+  // what I believe marked produces. This drives the REAL renderer for
+  // every fence shape whose trailing whitespace differs, and asserts the
+  // clipboard gets back exactly what the author typed. It is the pair
+  // that regressed once already: strip on a fence and the author's blank
+  // line is gone; do not strip on an indented block and a line nobody
+  // wrote is pasted.
+  const marked = new Marked();
+  marked.use(codeCopyExtension);
+
+  const cases: { name: string; source: string; expected: string }[] = [
+    { name: "fenced, no trailing blank line", source: "```js\na();\n```", expected: "a();" },
+    { name: "fenced, one trailing blank line", source: "```js\na();\n\n```", expected: "a();\n" },
+    { name: "fenced, two trailing blank lines", source: "```js\na();\n\n\n```", expected: "a();\n\n" },
+    { name: "fenced, no language tag", source: "```\na();\n```", expected: "a();" },
+    { name: "indented, 4 spaces", source: "para\n\n    a();\n", expected: "a();" },
+    { name: "fenced, blank line in the MIDDLE", source: "```js\na();\n\nb();\n```", expected: "a();\n\nb();" },
+  ];
+
+  cases.forEach(({ name, source, expected }) => {
+    it(`copies exactly what the author wrote — ${name}`, () => {
+      env.document.body.innerHTML = marked.parse(source) as string;
+      const button = env.document.querySelector(`[${CODE_COPY_ATTR}]`);
+      assert.ok(button);
+      assert.equal(codeTextOf(button), expected);
+    });
+  });
+});
+
 describe("installCodeCopyHandler", () => {
   it("copies the block's source on click", async () => {
-    installCodeCopyHandler(env.document, () => LABELS);
+    installCodeCopyHandler(env.document);
     env.button.click();
     await settle();
     assert.deepEqual(env.writes, ["const a = 1;"]);
   });
 
   it("copies when the click lands on the icon inside the button", async () => {
-    installCodeCopyHandler(env.document, () => LABELS);
+    installCodeCopyHandler(env.document);
     env.document.querySelector("rect")?.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true }));
     await settle();
     assert.deepEqual(env.writes, ["const a = 1;"]);
   });
 
   it("shows the copied state after a successful copy", async () => {
-    installCodeCopyHandler(env.document, () => LABELS);
+    installCodeCopyHandler(env.document);
     env.button.click();
     await settle();
     assert.equal(env.button.getAttribute("aria-label"), "Copied");
@@ -135,7 +177,7 @@ describe("installCodeCopyHandler", () => {
   });
 
   it("stays idle when the clipboard write is refused", async () => {
-    installCodeCopyHandler(env.document, () => LABELS);
+    installCodeCopyHandler(env.document);
     env.fail.value = true;
     env.button.click();
     await settle();
@@ -143,25 +185,27 @@ describe("installCodeCopyHandler", () => {
     assert.ok(!env.button.classList.contains("text-green-600"));
   });
 
-  it("reads the labels per click, so a locale switch is picked up", async () => {
-    let labels: CodeCopyLabels = LABELS;
-    installCodeCopyHandler(env.document, () => labels);
-    labels = { copy: "コードをコピー", copied: "コピーしました" };
+  it("captions from the BUTTON, not from whoever installed the listener", async () => {
+    // The plugin's buttons must not be captioned by the host's provider
+    // just because the host installed the one surviving listener.
+    installCodeCopyHandler(env.document);
+    env.button.setAttribute(CODE_COPY_COPIED_LABEL_ATTR, "コピーしました");
+    env.button.setAttribute(CODE_COPY_IDLE_LABEL_ATTR, "コードをコピー");
     env.button.click();
     await settle();
     assert.equal(env.button.getAttribute("aria-label"), "コピーしました");
   });
 
   it("installs once per document, so a second bundle's call adds no listener", async () => {
-    installCodeCopyHandler(env.document, () => LABELS);
-    installCodeCopyHandler(env.document, () => LABELS);
+    installCodeCopyHandler(env.document);
+    installCodeCopyHandler(env.document);
     env.button.click();
     await settle();
     assert.deepEqual(env.writes, ["const a = 1;"]);
   });
 
   it("serves a button injected after install — the point of delegating", async () => {
-    installCodeCopyHandler(env.document, () => LABELS);
+    installCodeCopyHandler(env.document);
     const later = env.document.createElement("div");
     later.innerHTML = [`<div ${CODE_COPY_BLOCK_ATTR}>`, `<button type="button" ${CODE_COPY_ATTR}></button>`, "<pre><code>later();</code></pre>", "</div>"].join(
       "",
@@ -176,7 +220,7 @@ describe("installCodeCopyHandler", () => {
     // The first click's revert timer must be cancelled: left running, it
     // fires on the OLD schedule and clears the second click's feedback
     // early. Uses fake timers so the 2s window is not real wall-clock.
-    installCodeCopyHandler(env.document, () => LABELS);
+    installCodeCopyHandler(env.document);
     const view = env.window;
     const scheduled: ScheduledRevert[] = [];
     const cancelled = new Set<number>();
@@ -198,9 +242,8 @@ describe("installCodeCopyHandler", () => {
     assert.equal(env.button.getAttribute("aria-label"), "Copied");
   });
 
-  it("re-reads the labels when reverting, so a switch during the confirmation lands", async () => {
-    let labels: CodeCopyLabels = LABELS;
-    installCodeCopyHandler(env.document, () => labels);
+  it("restores the button's own idle label when reverting", async () => {
+    installCodeCopyHandler(env.document);
     const scheduled: ScheduledRevert[] = [];
     installFakeTimers(env.window, scheduled, new Set<number>());
 
@@ -208,17 +251,15 @@ describe("installCodeCopyHandler", () => {
     await settle();
     assert.equal(env.button.getAttribute("aria-label"), "Copied");
 
-    // Locale switches while the confirmation is on screen.
-    labels = { copy: "コードをコピー", copied: "コピーしました" };
     const [revert] = scheduled;
     assert.ok(revert);
     revert.revert();
-    assert.equal(env.button.getAttribute("aria-label"), "コードをコピー");
-    assert.equal(env.button.getAttribute("title"), "コードをコピー");
+    assert.equal(env.button.getAttribute("aria-label"), "Copy code");
+    assert.equal(env.button.getAttribute("title"), "Copy code");
   });
 
   it("ignores a click outside any copy button", async () => {
-    installCodeCopyHandler(env.document, () => LABELS);
+    installCodeCopyHandler(env.document);
     env.document.querySelector("pre")?.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true }));
     await settle();
     assert.deepEqual(env.writes, []);
