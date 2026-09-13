@@ -2,7 +2,7 @@
 // via the AgentEventContext adapter. No Vue refs, no component scope.
 
 import type { ActiveSession } from "../../types/session";
-import type { SseEvent, SseToolCallResult, SseGenerationStarted, SseGenerationFinished } from "../../types/sse";
+import type { SseEvent, SseToolCallResult, SseGenerationStarted, SseGenerationFinished, SseSessionMeta } from "../../types/sse";
 import { EVENT_TYPES, generationKey, type PendingGeneration } from "../../types/events";
 import type { ToolCallHistoryItem } from "../../types/toolCallHistory";
 import { findPendingToolCall, toToolCallEntry } from "./toolCalls";
@@ -48,6 +48,23 @@ export function addPendingGeneration(pending: Record<string, PendingGeneration>,
 export function removePendingGeneration(pending: Record<string, PendingGeneration>, event: SseGenerationFinished): boolean {
   Reflect.deleteProperty(pending, generationKey(event.kind, event.filePath, event.key));
   return Object.keys(pending).length === 0;
+}
+
+/** Start / finish of a plugin-originated background generation. Folded into
+ *  one branch because `applyAgentEvent` sits on the cognitive-complexity
+ *  ceiling and every added event type would otherwise break it. */
+function applyGenerationEvent(session: ActiveSession, event: SseGenerationStarted | SseGenerationFinished, onDrained: () => void): void {
+  if (event.type === EVENT_TYPES.generationStarted) {
+    addPendingGeneration(session.pendingGenerations, event);
+    return;
+  }
+  if (removePendingGeneration(session.pendingGenerations, event)) onDrained();
+}
+
+/** Session metadata pushed mid-turn. A DELTA — only fields the event actually
+ *  carries may overwrite what the session already knows (#2554). */
+function applySessionMeta(session: ActiveSession, event: SseSessionMeta): void {
+  if (event.resolvedModel) session.resolvedModel = event.resolvedModel;
 }
 
 export async function applyAgentEvent(event: SseEvent, ctx: AgentEventContext): Promise<void> {
@@ -96,9 +113,10 @@ export async function applyAgentEvent(event: SseEvent, ctx: AgentEventContext): 
     case EVENT_TYPES.sessionFinished:
       return;
     case EVENT_TYPES.generationStarted:
-      addPendingGeneration(session.pendingGenerations, event);
-      return;
     case EVENT_TYPES.generationFinished:
-      if (removePendingGeneration(session.pendingGenerations, event)) ctx.onGenerationsDrained();
+      applyGenerationEvent(session, event, ctx.onGenerationsDrained);
+      return;
+    case EVENT_TYPES.sessionMeta:
+      applySessionMeta(session, event);
   }
 }

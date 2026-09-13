@@ -1,5 +1,6 @@
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { CHAT_MODELS, EFFORT_LEVELS } from "../../src/config/models.js";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
@@ -66,7 +67,7 @@ describe("isAppSettings", () => {
   });
 
   it("accepts known effortLevel values", () => {
-    for (const level of mod.EFFORT_LEVELS) {
+    for (const level of EFFORT_LEVELS) {
       assert.ok(mod.isAppSettings({ extraAllowedTools: [], effortLevel: level }), `expected ${level} to be accepted`);
     }
   });
@@ -82,7 +83,7 @@ describe("isAppSettings", () => {
   // point of storing an alias is that the saved choice follows the next
   // generation instead of quietly keeping the user on a retired model.
   it("accepts known chatModel values", () => {
-    for (const model of mod.CHAT_MODELS) {
+    for (const model of CHAT_MODELS) {
       assert.ok(mod.isAppSettings({ extraAllowedTools: [], chatModel: model }), `expected ${model} to be accepted`);
     }
   });
@@ -112,8 +113,8 @@ describe("optional AppSettings fields", () => {
     valid: {
       googleMapsApiKey: ["", "AIza-key"],
       photoExif: [{ autoCapture: true }, { autoCapture: false }],
-      effortLevel: [...mod.EFFORT_LEVELS],
-      chatModel: [...mod.CHAT_MODELS],
+      effortLevel: [...EFFORT_LEVELS],
+      chatModel: [...CHAT_MODELS],
       voiceInput: [{ enabled: true }, { enabled: false, model: "base.en" }],
       chatIndex: [...mod.CHAT_INDEX_MODES],
       journal: [...mod.JOURNAL_MODES],
@@ -183,7 +184,7 @@ describe("isAppSettingsPatch", () => {
 
   // #2923: same null-sentinel + strict-value contract as effortLevel.
   it("accepts every known chatModel and the null clear-sentinel", () => {
-    for (const model of mod.CHAT_MODELS) {
+    for (const model of CHAT_MODELS) {
       assert.ok(mod.isAppSettingsPatch({ chatModel: model }), `expected ${model} to be accepted`);
     }
     assert.ok(mod.isAppSettingsPatch({ chatModel: null }));

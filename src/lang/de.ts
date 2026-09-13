@@ -157,6 +157,9 @@ const deMessages = {
     customViewHint: "Für eine mobiltaugliche Ansicht bitte Claude, statt einer normalen Custom View eine {keyword} zu bauen.",
     qrHint: "Oder scanne diesen QR-Code mit der Handykamera.",
   },
+  sessionModelChip: {
+    tooltip: "Modell dieser Sitzung: {model}",
+  },
   sidebarHeader: {
     newMessages: "Neue Nachrichten",
     home: "Zum neuesten Chat",

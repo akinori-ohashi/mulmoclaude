@@ -160,6 +160,7 @@ export function buildLoadedSession(opts: {
   const { id, entries, defaultRoleId, serverSummary, nowIso } = opts;
   const meta = entries.find((entry) => entry.type === EVENT_TYPES.sessionMeta);
   const roleId = meta?.roleId ?? defaultRoleId;
+  const resolvedModel = meta?.resolvedModel;
   const toolResults = parseSessionEntries(entries, serverSummary?.origin);
   const selectedResultUuid = resolveSelectedUuid(toolResults);
   const { startedAt, updatedAt } = resolveSessionTimestamps(serverSummary, nowIso);
@@ -168,6 +169,7 @@ export function buildLoadedSession(opts: {
   return {
     id,
     roleId,
+    ...(resolvedModel ? { resolvedModel } : {}),
     toolResults,
     resultTimestamps,
     isRunning: serverSummary?.isRunning ?? false,

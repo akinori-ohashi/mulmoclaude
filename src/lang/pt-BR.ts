@@ -155,6 +155,9 @@ const ptBRMessages = {
     customViewHint: "Para uma visualização adaptada ao celular, peça ao Claude para criar uma {keyword} (não uma custom view comum).",
     qrHint: "Ou escaneie este código QR com a câmera do seu celular.",
   },
+  sessionModelChip: {
+    tooltip: "Modelo que esta sessão está usando: {model}",
+  },
   sidebarHeader: {
     newMessages: "Novas mensagens",
     home: "Ir para o chat mais recente",

@@ -98,6 +98,15 @@ export interface SseGenerationFinished {
   error?: string | undefined;
 }
 
+/** Session metadata pushed mid-turn. Today only `resolvedModel` travels this
+ *  way (#2554) — the transcript read emits a fuller `session_meta` row, but
+ *  that only arrives on load, and the chip has to be right during the first
+ *  turn too. Fields are optional because the event carries a delta. */
+export interface SseSessionMeta {
+  type: typeof EVENT_TYPES.sessionMeta;
+  resolvedModel?: string | undefined;
+}
+
 export type SseEvent =
   | SseToolCall
   | SseToolCallResult
@@ -109,4 +118,5 @@ export type SseEvent =
   | SseError
   | SseSessionFinished
   | SseGenerationStarted
-  | SseGenerationFinished;
+  | SseGenerationFinished
+  | SseSessionMeta;
