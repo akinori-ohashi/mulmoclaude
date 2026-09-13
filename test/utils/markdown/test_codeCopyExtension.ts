@@ -53,7 +53,11 @@ describe("codeCopyExtension", () => {
   it("wraps a fenced block with a copy button and keeps the highlight class shape", () => {
     const html = markedLikeHost().parse("```ts\nconst a = 1;\n```") as string;
     assert.match(html, new RegExp(`<div class="relative" ${CODE_COPY_BLOCK_ATTR}="fenced">`));
-    assert.match(html, new RegExp(`<button type="button" ${CODE_COPY_ATTR} `));
+    // The marker carries a nonce as its VALUE — a bare marker is precisely
+    // what author markup can forge, so it must never be empty.
+    const marker = html.match(new RegExp(`${CODE_COPY_ATTR}="([^"]*)"`));
+    assert.ok(marker);
+    assert.notEqual(marker[1], "", "an empty nonce is refused by the listener, leaving the button inert");
     assert.match(html, /<pre><code class="hljs language-ts">/);
   });
 

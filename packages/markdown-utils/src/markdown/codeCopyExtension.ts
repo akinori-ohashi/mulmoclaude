@@ -63,8 +63,69 @@ export function _resetCodeCopyLabelsForTests(): void {
   labelProvider = () => DEFAULT_LABELS;
 }
 
-/** Marks the button for the delegated click listener. */
+/** Marks the button for the delegated click listener. Its VALUE is a
+ *  per-document nonce, and the listener copies nothing without a match.
+ *
+ *  The attribute cannot be a bare marker: `marked` passes an author's raw
+ *  HTML straight through, DOMPurify's defaults keep `<button>` and every
+ *  `data-*`, and the listener is document-wide. A bare marker therefore
+ *  lets any rendered markdown — a cloned repository's README, which is
+ *  exactly what `sanitizeMarkdownHtml` exists for — mint a working copy
+ *  control and put text of its choosing on the clipboard. Verified: the
+ *  spoof reached `clipboard.writeText`, and with a `display:none` decoy
+ *  block the user saw `npm install` while the clipboard took
+ *  `curl … | bash`. Structure cannot be the check, because an author can
+ *  reproduce any structure; only a secret they cannot read works, and
+ *  they cannot read this one because the sanitizer strips scripts. */
 export const CODE_COPY_ATTR = "data-code-copy";
+
+interface RandomSource {
+  randomUUID?: () => string;
+  getRandomValues?: (array: Uint8Array) => Uint8Array;
+}
+
+const isRandomSource = (value: unknown): value is RandomSource => typeof value === "object" && value !== null;
+
+const NONCE_BYTES = 16;
+const HEX_RADIX = 16;
+const HEX_PAIR = 2;
+
+/** Returned when no CSPRNG is reachable. The listener refuses it, so the
+ *  copy button goes inert rather than becoming guessable — a feature that
+ *  quietly stops working is recoverable, a clipboard anyone can drive is
+ *  not. Every environment this ships to has one (browsers, Node >= 19,
+ *  jsdom), so this is the unreachable branch, not a supported mode. */
+export const CODE_COPY_NONCE_UNAVAILABLE = "";
+
+/** A value author-supplied markup cannot guess. Static text is the whole
+ *  threat: it never executes, so it can neither read nor predict this.
+ *  CSPRNG only — `Math.random` is not a fallback here, it is a weaker
+ *  version of the thing being defended. */
+export function createCodeCopyNonce(): string {
+  const source: unknown = globalThis.crypto;
+  if (!isRandomSource(source)) return CODE_COPY_NONCE_UNAVAILABLE;
+  if (typeof source.randomUUID === "function") return source.randomUUID();
+  if (typeof source.getRandomValues !== "function") return CODE_COPY_NONCE_UNAVAILABLE;
+  const bytes = source.getRandomValues(new Uint8Array(NONCE_BYTES));
+  return Array.from(bytes, (byte) => byte.toString(HEX_RADIX).padStart(HEX_PAIR, "0")).join("");
+}
+
+// Seeded so a renderer used without the click handler still emits a value
+// no author can guess: the pairing then simply fails closed.
+let nonce: string = createCodeCopyNonce();
+
+/** Point the renderer at the document's nonce. `installCodeCopyHandler`
+ *  calls this on EVERY invocation, including the ones whose listener
+ *  install is a no-op, so a second bundle's renderer agrees with the one
+ *  listener that is actually running. */
+export function setCodeCopyNonce(value: string): void {
+  nonce = value;
+}
+
+/** The value the renderer is currently stamping. */
+export function codeCopyNonce(): string {
+  return nonce;
+}
 /** Marks the wrapper the listener searches for the block's `<code>`. Its
  *  VALUE is the block style, because the two are indistinguishable once
  *  rendered and they must be copied differently: marked leaves a
@@ -141,7 +202,7 @@ export const codeCopyExtension: MarkedExtension = {
       const style = token.codeBlockStyle === "indented" ? CODE_BLOCK_STYLE_INDENTED : CODE_BLOCK_STYLE_FENCED;
       return [
         `<div class="relative" ${CODE_COPY_BLOCK_ATTR}="${style}">`,
-        `<button type="button" ${CODE_COPY_ATTR} ${CODE_COPY_IDLE_LABEL_ATTR}="${idle}" ${CODE_COPY_COPIED_LABEL_ATTR}="${copied}" class="${CODE_COPY_BUTTON_CLASS}" aria-label="${idle}" title="${idle}">`,
+        `<button type="button" ${CODE_COPY_ATTR}="${escapeHtml(nonce)}" ${CODE_COPY_IDLE_LABEL_ATTR}="${idle}" ${CODE_COPY_COPIED_LABEL_ATTR}="${copied}" class="${CODE_COPY_BUTTON_CLASS}" aria-label="${idle}" title="${idle}">`,
         CODE_COPY_ICON,
         "</button>",
         `<pre><code class="${codeClass}">${body}</code></pre>`,

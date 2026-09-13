@@ -22,6 +22,9 @@ import {
   CODE_COPY_IDLE_LABEL_ATTR,
   CODE_COPY_COPIED_LABEL_ATTR,
   CODE_BLOCK_STYLE_INDENTED,
+  CODE_COPY_NONCE_UNAVAILABLE,
+  createCodeCopyNonce,
+  setCodeCopyNonce,
 } from "./codeCopyExtension.js";
 
 /** How long the button stays in its "copied" state before reverting. */
@@ -35,6 +38,20 @@ const COPIED_TINT_CLASS = "text-green-600";
  *  two module instances, and only the document is shared between them. */
 interface InstallTarget extends Document {
   __mulmoclaudeCodeCopyInstalled?: boolean;
+  __mulmoclaudeCodeCopyNonce?: string;
+}
+
+/** The nonce lives on the DOCUMENT for the same reason the install flag
+ *  does: host and plugin each have their own module instance, and the
+ *  document is the only thing they share. Minted once, then read by
+ *  both renderers so their buttons match the one listener that runs. */
+function ensureNonce(doc: Document): string {
+  const target: InstallTarget = doc;
+  const existing = target.__mulmoclaudeCodeCopyNonce;
+  if (existing !== undefined) return existing;
+  const minted = createCodeCopyNonce();
+  target.__mulmoclaudeCodeCopyNonce = minted;
+  return minted;
 }
 
 // `nodeType`, not `instanceof Element`: this package is browser-SAFE, not
@@ -115,6 +132,14 @@ async function handleClick(event: Event): Promise<void> {
   if (!isElement(target)) return;
   const button = target.closest(`[${CODE_COPY_ATTR}]`);
   if (!isHtmlElement(button)) return;
+  // The marker's VALUE is the check, not its presence. Author markup can
+  // carry the attribute — marked passes raw HTML through and DOMPurify
+  // keeps `data-*` — so a bare marker would let a rendered README drive
+  // the clipboard. An empty nonce never matches, which is what makes the
+  // no-CSPRNG case inert instead of guessable.
+  const expected = ensureNonce(button.ownerDocument);
+  if (expected === CODE_COPY_NONCE_UNAVAILABLE) return;
+  if (button.getAttribute(CODE_COPY_ATTR) !== expected) return;
   const text = codeTextOf(button);
   if (text === null) return;
   const clipboard = button.ownerDocument.defaultView?.navigator?.clipboard;
@@ -137,6 +162,10 @@ async function handleClick(event: Event): Promise<void> {
  */
 export function installCodeCopyHandler(doc: Document): void {
   const target: InstallTarget = doc;
+  // Before the install guard, and on EVERY call: the second bundle's
+  // listener install is a no-op, but its renderer still has to learn the
+  // nonce the first bundle's listener will demand.
+  setCodeCopyNonce(ensureNonce(doc));
   if (target.__mulmoclaudeCodeCopyInstalled === true) return;
   target.__mulmoclaudeCodeCopyInstalled = true;
   doc.addEventListener("click", (event) => void handleClick(event));
@@ -146,4 +175,5 @@ export function installCodeCopyHandler(doc: Document): void {
 export function _resetCodeCopyHandlerForTests(doc: Document): void {
   const target: InstallTarget = doc;
   target.__mulmoclaudeCodeCopyInstalled = false;
+  delete target.__mulmoclaudeCodeCopyNonce;
 }
