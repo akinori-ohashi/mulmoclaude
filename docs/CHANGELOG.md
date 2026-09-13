@@ -10,6 +10,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Fixed
 
+#### `yarn dev --<flag>` did nothing at all, for every flag (#3113)
+
+All six toggles in the CLI-flag registry were silent no-ops on `yarn dev`, while
+`docs/developer.md` and the bundled `helps/sandbox.md` said they worked — since #1089.
+`dev` was a compound `a && b && c` script in package.json, and yarn appends a script's
+trailing args to its LAST command only, so the flag landed on `concurrently`, which
+drops what it does not recognise. Both halves measured rather than reasoned:
+
+```
+$ yarn chain --allow-multiple-instances     # "node show.js A && node show.js B"
+A argv=[]
+B argv=["--allow-multiple-instances"]
+
+$ concurrently -n a -k "node -e '…print argv…'" --allow-multiple-instances
+[a] child argv= []
+```
+
+`yarn dev` now runs through `scripts/dev.mjs`, which translates the flags to env
+before the first step, so every step of the chain inherits them. The step commands
+are the same strings package.json held, run by the same shell, so the no-flag path
+is unchanged. `dev:debug` and `dev:full-build` go the same way.
+
+An unrecognised flag is now **refused** with the list of valid ones, rather than
+ignored — ignoring it is the same bug one typo removed.
+
 #### `@mulmoclaude/common@1.3.0`, `@mulmobridge/webhook-runtime@1.2.0`, `@mulmoclaude/core@4.9.1` — the versions catch up with #3084
 
 #3084 left shared packages carrying new exports at unchanged versions. That is the state
