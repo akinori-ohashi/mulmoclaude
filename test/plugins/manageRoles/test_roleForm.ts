@@ -224,4 +224,13 @@ describe("role model round-trip", () => {
   it("builds a blank form with the model unset", () => {
     assert.equal(emptyRoleForm().model, "");
   });
+
+  // The create form is what a user looks at, and it showed the default icon
+  // before this factory replaced three inline literals. `formToRole` supplies
+  // the same default either way, so only the VISIBLE value was at risk — which
+  // is precisely the kind of change a "pure refactor" hides.
+  it("pre-fills the default icon, as the create form always did", () => {
+    assert.equal(emptyRoleForm().icon, DEFAULT_ROLE_ICON);
+    assert.equal(formToRole(emptyRoleForm()).icon, DEFAULT_ROLE_ICON);
+  });
 });

@@ -92,12 +92,17 @@ export const formToRole = (form: RoleForm): CustomRole => ({
 /** A blank form. One factory so a field added to `RoleForm` cannot be
  *  forgotten at one of the several "start a new role" sites — which is the
  *  same class of omission that made a stray `model` key vanish before this
- *  was typed at all (#3104). `icon` is left empty; `formToRole` supplies the
- *  default, so create and edit agree. */
+ *  was typed at all (#3104).
+ *
+ *  `icon` is PRE-FILLED with the default rather than left empty. `formToRole`
+ *  would supply it either way, so the saved role is identical — but the create
+ *  form is what a user looks at, and it showed `person` before this factory
+ *  existed. A blank field there is a visible change dressed up as a
+ *  refactor. */
 export const emptyRoleForm = (): RoleForm => ({
   id: "",
   name: "",
-  icon: "",
+  icon: DEFAULT_ROLE_ICON,
   prompt: "",
   selectedPlugins: [],
   queriesText: "",
