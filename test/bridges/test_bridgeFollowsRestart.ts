@@ -40,7 +40,7 @@ const DEFAULT_API_PORT = 3001;
  *  Every developer of this repo has a MulmoClaude on 3001, so for them that case
  *  cannot run, and it used to fail as an unexplained assertion 24 seconds in —
  *  which reads as "main is broken" and is how a suite stops being believed.
- *  Probing turns it into a skip that says why. CI has a clean machine and runs it. */
+ *  Probing turns it into a skip that says why. */
 const canBindDefaultPort = (): Promise<boolean> =>
   new Promise((resolve) => {
     const probe = createServer();
@@ -48,6 +48,16 @@ const canBindDefaultPort = (): Promise<boolean> =>
     probe.once("listening", () => probe.close(() => resolve(true)));
     probe.listen(DEFAULT_API_PORT, "127.0.0.1");
   });
+
+/** Where a skip would be a silent loss rather than a kindness.
+ *
+ *  The probe is the only thing standing between this case and never running
+ *  again: were it to answer `false` while the port is in fact free, the assertion
+ *  would vanish EVERYWHERE, quietly, and a green suite would report that as
+ *  success. On a CI runner nothing should hold 3001, so there the honest response
+ *  to "cannot bind" is to fail and say so. That keeps the escape hatch pointed at
+ *  the machine it was built for — a developer's, with their own server running. */
+const skipsAreAllowed = (): boolean => process.env.CI !== "true";
 
 interface Generation {
   label: string;
@@ -311,9 +321,9 @@ describe("a bridge follows the server across a restart (#3078 A-3)", () => {
   // worked. They keep it.
   it("still uses the default when the CALLER pinned the token", async (ctx) => {
     if (!(await canBindDefaultPort())) {
-      ctx.skip(
-        `port ${DEFAULT_API_PORT} is in use — this case must bind the port DEFAULT_API_URL names, so it cannot be moved to an ephemeral one. Stop whatever holds it (often your own \`yarn dev\`) to run it.`,
-      );
+      const reason = `port ${DEFAULT_API_PORT} is in use — this case must bind the port DEFAULT_API_URL names, so it cannot be moved to an ephemeral one.`;
+      assert.ok(skipsAreAllowed(), `${reason} On CI nothing should hold it, so this is a failure rather than a skip.`);
+      ctx.skip(`${reason} Stop whatever holds it (often your own \`yarn dev\`) to run it.`);
       return;
     }
     // No `.session-token` on disk at all: the only credential is the env one.
