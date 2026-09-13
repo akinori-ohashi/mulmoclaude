@@ -1002,6 +1002,10 @@ const deMessages = {
     fieldIcon: "Symbol",
     fieldPrompt: "Prompt",
     fieldPlugins: "Plugins",
+    fieldModel: "Modell",
+    modelUnset: "(nicht gesetzt — der globalen Einstellung folgen)",
+    modelHelp:
+      "Sitzungen mit dieser Rolle laufen auf diesem Modell. Nützlich, um eine Routine-Rolle aus dem Wochenlimit des Top-Modells herauszuhalten. Eingebaute Rollen folgen immer der globalen Einstellung.",
     fieldStarterQueries: "Einstiegsfragen",
     onePerLine: "(eine pro Zeile)",
     helpLink: "?",
