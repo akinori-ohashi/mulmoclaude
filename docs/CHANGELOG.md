@@ -38,6 +38,28 @@ write is refused, not lost — so update the plugin before, or with, that deploy
 
 ### Fixed
 
+#### A Canvas card could not keep a custom collection view (#3061)
+
+Picking a custom view on a `presentCollection` card held until the card next mounted —
+reselecting the session put it back on the table. The card's restore state
+(`viewState.view`, kept on the tool result) was narrowed to the three built-in modes on the
+way out, so `custom:<id>` was written as `"table"`. The reading half had accepted a custom
+mode all along; only the writing half dropped it.
+
+It was a degree worse than "not saved". `loading` is a dependency of the persist watch, so
+the card wrote `view: "table"` of its own accord once the collection resolved — and a card's
+`initialView` outranks the slug's stored preference, so a custom view chosen on the standalone
+`/collections/:slug` page was overwritten by the card too.
+
+`viewState.view` is now the full `CollectionViewMode`, and both restore paths — the slug's
+localStorage preference and the card's own state — share one guard, `isCollectionViewMode`,
+instead of each deciding separately what a mode may be. A `custom:<id>` the schema no longer
+declares still collapses to the table at render time (`resolveActiveViewMode`), so a stale
+value is safe to carry. `builtInViewOrTable` had no caller left and is gone.
+
+Reaching npm users needs a `@mulmoclaude/collection-plugin` publish; the fix is in the app from
+this commit.
+
 #### `@mulmoclaude/shapescript-plugin@2.7.1` — `publishShapeScript` allows a script of 900k bytes
 
 The tool refused a generated model of 234,796 characters with "the gallery allows 100000". The
