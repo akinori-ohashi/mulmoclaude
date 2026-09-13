@@ -57,8 +57,8 @@ instead of each deciding separately what a mode may be. A `custom:<id>` the sche
 declares still collapses to the table at render time (`resolveActiveViewMode`), so a stale
 value is safe to carry. `builtInViewOrTable` had no caller left and is gone.
 
-Reaching npm users needs a `@mulmoclaude/collection-plugin` publish; the fix is in the app from
-this commit.
+Fixed in #3141. Reaching npm users needs a `@mulmoclaude/collection-plugin` publish; the app
+carries it from that merge on.
 
 #### `@mulmoclaude/shapescript-plugin@2.7.1` — `publishShapeScript` allows a script of 900k bytes
 
