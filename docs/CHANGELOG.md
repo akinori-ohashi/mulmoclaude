@@ -38,7 +38,7 @@ write is refused, not lost — so update the plugin before, or with, that deploy
 
 ### Fixed
 
-#### A Canvas card could not keep a custom collection view (#3061)
+#### `@mulmoclaude/collection-plugin@4.7.0` — a Canvas card could not keep a custom collection view (#3061)
 
 Picking a custom view on a `presentCollection` card held until the card next mounted —
 reselecting the session put it back on the table. The card's restore state
@@ -57,8 +57,11 @@ instead of each deciding separately what a mode may be. A `custom:<id>` the sche
 declares still collapses to the table at render time (`resolveActiveViewMode`), so a stale
 value is safe to carry. `builtInViewOrTable` had no caller left and is gone.
 
-Fixed in #3141. Reaching npm users needs a `@mulmoclaude/collection-plugin` publish; the app
-carries it from that merge on.
+Fixed in #3141; the app carries it from that merge on. The minor rather than a patch is the
+emit: `CollectionView`'s `viewStateChange` payload widens from `BuiltInViewMode` to
+`CollectionViewMode`, and that component is exported. Nothing outside the plugin listens to it
+today — a host that mounts `CollectionView` standalone never sees the event at all, it is
+emitted only in embedded mode — so no consumer has to change.
 
 #### `@mulmoclaude/shapescript-plugin@2.7.1` — `publishShapeScript` allows a script of 900k bytes
 
@@ -71,7 +74,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@3.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@3.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 
