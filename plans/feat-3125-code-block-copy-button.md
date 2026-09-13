@@ -38,7 +38,7 @@ that are specific to this codebase:
 during `walkTokens`, so a `code` renderer registered AFTER it can emit the complete block
 itself — this is already how `mermaidExtension` works. Registration order becomes:
 
-```
+```text
 markedHighlightExtension  →  codeCopyExtension  →  mermaidExtension
 ```
 
@@ -65,7 +65,7 @@ tracks it — switching language re-renders the labels with no sweep and no obse
 
 ## UI
 
-```
+```text
 ┌──────────────────────────────────────────────┐
 │ typescript                          [copy]   │  ← header strip
 ├──────────────────────────────────────────────┤
