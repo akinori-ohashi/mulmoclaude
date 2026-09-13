@@ -1012,6 +1012,10 @@ const enMessages = {
     fieldIcon: "Icon",
     fieldPrompt: "Prompt",
     fieldPlugins: "Plugins",
+    fieldModel: "Model",
+    modelUnset: "(unset — follow the app-wide setting)",
+    modelHelp:
+      "Sessions started with this role run on this model. Useful for keeping a routine role off your top model's weekly limit. Built-in roles always follow the app-wide setting.",
     fieldStarterQueries: "Starter queries",
     onePerLine: "(one per line)",
     helpLink: "?",

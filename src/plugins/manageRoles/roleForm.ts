@@ -2,6 +2,14 @@ import type { CustomRole } from "./index";
 import { isRecord, isStringArray, isUnknownArray } from "../../utils/types";
 
 export const DEFAULT_ROLE_ICON = "person";
+/** Any non-empty string; `""` is the form's "not set" option so it is never a
+ *  stored value. Deliberately NOT checked against the alias list here: the
+ *  host's `RoleSchema` is the single validator (it drops an unknown alias on
+ *  the way to the agent), and reaching for the list would make this parser
+ *  depend on host context it is not entitled to — plugin code cannot read
+ *  `src/config/*`, and a parser that throws when the host has not booted is
+ *  worse than one that carries a string through (#3104). */
+const isStoredModel = (value: unknown): value is string => typeof value === "string" && value !== "";
 const ROLE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 // Rebuilt field by field rather than asserted: the role list arrives as
@@ -9,10 +17,13 @@ const ROLE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 // the DOM, so a missing field has to fail here, not in a template.
 const parseCustomRole = (value: unknown): CustomRole | null => {
   if (!isRecord(value)) return null;
-  const { id, name, icon, prompt, availablePlugins, queries } = value;
+  const { id, name, icon, prompt, availablePlugins, queries, model } = value;
   if (typeof id !== "string" || typeof name !== "string" || typeof icon !== "string" || typeof prompt !== "string") return null;
   if (!isStringArray(availablePlugins)) return null;
-  const role: CustomRole = { id, name, icon, prompt, availablePlugins };
+  const base: CustomRole = { id, name, icon, prompt, availablePlugins };
+  // A non-string model is dropped, not fatal: a malformed field should cost
+  // that field, not make the whole role vanish from the list.
+  const role: CustomRole = isStoredModel(model) ? { ...base, model } : base;
   return isStringArray(queries) ? { ...role, queries } : role;
 };
 
@@ -41,6 +52,8 @@ export interface RoleForm {
   prompt: string;
   selectedPlugins: string[];
   queriesText: string;
+  /** `""` is "not set" — the app-wide setting decides. */
+  model: string;
 }
 
 export type RoleFormErrorCode = "idRequired" | "idInvalid" | "nameRequired" | "idDuplicate";
@@ -71,6 +84,24 @@ export const formToRole = (form: RoleForm): CustomRole => ({
   prompt: form.prompt,
   availablePlugins: form.selectedPlugins,
   queries: parseQueriesText(form.queriesText),
+  // Omitted rather than set to "" when unset: the role file should carry no
+  // key at all, so `role.model ?? settings.chatModel` falls through cleanly.
+  ...(form.model ? { model: form.model } : {}),
+});
+
+/** A blank form. One factory so a field added to `RoleForm` cannot be
+ *  forgotten at one of the several "start a new role" sites — which is the
+ *  same class of omission that made a stray `model` key vanish before this
+ *  was typed at all (#3104). `icon` is left empty; `formToRole` supplies the
+ *  default, so create and edit agree. */
+export const emptyRoleForm = (): RoleForm => ({
+  id: "",
+  name: "",
+  icon: "",
+  prompt: "",
+  selectedPlugins: [],
+  queriesText: "",
+  model: "",
 });
 
 export const roleToForm = (role: CustomRole): RoleForm => ({
@@ -80,6 +111,7 @@ export const roleToForm = (role: CustomRole): RoleForm => ({
   prompt: role.prompt,
   selectedPlugins: [...role.availablePlugins],
   queriesText: (role.queries ?? []).join("\n"),
+  model: role.model ?? "",
 });
 
 // `excludeId` lets rename skip the role's own id when checking for duplicates.

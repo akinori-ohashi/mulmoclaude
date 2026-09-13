@@ -34,6 +34,11 @@ const toolDefinition: ToolDefinition = {
           prompt: { type: "string" },
           availablePlugins: { type: "array", items: { type: "string" } },
           queries: { type: "array", items: { type: "string" } },
+          model: {
+            type: "string",
+            description:
+              "Optional model family for this role's sessions: 'fable', 'opus', 'sonnet' or 'haiku'. Omit to follow the app-wide Settings \u2192 Model choice. ALWAYS echo back the role's existing value when updating a role, or the setting is lost.",
+          },
         },
         required: ["id", "name", "icon", "prompt", "availablePlugins"],
       },

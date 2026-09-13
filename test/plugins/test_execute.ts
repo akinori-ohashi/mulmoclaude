@@ -42,6 +42,7 @@ function installEndpoints(endpoints: EndpointRegistry = registry): void {
     builtinRoleIds: {},
     pageRoutes: {},
     getAllPluginNames: () => [],
+    chatModels: [],
   });
 }
 

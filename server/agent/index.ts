@@ -5,6 +5,7 @@ import { isDockerAvailable } from "../system/docker.js";
 import { refreshCredentials } from "../system/credentials.js";
 import { loadMcpConfig, loadSettings } from "../system/config.js";
 import type { Role } from "../../src/config/roles.js";
+import { resolveChatModel } from "../../src/config/chatModelSource.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { loadMemorySnapshot } from "../workspace/memory/snapshot.js";
 import { beginBrokerSpawn } from "./brokerReadiness.js";
@@ -307,7 +308,7 @@ function buildAgentInput(
     spawnId: hasMcp ? spawnId : undefined,
     extraAllowedTools: [...settings.extraAllowedTools, ...userServerAllowedTools],
     effortLevel: settings.effortLevel,
-    chatModel: settings.chatModel,
+    chatModel: resolveChatModel(role.model, settings.chatModel).model,
     abortSignal,
     userTimezone,
     useDocker,

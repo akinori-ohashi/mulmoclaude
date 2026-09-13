@@ -1000,6 +1000,10 @@ const esMessages = {
     fieldIcon: "Icono",
     fieldPrompt: "Prompt",
     fieldPlugins: "Plugins",
+    fieldModel: "Modelo",
+    modelUnset: "(sin configurar — seguir el ajuste global)",
+    modelHelp:
+      "Las sesiones iniciadas con este rol usan este modelo. Útil para mantener un rol rutinario fuera del límite semanal de tu modelo principal. Los roles integrados siempre siguen el ajuste global.",
     fieldStarterQueries: "Preguntas iniciales",
     onePerLine: "(una por línea)",
     helpLink: "?",

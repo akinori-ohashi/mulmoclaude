@@ -17,6 +17,7 @@
 
 import { installHostContext, type EndpointRegistry, type HostContext } from "../../src/plugins/api.js";
 import { API_ROUTES } from "../../src/config/apiRoutes.js";
+import { CHAT_MODELS } from "../../src/config/models.js";
 import { BUILTIN_ROLE_IDS } from "../../src/config/roles.js";
 // Import from the leaf file (not `src/router/index.ts`) so the test
 // helper doesn't transitively load `vue-router`'s `createRouter`,
@@ -49,6 +50,7 @@ export function installTestHostContext(overrides: Partial<HostContext> = {}): vo
     builtinRoleIds: BUILTIN_ROLE_IDS,
     pageRoutes: PAGE_ROUTES,
     getAllPluginNames: () => [],
+    chatModels: CHAT_MODELS,
     ...overrides,
   });
 }

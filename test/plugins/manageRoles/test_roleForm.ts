@@ -9,6 +9,7 @@ import {
   validateRoleForm,
   isValidRoleId,
   DEFAULT_ROLE_ICON,
+  emptyRoleForm,
   type RoleForm,
 } from "../../../src/plugins/manageRoles/roleForm.js";
 
@@ -19,6 +20,7 @@ const form = (over: Partial<RoleForm> = {}): RoleForm => ({
   prompt: "You are an analyst.",
   selectedPlugins: ["chart"],
   queriesText: "",
+  model: "",
   ...over,
 });
 
@@ -169,5 +171,57 @@ describe("parseManageRolesResult", () => {
     assert.equal(parseManageRolesResult({ success: true, data: { customRoles: [{ id: "analyst" }] } }), null);
     assert.equal(parseManageRolesResult({ success: true, data: "roles" }), null);
     assert.equal(parseManageRolesResult(null), null);
+  });
+});
+
+// #3104. The ORIGINAL proposal for this feature was "add a `model` key to the
+// role JSON, no UI needed". That does not work, and this suite is the reason:
+// the role object is rebuilt field by field on every edit path, so a key
+// nothing here knows about is silently dropped the first time a user edits the
+// role — settings vanishing with no error. These assertions are what make the
+// field survive a round trip.
+describe("role model round-trip", () => {
+  it("carries a model from the form onto the role", () => {
+    assert.equal(formToRole(form({ model: "haiku" })).model, "haiku");
+  });
+
+  it("omits the key entirely when unset, so `role.model ?? setting` falls through", () => {
+    const role = formToRole(form({ model: "" }));
+    assert.equal("model" in role, false);
+  });
+
+  it("survives form -> role -> form", () => {
+    assert.equal(roleToForm(formToRole(form({ model: "sonnet" }))).model, "sonnet");
+  });
+
+  it("shows as the not-set option when the role has none", () => {
+    assert.equal(roleToForm({ id: "a", name: "A", icon: "person", prompt: "p", availablePlugins: [] }).model, "");
+  });
+
+  // The failure this guards is editing an UNRELATED field: the whole role is
+  // rebuilt from the form, so if the form did not carry the model, saving a
+  // renamed role would drop it.
+  it("keeps the model when another field is edited", () => {
+    const saved = formToRole(form({ model: "opus" }));
+    const reopened = roleToForm(saved);
+    const renamed = formToRole({ ...reopened, name: "Renamed" });
+    assert.equal(renamed.model, "opus");
+    assert.equal(renamed.name, "Renamed");
+  });
+
+  it("parses a stored model off the wire, dropping only malformed values", () => {
+    const base = { id: "a", name: "A", icon: "person", prompt: "p", availablePlugins: [] };
+    assert.equal(parseCustomRoles([{ ...base, model: "haiku" }])?.[0]?.model, "haiku");
+    // A malformed field costs that field, not the whole role. An UNKNOWN
+    // alias is carried through on purpose — the host's RoleSchema is the one
+    // validator, and it drops the alias on the way to the agent. Checking it
+    // here would make this parser depend on host context it cannot read.
+    assert.equal(parseCustomRoles([{ ...base, model: 42 }])?.[0]?.model, undefined);
+    assert.equal(parseCustomRoles([{ ...base, model: "" }])?.[0]?.model, undefined);
+    assert.equal(parseCustomRoles([{ ...base, model: "gpt-4o" }])?.[0]?.model, "gpt-4o");
+  });
+
+  it("builds a blank form with the model unset", () => {
+    assert.equal(emptyRoleForm().model, "");
   });
 });
