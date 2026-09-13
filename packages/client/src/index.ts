@@ -28,3 +28,11 @@ export {
 } from "./mime.js";
 
 export { installProcessGuards, SHUTDOWN_GRACE_MS, type ProcessGuardOptions, type ShutdownTask } from "./processGuards.js";
+
+export {
+  createInProcessBridgeClient,
+  type InProcessBridgeClientOptions,
+  type InProcessRelayFn,
+  type InProcessRelayResult,
+  type RegisterInProcessPush,
+} from "./inProcess.js";
