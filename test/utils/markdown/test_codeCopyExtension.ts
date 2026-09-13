@@ -102,7 +102,16 @@ describe("codeCopyExtension", () => {
     const marker = html.match(new RegExp(`${CODE_COPY_ATTR}="([^"]*)"`));
     assert.ok(marker);
     assert.notEqual(marker[1], "", "an empty nonce is refused by the listener, leaving the button inert");
-    assert.match(html, /<pre><code class="hljs language-ts">/);
+    assert.match(html, /<pre dir="ltr"><code class="hljs language-ts">/);
+  });
+
+  it("isolates the block from an author's text direction", () => {
+    // An author `dir="rtl"` wrapper right-aligns the block and scrolls a
+    // long line's LEFT end — where a payload would sit — out of view,
+    // while the clipboard still takes the whole logical string. Isolating
+    // the block keeps legitimate RTL prose working around it.
+    const html = markedLikeHost().parse("```ts\nconst a = 1;\n```") as string;
+    assert.match(html, /<pre dir="ltr">/);
   });
 
   it("uses the bare hljs class for an untagged fence, matching emptyLangClass", () => {

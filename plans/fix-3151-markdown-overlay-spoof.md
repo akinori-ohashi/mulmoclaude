@@ -70,6 +70,25 @@ attribute, and it is `plans/done/feat-1904-markdown-mermaid.md` quoting the merm
 as documentation. Renderer output is untouched, so syntax highlighting, the copy button, mermaid,
 math and wiki embeds all keep their classes.
 
+## Two more mechanisms, found in review
+
+Neither uses `class` or `style`, so neither is closed by the rule above.
+
+**Text direction.** An author `dir="rtl"` wrapper (on `<bdo>` OR any element —
+Codex named `bdo`, the vector is the attribute) right-aligns a code block and
+scrolls a long line's LEFT end, where a payload would sit, out of view; the
+clipboard still takes the whole logical string. Measured: the code element's pixel
+hash changes from `411ef6849a0f0908` to `0e8c9652de8a73e3`, the clipboard does not.
+Fixed by ISOLATING the block — `codeCopyExtension` emits `<pre dir="ltr">` — rather
+than stripping the author's `dir`, so legitimate right-to-left prose keeps working.
+
+**SVG geometry attributes.** Reported as a P1: they survive the rule and could paint
+over a block. Rejected, and Codex accepted the rejection. The attributes do survive
+and `getBoundingClientRect()` does report an overlap of the code's full width and
+height — but nothing is painted. Six shapes, pixel-hashed against baseline, all
+identical: the root svg is clipped. Banning SVG would remove a legitimate markdown
+capability to close a hole nobody can demonstrate.
+
 ## Files
 
 New:

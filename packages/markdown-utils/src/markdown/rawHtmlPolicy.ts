@@ -35,6 +35,34 @@ const FORBIDDEN = ["class", "style"];
 
 const isAsciiLetter = (char: string): boolean => (char >= "a" && char <= "z") || (char >= "A" && char <= "Z");
 
+// Elements whose content the HTML parser reads as TEXT, not markup. Inside
+// them a `<div class=x>` is characters a reader is meant to see, so
+// rewriting it corrupts the document rather than protecting anyone —
+// `<textarea><div class=foo></textarea>` was coming out as
+// `<textarea><div></textarea>` (codex round 2). Only `textarea` currently
+// survives the sanitiser; the rest are here because this helper is exported
+// and must not depend on that staying true.
+const RAW_TEXT_ELEMENTS = ["textarea", "title", "script", "style", "xmp", "iframe", "noembed", "noframes", "plaintext"];
+
+/** Name of the tag starting at `start`, lower-cased; "" for a closing tag
+ *  or anything that is not a plain element name. */
+function openingTagName(fragment: string, start: number): string {
+  const match = /^<([A-Za-z][A-Za-z0-9-]*)/.exec(fragment.slice(start));
+  return match === null ? "" : (match[1] ?? "").toLowerCase();
+}
+
+/** Index just past `</name>` searched from `from`, case-insensitively. The
+ *  END of the fragment when there is no close tag — which is what the HTML
+ *  parser does too, and is the right answer when `marked` has split the
+ *  element across chunks. */
+function rawTextEnd(fragment: string, from: number, name: string): number {
+  const lowered = fragment.toLowerCase();
+  const close = lowered.indexOf(`</${name}`, from);
+  if (close === -1) return fragment.length;
+  const closeEnd = fragment.indexOf(">", close);
+  return closeEnd === -1 ? fragment.length : closeEnd + 1;
+}
+
 /** True when `<` at `index` opens a tag rather than being literal text.
  *  `a < b` in prose must survive untouched. */
 function opensTag(fragment: string, index: number): boolean {
@@ -144,6 +172,14 @@ export function stripPresentationAttributes(fragment: string): string {
     }
     const end = tagEnd(fragment, index);
     out.push(stripFromTag(fragment.slice(index, end)));
+    const name = openingTagName(fragment, index);
+    if (RAW_TEXT_ELEMENTS.includes(name)) {
+      // Copy the element's text content — and its close tag — verbatim.
+      const rawEnd = rawTextEnd(fragment, end, name);
+      out.push(fragment.slice(end, rawEnd));
+      index = rawEnd;
+      continue;
+    }
     index = end;
   }
   return out.join("");

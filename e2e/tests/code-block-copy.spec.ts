@@ -85,6 +85,30 @@ test.describe("author markdown cannot hide what the button copies (#3151)", () =
     },
   ];
 
+  // Not an overlay: an author `dir="rtl"` wrapper right-aligns the block and
+  // scrolls a long line's LEFT end out of view while the clipboard still takes
+  // the whole logical string. Same invariant, different mechanism, and it needs
+  // a browser for the same reason (codex round 2).
+  test("an author's text direction cannot re-lay-out a code block", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await mockAllApis(page);
+    const wrapped = ['<div dir="rtl">', "", "```sh", REAL, "```", "", "</div>"].join("\n");
+    const transcript = [
+      { type: "session_meta", roleId: "general", sessionId: SESSION_A.id },
+      { type: "text", source: "assistant", message: wrapped },
+    ];
+    await page.route(
+      (url) => url.pathname === `/api/sessions/${SESSION_A.id}`,
+      (route) => (route.request().method() === "GET" ? route.fulfill({ json: transcript }) : route.fallback()),
+    );
+    await page.goto(`/chat/${SESSION_A.id}`);
+    const code = page.locator(".markdown-content pre code").first();
+    await code.waitFor();
+    expect(await code.evaluate((node) => getComputedStyle(node).direction)).toBe("ltr");
+    await page.locator("[data-code-copy]").first().click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(REAL);
+  });
+
   overlays.forEach(({ name, markdown }) => {
     test(`the copied text is the visible text — ${name}`, async ({ page, context }) => {
       await context.grantPermissions(["clipboard-read", "clipboard-write"]);

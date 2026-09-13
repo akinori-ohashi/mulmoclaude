@@ -38,6 +38,13 @@ describe("stripPresentationAttributes — removes", () => {
     // marked hands raw HTML over in chunks that are not well-formed, which
     // is exactly why this is lexical rather than a DOM round-trip.
     { name: "an unclosed opening tag on its own", input: '<div class="relative">', expected: "<div>" },
+    // Attributes may be separated by ANY whitespace, newlines included.
+    // A mutation narrowing the separator to `[ \t]+` passed all 27 other
+    // tests (codex round 2, axis 3).
+    { name: "a newline before the attribute", input: '<div\nclass="absolute">x</div>', expected: "<div>x</div>" },
+    { name: "a newline-separated attribute among others", input: '<div\nid="k"\nclass="absolute">x</div>', expected: '<div\nid="k">x</div>' },
+    // The element's OWN class still goes, only its CONTENT is spared.
+    { name: "class on a raw-text element itself", input: '<textarea class="absolute">body</textarea>', expected: "<textarea>body</textarea>" },
   ];
   removed.forEach(({ name, input, expected }) => {
     it(name, () => assert.equal(stripPresentationAttributes(input), expected));
@@ -54,6 +61,13 @@ describe("stripPresentationAttributes — leaves alone", () => {
     { name: "other attributes with odd spacing", input: "<div  id = \"k\"  data-x='v' >x</div>" },
     { name: "an empty fragment", input: "" },
     { name: "text that looks like a tag but is not", input: "3 <4 and 5< 6" },
+    // Inside a raw-text element the parser reads CHARACTERS, not markup, so
+    // rewriting them corrupts a document instead of protecting anyone.
+    // `<textarea><div class=foo></textarea>` was coming out as
+    // `<textarea><div></textarea>` (codex round 2).
+    { name: "markup inside a textarea", input: "<textarea><div class=foo></textarea>" },
+    { name: "markup inside an unclosed textarea", input: "<textarea>unclosed <div class=x>" },
+    { name: "markup inside a title", input: "<title>a <b class=x> b</title>" },
   ];
   untouched.forEach(({ name, input }) => {
     it(name, () => assert.equal(stripPresentationAttributes(input), input));
@@ -112,6 +126,12 @@ describe("rawHtmlPolicyExtension through real marked + the real sanitiser", () =
     const html = render('```\nplain\n```\n\n<div class="absolute">author</div>');
     assert.match(html, /<pre>/);
     assert.doesNotMatch(html, /class="absolute"/);
+  });
+
+  it("strips around a raw-text element without touching what is inside it", () => {
+    const html = render('<div class="absolute"><textarea><b class="c"></textarea></div>');
+    assert.doesNotMatch(html, /class="absolute"/);
+    assert.match(html, /&lt;b class="c"&gt;|&lt;b class=&quot;c&quot;&gt;/);
   });
 
   it("keeps structural author HTML working", () => {
