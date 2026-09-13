@@ -24,6 +24,14 @@ describe("stripPresentationAttributes — removes", () => {
     { name: "both, keeping the rest", input: '<a href="/y" class="c" style="s" id="k">x</a>', expected: '<a href="/y" id="k">x</a>' },
     { name: "upper case names", input: '<div CLASS="c" STYLE="s">x</div>', expected: "<div>x</div>" },
     { name: "a bare valueless attribute", input: "<div class>x</div>", expected: "<div>x</div>" },
+    // Whitespace around `=` is legal HTML and the scanner has to skip it on
+    // BOTH sides. Without these, a mutation that stops skipping before the
+    // `=` passes every other test while leaving `<div = "absolute">` behind —
+    // malformed, and the value survives. (codex round 1, axis 1.)
+    { name: "spaces around the equals sign", input: '<div class = "absolute">x</div>', expected: "<div>x</div>" },
+    { name: "tabs around the equals sign", input: '<div style\t=\t"position:fixed">x</div>', expected: "<div>x</div>" },
+    { name: "space before equals, unquoted value", input: "<div class = absolute>x</div>", expected: "<div>x</div>" },
+    { name: "spaced equals with another attribute after", input: '<div class = "a" id="k">x</div>', expected: '<div id="k">x</div>' },
     { name: "a value containing >", input: '<div class="a>b" id="k">x</div>', expected: '<div id="k">x</div>' },
     { name: "every tag in the fragment", input: '<p class="a"><span style="b">x</span></p>', expected: "<p><span>x</span></p>" },
     { name: "a self-closing tag", input: '<img src="a.png" class="c"/>', expected: '<img src="a.png"/>' },
