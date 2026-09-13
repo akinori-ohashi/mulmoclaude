@@ -14,7 +14,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 The tool refused a generated model of 234,796 characters with "the gallery allows 100000". The
 gallery's cap is now 900,000 UTF-8 bytes (receptron/mulmoserver#264) — bytes because Firestore's
-1 MiB document cap is in bytes and a script with Japanese comments is up to three a character —
+1 MiB document cap is in bytes and a script with Japanese comments is up to three bytes per
+character —
 and the plugin's mirrored limit, the one that lets the tool say why before a write that would fail
 as a bare permission error, moves with it and measures the same way.
 
