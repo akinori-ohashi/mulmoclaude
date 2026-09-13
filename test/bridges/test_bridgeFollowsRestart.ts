@@ -15,6 +15,8 @@
 import { describe, it, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
+import { connect } from "node:net";
+import { lookup } from "node:dns/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
@@ -24,49 +26,73 @@ import type { AddressInfo } from "node:net";
 import { Server as IOServer } from "socket.io";
 import { CHAT_SOCKET_PATH, CHAT_SOCKET_EVENTS } from "@mulmobridge/protocol";
 import { createBridgeClient, resolveApiUrl, resolvePublishedApiUrl, type BridgeClient } from "@mulmobridge/client";
-import { isErrorWithCode } from "../../server/utils/types.js";
 
 const RECONNECT_BUDGET_MS = 25_000;
 const POLL_MS = 100;
 
 const isAddressInfo = (value: AddressInfo | string | null): value is AddressInfo => value !== null && typeof value === "object";
 
-/** The port `DEFAULT_API_URL` names. One case below has to bind THIS port and no
- *  other — it exists to prove the fall-through to the documented default — so it
- *  is the only thing in this file that cannot ask the OS for a free one. */
+/** The host and port `DEFAULT_API_URL` names. One case below has to bind THIS
+ *  port and no other — it exists to prove the fall-through to the documented
+ *  default — so it is the only thing in this file that cannot ask the OS for a
+ *  free one. */
+const DEFAULT_API_HOST = "localhost";
 const DEFAULT_API_PORT = 3001;
 
-/** The addresses `localhost:3001` can reach, because those are the ones that have
- *  to be clear — not the one this file happens to bind.
+/** A loopback connection that has not answered in this long is not going to. */
+const PROBE_TIMEOUT_MS = 1_000;
+
+/** May this case run? It may when NOTHING answers on port 3001 — and that is the
+ *  whole rule, stated as what is PERMITTED rather than as a list of ways a port
+ *  can be taken.
  *
- *  `DEFAULT_API_URL` says `http://localhost:3001`, and `localhost` resolves to
- *  `::1` BEFORE `127.0.0.1` on a dual-stack host (measured here:
- *  `[{"address":"::1","family":6},{"address":"127.0.0.1","family":4}]`). So a
- *  listener on `::1:3001` alone leaves the IPv4 probe reporting "free" while the
- *  client under test connects to that listener instead of ours — and the case
- *  fails after 25 seconds, which is the exact symptom this probe exists to
- *  remove, arriving through the other family (Codex review, PR #3139). */
-const LOOPBACK_HOSTS = ["127.0.0.1", "::1"] as const;
-
-/** Only these mean "someone has it". Anything else — `EADDRNOTAVAIL` on a host
- *  with no IPv6, say — means the address cannot be occupied here at all, so it
- *  cannot be what is blocking us. Reading every failure as "busy" would skip the
- *  case on every IPv4-only machine and call that a kindness. */
-const IN_USE_CODES: ReadonlySet<string> = new Set(["EADDRINUSE", "EACCES"]);
-
-const canBindHost = (host: string): Promise<boolean> =>
+ *  The list was tried and it lost twice. It began as "can I bind 127.0.0.1?",
+ *  which missed a listener on `::1` — `DEFAULT_API_URL` says `localhost`, and
+ *  `localhost` resolves to `::1` FIRST here. Binding both families then missed a
+ *  wildcard listener: measured against a real one on `*:3002`, `bind 127.0.0.1 ->
+ *  free`, `bind ::1 -> free`, and yet `reach localhost -> ANSWERS`. There is
+ *  always one more shape — `0.0.0.0`, `SO_REUSEPORT`, a v6-only socket — so the
+ *  question stopped being "which addresses can I bind" (Codex review, PR #3139).
+ *
+ *  Asking instead whether anything ANSWERS tests the thing the case actually
+ *  depends on: that `localhost:3001`, the address the client under test dials,
+ *  reaches OUR server and nobody else's. It fails closed — an unimagined way of
+ *  holding a port shows up as "occupied" rather than as a silent hole.
+ *
+ *  The addresses come from DNS rather than a literal list, because that is the
+ *  same source `localhost` is resolved through by the client.
+ *
+ *  It deliberately refuses some situations that would in fact have been fine —
+ *  on an IPv4-first host with only `::1:3001` occupied, this case's own bind of
+ *  `127.0.0.1` might have won `localhost` anyway, and it is skipped regardless.
+ *  That is the direction to be wrong in: a needless skip costs one assertion on
+ *  one machine, and a wrong "free" costs 25 seconds and a misleading name.
+ *
+ *  What it does not cover: a port with no listener that still refuses a bind,
+ *  such as one in TIME_WAIT. That reads as free here and then fails loudly at
+ *  `listen` with the port in the message — legible, unlike the 25-second
+ *  assertion this whole check exists to replace.
+ *
+ *  Codex was asked to construct a case that answers on `localhost:3001` yet
+ *  reads as free here, and could not: it tried listeners on `127.0.0.1`, `::1`,
+ *  `0.0.0.0`, `::`, and `::` with `ipv6Only`, and every one that `localhost`
+ *  reached was caught by at least one address `lookup` returned. */
+const answersOn = (host: string): Promise<boolean> =>
   new Promise((resolve) => {
-    const probe = createServer();
-    probe.once("error", (err) => resolve(!(isErrorWithCode(err) && IN_USE_CODES.has(err.code))));
-    probe.once("listening", () => probe.close(() => resolve(true)));
-    probe.listen(DEFAULT_API_PORT, host);
+    const socket = connect({ port: DEFAULT_API_PORT, host });
+    const settle = (answered: boolean): void => {
+      socket.destroy();
+      resolve(answered);
+    };
+    socket.once("connect", () => settle(true));
+    socket.once("error", () => settle(false));
+    socket.setTimeout(PROBE_TIMEOUT_MS, () => settle(false));
   });
 
-/** Sequential, not `Promise.all`: two probes racing for one port can have the
- *  second report the first's own listener as the occupant. */
-const canBindDefaultPort = async (): Promise<boolean> => {
-  for (const host of LOOPBACK_HOSTS) {
-    if (!(await canBindHost(host))) return false;
+const defaultPortIsFree = async (): Promise<boolean> => {
+  const addresses = await lookup(DEFAULT_API_HOST, { all: true });
+  for (const { address } of addresses) {
+    if (await answersOn(address)) return false;
   }
   return true;
 };
@@ -342,8 +368,8 @@ describe("a bridge follows the server across a restart (#3078 A-3)", () => {
   // to strand and refusing the documented default would break a setup that
   // worked. They keep it.
   it("still uses the default when the CALLER pinned the token", async (ctx) => {
-    if (!(await canBindDefaultPort())) {
-      const reason = `port ${DEFAULT_API_PORT} is in use on a loopback address \`localhost\` reaches — this case must bind the port DEFAULT_API_URL names, so it cannot be moved to an ephemeral one.`;
+    if (!(await defaultPortIsFree())) {
+      const reason = `something already answers on ${DEFAULT_API_HOST}:${DEFAULT_API_PORT} — this case must bind the port DEFAULT_API_URL names, so it cannot be moved to an ephemeral one.`;
       assert.ok(skipsAreAllowed(), `${reason} On CI nothing should hold it, so this is a failure rather than a skip.`);
       ctx.skip(`${reason} Stop whatever holds it (often your own \`yarn dev\`) to run it.`);
       return;
