@@ -59,10 +59,26 @@ Codex の P2。CLAUDE.md は host を **2 つ** 名指ししている（`mulmocl
 `common@1.3.0` が publish された後は `mulmoterminal → core@^4.9.0 → common@^1.2.0` が 1.3.0 に
 解決し、hoist された 1 本が plugin 側の peer `^1.3.0` を満たす。
 
-そして `common@1.3.0` が publish されていなければ **plugin も publish できない**:
-`yarn check:published-deps` が exit 1 で `@mulmoclaude/common@1.3.0` を未公開として報告し、
-#3116 で直した `drift.mjs --release` も同じ 4 件を block する。危険な窓（peer が満たせない
-状態で plugin だけ公開される）は、publish 順を守る限り存在しない。
+**publish 順の前提を明示する（round 2 で自分の主張を訂正）**: 最初「2 つのゲートが
+plugin の publish 自体を block するので危険な窓は無い」と書いたが、**これは言い過ぎ**だった。
+実際に読むと:
+
+| ゲート                                                            | 実際の走査範囲                                                                                                                                                                                     |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `check:published-deps`（`scripts/mulmoclaude/publishedDeps.mjs`） | **launcher の manifest だけ**（`packages/mulmoclaude/package.json`）。今 exit 1 になるのは launcher が `common: ^1.3.0` を宣言しているからで、**plugin の peer 下限は見ていない**                  |
+| `drift.mjs --release`                                             | workspace 自身の export と version のずれを見るゲート。#3116 で 20 workspace に広げたが、**plugin の peer 下限が npm に存在するかは見ていない**。そもそもこのブランチにはまだ #3116 が入っていない |
+| `/publish` skill                                                  | 「dependency order で回す」という**手順の指示**であって機械的ゲートではない                                                                                                                        |
+| `/publish-mulmoclaude` skill                                      | 上の 2 つを走らせるが、これは **launcher を publish するとき**の流れ                                                                                                                               |
+
+つまり **plugin の publish は、peer 下限が npm に存在することを機械的に検証されていない**。
+守っているのは CLAUDE.md の「Publish order — always bottom-up, launcher last」という順序規則。
+
+**したがって前提条件として明記する**:
+
+> この 6 plugin のどれかを publish する前に、**`@mulmoclaude/common@1.3.0` を先に publish する**こと。
+> `^1.3.0` の peer は npm に 1.3.0 が存在しない限り満たせない。これは bottom-up の publish 順
+> （common → plugins）そのものなので新しい制約ではないが、機械的に止まるものではないので
+> 手順として書いておく。
 
 **残る前提を明記する**: この解決は **hoist される flat な tree**（npm / yarn v1）か
 **pnpm の `auto-install-peers`（v8 以降の既定 on）** に依存している。strict で非 hoist、かつ
