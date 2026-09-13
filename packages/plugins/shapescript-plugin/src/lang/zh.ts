@@ -12,6 +12,8 @@ const zh: Messages = {
   saveError: "保存失败：",
   downloadUsdz: "下载 USDZ",
   exportError: "导出失败:",
+  copyScript: "复制",
+  copied: "已复制",
   sceneWarnings: "未渲染:",
   printOutput: "输出:",
 };
