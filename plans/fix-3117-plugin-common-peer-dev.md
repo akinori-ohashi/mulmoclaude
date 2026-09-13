@@ -12,18 +12,24 @@ launcher 自身が `@mulmoclaude/common` を宣言しているので common も 
 
 ## 現状 → 目標
 
-| plugin | 現状 | 目標 |
-|---|---|---|
-| `x-plugin` | `dependencies: ^1.3.0` | `peerDependencies` + `devDependencies` |
-| `accounting-plugin` | 同上 | 同上 |
-| `html-plugin` | `dependencies` **と** `devDependencies` の両方 | `dependencies` を削り peer を追加（dev は既にある） |
-| `mulmoscript-plugin` | `dependencies: ^1.3.0` | `peerDependencies` + `devDependencies` |
-| `spotify-plugin` | 同上 | 同上 |
-| `markdown-plugin` | 同上 | 同上 |
+| plugin               | 現状                                           | 目標                                                |
+| -------------------- | ---------------------------------------------- | --------------------------------------------------- |
+| `x-plugin`           | `dependencies: ^1.3.0`                         | `peerDependencies` + `devDependencies`              |
+| `accounting-plugin`  | 同上                                           | 同上                                                |
+| `html-plugin`        | `dependencies` **と** `devDependencies` の両方 | `dependencies` を削り peer を追加（dev は既にある） |
+| `mulmoscript-plugin` | `dependencies: ^1.3.0`                         | `peerDependencies` + `devDependencies`              |
+| `spotify-plugin`     | 同上                                           | 同上                                                |
+| `markdown-plugin`    | 同上                                           | 同上                                                |
 
 **`dependencies` から消すだけでは駄目**（import しているものが未宣言になる）。CLAUDE.md が
 明記しているとおり、**peer への追加と dev への追加が対になる**。6 つとも実際に src から
-common を import している（3 / 9 / 2 / 10 / 3 / 2 ファイル）。
+common を import している（`@mulmoclaude/common` を含むファイル数で 3 / 9 / 2 / 10 / 3 / 2、
+うち実際の import 文を持つのは 2 / 9 / 2 / 10 / 2 / 2 — 残りはコメント言及）。
+
+**逆方向も確認した**: manifest を持つ 17 plugin を実 import パターン（`from` / `import` /
+`require(` + 文字列）で走査し、common を実 import しているのは**この 6 つだけ**、宣言だけ
+あって import が無いものも無し。`shapescript-plugin` は `src/core/contract.ts:9` の doc
+コメントで言及しているだけで実 import は無い。
 
 ## 検証すること
 
@@ -33,6 +39,53 @@ common を import している（3 / 9 / 2 / 10 / 3 / 2 ファイル）。
   クリーン install で検証する — 温かい `node_modules` は嘘をつく）
 - 6 plugin が standalone でビルド/テストできること（dev 宣言がそれを担保する）
 - 各 plugin の build + typecheck + test
+
+## cross-review で出た論点（round 1）
+
+### 第二の host（`mulmoterminal`）は peer を満たすのか
+
+Codex の P2。CLAUDE.md は host を **2 つ** 名指ししている（`mulmoclaude` と `mulmoterminal`）のに、
+この PR が証明しているのは launcher 側だけ、という指摘。実測すると:
+
+|                                           |                                                                                                                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `receptron/mulmoterminal` の直接宣言      | 影響する 6 plugin のうち **5 つ**（accounting / html / markdown / mulmoscript / x）と `@mulmoclaude/core: ^4.9.0`。**`@mulmoclaude/common` の直接宣言は無い** |
+| `@mulmoclaude/core@4.9.0`（公開版）の宣言 | `@mulmoclaude/common: ^1.2.0`（`dependencies`）                                                                                                               |
+| npm 上の `@mulmoclaude/common` 最新       | **1.2.0**                                                                                                                                                     |
+| 公開中の 6 plugin の宣言                  | `^1.2.0` / `^1.1.2` / `^1.1.1`（すべて `dependencies`）                                                                                                       |
+
+**解決する**。理由は semver の 1 系キャレット: `^1.2.0` は **1.3.0 を満たす**（`^0.23.0` が 0.24.0 を
+満たさないのとは逆。CLAUDE.md の 0.x 固有の記述と混同しないこと）。したがって
+`common@1.3.0` が publish された後は `mulmoterminal → core@^4.9.0 → common@^1.2.0` が 1.3.0 に
+解決し、hoist された 1 本が plugin 側の peer `^1.3.0` を満たす。
+
+そして `common@1.3.0` が publish されていなければ **plugin も publish できない**:
+`yarn check:published-deps` が exit 1 で `@mulmoclaude/common@1.3.0` を未公開として報告し、
+#3116 で直した `drift.mjs --release` も同じ 4 件を block する。危険な窓（peer が満たせない
+状態で plugin だけ公開される）は、publish 順を守る限り存在しない。
+
+**残る前提を明記する**: この解決は **hoist される flat な tree**（npm / yarn v1）か
+**pnpm の `auto-install-peers`（v8 以降の既定 on）** に依存している。strict で非 hoist、かつ
+auto-install-peers を切った構成では plugin の peer は未充足になる。恒久的な対処は
+`mulmoterminal` 側で `@mulmoclaude/common` を直接宣言することで、それは**あちらのリポジトリの
+変更**なので本 PR には含めない（フォローアップとして提案する）。
+
+### rule の rationale は common には効かない（測定済み）
+
+CLAUDE.md が書く失敗形は「core が module state に持つもの（registries / watchers / caches）が
+二重に存在する」。`@mulmoclaude/common` はそれに当たらない:
+
+- `src/*.ts` 6 ファイルすべてで **module-level の `let` / `var` が 0 件**
+- `dependencies` / `peerDependencies` が **どちらも空**
+- module-level のコレクションは `HTML_ESCAPES` / `ALLOWED_PROTOCOLS` / `BLOCKED_HOSTNAMES` の
+  読み取り専用ルックアップのみ
+
+純関数パッケージの二重コピーは実行時には無害なので、この PR の実際の利点は別の 3 点:
+
+1. `core` と同じ形に揃えて、配置の判断を per-package にしない
+2. nested な二重コピーが消えて install が小さい
+3. host が古いとき、nested コピーで silent に動くのではなく **loudly に壊れる**
+   （`asInt` / `PORT_RANGE` は 1.3.0 で足したばかりなので、これは実利がある）
 
 ## この PR でやらないこと
 
