@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.2`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@2.7.1`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@2.7.1`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 
@@ -58,6 +58,54 @@ range の sweep は発生しない。依存する `@mulmoclaude/common@1.3.0` �
 **client を先に publish する**こと。
 
 ### Added
+
+#### 設定しておけばサーバと一緒にブリッジも起動する (#3080)
+
+`yarn telegram` はサーバを立て直すたびに手で立て直しになる。`config/bridges.json` で
+有効にしておけば、**サーバのプロセス内で**ブリッジが起動するようにした。まず `telegram`
+1 本で、残り 24 本は後続 PR。
+
+```jsonc
+// <workspace>/config/bridges.json — オン/オフだけ。認証情報は .env のまま
+{ "bridges": { "telegram": { "enabled": true } } }
+```
+
+**新しいコアは足していない。** `packages/chat-service/src/relay.ts` は自身を
+「HTTP (router) と socket.io の両 transport が呼ぶ共有コア」と書いていて実際そうなので、
+プロセス内経路はその `RelayFn` の **3 つ目の呼び出し元**になるだけ。副産物として
+**ポートもトークンも要らない** — HTTP を 1 往復しないので、#3078（ブリッジがサーバの
+ポート／トークンを見失う）がこの経路では構造的に起きない。
+
+- `createInProcessBridgeClient`（`@mulmobridge/client`）が既存の `BridgeClient` を満たす。
+  実装すべき面が小さいことは測ってある: 25 本が使うのは `send`（25）/ `onPush`（25）/
+  `onTextChunk`（2）/ `close`（1）だけで、`socket` エスケープハッチの利用は **0 本**。
+  その `socket` は null ではなく **throw** する — 誰も触っていない以上、最初に触る人は
+  成り立たない前提で書いているので、無関係な TypeError で気づくより良い
+- `chatService.registerInProcessBridge` が server → bridge の push を配る。プロセス内
+  ブリッジは常に live なので queue には積まない
+- **起動失敗はサーバを止めない**（Relay の既存挙動に合わせた）。トークン欠落・未変換の
+  transport・壊れた設定エントリ・**読めない設定ファイル**（EACCES 等、`loadJsonFile` が
+  ENOENT 以外を rethrow する経路）はそれぞれログに出て、他のブリッジとサーバは動き続ける。
+  **push ハンドラの同期 throw も封じ込める** — `pushToBridge` はルートハンドラやスケジューラの
+  スタック上で走るので、ブリッジのバグがそこへ抜けるとサーバが落ちる
+- ブリッジ本体は `packages/bridges/telegram/src/start.ts` に移した。`env` を読まず
+  `process.exit` も呼ばず、**throw する**。CLI 側はそれを受けて今までどおりのメッセージと
+  exit code を出す。**CLI の挙動は変えていない**: 起動失敗 5 経路を変更前後で実行して
+  出力と exit code が 1 バイト差も無いことを確認した
+
+公開面が変わった 3 本を上げた: `@mulmobridge/client@1.3.0`（`createInProcessBridgeClient`）、
+`@mulmobridge/telegram@1.2.0`（`./start` subpath）、`@mulmobridge/chat-service@1.2.0`
+（`registerInProcessBridge`）。前 2 つは **#3116 で直したドリフトゲートが自分の PR で捕まえた**。
+3 つ目はゲートには見えない — module の export 名ではなく**返り値オブジェクトのメソッド**が
+増えたケースで、これは今のゲートの測り方の外側にある。
+
+bridge パッケージは launcher の **`optionalDependencies`** に置いた。`server/` は launcher
+経由で配布されるので、そこから動的 import するパッケージは launcher が宣言していなければ
+npm ユーザーに届かない（smoke の `deps` ステージが指摘した）。`deps.mjs` 自身が
+「optionalDependencies satisfies a dynamic import with try/catch」と書いている形に合わせている。
+
+使い方は [`docs/in-process-bridges.md`](in-process-bridges.md)、詰まったときの診断は
+`error-recovery.md` に追加した節にある。
 
 #### `@mulmoclaude/shapescript-plugin@2.7.0` — `publishShapeScript` posts a model to the gallery
 
@@ -179,6 +227,7 @@ is unchanged. `dev:debug` and `dev:full-build` go the same way.
 
 An unrecognised flag is now **refused** with the list of valid ones, rather than
 ignored — ignoring it is the same bug one typo removed.
+
 #### The publish-drift gate was scanning 4 packages and counting the wrong thing (#3116)
 
 `scripts/mulmoclaude/drift.mjs` exists to refuse one specific state: a new runtime export shipped
