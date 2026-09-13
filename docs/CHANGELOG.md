@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Package releases
+
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.2`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.8.0`, `@mulmoclaude/shapescript-plugin@2.7.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
 ### Added
 
 #### `@mulmoclaude/shapescript-plugin@2.7.0` — `publishShapeScript` posts a model to the gallery
@@ -42,7 +46,208 @@ MulmoClaude は `claude` を `--model` なしで spawn していたため、モ�
 `config/settings.json` の `chatModel` が live な値で、`bug-report-faq.md` の
 「MulmoClaude is answering with a different model than I expected」がそこを指す。
 
+### Changed
+
+#### Node 22 が下限になって解けた依存 — `matrix-js-sdk@42` / `google-auth-library@11`
+
+`engines` が `>=22.19` になったので取り込めるようになった 2 本。上げなかったものと、その理由も
+残しておく（どれも「上げる利得が無い」であって「危なくて上げられない」ではない）。
+
+- **`matrix-js-sdk` 41.9.0 → 42.3.0** — 実コードの変わる唯一の更新。42 の破壊的変更は
+  Matrix v1.18 OAuth2 API 対応と `getContentUri` 削除だが、`packages/bridges/matrix/src/index.ts`
+  は `accessToken` 認証で、どちらの経路にも乗っていない。使用 API 面
+  (`createClient` / `RoomEvent.Timeline` / `MatrixEvent.getType|getSender|getContent` /
+  `Room.roomId` / `startClient` / `sendTextMessage`) を 42.3.0 の実物に対し strict で型チェックし、
+  通ることを確認済み。**このブリッジにはテストが無い** (`"test": "echo no tests yet"`) ので、
+  実挙動の担保は型のみ。
+- **`google-auth-library` 10.9.1 → 11.0.2** — v11 系列の `build/` は 10.9.1 と**全バイト同一**
+  (92 ファイル、ハッシュ一致)。major の中身は `engines` を `>=18` から `>=22` に上げたことだけで、
+  API 差分は無い。上げる意味は将来側で、10.x は 10.9.1 で打ち止め、以後の修正は 11.x に乗る。
+  **代償として `packages/core/node_modules` に 1.8MB のネスト**が生まれる — `@google/genai`
+  (`^10.3.0`) と `google-gax` (`^10.1.0`) が 10.x に上限を掛けているため。`GoogleGenAI` は
+  `apiKey` だけで生成され core の `OAuth2Client` は外に出ないので、2 つのコピーが `instanceof` や
+  モジュール状態で干渉することはない。`@google/genai` が `^11` に移れば重複は自然に解消する。
+
+上げなかったもの:
+
+- **`undici` 8** — この repo は undici を import しておらず root の `resolutions` ピン専用。
+  advisory は 0 件でピンの目的は 7.29.x で達成済みな一方、8 を強制すると `discord.js` /
+  `@discordjs/rest` (`^6.27.0`)、`@slack/socket-mode` (`^7.0.0`)、`jsdom` (`^7.25.0`) を宣言範囲を
+  越えて引っ張り、`miniflare` の exact ピン `7.29.0` まで上書きする。8 の破壊的変更
+  ("remove legacy handler wrappers" / "enable h2 by default") はまさにそれらが触る内部。
+- **`which` 7** — 7.0.0 の中身はサポート Node 範囲を狭めたことそのもので機能差分が無く、
+  範囲 `^22.22.2 || ^24.15.0 || >=26.0.0` が Node 23.x / 24.0–24.14 / 25.x を除外するため、
+  下限をどこに置いても宣言上の穴が残る。用途は `server/system/optionalDeps.ts` の PATH 探索 1 箇所。
+- **`mermaid` 12** — 既定レイアウトが同梱 ELK、テーマ/look が redux-color/neo に変わり、既存の図が
+  引き直されて色が変わる。目視確認の要る独立した作業。
+
+
+#### Node.js の下限を 20.12 → 22.19 に引き上げ
+
+`google-auth-library@11` と `matrix-js-sdk@42` が Node >= 22 を要求するようになり、20.x のままでは
+取り込めない。取り込む 2 本の要求は `>=22` なので **`>=22.19` は厳密な必要値ではなく判断**で、根拠は
+(1) `node:sqlite` (>= 22.5) を内包し sqlite storage が「条件付きで動く機能」から「常にある機能」に
+なる、(2) `mermaid@12` (>= 22.12.0) の道を開けておき engines をもう一度動かさずに済む、
+(3) `which@7` が `^22.22.2` を要求するようにエコシステムの要求はもっと上にある、
+(4) 22.19.0 自体が約 1 年前 (2025-08-28) のリリースで、22.x を常識的に追っていれば既に満たす線。
+
+- `engines.node` を root と `packages/mulmoclaude` の両方で `>=22.19` に。
+- 起動をハードにブロックする launcher の `REQUIRED_NODE` も同じ値へ。両者のズレは
+  `test/utils/launcher/test_preflight.ts` の drift テストが落として教える。
+- `which@7` は**上げない**。7.0.0 の変更内容はサポート Node 範囲を狭めたことそのもので機能差分が無く、
+  範囲 `^22.22.2 || ^24.15.0 || >=26.0.0` が Node 23.x / 24.0–24.14 / 25.x を除外するため、
+  下限をどこに置いても宣言上の穴が残る。用途は `server/system/optionalDeps.ts` の PATH 探索 1 箇所。
+- 副作用として **`node:sqlite` (Node >= 22.5) が下限に含まれた**。lazy import と degradation は
+  「そのモジュール抜きでビルドされた Node」向けの防御として残すが、`sqliteStore.ts` /
+  `backendAvailability.ts` / `docs/shared-utils.md` / `assets/helps/error-recovery.md` の
+  「app の floor は 20.12」という記述はすべて事実と合わなくなったので直した。
+
+#### `@mulmoclaude/core@4.9.2`
+
+`assets/helps/error-recovery.md` の sqlite セクションが上の下限変更で事実と食い違うため。export も
+挙動も変わらない（エージェントはツール失敗時にこのファイルを読むので、記述は npm 経由で届く必要がある）。
+宣言 range を **17 / 9 ファイル** sweep — launcher の `dependencies` と 8 プラグインの
+`devDependencies` + `peerDependencies`。launcher 自身の `version` は不変。
+
 ### Fixed
+
+#### The publish-drift gate was scanning 4 packages and counting the wrong thing (#3116)
+
+`scripts/mulmoclaude/drift.mjs` exists to refuse one specific state: a new runtime export shipped
+at an unchanged version, so npm keeps serving a tarball without it and consumers crash at runtime
+with "does not provide an export named …". It did catch that for `@mulmobridge/client` in #3110.
+It could not have caught it for the other two packages in the same change, and three separate
+reasons were measured rather than guessed:
+
+**Which packages.** It read the launcher's `dependencies` and kept the `@mulmobridge/*` ones —
+four packages: `chat-service`, `client`, `protocol`, `web-push`. That leaves out
+`@mulmoclaude/common` (declared by 32 other workspaces), `@mulmobridge/webhook-runtime` (9),
+`@mulmoclaude/core` (8), `@mulmoclaude/markdown-utils` (2) and `@receptron/task-scheduler` (1).
+#3109 added `asInt` / `PORT_RANGE` to common and `listenWebhook` to webhook-runtime at unchanged
+versions, and the gate passed. The set is now every publishable workspace another workspace
+declares — 20 today — discovered from the `workspaces` globs, so a bridge under
+`packages/bridges/<name>` or a package whose directory does not match its name
+(`@receptron/task-scheduler` lives in `packages/scheduler`) is no longer unreachable.
+
+**What to compare.** It compared the local `src/index.ts` against the published `dist`, which only
+holds when dist mirrors src one-to-one — a tsc build. For a vite-bundled package it is nonsense:
+`@mulmoclaude/x-plugin`'s src has 6 export lines and its dist has 1, so the old metric called it
+**drifted** while it was byte-identical to what npm serves, and `@mulmoclaude/core` came out 229
+against 30. The comparison is now local **built** dist against published dist, the same relative
+path on both sides, so the build system cannot skew it. The smoke workflow already runs
+`yarn build:packages && yarn build` first; a missing local dist is reported as `skipped`, never as
+clean.
+
+**What to count.** Lines cannot see a bundle's surface. `x-plugin`'s entire public API is one line —
+`export { extractTweetId, formatTweet, readUrlArg, readXPost, searchX, tweetBody };` — so a seventh
+name added there leaves the count at 1 and the gate passes. The unit is now the set of exported
+**names**, per `exports` subpath, which is also what lets the gate say WHICH export is new instead of
+"the count went up by one". An `export * from` barrel is followed into the files it re-exports, on
+both sides, so a bundle that puts its whole surface behind one barrel is still compared by name; the
+line-count fallback is left for the case where a re-exported file cannot be read at all. A wildcard
+subpath (`"./*": "./dist/*.js"`) is skipped with a reason, and so is a CommonJS entry — `exports.x =`
+has no `export` statement to read, and zero names on both sides is not a match.
+
+Measured on this tree: 20 packages, 16 `ok`, 4 `pending-publish` (`common`, `webhook-runtime`,
+`client`, `core` — the four genuinely awaiting publish), 0 `drifted`. The three false positives the old
+metric produced are gone, and `client`'s report now names `resolvePublishedApiUrl` — a third
+unpublished export that #3115's review had to find by hand.
+
+The workflow trigger moved with it. `mulmoclaude_smoke.yaml` only ran for
+`packages/{mulmoclaude,protocol,client,chat-service}`, so a PR touching `@mulmoclaude/common` never
+started the job at all: widening the scan set does nothing while the trigger stays narrow.
+
+Fourteen more holes came out of the cross-review, each reproduced before it was fixed, and they share a
+shape: **a wrong or empty answer that reads as clean**. The parser now enumerates what it CAN model —
+a brace list without comments, `default`, a declaration, `type`/`interface` — and marks every other
+`export` statement opaque, because three consecutive findings were each "it silently drops one more
+shape" and a ban-list has no last case. Concretely:
+
+- **A published subpath that 404s is drift, not a skip.** Adding `{ "./new": "./dist/new.js" }` at an
+  unchanged version is a consumer-visible addition — `import "pkg/new"` fails after a plain install —
+  and the old code skipped that entry, so the package reported `ok` as long as `.` compared cleanly.
+  Transport failures (5xx, 429, timeouts) still skip: they say nothing about the package.
+- **A non-JS `exports` target no longer counts as a comparison.** Eight of the twenty scanned
+  packages export a `./style.css`, so an unbuilt package had its JS entry skipped, its stylesheet
+  "compared", and the whole package reported `ok`.
+- **The parser never guesses a name it cannot read exactly.** `export { a as "string name" }` (ES2022
+  arbitrary module namespace names) reported `a`, and `export { café }` reported `caf` under an
+  ASCII-only pattern — a name the package does not export is worse than a coarse comparison.
+- **An opaque entry still compares the names it could read.** The fallback used to replace the name
+  comparison with a line count, so `export * from "./x.js";export { newThing };` was clean against
+  `export * from "./x.js";` — one line on each side, the added name discarded.
+- **A subpath whose `exports` conditions resolve to no file is reported, not substituted.** A nested
+  `{ node: { import: … } }` block was dropped entirely, and a types-only entry fell back to the
+  package's `main` — comparing a different file's export surface.
+- **A CommonJS entry was "compared" as zero names against zero names.** A `require`-only subpath has
+  no `export` statement at all, so the metric read an empty set on each side and called it a match.
+  It is skipped with a reason now; a dual package is still compared through its `import` condition,
+  which `resolveConditionTarget` prefers.
+- **A `;` inside a string literal invented a statement.** Splitting a minified line on every `;`
+  turned `export const a = "x;export const b = 1"` into two statements and registered `b` — a name
+  the module does not have — as a local-only export, i.e. drift. One string-aware scanner now backs
+  the `;` split, the `,` check and the bracket tracking.
+- **An unreachable file inside the barrel walk read as a missing export.** Only the entry fetch told
+  a 404 from a 5xx, so a registry hiccup on a re-exported chunk reported the local tree as
+  **drifted** — a red gate no code change can fix. Absence still degrades to the coarse comparison;
+  a transport failure skips.
+- **The `require` branch was invisible, so a partial verdict read as a whole one.** `exports`
+  conditions resolve to ONE target and `import` wins, and 48 of the scanned subpaths publish a
+  distinct `.cjs` — an unmentioned surface. Each verdict line now names them
+  (`31 require branch(es) NOT compared`). They are reported rather than parsed on purpose: a CJS
+  reader's failure mode is an EMPTY name set, which is "0 names on both sides is a match" — the bug
+  this whole round removed. Measured before deciding: an 8-line reader over the real tree read 0
+  names for 10 of 48 subpaths, because rollup comma-chains its `exports.x =` assignments. The gate
+  is ESM-only by design, and now says so where the verdict is read. The version bump a real ESM
+  drift forces republishes both formats anyway, since one build emits both from one entry.
+
+- **A bump with no API change was not a release blocker, and it is.** `pending-publish` was only
+  assigned when the export set had grown, so a patch release reported `ok` and `--release` let it
+  through — while every consumer already declares `^<local>`, a version npm does not serve, which is
+  the ETARGET failure release mode exists to stop. It was live: `@mulmoclaude/core@4.9.1` printed a
+  clean line. The status now follows the version alone, non-fatal on a PR and fatal under
+  `--release`, which is why the count above reads 4 rather than 3.
+- **A new `exports` subpath pointing at an already-published file read as clean.** The gate
+  enumerates the LOCAL map, so `{"./new": "./dist/index.js"}` at an unchanged version compared the
+  same file twice, matched, and reported `ok` — while `import "pkg/new"` still fails after a plain
+  install, because the PUBLISHED `package.json` has no such key. The published manifest's subpath
+  keys are now compared too; an unreadable manifest says nothing rather than inventing a finding.
+- **"Readable but no `exports` map" was answering "cannot say".** The first version of that check
+  returned the same "unknown" for a manifest it could not read and for one that simply has no
+  `exports` map — so a package migrating from `main` to `exports` could add subpaths at an unchanged
+  version and still report clean. The second case is determinate: such a package serves `.` through
+  `main` and no named subpath at all. Only an unreadable manifest declines to judge now.
+- **Two barrels providing the same name were unioned.** ESM does not expose such a name — it is
+  ambiguous, and `import { x }` from that barrel is an error — so the union both reported a name
+  consumers cannot import and called it clean when a build removed the collision and made it
+  importable. A name from more than one barrel is now left out unless the barrel re-exports it
+  explicitly.
+- **The `require` report missed nested conditions.** `{ node: { import, require } }` resolves to the
+  ESM file, so a top-level lookup said nothing while that CJS branch stayed uncompared.
+- **A whole-file brace counter swallowed a real export line, on two real entries.** Statements were
+  joined by counting braces from the top of the file, which is wrong the moment one brace sits
+  inside a string: `@mulmoclaude/core`'s `./plugin-vue` dist has exactly ONE column-0 export line,
+  listing ten names, and it was being merged into the line above — **0 names on both sides, which
+  reads as a match**. The join is anchored at the `export` line now. The fix is visible in the
+  totals: `core` went 676 → 686 names and `shapescript-plugin` 47 → 62.
+
+`test/scripts/mulmoclaude/test_drift.ts` pins all of it: 83 cases, including the near-misses that
+must come back opaque rather than empty. Every guard above was mutation-checked — reverted one at a
+time, with the corresponding case going red each time (11 for 11).
+
+**The parser is checked against an external authority, not against itself.**
+`scripts/mulmoclaude/drift-groundtruth.mjs` imports every local dist entry in the scan set and
+compares `Object.keys(namespace)` — what Node actually exposes — against what the parser reports:
+**67 entries, 67 exact, nothing missed and nothing invented**. That is what found the `plugin-vue`
+hole, which no amount of reading the parser had. It is deliberately not in `yarn test` (importing
+built code runs side effects) — run it by hand after touching the parser.
+
+One limitation stays, measured rather than assumed: a line at column 0 beginning with `export`
+INSIDE a multi-line template literal is read as a statement, so its name is invented. Every guard
+that closes it — dropping such a line when an odd number of backticks precedes it — cost **6 real
+entries and several hundred real names** falling out of the name comparison, to close a case the
+67-entry measurement shows does not occur. The invented name is also identical on both sides unless
+the sample itself changes, so it can cost a false `drifted`, never a false `ok`.
 
 #### 保存中に変えた選択が、失敗時に取り残される (#2923)
 
