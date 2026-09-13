@@ -160,6 +160,9 @@ const esMessages = {
     customViewHint: "Para una vista compatible con móviles, pide a Claude que cree una {keyword} (no una custom view normal).",
     qrHint: "O escanea este código QR con la cámara de tu teléfono.",
   },
+  sessionModelChip: {
+    tooltip: "Modelo que usa esta sesión: {model}",
+  },
   sidebarHeader: {
     newMessages: "Mensajes nuevos",
     home: "Ir al chat más reciente",
@@ -997,6 +1000,10 @@ const esMessages = {
     fieldIcon: "Icono",
     fieldPrompt: "Prompt",
     fieldPlugins: "Plugins",
+    fieldModel: "Modelo",
+    modelUnset: "(sin configurar — seguir el ajuste global)",
+    modelHelp:
+      "Las sesiones iniciadas con este rol usan este modelo. Útil para mantener un rol rutinario fuera del límite semanal de tu modelo principal. Los roles integrados siempre siguen el ajuste global.",
     fieldStarterQueries: "Preguntas iniciales",
     onePerLine: "(una por línea)",
     helpLink: "?",

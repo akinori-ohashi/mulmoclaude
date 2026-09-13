@@ -50,15 +50,8 @@ import { computed, ref, watch, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { apiGet, apiPut } from "../utils/api";
 import { API_ROUTES } from "../config/apiRoutes";
+import { CHAT_MODELS, EFFORT_LEVELS, type ChatModel, type EffortLevel } from "../config/models";
 import { resolveSave, shouldStartSave } from "./settingsFieldSave";
-
-const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
-type EffortLevel = (typeof EFFORT_LEVELS)[number];
-
-// Family aliases only — mirrors CHAT_MODELS in server/system/config.ts,
-// which is what the PUT validator accepts (#2923).
-const CHAT_MODELS = ["opus", "sonnet", "haiku"] as const;
-type ChatModel = (typeof CHAT_MODELS)[number];
 
 const { t } = useI18n();
 

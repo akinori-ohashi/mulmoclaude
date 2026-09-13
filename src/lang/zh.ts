@@ -156,6 +156,9 @@ const zhMessages = {
     customViewHint: "如需移动端优化的视图，请让 Claude 创建 {keyword}（而不是普通的 custom view）。",
     qrHint: "也可以用手机相机扫描此二维码打开。",
   },
+  sessionModelChip: {
+    tooltip: "此会话正在使用的模型:{model}",
+  },
   sidebarHeader: {
     newMessages: "新消息",
     home: "前往最新对话",
@@ -966,6 +969,9 @@ const zhMessages = {
     fieldIcon: "图标",
     fieldPrompt: "提示词",
     fieldPlugins: "插件",
+    fieldModel: "模型",
+    modelUnset: "(未设置 — 沿用全局设置)",
+    modelHelp: "以此角色开始的会话将使用该模型。适合让常驻的例行角色避开顶级模型的每周上限。内置角色始终沿用全局设置。",
     fieldStarterQueries: "启动提问",
     onePerLine: "(每行一个)",
     helpLink: "?",

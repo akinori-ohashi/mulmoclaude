@@ -10,6 +10,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+
+import { VARIANTS } from "../../scripts/lib/devChain.mjs";
 import { htmlArtifactPreviewUrl, htmlFileUrl } from "@mulmoclaude/html-plugin";
 import viteConfig, { PROXIED_BACKEND_PREFIXES } from "../../vite.config.js";
 
@@ -81,14 +83,31 @@ describe("published-port following is opt-in per dev script", () => {
   const { scripts }: { scripts: Record<string, string> } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf-8"));
   const FOLLOW = "MULMOCLAUDE_DEV_FOLLOW_PORT=1";
 
-  ["dev", "dev:debug", "dev:full-build"].forEach((name) => {
-    it(`${name} starts Vite with the backend it launched, so it follows`, () => {
-      assert.match(scripts[name] ?? "", new RegExp(`${FOLLOW}\\s+vite`), `${name} must opt Vite into following the published port`);
+  // The dev chains moved out of package.json and into `scripts/lib/devChain.mjs`
+  // when `yarn dev` gained a launcher so its CLI flags would stop being dropped
+  // (#3113). This reads the exported table — the strings actually handed to the
+  // shell — rather than grepping the launcher's source for them.
+  Object.entries(VARIANTS).forEach(([variant, steps]) => {
+    const chain = steps.join(" && ");
+
+    it(`the ${variant} chain starts Vite with the backend it launched, so it follows`, () => {
+      assert.match(chain, new RegExp(`${FOLLOW}\\s+vite`), `${variant} must opt Vite into following the published port`);
     });
 
-    it(`${name} clears the stale port before either pane starts`, () => {
-      assert.match(scripts[name] ?? "", /wait:backend --reset/, `${name} must reset .server-port so the publish is attributable`);
+    it(`the ${variant} chain clears the stale port before either pane starts`, () => {
+      const resetAt = chain.indexOf("wait:backend --reset");
+      const panesAt = chain.indexOf("concurrently");
+      assert.notEqual(resetAt, -1, `${variant} must reset .server-port so the publish is attributable`);
+      assert.ok(resetAt < panesAt, `${variant} must reset BEFORE the panes start, or the reset cannot make the publish attributable`);
     });
+  });
+
+  it("covers every variant package.json can reach", () => {
+    // `dev` / `dev:debug` / `dev:full-build` are the three entries; if one is added
+    // to package.json without a chain, this catches it rather than a user does.
+    const named = ["dev", "dev:debug", "dev:full-build"].map((name) => (scripts[name] ?? "").replace(/^node scripts\/dev\.mjs ?/, "") || "dev");
+    named.forEach((variant) => assert.ok(variant in VARIANTS, `package.json runs dev variant "${variant}", which devChain.mjs does not define`));
+    assert.equal(Object.keys(VARIANTS).length, named.length);
   });
 
   ["dev:client", "dev:client:e2e"].forEach((name) => {

@@ -175,6 +175,9 @@ const enMessages = {
     customViewHint: "For a mobile-friendly view, ask Claude to build a {keyword} (not a regular custom view).",
     qrHint: "Or scan this QR code with your phone's camera.",
   },
+  sessionModelChip: {
+    tooltip: "Model this session is running on: {model}",
+  },
   sidebarHeader: {
     newMessages: "New messages",
     home: "Go to latest chat",
@@ -1009,6 +1012,10 @@ const enMessages = {
     fieldIcon: "Icon",
     fieldPrompt: "Prompt",
     fieldPlugins: "Plugins",
+    fieldModel: "Model",
+    modelUnset: "(unset — follow the app-wide setting)",
+    modelHelp:
+      "Sessions started with this role run on this model. Useful for keeping a routine role off your top model's weekly limit. Built-in roles always follow the app-wide setting.",
     fieldStarterQueries: "Starter queries",
     onePerLine: "(one per line)",
     helpLink: "?",

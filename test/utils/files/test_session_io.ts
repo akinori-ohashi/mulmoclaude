@@ -11,6 +11,7 @@ import {
   incrementUserQueryCount,
   backfillFirstUserMessage,
   setClaudeSessionId,
+  updateResolvedModel,
   clearClaudeSessionId,
   appendSessionLine,
   readSessionJsonl,
@@ -191,5 +192,41 @@ describe("appendSessionLine", () => {
 describe("readSessionJsonl", () => {
   it("returns null for non-existent session", async () => {
     assert.equal(await readSessionJsonl("no-jsonl", root), null);
+  });
+});
+
+// #2554 / Codex round 1: the reload half of the model chip. If this stopped
+// writing, the chip would simply vanish on reload and every other test stays
+// green — the failure has no other symptom.
+describe("updateResolvedModel", () => {
+  it("round-trips the model through session meta", async () => {
+    await createSessionMeta("rm-1", "general", "hi", root);
+    await updateResolvedModel("rm-1", "claude-haiku-4-5-20251001", root);
+    assert.equal((await readSessionMeta("rm-1", root))?.resolvedModel, "claude-haiku-4-5-20251001");
+  });
+
+  it("preserves the fields it is not writing", async () => {
+    await createSessionMeta("rm-2", "guide", "first message", root);
+    await setClaudeSessionId("rm-2", "cli-session-abc", root);
+    await updateResolvedModel("rm-2", "claude-opus-5[1m]", root);
+    const meta = await readSessionMeta("rm-2", root);
+    assert.equal(meta?.resolvedModel, "claude-opus-5[1m]");
+    assert.equal(meta?.roleId, "guide");
+    assert.equal(meta?.claudeSessionId, "cli-session-abc");
+    assert.equal(meta?.firstUserMessage, "first message");
+  });
+
+  // Rewritten every turn, so a session whose model changed mid-conversation
+  // reports the latest rather than the first.
+  it("overwrites an earlier model", async () => {
+    await createSessionMeta("rm-3", "general", "hi", root);
+    await updateResolvedModel("rm-3", "claude-sonnet-5", root);
+    await updateResolvedModel("rm-3", "claude-haiku-4-5-20251001", root);
+    assert.equal((await readSessionMeta("rm-3", root))?.resolvedModel, "claude-haiku-4-5-20251001");
+  });
+
+  it("does nothing when there is no session meta to update", async () => {
+    await updateResolvedModel("rm-missing", "claude-opus-5", root);
+    assert.equal(await readSessionMeta("rm-missing", root), null);
   });
 });

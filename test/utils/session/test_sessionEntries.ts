@@ -3,8 +3,15 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseSessionEntries, resolveSelectedUuid, resolveSessionTimestamps, shouldAdoptServerTranscript } from "../../../src/utils/session/sessionEntries.js";
+import {
+  buildLoadedSession,
+  parseSessionEntries,
+  resolveSelectedUuid,
+  resolveSessionTimestamps,
+  shouldAdoptServerTranscript,
+} from "../../../src/utils/session/sessionEntries.js";
 import type { SessionEntry, SessionSummary } from "../../../src/types/session.js";
+import { EVENT_TYPES } from "../../../src/types/events.js";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 
 // --- parseSessionEntries ------------------------------------------
@@ -325,5 +332,31 @@ describe("shouldAdoptServerTranscript", () => {
     const server = [card("hi"), toolCard("done rendering the sunset image")];
     const client = [card("hi"), toolCard("rendering")];
     assert.equal(shouldAdoptServerTranscript(server, client), false);
+  });
+});
+
+// #2554 / Codex round 1: the chip on a RELOADED session comes from the
+// `session_meta` row the transcript read prepends. If this stopped copying it
+// across, a reopened session would show no model and nothing else would fail.
+describe("buildLoadedSession — resolvedModel", () => {
+  const build = (entries: SessionEntry[]) =>
+    buildLoadedSession({ id: "s1", entries, defaultRoleId: "general", serverSummary: undefined, nowIso: "2026-01-01T00:00:00.000Z" });
+
+  it("seeds the model from the meta row", () => {
+    const session = build([{ type: EVENT_TYPES.sessionMeta, roleId: "guide", resolvedModel: "claude-opus-5[1m]" }]);
+    assert.equal(session.resolvedModel, "claude-opus-5[1m]");
+    assert.equal(session.roleId, "guide");
+  });
+
+  // A session recorded before this feature existed has no such field. It must
+  // load as undefined so the chip hides, never as a placeholder string.
+  it("leaves it undefined when the meta row predates the field", () => {
+    const session = build([{ type: EVENT_TYPES.sessionMeta, roleId: "general" }]);
+    assert.equal(session.resolvedModel, undefined);
+    assert.equal("resolvedModel" in session, false);
+  });
+
+  it("leaves it undefined when there is no meta row at all", () => {
+    assert.equal(build([]).resolvedModel, undefined);
   });
 });

@@ -161,6 +161,9 @@ const koMessages = {
     customViewHint: "모바일에 최적화된 뷰가 필요하다면, 일반 custom view가 아닌 {keyword} 를(을) 만들어 달라고 Claude에게 요청하세요.",
     qrHint: "휴대폰 카메라로 이 QR 코드를 스캔해도 열 수 있습니다.",
   },
+  sessionModelChip: {
+    tooltip: "이 세션이 사용 중인 모델: {model}",
+  },
   sidebarHeader: {
     newMessages: "새 메시지",
     home: "최신 채팅으로 이동",
@@ -980,6 +983,10 @@ const koMessages = {
     fieldIcon: "아이콘",
     fieldPrompt: "프롬프트",
     fieldPlugins: "플러그인",
+    fieldModel: "모델",
+    modelUnset: "(미설정 — 전체 설정 따르기)",
+    modelHelp:
+      "이 역할로 시작한 세션은 이 모델로 동작합니다. 상주하는 루틴 역할을 최상위 모델의 주간 한도에서 빼두는 데 쓸 수 있습니다. 내장 역할은 항상 전체 설정을 따릅니다.",
     fieldStarterQueries: "시작 질문",
     onePerLine: "(한 줄에 하나)",
     helpLink: "?",

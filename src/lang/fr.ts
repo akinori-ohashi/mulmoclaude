@@ -155,6 +155,9 @@ const frMessages = {
     customViewHint: "Pour une vue adaptée au mobile, demandez à Claude de créer une {keyword} (pas une custom view classique).",
     qrHint: "Ou scannez ce code QR avec l'appareil photo de votre téléphone.",
   },
+  sessionModelChip: {
+    tooltip: "Modèle utilisé par cette session : {model}",
+  },
   sidebarHeader: {
     newMessages: "Nouveaux messages",
     home: "Aller à la dernière conversation",
@@ -988,6 +991,10 @@ const frMessages = {
     fieldIcon: "Icône",
     fieldPrompt: "Prompt",
     fieldPlugins: "Plugins",
+    fieldModel: "Modèle",
+    modelUnset: "(non défini — suivre le réglage global)",
+    modelHelp:
+      "Les sessions démarrées avec ce rôle utilisent ce modèle. Pratique pour garder un rôle routinier hors de la limite hebdomadaire de votre modèle principal. Les rôles intégrés suivent toujours le réglage global.",
     fieldStarterQueries: "Questions de démarrage",
     onePerLine: "(une par ligne)",
     helpLink: "?",

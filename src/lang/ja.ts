@@ -160,6 +160,9 @@ const jaMessages = {
     customViewHint: "モバイル向けのビューが必要な場合は、通常の custom view ではなく {keyword} を作るように Claude に依頼してください。",
     qrHint: "スマートフォンのカメラでこの QR コードを読み取っても開けます。",
   },
+  sessionModelChip: {
+    tooltip: "このセッションが使っているモデル: {model}",
+  },
   sidebarHeader: {
     newMessages: "新着",
     home: "最新のチャットに移動",
@@ -982,6 +985,10 @@ const jaMessages = {
     fieldIcon: "アイコン",
     fieldPrompt: "プロンプト",
     fieldPlugins: "プラグイン",
+    fieldModel: "モデル",
+    modelUnset: "(未設定 — 全体設定に従う)",
+    modelHelp:
+      "このロールで始めたセッションはこのモデルで動きます。常駐のルーチンを最上位モデルの週次上限から外しておくのに使えます。組み込みロールは常に全体設定に従います。",
     fieldStarterQueries: "スターター質問",
     onePerLine: "（1行につき1つ）",
     helpLink: "?",

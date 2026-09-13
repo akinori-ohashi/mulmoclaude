@@ -93,6 +93,21 @@
           </div>
         </div>
 
+        <!-- Model -->
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1" for="plugin-role-model-new">{{ t("pluginManageRoles.fieldModel") }}</label>
+          <select
+            id="plugin-role-model-new"
+            v-model="newForm.model"
+            class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-400"
+            data-testid="plugin-role-model-new"
+          >
+            <option value="">{{ t("pluginManageRoles.modelUnset") }}</option>
+            <option v-for="model in chatModels" :key="model" :value="model">{{ model }}</option>
+          </select>
+          <p class="mt-1 text-xs text-gray-500">{{ t("pluginManageRoles.modelHelp") }}</p>
+        </div>
+
         <!-- Starter queries -->
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">
@@ -240,6 +255,21 @@
               </div>
             </div>
 
+            <!-- Model -->
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1" for="plugin-role-model-edit">{{ t("pluginManageRoles.fieldModel") }}</label>
+              <select
+                id="plugin-role-model-edit"
+                v-model="editForm.model"
+                class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-400"
+                data-testid="plugin-role-model-edit"
+              >
+                <option value="">{{ t("pluginManageRoles.modelUnset") }}</option>
+                <option v-for="model in chatModels" :key="model" :value="model">{{ model }}</option>
+              </select>
+              <p class="mt-1 text-xs text-gray-500">{{ t("pluginManageRoles.modelHelp") }}</p>
+            </div>
+
             <!-- Starter queries -->
             <div>
               <label class="block text-xs font-medium text-gray-600 mb-1">
@@ -298,9 +328,18 @@ import { useAppApi } from "../../composables/useAppApi";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import type { CustomRole, ManageRolesData } from "./index";
 import { apiGet, apiPost } from "../../utils/api";
-import { pluginEndpoints, pluginAllPluginNames } from "../api";
+import { pluginAllPluginNames, pluginChatModels, pluginEndpoints } from "../api";
 import type { RolesEndpoints } from "./definition";
-import { formToRole, parseCustomRoles, parseManageRolesResult, roleToForm, validateRoleForm, type RoleForm, type RoleFormError } from "./roleForm";
+import {
+  type RoleForm,
+  type RoleFormError,
+  emptyRoleForm,
+  formToRole,
+  parseCustomRoles,
+  parseManageRolesResult,
+  roleToForm,
+  validateRoleForm,
+} from "./roleForm";
 import { useImeAwareEnter } from "../../composables/useImeAwareEnter";
 import { confirmItemDelete } from "../../utils/confirmDelete";
 
@@ -385,37 +424,17 @@ const selectedId = ref<string | null>(null);
 const saving = ref(false);
 const saveError = ref("");
 
-const editForm = ref<RoleForm>({
-  id: "",
-  name: "",
-  icon: "",
-  prompt: "",
-  selectedPlugins: [],
-  queriesText: "",
-});
+const chatModels = pluginChatModels();
+const editForm = ref<RoleForm>(emptyRoleForm());
 
 const creating = ref(false);
 const createError = ref("");
-const newForm = ref<RoleForm>({
-  id: "",
-  name: "",
-  icon: "person",
-  prompt: "",
-  selectedPlugins: [],
-  queriesText: "",
-});
+const newForm = ref<RoleForm>(emptyRoleForm());
 
 function startCreate() {
   selectedId.value = null;
   createError.value = "";
-  newForm.value = {
-    id: "",
-    name: "",
-    icon: "person",
-    prompt: "",
-    selectedPlugins: [],
-    queriesText: "",
-  };
+  newForm.value = emptyRoleForm();
   creating.value = true;
 }
 

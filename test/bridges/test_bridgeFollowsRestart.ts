@@ -10,11 +10,18 @@
 // never REACHES the new server, so no auth error ever arrives; a supervisor
 // watching only for `invalid token` would sit on the dead port indefinitely.
 //
-// Servers bind port 0, so nothing here races a fixed port.
+// Servers here bind port 0 — except one. `still uses the default when the CALLER
+// pinned the token` proves the fall-through to `DEFAULT_API_URL`, which names
+// 3001, so that case alone races whatever else holds it. This comment used to
+// say nothing here raced a fixed port, and that sentence is why a real collision
+// was read as a restart bug for a day: it fails as a bare assertion 24 seconds
+// in, under a parent named for the restart. See `defaultPortIsFree` below.
 
 import { describe, it, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
+import { connect } from "node:net";
+import { lookup } from "node:dns/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
@@ -30,6 +37,81 @@ const POLL_MS = 100;
 
 const isAddressInfo = (value: AddressInfo | string | null): value is AddressInfo => value !== null && typeof value === "object";
 
+/** The host and port `DEFAULT_API_URL` names. One case below has to bind THIS
+ *  port and no other — it exists to prove the fall-through to the documented
+ *  default — so it is the only thing in this file that cannot ask the OS for a
+ *  free one. */
+const DEFAULT_API_HOST = "localhost";
+const DEFAULT_API_PORT = 3001;
+
+/** A loopback connection that has not answered in this long is not going to. */
+const PROBE_TIMEOUT_MS = 1_000;
+
+/** May this case run? It may when NOTHING answers on port 3001 — and that is the
+ *  whole rule, stated as what is PERMITTED rather than as a list of ways a port
+ *  can be taken.
+ *
+ *  The list was tried and it lost twice. It began as "can I bind 127.0.0.1?",
+ *  which missed a listener on `::1` — `DEFAULT_API_URL` says `localhost`, and
+ *  `localhost` resolves to `::1` FIRST here. Binding both families then missed a
+ *  wildcard listener: measured against a real one on `*:3002`, `bind 127.0.0.1 ->
+ *  free`, `bind ::1 -> free`, and yet `reach localhost -> ANSWERS`. There is
+ *  always one more shape — `0.0.0.0`, `SO_REUSEPORT`, a v6-only socket — so the
+ *  question stopped being "which addresses can I bind" (Codex review, PR #3139).
+ *
+ *  Asking instead whether anything ANSWERS tests the thing the case actually
+ *  depends on: that `localhost:3001`, the address the client under test dials,
+ *  reaches OUR server and nobody else's. It fails closed — an unimagined way of
+ *  holding a port shows up as "occupied" rather than as a silent hole.
+ *
+ *  The addresses come from DNS rather than a literal list, because that is the
+ *  same source `localhost` is resolved through by the client.
+ *
+ *  It deliberately refuses some situations that would in fact have been fine —
+ *  on an IPv4-first host with only `::1:3001` occupied, this case's own bind of
+ *  `127.0.0.1` might have won `localhost` anyway, and it is skipped regardless.
+ *  That is the direction to be wrong in: a needless skip costs one assertion on
+ *  one machine, and a wrong "free" costs 25 seconds and a misleading name.
+ *
+ *  What it does not cover: a port with no listener that still refuses a bind,
+ *  such as one in TIME_WAIT. That reads as free here and then fails loudly at
+ *  `listen` with the port in the message — legible, unlike the 25-second
+ *  assertion this whole check exists to replace.
+ *
+ *  Codex was asked to construct a case that answers on `localhost:3001` yet
+ *  reads as free here, and could not: it tried listeners on `127.0.0.1`, `::1`,
+ *  `0.0.0.0`, `::`, and `::` with `ipv6Only`, and every one that `localhost`
+ *  reached was caught by at least one address `lookup` returned. */
+const answersOn = (host: string): Promise<boolean> =>
+  new Promise((resolve) => {
+    const socket = connect({ port: DEFAULT_API_PORT, host });
+    const settle = (answered: boolean): void => {
+      socket.destroy();
+      resolve(answered);
+    };
+    socket.once("connect", () => settle(true));
+    socket.once("error", () => settle(false));
+    socket.setTimeout(PROBE_TIMEOUT_MS, () => settle(false));
+  });
+
+const defaultPortIsFree = async (): Promise<boolean> => {
+  const addresses = await lookup(DEFAULT_API_HOST, { all: true });
+  for (const { address } of addresses) {
+    if (await answersOn(address)) return false;
+  }
+  return true;
+};
+
+/** Where a skip would be a silent loss rather than a kindness.
+ *
+ *  The probe is the only thing standing between this case and never running
+ *  again: were it to answer `false` while the port is in fact free, the assertion
+ *  would vanish EVERYWHERE, quietly, and a green suite would report that as
+ *  success. On a CI runner nothing should hold 3001, so there the honest response
+ *  to "cannot bind" is to fail and say so. That keeps the escape hatch pointed at
+ *  the machine it was built for — a developer's, with their own server running. */
+const skipsAreAllowed = (): boolean => process.env.CI !== "true";
+
 interface Generation {
   label: string;
   port: number;
@@ -41,7 +123,8 @@ const closeIo = (server: IOServer): Promise<void> => new Promise((resolve) => se
 const closeHttp = (server: Server): Promise<void> => new Promise((resolve) => server.close(() => resolve()));
 
 /** One server generation: its own token, its own name, and by default a port
- *  the OS picks — `port` is only passed by the case that must sit on 3001. */
+ *  the OS picks — `port` is only passed by the case that must sit on
+ *  `DEFAULT_API_PORT`. */
 async function startGeneration(label: string, token: string, port = 0): Promise<Generation> {
   const httpServer = createServer();
   const wsServer = new IOServer(httpServer, { path: CHAT_SOCKET_PATH, transports: ["websocket"] });
@@ -289,9 +372,15 @@ describe("a bridge follows the server across a restart (#3078 A-3)", () => {
   // container without the workspace mounted, say — so there is no fresh secret
   // to strand and refusing the documented default would break a setup that
   // worked. They keep it.
-  it("still uses the default when the CALLER pinned the token", async () => {
+  it("still uses the default when the CALLER pinned the token", async (ctx) => {
+    if (!(await defaultPortIsFree())) {
+      const reason = `something already answers on ${DEFAULT_API_HOST}:${DEFAULT_API_PORT} — this case must bind the port DEFAULT_API_URL names, so it cannot be moved to an ephemeral one.`;
+      assert.ok(skipsAreAllowed(), `${reason} On CI nothing should hold it, so this is a failure rather than a skip.`);
+      ctx.skip(`${reason} Stop whatever holds it (often your own \`yarn dev\`) to run it.`);
+      return;
+    }
     // No `.session-token` on disk at all: the only credential is the env one.
-    const onDefaultPort = await startGeneration("gen-default", "pinned-token", 3001);
+    const onDefaultPort = await startGeneration("gen-default", "pinned-token", DEFAULT_API_PORT);
     process.env.MULMOCLAUDE_AUTH_TOKEN = "pinned-token";
     const client = createBridgeClient({ transportId: "cli", options: {} });
     try {

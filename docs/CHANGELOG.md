@@ -8,9 +8,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Fixed
+
+#### `@mulmoclaude/shapescript-plugin@2.7.1` — `publishShapeScript` allows a script of 900k bytes
+
+The tool refused a generated model of 234,796 characters with "the gallery allows 100000". The
+gallery's cap is now 900,000 UTF-8 bytes (receptron/mulmoserver#264) — bytes because Firestore's
+1 MiB document cap is in bytes and a script with Japanese comments is up to three bytes per
+character —
+and the plugin's mirrored limit, the one that lets the tool say why before a write that would fail
+as a bare permission error, moves with it and measures the same way.
+
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.2`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@2.8.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@2.8.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 
@@ -66,6 +77,54 @@ ShapeScript source on the clipboard and reads "Copied" for a moment. It copies t
 in the source editor — unapplied edits included — since that is what the user is looking at. The
 feedback timer is cleared on unmount, and a clipboard write still pending at unmount is ignored.
 Localised across all 8 locales.
+
+#### 設定しておけばサーバと一緒にブリッジも起動する (#3080)
+
+`yarn telegram` はサーバを立て直すたびに手で立て直しになる。`config/bridges.json` で
+有効にしておけば、**サーバのプロセス内で**ブリッジが起動するようにした。まず `telegram`
+1 本で、残り 24 本は後続 PR。
+
+```jsonc
+// <workspace>/config/bridges.json — オン/オフだけ。認証情報は .env のまま
+{ "bridges": { "telegram": { "enabled": true } } }
+```
+
+**新しいコアは足していない。** `packages/chat-service/src/relay.ts` は自身を
+「HTTP (router) と socket.io の両 transport が呼ぶ共有コア」と書いていて実際そうなので、
+プロセス内経路はその `RelayFn` の **3 つ目の呼び出し元**になるだけ。副産物として
+**ポートもトークンも要らない** — HTTP を 1 往復しないので、#3078（ブリッジがサーバの
+ポート／トークンを見失う）がこの経路では構造的に起きない。
+
+- `createInProcessBridgeClient`（`@mulmobridge/client`）が既存の `BridgeClient` を満たす。
+  実装すべき面が小さいことは測ってある: 25 本が使うのは `send`（25）/ `onPush`（25）/
+  `onTextChunk`（2）/ `close`（1）だけで、`socket` エスケープハッチの利用は **0 本**。
+  その `socket` は null ではなく **throw** する — 誰も触っていない以上、最初に触る人は
+  成り立たない前提で書いているので、無関係な TypeError で気づくより良い
+- `chatService.registerInProcessBridge` が server → bridge の push を配る。プロセス内
+  ブリッジは常に live なので queue には積まない
+- **起動失敗はサーバを止めない**（Relay の既存挙動に合わせた）。トークン欠落・未変換の
+  transport・壊れた設定エントリ・**読めない設定ファイル**（EACCES 等、`loadJsonFile` が
+  ENOENT 以外を rethrow する経路）はそれぞれログに出て、他のブリッジとサーバは動き続ける。
+  **push ハンドラの同期 throw も封じ込める** — `pushToBridge` はルートハンドラやスケジューラの
+  スタック上で走るので、ブリッジのバグがそこへ抜けるとサーバが落ちる
+- ブリッジ本体は `packages/bridges/telegram/src/start.ts` に移した。`env` を読まず
+  `process.exit` も呼ばず、**throw する**。CLI 側はそれを受けて今までどおりのメッセージと
+  exit code を出す。**CLI の挙動は変えていない**: 起動失敗 5 経路を変更前後で実行して
+  出力と exit code が 1 バイト差も無いことを確認した
+
+公開面が変わった 3 本を上げた: `@mulmobridge/client@1.3.0`（`createInProcessBridgeClient`）、
+`@mulmobridge/telegram@1.2.0`（`./start` subpath）、`@mulmobridge/chat-service@1.2.0`
+（`registerInProcessBridge`）。前 2 つは **#3116 で直したドリフトゲートが自分の PR で捕まえた**。
+3 つ目はゲートには見えない — module の export 名ではなく**返り値オブジェクトのメソッド**が
+増えたケースで、これは今のゲートの測り方の外側にある。
+
+bridge パッケージは launcher の **`optionalDependencies`** に置いた。`server/` は launcher
+経由で配布されるので、そこから動的 import するパッケージは launcher が宣言していなければ
+npm ユーザーに届かない（smoke の `deps` ステージが指摘した）。`deps.mjs` 自身が
+「optionalDependencies satisfies a dynamic import with try/catch」と書いている形に合わせている。
+
+使い方は [`docs/in-process-bridges.md`](in-process-bridges.md)、詰まったときの診断は
+`error-recovery.md` に追加した節にある。
 
 #### `@mulmoclaude/shapescript-plugin@2.7.0` — `publishShapeScript` posts a model to the gallery
 
@@ -162,6 +221,31 @@ MulmoClaude は `claude` を `--model` なしで spawn していたため、モ�
 `devDependencies` + `peerDependencies`。launcher 自身の `version` は不変。
 
 ### Fixed
+
+#### `yarn dev --<flag>` did nothing at all, for every flag (#3113)
+
+All six toggles in the CLI-flag registry were silent no-ops on `yarn dev`, while
+`docs/developer.md` and the bundled `helps/sandbox.md` said they worked — since #1089.
+`dev` was a compound `a && b && c` script in package.json, and yarn appends a script's
+trailing args to its LAST command only, so the flag landed on `concurrently`, which
+drops what it does not recognise. Both halves measured rather than reasoned:
+
+```
+$ yarn chain --allow-multiple-instances     # "node show.js A && node show.js B"
+A argv=[]
+B argv=["--allow-multiple-instances"]
+
+$ concurrently -n a -k "node -e '…print argv…'" --allow-multiple-instances
+[a] child argv= []
+```
+
+`yarn dev` now runs through `scripts/dev.mjs`, which translates the flags to env
+before the first step, so every step of the chain inherits them. The step commands
+are the same strings package.json held, run by the same shell, so the no-flag path
+is unchanged. `dev:debug` and `dev:full-build` go the same way.
+
+An unrecognised flag is now **refused** with the list of valid ones, rather than
+ignored — ignoring it is the same bug one typo removed.
 
 #### The publish-drift gate was scanning 4 packages and counting the wrong thing (#3116)
 
@@ -385,9 +469,9 @@ now is. A stale sidecar left by a killed instance does not stop anything: the po
 probed, and only a MulmoClaude-shaped answer counts. A busy port held by some other program still
 walks forward exactly as before.
 
-`MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1` opts back in, with the token stomping that implies
-(`--allow-multiple-instances` is the equivalent flag on `npx mulmoclaude` and `yarn server`; `yarn
-dev` is a compound script and drops trailing args, so the env var is the only form that works there).
+`MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1` opts back in, with the token stomping that implies, and
+`--allow-multiple-instances` is the equivalent flag everywhere — including `yarn dev`, which drops
+trailing args until the fix above lands in the same release.
 
 #### A bridge that crashed said nothing about which bridge it was, and Ctrl-C dropped work in flight (#3084)
 
@@ -588,8 +672,6 @@ refused too, while `fill` on its own and inside `hull` stay legal. And a section
 did not repeat its first was dropped as an open stroke, so a two-section loft failed with "requires
 at least two cross-sections"; upstream closes such a section implicitly and so does this builder
 now. Sections keep their written order when open and closed ones mix.
-
-Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.1`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.8.0`, `@mulmoclaude/shapescript-plugin@2.7.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 #### A bridge no longer has to be restarted every time the server is (#3078)
 

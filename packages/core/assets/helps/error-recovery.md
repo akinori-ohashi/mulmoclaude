@@ -1393,8 +1393,8 @@ treatment, and the workspace mounted if you want it to follow the port.
 - The platform token (bot token, app token) was revoked or regenerated.
 - The bridge process is not running at all. Check before assuming anything above.
   Since #3084 a bridge that died says why on its last line — `[<transport>]
-  unhandled rejection — exiting: …` or `[<transport>] uncaught exception —
-  exiting: …`, naming the transport. A bridge stopped on purpose names the
+unhandled rejection — exiting: …` or `[<transport>] uncaught exception —
+exiting: …`, naming the transport. A bridge stopped on purpose names the
   signal: Ctrl-C prints `[<transport>] SIGINT — shutting down`, while a plain
   `kill <pid>` sends SIGTERM and prints `[<transport>] SIGTERM — shutting down`.
   **No such line and the process gone** means either an older npm build (they
@@ -1498,7 +1498,7 @@ install hint alone.
 ### Why
 
 Two servers over one workspace overwrite each other's `.session-token`. After
-that a stateless plugin dispatch authenticates cleanly against the *wrong*
+that a stateless plugin dispatch authenticates cleanly against the _wrong_
 server, while the session-scoped `/api/internal/tool-result` push lands where
 the session does not exist and is dropped — so plugin views simply never render
 on one of the two and nothing reports an error. The guard refuses that setup
@@ -1528,10 +1528,51 @@ means a real instance answered.
 To share one workspace between two servers anyway — accepting the token stomping:
 
 ```bash
-MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1 yarn dev
+yarn dev --allow-multiple-instances        # or MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1
 ```
 
-Use the env var for `yarn dev`. The `--allow-multiple-instances` flag works on
-`npx mulmoclaude` and `yarn server`, but **not** on `yarn dev`: that is a compound
-`a && b && c` script, yarn appends extra args to the last command only, and the
-guard that stops the launch runs in the first one.
+The flag and the env var are equivalent on `yarn dev`, `yarn server` and
+`npx mulmoclaude` alike. (Before #3113 the flag was silently dropped by `yarn dev`,
+so an older build needs the env var there.)
+
+## A bridge enabled in `config/bridges.json` is not running
+
+### Symptoms
+
+The workspace has `config/bridges.json` with a bridge switched on, the server
+started fine, and no messages arrive from that platform.
+
+### Cause
+
+An in-process bridge (#3080) never blocks server startup — a failure costs that
+one bridge and goes to the log. So the server looking healthy says nothing about
+the bridge. The log line names which of the three happened:
+
+```
+bridges  bridge failed to start — the server continues without it
+         { transportId: 'telegram', error: 'TELEGRAM_BOT_TOKEN is required. …' }
+
+bridges  enabled bridge cannot run in-process yet — start it with its CLI instead
+         { transportId: 'slack' }
+
+bridges  ignoring a malformed entry in config/bridges.json
+         { key: 'telegram', reason: '`enabled` must be true or false' }
+```
+
+### Fix
+
+1. `grep bridges <the server log>` and read which of the three it is.
+2. **Credentials missing** — they live in `.env`, not in `config/bridges.json`.
+   The error text names the variable (`TELEGRAM_BOT_TOKEN`, …).
+3. **Not converted yet** — only `telegram` runs in-process today; the other 24
+   still need `yarn <name>`. See `docs/in-process-bridges.md`.
+4. **Malformed entry** — the shape is `{ "bridges": { "<id>": { "enabled": true } } }`.
+   A transport id is lowercase letters, digits and dashes.
+
+Confirm with the startup line that lists what did start:
+
+```
+bridges  in-process bridges running  { transports: [ 'telegram' ] }
+```
+
+Absence of that line means nothing started.

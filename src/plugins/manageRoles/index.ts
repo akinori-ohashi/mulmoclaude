@@ -12,6 +12,12 @@ export interface CustomRole {
   prompt: string;
   availablePlugins: string[];
   queries?: string[];
+  /** Model alias this role's sessions run on (#3104). Absent → the app-wide
+   *  setting decides. A plain string because plugin code cannot read
+   *  `src/config/*`; the host's `RoleSchema` is what narrows and validates it.
+   *  Must survive every edit path — the reason this is a declared field at all
+   *  is that the role object is rebuilt field by field in several places. */
+  model?: string;
 }
 
 export interface ManageRolesData {
