@@ -12,15 +12,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.2`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.8.0`, `@mulmoclaude/shapescript-plugin@2.6.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
+### Added
+
+#### Settings → Model でチャットのモデルを選べる (#2923)
+
+MulmoClaude は `claude` を `--model` なしで spawn していたため、モデルは常に
+`~/.claude/settings.json` から解決されていた。このファイルは VS Code / Cursor の Claude Code
+拡張が `/model` の選択を保存する先でもあるので、**そちらで切り替えると MulmoClaude のモデルも
+一緒に変わり**、画面には何も出なかった。意図しない価格帯のモデルで動き続ける、あるいは調査主体の
+ロールが最上位モデルの週次枠を食い潰す、という形で表面化する。
+
+`AppSettings.chatModel` を設定すると、その値だけが `--model <alias>` として渡る。受け付けるのは
+ファミリーエイリアス `opus` / `sonnet` / `haiku` のみで、`claude-opus-4-8` のような固定 ID は
+400 で弾く — 保存した選択が新しい世代へ自動追随してほしいため。**未設定は現状どおりフラグ省略**
+（共有ファイルに追従）なので、既定の挙動は変わらない。既存の `effortLevel` (#1323) と同じ経路・
+同じ null センチネル方式に載っている。
+
+`config/settings.json` の `chatModel` が live な値で、`bug-report-faq.md` の
+「MulmoClaude is answering with a different model than I expected」がそこを指す。
+
 ### Changed
 
 #### Node.js の下限を 20.12 → 22.19 に引き上げ
 
-`google-auth-library@11` / `matrix-js-sdk@42` / `undici@8` が揃って Node >= 22 を要求するようになり、
-20.x のままでは取り込めない。下限は **`>=22.19`** — この 3 本で技術的に最も高い要求
-(`undici@8` の `>=22.19.0`) に合わせた値で、`>=22` では `undici@8` に届かない。
-`mermaid@12` (`>=22.12.0`) もエンジン面ではこれで解けるが、既定レイアウト/テーマが変わり図の
-見た目が動くため別途扱う。
+`google-auth-library@11` と `matrix-js-sdk@42` が Node >= 22 を要求するようになり、20.x のままでは
+取り込めない。取り込む 2 本の要求は `>=22` なので **`>=22.19` は厳密な必要値ではなく判断**で、根拠は
+(1) `node:sqlite` (>= 22.5) を内包し sqlite storage が「条件付きで動く機能」から「常にある機能」に
+なる、(2) `mermaid@12` (>= 22.12.0) の道を開けておき engines をもう一度動かさずに済む、
+(3) `which@7` が `^22.22.2` を要求するようにエコシステムの要求はもっと上にある、
+(4) 22.19.0 自体が約 1 年前 (2025-08-28) のリリースで、22.x を常識的に追っていれば既に満たす線。
 
 - `engines.node` を root と `packages/mulmoclaude` の両方で `>=22.19` に。
 - 起動をハードにブロックする launcher の `REQUIRED_NODE` も同じ値へ。両者のズレは
@@ -40,8 +60,15 @@ Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`,
 宣言 range を **17 / 9 ファイル** sweep — launcher の `dependencies` と 8 プラグインの
 `devDependencies` + `peerDependencies`。launcher 自身の `version` は不変。
 
-
 ### Fixed
+
+#### 保存中に変えた選択が、失敗時に取り残される (#2923)
+
+Settings → Model の select は `@change` で自動保存する。PUT が飛んでいる間に選択を変えると、その
+change は「保存中」ガードに弾かれて送られない。送り直しは成功パスにしか無かったため、**リクエスト
+が失敗するとその選択は画面に出たままサーバに届かない**状態で固定される。同じ項目を選び直しても
+change イベントは出ないので、ユーザーには復帰手段が無かった。`effortLevel` にも #1323 以来あった
+欠陥で、2 つの select で保存処理を共通化したことで両方に効くようになった。
 
 #### `@mulmoclaude/common@1.3.0`, `@mulmobridge/webhook-runtime@1.2.0`, `@mulmoclaude/core@4.9.1` — the versions catch up with #3084
 
