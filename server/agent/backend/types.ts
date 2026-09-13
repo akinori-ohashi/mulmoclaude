@@ -9,7 +9,7 @@
 
 import type { Attachment } from "@mulmobridge/protocol";
 import type { Role } from "../../../src/config/roles.js";
-import type { ChatModel, EffortLevel } from "../../system/config.js";
+import type { ChatModel, EffortLevel } from "../../../src/config/models.js";
 import type { AgentEvent } from "../stream.js";
 
 /** Inputs the orchestrator passes to a backend for one user turn.
