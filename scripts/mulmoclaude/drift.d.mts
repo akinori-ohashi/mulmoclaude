@@ -24,9 +24,12 @@ export interface ExportedNames {
  *  and reported 0 names on both sides. */
 export function exportStatements(source: string): string[];
 
-/** The `exports` subpath keys a published manifest declares, or null when the
- *  manifest could not be read or has no `exports` map. Null means "cannot say" —
- *  a caller must not read it as "no subpaths". */
+/** The `exports` subpath keys a published manifest declares. Null means "cannot
+ *  say" — the manifest could not be fetched or did not parse — and a caller must not
+ *  read it as "no subpaths". A manifest that READS but has no object `exports` (a
+ *  string `exports`, or only `main`) returns `Set(["."])`: such a package serves the
+ *  root through `main` and no named subpath at all, which is an answer rather than an
+ *  unknown. */
 export function publishedSubpathKeys(manifestSource: string | null | undefined): Set<string> | null;
 
 export function parseExportedNames(source: string): ExportedNames;

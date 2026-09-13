@@ -580,10 +580,11 @@ export function isLocalVersionAhead(local, published) {
  * dist against the published one. Returns
  * `{ status: "ok" | "drifted" | "pending-publish" | "skipped", ... }`.
  *
- * A bumped version downgrades drift to `pending-publish`: the registry still
- * serves the old dist, but consumers of the NEW version will get the new exports
- * once it is published, so from here it is "pending publish", not broken. That is
- * also what unblocks a PR that adds exports, bumps, and waits for the cascade.
+ * A local version ahead of the registry is `pending-publish` on its own, whether or
+ * not the export surface changed: every consumer range is `^<local>`, so publishing
+ * against a version npm does not serve fails with ETARGET. PR mode notes it — that is
+ * what unblocks a PR which adds exports, bumps, and waits for the cascade — and
+ * `--release` blocks it.
  */
 export async function checkPackageDrift({
   root = process.cwd(),
