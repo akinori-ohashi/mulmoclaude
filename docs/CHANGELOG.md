@@ -20,9 +20,9 @@ The post is a Firestore write over the remote-host session — the server alread
 mulmoserver's Firebase as the user for the phone remote — so no new endpoint or credential exists;
 with Remote Host disconnected the tool says how to connect it. A thumbnail is rendered with the
 same headless Chromium `renderShapeScript` uses and attached when the host has one; without it the
-post lands without a picture, and a refused write takes an uploaded thumbnail back out. The document
-a post is, its key set and the keyword normalisation are the plugin's and pinned by test, since
-mulmoserver's rules refuse any other shape. The tool's prompt tells the agent to publish only when
+post lands without a picture, and a refused write takes an uploaded thumbnail back out. The post
+document's shape, its key set and the keyword normalisation are the plugin's and pinned by test,
+since mulmoserver's rules refuse any other shape. The tool's prompt tells the agent to publish only when
 asked: a post is public under the user's name.
 
 #### Settings → Model でチャットのモデルを選べる (#2923)
