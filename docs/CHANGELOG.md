@@ -56,7 +56,7 @@ The workflow trigger moved with it. `mulmoclaude_smoke.yaml` only ran for
 `packages/{mulmoclaude,protocol,client,chat-service}`, so a PR touching `@mulmoclaude/common` never
 started the job at all: widening the scan set does nothing while the trigger stays narrow.
 
-Seven more holes came out of the cross-review, each reproduced before it was fixed, and they share a
+Eight more holes came out of the cross-review, each reproduced before it was fixed, and they share a
 shape: **a wrong or empty answer that reads as clean**. The parser now enumerates what it CAN model —
 a brace list without comments, `default`, a declaration, `type`/`interface` — and marks every other
 `export` statement opaque, because three consecutive findings were each "it silently drops one more
@@ -90,8 +90,17 @@ shape" and a ban-list has no last case. Concretely:
   a 404 from a 5xx, so a registry hiccup on a re-exported chunk reported the local tree as
   **drifted** — a red gate no code change can fix. Absence still degrades to the coarse comparison;
   a transport failure skips.
+- **The `require` branch was invisible, so a partial verdict read as a whole one.** `exports`
+  conditions resolve to ONE target and `import` wins, and 48 of the scanned subpaths publish a
+  distinct `.cjs` — an unmentioned surface. Each verdict line now names them
+  (`31 require branch(es) NOT compared`). They are reported rather than parsed on purpose: a CJS
+  reader's failure mode is an EMPTY name set, which is "0 names on both sides is a match" — the bug
+  this whole round removed. Measured before deciding: an 8-line reader over the real tree read 0
+  names for 10 of 48 subpaths, because rollup comma-chains its `exports.x =` assignments. The gate
+  is ESM-only by design, and now says so where the verdict is read. The version bump a real ESM
+  drift forces republishes both formats anyway, since one build emits both from one entry.
 
-`test/scripts/mulmoclaude/test_drift.ts` pins all of it: 64 cases, including the near-misses that
+`test/scripts/mulmoclaude/test_drift.ts` pins all of it: 69 cases, including the near-misses that
 must come back opaque rather than empty. Every guard above was mutation-checked — reverted one at a
 time, with the corresponding case going red each time.
 

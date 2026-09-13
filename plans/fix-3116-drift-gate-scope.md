@@ -61,7 +61,7 @@ x-plugin の dist: export { extractTweetId, formatTweet, readUrlArg, readXPost, 
 - 既存 `test/scripts/mulmoclaude/test_drift.ts` の fixture ベースのテストを新形に移す
 - local dist が無い場合は `skipped` + 理由（黙って pass しない）
 
-## cross-review で出た 7 つの追加穴（すべて再現してから修正）
+## cross-review で出た 8 つの追加穴（すべて再現してから修正）
 
 どれも形が同じ — **間違った / 空の答えが clean と読まれる**:
 
@@ -75,4 +75,6 @@ x-plugin の dist: export { extractTweetId, formatTweet, readUrlArg, readXPost, 
 
 3 回続けて「もう 1 つの形を落としている」と指摘されたので、**ルールを ban-list から許可リストに反転**した（文 / 指定子 / 宣言名 / 条件解決 / barrel 解決の 5 段）。安全なコードの一部も粗い比較に落ちるが、リリースゲートとしてはその取引が正しい。
 
-テストは 64 件。実ゲートは 20 パッケージ / drifted 0 / exit 0。各ガードは mutation で赤を確認済み。
+8. **`require` 分岐が verdict に出ていなかった** → `exports` 条件は 1 subpath = 1 target で `import` が勝つため、走査対象の **48 subpath が持つ別の `.cjs`** は比較も言及もされていなかった。各行に `N require branch(es) NOT compared` を出すようにした。**パースはしない**（CJS reader の失敗形は「名前 0 個」= 今回潰した「両側 0 で一致」そのもの。実測: 8 行の reader で 48 のうち 10 が 0 名前 — rollup が `exports.x =` をカンマで連結するため）。ゲートは設計として ESM 専用で、それを verdict の場所に書いた。ESM 側の drift が強制する version bump は 1 ビルドが両形式を同じ entry から出すので両方を publish し直す
+
+テストは 69 件。実ゲートは 20 パッケージ / drifted 0 / exit 0。各ガードは mutation で 5/5 赤を確認済み。

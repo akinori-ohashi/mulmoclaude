@@ -37,6 +37,12 @@ export function resolveConditionTarget(value: unknown, depth?: number): string |
  *  that fallback never applies per subpath. */
 export function entryTargets(pkg: unknown): Map<string, string | null>;
 
+/** Each `require` condition resolving to a file the chosen ESM target does not
+ *  cover, as `<subpath> → <file>`. Reported rather than compared: reading a
+ *  CommonJS surface needs a second parser, whose empty-result failure mode is the
+ *  "0 names on both sides is a match" bug this gate exists to avoid. */
+export function unmeasuredRequireBranches(pkg: unknown): string[];
+
 export interface EntryComparison {
   /** Runtime names present locally and absent from the published build. */
   added: string[];

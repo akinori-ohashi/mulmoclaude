@@ -306,6 +306,33 @@ describe("resolveConditionTarget", () => {
   });
 });
 
+// Raised by Codex as a P2: `resolveConditionTarget` returns ONE target per subpath
+// and prefers `import`, so a package's published `require` branch — 48 of the scanned
+// subpaths have a distinct one — was never compared and never mentioned, which made a
+// partial verdict read as a whole one. Deliberately reported rather than parsed: a CJS
+// reader's own failure mode is an empty name set, i.e. "0 names on both sides is a
+// match", which is the bug this gate exists to refuse.
+describe("unmeasuredRequireBranches", () => {
+  it("names a require branch that resolves to its own file", () => {
+    const pkg = { exports: { ".": { import: "./dist/index.js", require: "./dist/index.cjs" } } };
+    assert.deepEqual(drift.unmeasuredRequireBranches(pkg), [". → dist/index.cjs"]);
+  });
+
+  it("says nothing when require points at the file already compared", () => {
+    assert.deepEqual(drift.unmeasuredRequireBranches({ exports: { ".": { import: "./dist/index.js", require: "./dist/index.js" } } }), []);
+  });
+
+  it("says nothing for a require-only subpath — the entry loop already reports that one", () => {
+    assert.deepEqual(drift.unmeasuredRequireBranches({ exports: { ".": { require: "./dist/index.cjs" } } }), []);
+  });
+
+  it("says nothing for a package with no exports map", () => {
+    assert.deepEqual(drift.unmeasuredRequireBranches({ main: "./dist/index.js" }), []);
+    assert.deepEqual(drift.unmeasuredRequireBranches({ exports: "./dist/index.js" }), []);
+    assert.deepEqual(drift.unmeasuredRequireBranches(null), []);
+  });
+});
+
 describe("compareEntry", () => {
   it("reports the names the local build adds", () => {
     const result = drift.compareEntry("export { a, b };\n", "export { a };\n");
@@ -599,6 +626,25 @@ describe("checkPackageDrift — against a fake workspace and a stubbed registry"
     });
     assert.notEqual(result.status, "skipped", "an absent file is a fact about the package, not a network failure");
     assert.deepEqual(result.opaqueEntries, ["."]);
+  });
+
+  it("says on the verdict line that a require branch was not compared", async () => {
+    writeWorkspace(
+      "@scope/p",
+      "packages/p",
+      "1.0.0",
+      { "dist/index.js": "export { one };\n", "dist/index.cjs": "exports.one = 1;\n" },
+      { ".": { import: "./dist/index.js", require: "./dist/index.cjs" } },
+    );
+    const result = await drift.checkPackageDrift({
+      root,
+      name: "@scope/p",
+      dir: "packages/p",
+      ...published("1.0.0", { "dist/index.js": "export { one };\n" }),
+    });
+    assert.equal(result.status, "ok");
+    assert.match(result.partialReason ?? "", /1 require branch\(es\) NOT compared/);
+    assert.match(drift.formatLine(result), /require branch\(es\) NOT compared/);
   });
 
   it("skips when the package is not on the registry", async () => {

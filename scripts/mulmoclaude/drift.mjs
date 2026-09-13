@@ -316,6 +316,22 @@ export function entryTargets(pkg) {
   return out;
 }
 
+/** The `require` conditions that resolve to a file the chosen (ESM) target does not
+ *  cover. This gate reads `export` statements, so a CommonJS branch is outside what
+ *  it can measure — and 48 of the scanned subpaths publish one. Naming them keeps a
+ *  partial verdict from being read as a whole one. */
+export function unmeasuredRequireBranches(pkg) {
+  const exp = pkg?.exports;
+  if (exp === null || typeof exp !== "object" || Array.isArray(exp)) return [];
+  const out = [];
+  for (const [subpath, value] of Object.entries(exp)) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
+    const required = resolveConditionTarget(value.require ?? null);
+    if (required !== null && required !== resolveConditionTarget(value)) out.push(`${subpath} → ${required}`);
+  }
+  return out;
+}
+
 async function readManifest(file) {
   try {
     return JSON.parse(await readFile(file, "utf8"));
@@ -618,6 +634,13 @@ export async function checkPackageDrift({
       const distLines = countValueExportLines(remote.source);
       if (localLines > distLines) added.push(`${subpath}:+${localLines - distLines} unnamed export line(s)`);
     }
+  }
+
+  const requireBranches = unmeasuredRequireBranches(manifest);
+  if (requireBranches.length > 0) {
+    const sample = requireBranches.slice(0, 3).join("; ");
+    const more = requireBranches.length > 3 ? `; +${requireBranches.length - 3} more` : "";
+    skipped.push(`${requireBranches.length} require branch(es) NOT compared — this gate reads ESM \`export\` statements (${sample}${more})`);
   }
 
   if (compared === 0) {
