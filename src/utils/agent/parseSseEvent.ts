@@ -7,7 +7,17 @@ import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import { EVENT_TYPES, GENERATION_KINDS } from "../../types/events";
 import type { PersistedAttachment } from "../../types/attachment";
 import type { SkillScope } from "../../types/session";
-import type { SseEvent, SseGenerationFinished, SseGenerationStarted, SseSkill, SseText, SseToolCall, SseToolCallResult, SseToolResult } from "../../types/sse";
+import type {
+  SseEvent,
+  SseGenerationFinished,
+  SseGenerationStarted,
+  SseSessionMeta,
+  SseSkill,
+  SseText,
+  SseToolCall,
+  SseToolCallResult,
+  SseToolResult,
+} from "../../types/sse";
 import { isRecord, isUnknownArray } from "../types";
 
 const isOptionalString = (value: unknown): value is string | undefined => value === undefined || typeof value === "string";
@@ -95,6 +105,13 @@ const parseToolResultEvent = (value: Record<string, unknown>): SseToolResult | n
   return result ? { type: EVENT_TYPES.toolResult, result } : null;
 };
 
+/** Session metadata pushed mid-turn (#2554). A DELTA: an event carrying no
+ *  usable field is not worth dispatching, so it narrows to null. */
+const parseSessionMeta = (value: Record<string, unknown>): SseSessionMeta | null => {
+  const { resolvedModel } = value;
+  return typeof resolvedModel === "string" && resolvedModel ? { type: EVENT_TYPES.sessionMeta, resolvedModel } : null;
+};
+
 /** Narrow a raw pub/sub payload to a known agent event, or null when it
  *  isn't one — unrecognised and malformed events are both ignored, which
  *  is what the dispatcher already did with an unmatched `type`. */
@@ -122,6 +139,8 @@ export function parseSseEvent(value: unknown): SseEvent | null {
       return parseGenerationStarted(value);
     case EVENT_TYPES.generationFinished:
       return parseGenerationFinished(value);
+    case EVENT_TYPES.sessionMeta:
+      return parseSessionMeta(value);
     default:
       return null;
   }

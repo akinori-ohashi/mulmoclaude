@@ -160,6 +160,9 @@ const esMessages = {
     customViewHint: "Para una vista compatible con móviles, pide a Claude que cree una {keyword} (no una custom view normal).",
     qrHint: "O escanea este código QR con la cámara de tu teléfono.",
   },
+  sessionModelChip: {
+    tooltip: "Modelo que usa esta sesión: {model}",
+  },
   sidebarHeader: {
     newMessages: "Mensajes nuevos",
     home: "Ir al chat más reciente",

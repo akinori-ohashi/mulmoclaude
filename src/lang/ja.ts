@@ -160,6 +160,9 @@ const jaMessages = {
     customViewHint: "モバイル向けのビューが必要な場合は、通常の custom view ではなく {keyword} を作るように Claude に依頼してください。",
     qrHint: "スマートフォンのカメラでこの QR コードを読み取っても開けます。",
   },
+  sessionModelChip: {
+    tooltip: "このセッションが使っているモデル: {model}",
+  },
   sidebarHeader: {
     newMessages: "新着",
     home: "最新のチャットに移動",

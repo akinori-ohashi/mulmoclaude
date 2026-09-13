@@ -3,6 +3,7 @@
     <div class="shrink-0 flex items-center gap-2 text-xs text-gray-400 px-3 py-2 border-b border-gray-100" data-testid="sidebar-role-header">
       <span v-if="sessionRoleIcon" class="material-icons text-xs leading-none" :class="ROLE_ICON_CONTAINMENT">{{ sessionRoleIcon }}</span>
       <span v-if="sessionRoleName" class="truncate">{{ sessionRoleName }}</span>
+      <SessionModelChip :model="sessionModel" />
       <div class="ml-auto flex items-center gap-0.5 shrink-0">
         <CopyChatButton :results="results" :result-timestamps="resultTimestamps" :session-role-name="sessionRoleName" />
         <button
@@ -72,6 +73,7 @@ import { formatSmartTime } from "../utils/format/date";
 import { isRecord } from "../utils/types";
 import { ROLE_ICON_CONTAINMENT } from "../utils/role/icon";
 import CanvasViewToggle from "./CanvasViewToggle.vue";
+import SessionModelChip from "./SessionModelChip.vue";
 import CopyChatButton from "./CopyChatButton.vue";
 import type { LayoutMode } from "../utils/canvas/layoutMode";
 
@@ -88,6 +90,8 @@ defineProps<{
   resultTimestamps: Map<string, number>;
   sessionRoleName?: string | undefined;
   sessionRoleIcon?: string | undefined;
+  /** Raw model id this session resolved to (#2554). */
+  sessionModel?: string | undefined;
   layoutMode: LayoutMode;
   showRightSidebar: boolean;
   /** Output arrived while the reader was scrolled away from the bottom.

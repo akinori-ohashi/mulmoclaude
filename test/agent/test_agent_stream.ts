@@ -1,12 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { blockToEvent, createStreamParser, parseStreamEvent, type ClaudeContentBlock, type RawStreamEvent } from "../../server/agent/stream.js";
+import { blockToEvent, createStreamParser, parseStreamEvent, SESSION_MODEL, type ClaudeContentBlock, type RawStreamEvent } from "../../server/agent/stream.js";
 import { EVENT_TYPES } from "../../src/types/events.js";
 
 // `content` is declared as an array, so a payload that reaches the
 // `Array.isArray` guard's false branch — the CLI is a separate process
 // and can send anything — has to be built from JSON.
 const rawEventFromJson = (json: string): RawStreamEvent => JSON.parse(json);
+const rawParse = (json: string) => parseStreamEvent(rawEventFromJson(json));
 
 describe("blockToEvent", () => {
   it("converts tool_use block to tool_call event", () => {
@@ -317,6 +318,43 @@ const equivalenceCases: { name: string; event: RawStreamEvent }[] = [
 // it turns red the moment someone re-forks the body into a second
 // implementation that these tests would vouch for instead of the
 // parser the agent loop actually runs.
+// #2554: the `system`/`init` frame is the only place the CLI states which model
+// the session actually resolved to. With `chatModel` unset MulmoClaude passes no
+// `--model`, so this frame is the sole way to learn what
+// `~/.claude/settings.json` supplied — the value the user could not see.
+// Verified against the real CLI (2.1.269):
+//   no flag        → init.model = "claude-opus-5[1m]"
+//   --model haiku  → init.model = "claude-haiku-4-5-20251001"
+describe("system/init model", () => {
+  it("emits the resolved model", () => {
+    assert.deepEqual(parseStreamEvent({ type: "system", subtype: "init", model: "claude-haiku-4-5-20251001" }), [
+      { type: SESSION_MODEL, model: "claude-haiku-4-5-20251001" },
+    ]);
+  });
+
+  it("keeps a context suffix verbatim — it is the part that reveals the shared setting", () => {
+    assert.deepEqual(parseStreamEvent({ type: "system", subtype: "init", model: "claude-opus-5[1m]" }), [{ type: SESSION_MODEL, model: "claude-opus-5[1m]" }]);
+  });
+
+  it("ignores other system subtypes, which arrive on every run", () => {
+    assert.deepEqual(parseStreamEvent({ type: "system", subtype: "hook_started" }), []);
+    assert.deepEqual(parseStreamEvent({ type: "system", subtype: "hook_response" }), []);
+  });
+
+  it("emits nothing when the frame carries no usable model", () => {
+    assert.deepEqual(parseStreamEvent({ type: "system", subtype: "init" }), []);
+    assert.deepEqual(parseStreamEvent({ type: "system", subtype: "init", model: "" }), []);
+    assert.deepEqual(rawParse('{"type":"system","subtype":"init","model":42}'), []);
+    assert.deepEqual(rawParse('{"type":"system","subtype":"init","model":null}'), []);
+  });
+
+  // The frame is a `system` type; a bare `system` with no subtype must not be
+  // mistaken for it, or a future frame shape would start reporting models.
+  it("requires the init subtype", () => {
+    assert.deepEqual(parseStreamEvent({ type: "system", model: "claude-opus-5" }), []);
+  });
+});
+
 describe("parseStreamEvent matches a fresh createStreamParser().parse", () => {
   equivalenceCases.forEach(({ name, event }) => {
     it(`agrees on ${name}`, () => {

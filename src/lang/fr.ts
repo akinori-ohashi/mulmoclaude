@@ -155,6 +155,9 @@ const frMessages = {
     customViewHint: "Pour une vue adaptée au mobile, demandez à Claude de créer une {keyword} (pas une custom view classique).",
     qrHint: "Ou scannez ce code QR avec l'appareil photo de votre téléphone.",
   },
+  sessionModelChip: {
+    tooltip: "Modèle utilisé par cette session : {model}",
+  },
   sidebarHeader: {
     newMessages: "Nouveaux messages",
     home: "Aller à la dernière conversation",

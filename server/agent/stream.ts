@@ -8,6 +8,19 @@ import { EVENT_TYPES } from "../../src/types/events.js";
 // the assistant's reply. `handleAgentEvent` decides what it actually is.
 export const INJECTED_TEXT = "injected_text";
 
+// The model the CLI actually resolved for this session, reported by its own
+// `system`/`init` frame before the first token. Kept OFF the wire protocol for
+// the same reason as INJECTED_TEXT: it is an out-of-band meta event that
+// updates session meta and is never broadcast (see `handleAgentEvent`).
+//
+// This is the ONLY honest answer to "which model is this session on" (#2554).
+// Reading the setting cannot answer it: with `chatModel` unset MulmoClaude
+// passes no `--model` at all and the CLI resolves from
+// `~/.claude/settings.json` — the file other Claude Code clients write their
+// `/model` pick to. The init frame reports what that resolved to, suffix and
+// all (`claude-opus-5[1m]`), which is precisely what the user could not see.
+export const SESSION_MODEL = "session_model";
+
 export type AgentEvent =
   | { type: typeof EVENT_TYPES.status; message: string }
   | { type: typeof EVENT_TYPES.text; message: string }
@@ -30,7 +43,8 @@ export type AgentEvent =
        *  errors to a specific MCP server and warn / notify. */
       isError?: boolean;
     }
-  | { type: typeof EVENT_TYPES.claudeSessionId; id: string };
+  | { type: typeof EVENT_TYPES.claudeSessionId; id: string }
+  | { type: typeof SESSION_MODEL; model: string };
 
 export interface ClaudeContentBlock {
   type: string;
@@ -66,6 +80,10 @@ export interface RawStreamEvent {
   message?: ClaudeMessage;
   result?: string;
   session_id?: string;
+  /** Discriminates the `system` frames (`init`, `hook_started`, …). */
+  subtype?: string;
+  /** Present on `system`/`init`: the model id this session resolved to. */
+  model?: string;
   /** Present when type === "stream_event". Carries partial text
    *  deltas for real-time streaming. */
   event?: StreamEventDelta | { type: string };
@@ -138,6 +156,28 @@ function filterAssistantBlocks(blockEvents: AgentEvent[], deltaStreamed: boolean
 //     full-text copy. Prevents text loss when `assistant` arrives
 //     without preceding `stream_event` deltas (short replies, CLI
 //     version without `--include-partial-messages`, etc.).
+/** The turn's closing `result` frame: the final text (only when nothing
+ *  already emitted it) plus the CLI session id. Split out to keep `parse`
+ *  under the cognitive-complexity ceiling. */
+function resultEvents(event: RawStreamEvent, textEmitted: boolean): AgentEvent[] {
+  const events: AgentEvent[] = [];
+  if (!textEmitted && event.result) {
+    events.push({ type: EVENT_TYPES.text, message: event.result });
+  }
+  if (event.session_id) {
+    events.push({ type: EVENT_TYPES.claudeSessionId, id: event.session_id });
+  }
+  return events;
+}
+
+/** The `system`/`init` frame's model, or null when this is not that frame.
+ *  Split out so `parse` stays under the cognitive-complexity ceiling. An
+ *  empty array (init frame, no usable model) is distinct from null. */
+function initModelEvents(event: RawStreamEvent): AgentEvent[] | null {
+  if (event.type !== "system" || event.subtype !== "init") return null;
+  return typeof event.model === "string" && event.model ? [{ type: SESSION_MODEL, model: event.model }] : [];
+}
+
 export function createStreamParser(): {
   parse: (event: RawStreamEvent) => AgentEvent[];
 } {
@@ -155,20 +195,15 @@ export function createStreamParser(): {
     if (event.type === "stream_event") return [];
 
     if (event.type === "result") {
-      const events: AgentEvent[] = [];
-      if (!textEmitted && event.result) {
-        events.push({ type: EVENT_TYPES.text, message: event.result });
-      }
-      if (event.session_id) {
-        events.push({
-          type: EVENT_TYPES.claudeSessionId,
-          id: event.session_id,
-        });
-      }
+      const events = resultEvents(event, textEmitted);
       textStreamedFromDeltas = false;
       textEmitted = false;
       return events;
     }
+
+    // `system`/`init` arrives once per spawn, before any content.
+    const initEvents = initModelEvents(event);
+    if (initEvents) return initEvents;
 
     if (event.type !== "assistant" && event.type !== "user") {
       return [];

@@ -161,6 +161,9 @@ const koMessages = {
     customViewHint: "모바일에 최적화된 뷰가 필요하다면, 일반 custom view가 아닌 {keyword} 를(을) 만들어 달라고 Claude에게 요청하세요.",
     qrHint: "휴대폰 카메라로 이 QR 코드를 스캔해도 열 수 있습니다.",
   },
+  sessionModelChip: {
+    tooltip: "이 세션이 사용 중인 모델: {model}",
+  },
   sidebarHeader: {
     newMessages: "새 메시지",
     home: "최신 채팅으로 이동",

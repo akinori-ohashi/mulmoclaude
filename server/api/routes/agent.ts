@@ -7,6 +7,7 @@ import {
   backfillOrigin,
   incrementUserQueryCount,
   readSessionMetaFull,
+  updateResolvedModel,
   readSessionMeta,
   setClaudeSessionId as setClaudeId,
   clearClaudeSessionId as clearClaudeId,
@@ -18,7 +19,7 @@ import {
 } from "../../utils/files/session-io.js";
 import { getRole } from "../../workspace/roles.js";
 import { runAgent } from "../../agent/index.js";
-import { INJECTED_TEXT } from "../../agent/stream.js";
+import { INJECTED_TEXT, SESSION_MODEL } from "../../agent/stream.js";
 import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
 import {
@@ -702,6 +703,18 @@ async function handleAgentEvent(event: AgentStreamEvent, ctx: EventContext): Pro
     // can't leak into a later unrelated assistant text.
     ctx.pendingSkill = null;
     await setClaudeId(ctx.chatSessionId, event.id);
+    return;
+  }
+  if (event.type === SESSION_MODEL) {
+    // Out-of-band like claudeSessionId: it updates meta and never reaches
+    // clients as its own event. The frontend picks it up from the
+    // `session_meta` prefix entry the transcript read already emits, so no
+    // wire-protocol addition is needed for it to be displayable (#2554).
+    await updateResolvedModel(ctx.chatSessionId, event.model);
+    // Broadcast so the chip is right during the FIRST turn too. `session_meta`
+    // is an existing wire type and `pushSessionEvent` only publishes to the
+    // channel (no jsonl append), so this adds nothing to the transcript.
+    pushSessionEvent(ctx.chatSessionId, { type: EVENT_TYPES.sessionMeta, resolvedModel: event.model });
     return;
   }
   if (event.type === INJECTED_TEXT) {
