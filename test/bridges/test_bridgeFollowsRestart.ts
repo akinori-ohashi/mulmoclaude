@@ -10,7 +10,12 @@
 // never REACHES the new server, so no auth error ever arrives; a supervisor
 // watching only for `invalid token` would sit on the dead port indefinitely.
 //
-// Servers bind port 0, so nothing here races a fixed port.
+// Servers here bind port 0 — except one. `still uses the default when the CALLER
+// pinned the token` proves the fall-through to `DEFAULT_API_URL`, which names
+// 3001, so that case alone races whatever else holds it. This comment used to
+// say nothing here raced a fixed port, and that sentence is why a real collision
+// was read as a restart bug for a day: it fails as a bare assertion 24 seconds
+// in, under a parent named for the restart. See `defaultPortIsFree` below.
 
 import { describe, it, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
