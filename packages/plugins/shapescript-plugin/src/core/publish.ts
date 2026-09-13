@@ -14,6 +14,12 @@
 // with `hasOnly`, so a key added or dropped on one side is a refused write on
 // the other. `SHAPE_POST_KEYS` is the pinned list; a test holds it to the
 // rules' order.
+//
+// The script itself is NOT in the document (receptron/mulmoserver#266): it is
+// a Storage object under the post, `text/plain`, and the document carries its
+// id as `scriptId`. So a post is three writes — the thumbnail, the script,
+// the document — through the same writer, in that order, and a refused
+// document takes both objects back out.
 import { disposeObject3D } from "../shapescript/dispose";
 import { parseShapeScript } from "../shapescript/parser";
 import { astToThreeJS } from "../shapescript/toThreeJS";
@@ -30,9 +36,10 @@ export const SHAPE_GALLERY_URL = "https://server.mulmocast.com";
 export const SHAPE_POST_LIMITS = {
   titleMax: 120,
   descriptionMax: 2000,
-  /** In UTF-8 BYTES — the gallery's rule measures `toUtf8().size()`, since Firestore's 1 MiB
-   *  document cap is in bytes and a script with Japanese comments is up to three a character. */
-  scriptMax: 900_000,
+  /** In UTF-8 BYTES — the script is a Storage object and the gallery's Storage rule caps one
+   *  at 10 MiB (`request.resource.size`); a script with Japanese comments is up to three bytes
+   *  a character. This is the transport ceiling; what a phone can draw is the practical one. */
+  scriptMax: 10 * 1024 * 1024,
   promptMax: 4000,
   authorNameMax: 80,
   keywordsMax: 10,
@@ -87,13 +94,14 @@ export const PUBLISH_SCHEMA = {
 /** The document a post is, minus the two server-stamped times the host adds
  *  (`createdAt` / `updatedAt` must be `serverTimestamp()` — the rules refuse
  *  anything else). Every key present with a value: the rules pin the set and
- *  Firestore rejects `undefined`. */
+ *  Firestore rejects `undefined`. The script is `scriptId`, the Storage object
+ *  `uploadScript` returned — never the text. */
 export interface ShapePostDoc {
   uid: string;
   authorName: string;
   title: string;
   description: string;
-  script: string;
+  scriptId: string;
   source: "prompt";
   prompt: string;
   photoIds: string[];
@@ -109,7 +117,7 @@ export const SHAPE_POST_KEYS = [
   "authorName",
   "title",
   "description",
-  "script",
+  "scriptId",
   "source",
   "prompt",
   "photoIds",
@@ -133,7 +141,10 @@ export interface ShapeGalleryWriter {
   createPost: (id: string, doc: ShapePostDoc) => Promise<void>;
   /** Store a PNG under the post and return the object id the document carries. */
   uploadThumbnail: (id: string, png: Uint8Array) => Promise<string>;
-  /** Remove an object under the post — the thumbnail of a post that was never written. */
+  /** Store the ShapeScript source under the post as `SHAPE_SCRIPT_CONTENT_TYPE` and return
+   *  the object id the document carries as `scriptId`. */
+  uploadScript: (id: string, script: string) => Promise<string>;
+  /** Remove an object under the post — the thumbnail or script of a post that was never written. */
   deleteObject: (id: string, objectId: string) => Promise<void>;
 }
 
@@ -161,6 +172,13 @@ export interface PublishShapeResult {
   thumbnail: boolean;
 }
 
+/** What a host uploads the script as; the gallery's Storage rule admits `text/plain.*`. */
+export const SHAPE_SCRIPT_CONTENT_TYPE = "text/plain; charset=utf-8";
+
+/** The header a host puts on every object it uploads under a post. Each has a random id and
+ *  is never rewritten, so a browser — and the gallery's CDN, when it has one — may keep it. */
+export const SHAPE_OBJECT_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
 export const NOT_CONNECTED_MESSAGE =
   "Not connected to the gallery: publishing posts under the user's Google account, which needs the app's Remote Host connected (sign in with Google in the Remote Host control), then try again.";
 
@@ -185,8 +203,8 @@ function requireLength(name: string, value: string, max: number, min = 0): strin
   return value;
 }
 
-/** The script's limit is in UTF-8 bytes, measured as the rule measures it. */
-function requireScriptBytes(value: string): string {
+/** The script's limit is in UTF-8 bytes, measured as the Storage rule measures it. */
+export function requireScriptBytes(value: string): string {
   if (value.length < 1) throw new Error("`script` is required");
   const bytes = new TextEncoder().encode(value).length;
   if (bytes > SHAPE_POST_LIMITS.scriptMax) throw new Error(`\`script\` is too long (${bytes} bytes; the gallery allows ${SHAPE_POST_LIMITS.scriptMax})`);
@@ -200,7 +218,8 @@ export function shapePostFrom(
   writer: Pick<ShapeGalleryWriter, "uid" | "authorName">,
   fields: {
     title: string;
-    script: string;
+    /** The object id `uploadScript` returned. */
+    scriptId: string;
     description?: string | undefined;
     prompt?: string | undefined;
     keywords?: unknown;
@@ -213,7 +232,7 @@ export function shapePostFrom(
     authorName: writer.authorName.slice(0, SHAPE_POST_LIMITS.authorNameMax),
     title: requireLength("title", fields.title.trim(), SHAPE_POST_LIMITS.titleMax, 1),
     description: requireLength("description", fields.description ?? "", SHAPE_POST_LIMITS.descriptionMax),
-    script: requireScriptBytes(fields.script),
+    scriptId: fields.scriptId,
     source: "prompt",
     prompt: requireLength("prompt", fields.prompt ?? "", SHAPE_POST_LIMITS.promptMax),
     photoIds: [],
@@ -250,16 +269,18 @@ async function thumbnailFor(context: PublishShapeScriptContext, gallery: ShapeGa
   }
 }
 
-/** Write the post; if that fails, take the thumbnail back out so a refused
- *  write does not leave an object nothing references. */
+/** Write the post; if that fails, take the script and the thumbnail back out
+ *  so a refused write does not leave objects nothing references. */
 async function writePost(context: PublishShapeScriptContext, gallery: ShapeGalleryWriter, id: string, doc: ShapePostDoc): Promise<void> {
   try {
     await gallery.createPost(id, doc);
   } catch (error) {
-    if (doc.thumbnailId)
-      await gallery
-        .deleteObject(id, doc.thumbnailId)
-        .catch((cause: unknown) => context.onWarning?.(`orphaned thumbnail ${doc.thumbnailId}: ${messageOf(cause)}`));
+    const orphans = [doc.scriptId, doc.thumbnailId].filter((objectId) => objectId !== "");
+    await Promise.all(
+      orphans.map((objectId) =>
+        gallery.deleteObject(id, objectId).catch((cause: unknown) => context.onWarning?.(`orphaned object ${objectId}: ${messageOf(cause)}`)),
+      ),
+    );
     throw error;
   }
 }
@@ -270,8 +291,8 @@ const newPostId = (): string => globalThis.crypto.randomUUID();
  * Run one `publishShapeScript` call. Throws on a missing session, a missing or
  * invalid source, a limit the gallery would refuse, and on ShapeScript errors
  * — the host's error path reports those to the model as it does for
- * `renderShapeScript`. Everything that can be refused is checked BEFORE the
- * thumbnail is uploaded, so a refusal writes nothing.
+ * `renderShapeScript`. Everything that can be refused is checked BEFORE
+ * anything is uploaded, so a refusal writes nothing.
  */
 export async function executePublishShapeScript(context: PublishShapeScriptContext, args: Record<string, unknown>): Promise<PublishShapeResult> {
   const gallery = context.gallery;
@@ -279,10 +300,12 @@ export async function executePublishShapeScript(context: PublishShapeScriptConte
   const title = optionalString(args.title);
   if (!title) throw new Error("`title` is required");
   const { script } = await resolveShapeSource(context, args);
+  requireScriptBytes(script);
   requireBuildable(script);
+  // The document is built first — with a placeholder id — so a limit is named before an upload.
   const post = shapePostFrom(gallery, {
     title,
-    script,
+    scriptId: "",
     description: optionalString(args.description),
     prompt: optionalString(args.prompt),
     keywords: args.keywords,
@@ -290,7 +313,8 @@ export async function executePublishShapeScript(context: PublishShapeScriptConte
   });
   const id = newPostId();
   const thumbnailId = await thumbnailFor(context, gallery, id, script);
-  const doc: ShapePostDoc = { ...post, thumbnailId };
+  const scriptId = await gallery.uploadScript(id, script);
+  const doc: ShapePostDoc = { ...post, thumbnailId, scriptId };
   await writePost(context, gallery, id, doc);
   const url = shapePostUrl(id, gallery.siteUrl);
   const state = doc.published ? "Published" : "Saved as a draft (only the user can see it, under My models)";

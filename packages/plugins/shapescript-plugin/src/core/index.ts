@@ -41,6 +41,9 @@ export {
   SHAPE_GALLERY_URL,
   SHAPE_POST_KEYS,
   SHAPE_POST_LIMITS,
+  SHAPE_SCRIPT_CONTENT_TYPE,
+  SHAPE_OBJECT_CACHE_CONTROL,
+  requireScriptBytes,
   NOT_CONNECTED_MESSAGE,
 } from "./publish";
 export type { PublishShapeScriptContext, PublishShapeResult, ShapeGalleryWriter, ShapePostDoc } from "./publish";
