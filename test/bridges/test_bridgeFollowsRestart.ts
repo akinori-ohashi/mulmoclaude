@@ -24,6 +24,7 @@ import type { AddressInfo } from "node:net";
 import { Server as IOServer } from "socket.io";
 import { CHAT_SOCKET_PATH, CHAT_SOCKET_EVENTS } from "@mulmobridge/protocol";
 import { createBridgeClient, resolveApiUrl, resolvePublishedApiUrl, type BridgeClient } from "@mulmobridge/client";
+import { isErrorWithCode } from "../../server/utils/types.js";
 
 const RECONNECT_BUDGET_MS = 25_000;
 const POLL_MS = 100;
@@ -35,19 +36,40 @@ const isAddressInfo = (value: AddressInfo | string | null): value is AddressInfo
  *  is the only thing in this file that cannot ask the OS for a free one. */
 const DEFAULT_API_PORT = 3001;
 
-/** Can we bind the default port right now?
+/** The addresses `localhost:3001` can reach, because those are the ones that have
+ *  to be clear — not the one this file happens to bind.
  *
- *  Every developer of this repo has a MulmoClaude on 3001, so for them that case
- *  cannot run, and it used to fail as an unexplained assertion 24 seconds in —
- *  which reads as "main is broken" and is how a suite stops being believed.
- *  Probing turns it into a skip that says why. */
-const canBindDefaultPort = (): Promise<boolean> =>
+ *  `DEFAULT_API_URL` says `http://localhost:3001`, and `localhost` resolves to
+ *  `::1` BEFORE `127.0.0.1` on a dual-stack host (measured here:
+ *  `[{"address":"::1","family":6},{"address":"127.0.0.1","family":4}]`). So a
+ *  listener on `::1:3001` alone leaves the IPv4 probe reporting "free" while the
+ *  client under test connects to that listener instead of ours — and the case
+ *  fails after 25 seconds, which is the exact symptom this probe exists to
+ *  remove, arriving through the other family (Codex review, PR #3139). */
+const LOOPBACK_HOSTS = ["127.0.0.1", "::1"] as const;
+
+/** Only these mean "someone has it". Anything else — `EADDRNOTAVAIL` on a host
+ *  with no IPv6, say — means the address cannot be occupied here at all, so it
+ *  cannot be what is blocking us. Reading every failure as "busy" would skip the
+ *  case on every IPv4-only machine and call that a kindness. */
+const IN_USE_CODES: ReadonlySet<string> = new Set(["EADDRINUSE", "EACCES"]);
+
+const canBindHost = (host: string): Promise<boolean> =>
   new Promise((resolve) => {
     const probe = createServer();
-    probe.once("error", () => resolve(false));
+    probe.once("error", (err) => resolve(!(isErrorWithCode(err) && IN_USE_CODES.has(err.code))));
     probe.once("listening", () => probe.close(() => resolve(true)));
-    probe.listen(DEFAULT_API_PORT, "127.0.0.1");
+    probe.listen(DEFAULT_API_PORT, host);
   });
+
+/** Sequential, not `Promise.all`: two probes racing for one port can have the
+ *  second report the first's own listener as the occupant. */
+const canBindDefaultPort = async (): Promise<boolean> => {
+  for (const host of LOOPBACK_HOSTS) {
+    if (!(await canBindHost(host))) return false;
+  }
+  return true;
+};
 
 /** Where a skip would be a silent loss rather than a kindness.
  *
@@ -321,7 +343,7 @@ describe("a bridge follows the server across a restart (#3078 A-3)", () => {
   // worked. They keep it.
   it("still uses the default when the CALLER pinned the token", async (ctx) => {
     if (!(await canBindDefaultPort())) {
-      const reason = `port ${DEFAULT_API_PORT} is in use — this case must bind the port DEFAULT_API_URL names, so it cannot be moved to an ephemeral one.`;
+      const reason = `port ${DEFAULT_API_PORT} is in use on a loopback address \`localhost\` reaches — this case must bind the port DEFAULT_API_URL names, so it cannot be moved to an ephemeral one.`;
       assert.ok(skipsAreAllowed(), `${reason} On CI nothing should hold it, so this is a failure rather than a skip.`);
       ctx.skip(`${reason} Stop whatever holds it (often your own \`yarn dev\`) to run it.`);
       return;
