@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/telegram",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Telegram bridge for MulmoBridge — connect a Telegram bot to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",

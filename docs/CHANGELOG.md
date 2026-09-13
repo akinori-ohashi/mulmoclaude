@@ -33,6 +33,30 @@ Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`,
 `^2.2.1` に上げた。core は 4.9.2 が**まだ未公開**なので、追加の bump は要らない
 （未公開の 4.9.2 が新しいレンジごと出る）。
 
+#### `@mulmobridge/*` — 25 ブリッジが #3084 の常駐プロセス堅牢化を受け取る
+
+`installProcessGuards` を入れた 24 ブリッジを **minor**、出力の責務が `createBridgeClient` に
+移った `@mulmobridge/cli` を **patch** で上げる。どれも利用者から見える挙動が変わる:
+
+- **SIGINT / SIGTERM** で `[<transport>] SIGTERM — shutting down` を出して exit 0。従来は
+  SIGTERM で**無言で即死**していた（Windows には catchable な SIGTERM が無いので対象外）
+- **unhandledRejection / uncaughtException** をログに出してから終了する
+- 受信型 9 ブリッジ（`google-chat` / `line` / `line-works` / `messenger` / `teams` /
+  `twilio-sms` / `viber` / `webhook` / `whatsapp`）は `listenWebhook` 経由になり、**ポートを
+  打ち間違えると警告して exit(1)**、bind 失敗時に「listening」と嘘をつかない
+
+上げる 25 本:
+
+| bump  | パッケージ                                                                                                                                                                                                                                                       |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| minor | `bluesky` `chatwork` `email` `google-chat` `irc` `line` `line-works` `matrix` `mattermost` `messenger` `nostr` `rocketchat` `signal` `slack` `teams` `telegram` `twilio-sms` `viber` `webhook` `whatsapp` `xmpp` `zulip` を 1.1.0、`discord` `mastodon` を 1.2.0 |
+| patch | `cli` を 1.0.2                                                                                                                                                                                                                                                   |
+
+ブリッジは他のどの workspace からも宣言されていない（利用者が直接 install する末端バイナリ）ので、
+range の sweep は発生しない。依存する `@mulmoclaude/common@1.3.0` と
+`@mulmobridge/webhook-runtime@1.2.0` は公開済み、`@mulmobridge/client@1.2.0` は**未公開**なので、
+**client を先に publish する**こと。
+
 ### Added
 
 #### `@mulmoclaude/shapescript-plugin@2.7.0` — `publishShapeScript` posts a model to the gallery
