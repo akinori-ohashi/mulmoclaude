@@ -17,9 +17,11 @@
 //
 // The script itself is NOT in the document (receptron/mulmoserver#266): it is
 // a Storage object under the post, `text/plain`, and the document carries its
-// id as `scriptId`. So a post is three writes — the thumbnail, the script,
-// the document — through the same writer, in that order, and a refused
-// document takes both objects back out.
+// id as `scriptId`. So a post is three writes — the script, the thumbnail,
+// the document — through the same writer, in that order: the required upload
+// first, so a failed one leaves nothing behind; the optional picture second,
+// where its failure is a warning; and a refused document takes both objects
+// back out.
 import { disposeObject3D } from "../shapescript/dispose";
 import { parseShapeScript } from "../shapescript/parser";
 import { astToThreeJS } from "../shapescript/toThreeJS";
@@ -312,8 +314,9 @@ export async function executePublishShapeScript(context: PublishShapeScriptConte
     published: args.published !== false,
   });
   const id = newPostId();
-  const thumbnailId = await thumbnailFor(context, gallery, id, script);
+  // The script first: it is required, so a failed upload must not have a thumbnail to orphan.
   const scriptId = await gallery.uploadScript(id, script);
+  const thumbnailId = await thumbnailFor(context, gallery, id, script);
   const doc: ShapePostDoc = { ...post, thumbnailId, scriptId };
   await writePost(context, gallery, id, doc);
   const url = shapePostUrl(id, gallery.siteUrl);

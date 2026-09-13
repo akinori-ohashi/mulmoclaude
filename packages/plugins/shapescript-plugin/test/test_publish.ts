@@ -222,6 +222,19 @@ describe("publishShapeScript tool", () => {
     assert.deepEqual(scripts, []);
   });
 
+  // The script goes up before the thumbnail: it is the required one, so its failure must find
+  // nothing already uploaded to orphan.
+  it("uploads the script before the thumbnail, so a failed script upload leaves nothing behind", async () => {
+    const { writer, posts, uploads, deleted } = fakeGallery();
+    writer.uploadScript = async () => {
+      throw new Error("quota");
+    };
+    await assert.rejects(executePublishShapeScript(contextFor(writer, onePixel), { title: "Lamp", script: CUBE }), /quota/);
+    assert.equal(posts.size, 0);
+    assert.deepEqual(uploads, []);
+    assert.deepEqual(deleted, []);
+  });
+
   it("takes the script and the thumbnail back out when the post itself is refused", async () => {
     const { writer, uploads, deleted } = fakeGallery(async () => {
       throw new Error("permission-denied");

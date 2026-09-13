@@ -25,7 +25,7 @@ import {
   type ShapeGalleryWriter,
   type ShapePostDoc,
 } from "@mulmoclaude/shapescript-plugin";
-import { renderShapeThumbnail, RENDER_TOOL_TIMEOUT_MS } from "@mulmoclaude/shapescript-plugin/render";
+import { renderShapeThumbnail, PUBLISH_TOOL_TIMEOUT_MS } from "@mulmoclaude/shapescript-plugin/render";
 import { doc, serverTimestamp, setDoc, type Firestore } from "firebase/firestore";
 import { deleteObject, ref as storageRef, uploadBytes, type FirebaseStorage } from "firebase/storage";
 import { currentDisplayName, currentFirestoreSession, currentStorage } from "../../remoteHost/session.js";
@@ -86,8 +86,9 @@ export const publishShapeScript: McpTool = {
     description: PUBLISH_DESCRIPTION,
     inputSchema: PUBLISH_SCHEMA,
   },
-  // The thumbnail is a render, so the transport must outlast one.
-  bridgeTimeoutMs: RENDER_TOOL_TIMEOUT_MS,
+  // The thumbnail is a render and the script an upload of up to 10 MiB, so the
+  // transport must outlast both.
+  bridgeTimeoutMs: PUBLISH_TOOL_TIMEOUT_MS,
   prompt: PUBLISH_PROMPT,
   handler: async (args: Record<string, unknown>): Promise<string> => {
     log.info("render", "publishShapeScript: start", { args: Object.keys(args).join(",") });
