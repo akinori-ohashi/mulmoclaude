@@ -27,6 +27,11 @@ TELEGRAM_ALLOWED_CHAT_IDS=12345678
 
 Restart the server. It logs `bridges  in-process bridges running` with the list.
 
+The bridge package itself is an **optional dependency of the launcher**, so
+`npx mulmoclaude` installs it by default and `npm install --no-optional` does
+not. If it is absent the server logs `bridge failed to start` and carries on —
+`npm i @mulmobridge/telegram` next to `mulmoclaude` is the fix.
+
 ## What it changes
 
 |                            | `yarn telegram` | `config/bridges.json`                       |

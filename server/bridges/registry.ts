@@ -64,8 +64,17 @@ export async function startConfiguredBridges(deps: {
   workspaceRoot?: string;
 }): Promise<StartedBridges> {
   const env = deps.env ?? process.env;
-  const raw = loadJsonFile<unknown>(resolvePath(deps.workspaceRoot ?? workspacePath, WORKSPACE_FILES.bridges), {});
-  const config = parseBridgesConfig(raw);
+  let config;
+  try {
+    // `loadJsonFile` swallows ENOENT but RETHROWS anything else — EACCES on a
+    // workspace file is a real read failure, not an absent one. Catching it here
+    // rather than letting it escape keeps the promise this function returns from
+    // ever rejecting, which is what the caller's isolation depends on.
+    config = parseBridgesConfig(loadJsonFile<unknown>(resolvePath(deps.workspaceRoot ?? workspacePath, WORKSPACE_FILES.bridges), {}));
+  } catch (err) {
+    log.error(LOG_PREFIX, "could not read config/bridges.json — no bridges started", { error: errorMessage(err) });
+    return { running: [], closeAll: () => {} };
+  }
 
   for (const { key, reason } of config.rejected) {
     log.warn(LOG_PREFIX, "ignoring a malformed entry in config/bridges.json", { key, reason });

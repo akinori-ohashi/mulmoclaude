@@ -129,7 +129,19 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     // layer, whose miss path would queue a message that has been delivered.
     const inProcess = inProcessBridges.get(transportId);
     if (inProcess) {
-      inProcess({ chatId, message });
+      try {
+        // Runs on WHATEVER stack called `pushToBridge` — a route handler, a
+        // scheduler tick. A socket bridge cannot reach us here because its
+        // handler runs in its own process; an in-process one can, so the
+        // isolation has to be written rather than assumed.
+        inProcess({ chatId, message });
+      } catch (err) {
+        logger.error("chat-service", "in-process bridge push handler threw", {
+          transportId,
+          chatId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       return;
     }
     if (livePush) {

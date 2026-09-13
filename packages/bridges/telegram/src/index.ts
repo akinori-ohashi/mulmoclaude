@@ -35,22 +35,26 @@ async function main(): Promise<void> {
   console.log("MulmoClaude Telegram bridge");
   console.log(`Allowlist: ${allowlist.size() > 0 ? allowlist.snapshot().join(", ") : "(empty — all chats will be denied)"}`);
 
+  // Guards BEFORE the bridge starts. Splitting the bridge into a library moved
+  // the poll loop's start from `await pollLoop(...)` to inside
+  // `startTelegramBridge`, which would otherwise leave a window where the loop
+  // is running and a signal is still unhandled. The holder is what lets the
+  // shutdown callback reach a handle that does not exist yet.
+  const started: { handle: { close: () => void } | null } = { handle: null };
+  installProcessGuards({
+    name: TRANSPORT_ID,
+    onShutdown: () => {
+      started.handle?.close();
+    },
+  });
+
   const handle = startTelegramBridge({
     botToken,
     allowlist,
     pollTimeoutSec,
     client: createBridgeClient({ transportId: TRANSPORT_ID }),
   });
-
-  // Installed here rather than at module level because the shutdown work needs
-  // the handle. `main().catch` still covers the awaited startup path above, so
-  // nothing is unguarded in between.
-  installProcessGuards({
-    name: TRANSPORT_ID,
-    onShutdown: () => {
-      handle.close();
-    },
-  });
+  started.handle = handle;
 
   await handle.done;
 }

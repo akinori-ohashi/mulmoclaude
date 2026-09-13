@@ -1102,13 +1102,18 @@ function attachTransports(httpServer: ReturnType<typeof app.listen>, pubsub: IPu
   // errors, so the only thing an await would buy is a server that never boots.
   void startConfiguredBridges({
     host: { relay: chatService.relay, registerInProcessBridge: chatService.registerInProcessBridge },
-  }).then((started) => {
-    if (started.running.length === 0) return;
-    log.info("bridges", "in-process bridges running", { transports: started.running });
-    // Registered only once something is running, so a server with no bridges
-    // does not carry a hook that closes nothing.
-    registerShutdownHook(() => started.closeAll());
-  });
+  })
+    .then((started) => {
+      if (started.running.length === 0) return;
+      log.info("bridges", "in-process bridges running", { transports: started.running });
+      // Registered only once something is running, so a server with no bridges
+      // does not carry a hook that closes nothing.
+      registerShutdownHook(() => started.closeAll());
+    })
+    // The registry resolves rather than rejects, so this is the belt to that
+    // braces: `process.on("unhandledRejection")` above EXITS, which would turn a
+    // bridge problem into a dead server — the exact isolation this route claims.
+    .catch((err: unknown) => log.error("bridges", "in-process bridge registry failed — the server continues without it", { error: String(err) }));
 
   // --- Session Store ---
   initSessionStore(pubsub);

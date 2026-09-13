@@ -49,7 +49,15 @@ export function createInProcessBridgeClient(opts: InProcessBridgeClientOptions):
   let closed = false;
 
   const deliverPush = (event: PushEvent): void => {
-    for (const handler of pushHandlers) handler(event);
+    for (const handler of pushHandlers) {
+      try {
+        handler(event);
+      } catch (err) {
+        // Per subscriber, so one bad handler does not stop the ones after it
+        // from seeing the push — and does not reach the server's stack.
+        console.error(`[${opts.transportId}] push handler threw: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   };
 
   const send = async (externalChatId: string, text: string, attachments?: Attachment[]): Promise<MessageAck> => {

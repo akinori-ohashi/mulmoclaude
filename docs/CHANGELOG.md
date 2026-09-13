@@ -84,11 +84,25 @@ range の sweep は発生しない。依存する `@mulmoclaude/common@1.3.0` �
 - `chatService.registerInProcessBridge` が server → bridge の push を配る。プロセス内
   ブリッジは常に live なので queue には積まない
 - **起動失敗はサーバを止めない**（Relay の既存挙動に合わせた）。トークン欠落・未変換の
-  transport・壊れた設定エントリはそれぞれログに出て、他のブリッジとサーバは動き続ける
+  transport・壊れた設定エントリ・**読めない設定ファイル**（EACCES 等、`loadJsonFile` が
+  ENOENT 以外を rethrow する経路）はそれぞれログに出て、他のブリッジとサーバは動き続ける。
+  **push ハンドラの同期 throw も封じ込める** — `pushToBridge` はルートハンドラやスケジューラの
+  スタック上で走るので、ブリッジのバグがそこへ抜けるとサーバが落ちる
 - ブリッジ本体は `packages/bridges/telegram/src/start.ts` に移した。`env` を読まず
   `process.exit` も呼ばず、**throw する**。CLI 側はそれを受けて今までどおりのメッセージと
   exit code を出す。**CLI の挙動は変えていない**: 起動失敗 5 経路を変更前後で実行して
   出力と exit code が 1 バイト差も無いことを確認した
+
+公開面が変わった 3 本を上げた: `@mulmobridge/client@1.3.0`（`createInProcessBridgeClient`）、
+`@mulmobridge/telegram@1.2.0`（`./start` subpath）、`@mulmobridge/chat-service@1.2.0`
+（`registerInProcessBridge`）。前 2 つは **#3116 で直したドリフトゲートが自分の PR で捕まえた**。
+3 つ目はゲートには見えない — module の export 名ではなく**返り値オブジェクトのメソッド**が
+増えたケースで、これは今のゲートの測り方の外側にある。
+
+bridge パッケージは launcher の **`optionalDependencies`** に置いた。`server/` は launcher
+経由で配布されるので、そこから動的 import するパッケージは launcher が宣言していなければ
+npm ユーザーに届かない（smoke の `deps` ステージが指摘した）。`deps.mjs` 自身が
+「optionalDependencies satisfies a dynamic import with try/catch」と書いている形に合わせている。
 
 使い方は [`docs/in-process-bridges.md`](in-process-bridges.md)、詰まったときの診断は
 `error-recovery.md` に追加した節にある。
