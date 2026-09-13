@@ -8,6 +8,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Fixed
+
+#### `@mulmoclaude/shapescript-plugin@2.7.1` — `publishShapeScript` allows a script of 900k bytes
+
+The tool refused a generated model of 234,796 characters with "the gallery allows 100000". The
+gallery's cap is now 900,000 UTF-8 bytes (receptron/mulmoserver#264) — bytes because Firestore's
+1 MiB document cap is in bytes and a script with Japanese comments is up to three bytes per
+character —
+and the plugin's mirrored limit, the one that lets the tool say why before a write that would fail
+as a bare permission error, moves with it and measures the same way.
+
 ### Package releases
 
 Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@2.7.1`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
