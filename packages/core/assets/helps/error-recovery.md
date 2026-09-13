@@ -1391,6 +1391,14 @@ treatment, and the workspace mounted if you want it to follow the port.
   message.
 - The platform token (bot token, app token) was revoked or regenerated.
 - The bridge process is not running at all. Check before assuming anything above.
+  Since #3084 a bridge that died says why on its last line — `[<transport>]
+  unhandled rejection — exiting: …` or `[<transport>] uncaught exception —
+  exiting: …`, naming the transport. A bridge stopped on purpose names the
+  signal: Ctrl-C prints `[<transport>] SIGINT — shutting down`, while a plain
+  `kill <pid>` sends SIGTERM and prints `[<transport>] SIGTERM — shutting down`.
+  **No such line and the process gone** means either an older npm build (they
+  had no handlers at all, so a missed `await` left only a stack trace) or a kill
+  no handler can catch (`kill -9` / SIGKILL, or the OOM killer).
 
 ### What to collect if none of it explains the silence
 
@@ -1477,3 +1485,52 @@ The same message with `(launch failed: …)` appended means the browser is
 installed but would not start — usually a sandbox with no permission to
 spawn it. Report the parenthesised reason to the user rather than the
 install hint alone.
+
+## The server refuses to start — "MulmoClaude is already running against this workspace"
+
+### Symptoms
+
+- `yarn dev`, `yarn server` or `npx mulmoclaude` exits immediately with:
+  `MulmoClaude is already running against this workspace at http://localhost:<port>`
+- It happens even with a free port named explicitly (`PORT=3100 yarn dev`).
+
+### Why
+
+Two servers over one workspace overwrite each other's `.session-token`. After
+that a stateless plugin dispatch authenticates cleanly against the *wrong*
+server, while the session-scoped `/api/internal/tool-result` push lands where
+the session does not exist and is dropped — so plugin views simply never render
+on one of the two and nothing reports an error. The guard refuses that setup
+rather than letting it happen quietly (#3079).
+
+The check reads `<workspace>/.server-port` and probes the port it names, so it
+is about the WORKSPACE, not the port: a busy 3001 held by some other program
+still walks forward as before.
+
+### Fix
+
+Usually the message is right and there is already a server to use — open the URL
+it printed.
+
+To run a genuinely separate second instance, give it its own workspace (no flag
+needed, this is the supported shape):
+
+```bash
+MULMOCLAUDE_WORKSPACE_PATH=~/mulmoclaude-scratch PORT=3100 yarn dev
+```
+
+If the first server was killed hard (`kill -9`, a crashed container) the sidecar
+can name a port something else has since taken; the probe treats a non-MulmoClaude
+answer as "nobody there", so that case does not stop a launch. A stop therefore
+means a real instance answered.
+
+To share one workspace between two servers anyway — accepting the token stomping:
+
+```bash
+MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1 yarn dev
+```
+
+Use the env var for `yarn dev`. The `--allow-multiple-instances` flag works on
+`npx mulmoclaude` and `yarn server`, but **not** on `yarn dev`: that is a compound
+`a && b && c` script, yarn appends extra args to the last command only, and the
+guard that stops the launch runs in the first one.
