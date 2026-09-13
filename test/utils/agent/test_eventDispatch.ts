@@ -80,23 +80,22 @@ describe("removePendingGeneration", () => {
 // appears after a reload — which is exactly how this shipped broken once
 // during development, with the value correct on disk and absent on screen.
 describe("applyAgentEvent — session_meta", () => {
-  const session = (): ActiveSession =>
-    ({
-      id: "s1",
-      roleId: "general",
-      toolResults: [],
-      resultTimestamps: new Map(),
-      isRunning: false,
-      statusMessage: "",
-      toolCallHistory: [],
-      selectedResultUuid: null,
-      hasUnread: false,
-      startedAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      runStartIndex: 0,
-      assistantTextInterrupted: false,
-      pendingGenerations: {},
-    }) as ActiveSession;
+  const session = (): ActiveSession => ({
+    id: "s1",
+    roleId: "general",
+    toolResults: [],
+    resultTimestamps: new Map(),
+    isRunning: false,
+    statusMessage: "",
+    toolCallHistory: [],
+    selectedResultUuid: null,
+    hasUnread: false,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    runStartIndex: 0,
+    assistantTextInterrupted: false,
+    pendingGenerations: {},
+  });
 
   const ctx = (active: ActiveSession) => ({
     session: active,

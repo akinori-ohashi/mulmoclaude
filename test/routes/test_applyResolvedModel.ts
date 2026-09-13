@@ -32,6 +32,10 @@ const collect = () => {
   };
 };
 
+// Long enough that `publish` would win if the helper stopped awaiting the
+// persist, short enough not to slow the suite.
+const SLOW_PERSIST_MS = 5;
+
 describe("applyResolvedModel", () => {
   it("writes the model to session meta", async () => {
     const { persisted, deps } = collect();
@@ -64,7 +68,7 @@ describe("applyResolvedModel", () => {
     const order: string[] = [];
     await applyResolvedModel("s1", "claude-sonnet-5", {
       persist: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await new Promise((resolve) => setTimeout(resolve, SLOW_PERSIST_MS));
         order.push("persist");
       },
       publish: () => order.push("publish"),
