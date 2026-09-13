@@ -381,9 +381,6 @@ function handleCameraChange() {
   if (cameraChangeTimeout !== null) {
     clearTimeout(cameraChangeTimeout);
   }
-  if (copiedTimeout !== null) {
-    clearTimeout(copiedTimeout);
-  }
 
   cameraChangeTimeout = window.setTimeout(() => {
     updateCameraState();
@@ -473,6 +470,9 @@ function toggleGrid() {
 function cleanup() {
   if (cameraChangeTimeout !== null) {
     clearTimeout(cameraChangeTimeout);
+  }
+  if (copiedTimeout !== null) {
+    clearTimeout(copiedTimeout);
   }
   sceneObjects.forEach((obj) => removeAndDispose(scene, obj));
   sceneObjects = [];
