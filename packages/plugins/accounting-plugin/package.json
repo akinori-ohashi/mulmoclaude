@@ -63,7 +63,7 @@
     "@mulmoclaude/core": "^4.9.3",
     "@tailwindcss/vite": "^4.3.3",
     "@types/express": "^5.0.6",
-    "@types/node": "^26.4.1",
+    "@types/node": "^26.5.1",
     "@vitejs/plugin-vue": "^6.0.8",
     "express": "^5.2.1",
     "gui-chat-protocol": "^2.0.0",
