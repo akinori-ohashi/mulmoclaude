@@ -58,55 +58,65 @@ export interface StartedBridges {
   running: string[];
 }
 
+/** The transports the workspace switched on, or an empty list when the file is
+ *  absent, unreadable or malformed. Never throws: the caller's isolation — and
+ *  the server's boot — depend on this resolving. */
+function readEnabledTransports(workspaceRoot: string | undefined): string[] {
+  let config;
+  try {
+    // `loadJsonFile` swallows ENOENT but RETHROWS anything else — EACCES on a
+    // workspace file is a real read failure, not an absent one.
+    config = parseBridgesConfig(loadJsonFile<unknown>(resolvePath(workspaceRoot ?? workspacePath, WORKSPACE_FILES.bridges), {}));
+  } catch (err) {
+    log.error(LOG_PREFIX, "could not read config/bridges.json — no bridges started", { error: errorMessage(err) });
+    return [];
+  }
+  for (const { key, reason } of config.rejected) {
+    log.warn(LOG_PREFIX, "ignoring a malformed entry in config/bridges.json", { key, reason });
+  }
+  return config.enabled;
+}
+
+/** Starts one bridge, or returns null having logged why it could not. C-4: a
+ *  bridge that cannot start must not stop the server. */
+async function startOne(transportId: string, deps: { host: BridgeHost; env: Record<string, string | undefined> }): Promise<InProcessBridgeHandle | null> {
+  const starter = STARTERS[transportId];
+  if (!starter) {
+    log.warn(LOG_PREFIX, "enabled bridge cannot run in-process yet — start it with its CLI instead", { transportId });
+    return null;
+  }
+  try {
+    const client = createInProcessBridgeClient({
+      transportId,
+      relay: deps.host.relay,
+      registerPush: deps.host.registerInProcessBridge,
+    });
+    const handle = await starter(client, deps.env);
+    // The poll loop outlives this call, so its rejection has nowhere else to
+    // land. Without this an unhandled rejection takes the SERVER down — the
+    // exact blast radius this isolation exists to prevent.
+    handle.done.catch((err: unknown) => log.error(LOG_PREFIX, "bridge stopped with an error", { transportId, error: errorMessage(err) }));
+    log.info(LOG_PREFIX, "bridge started in-process", { transportId });
+    return handle;
+  } catch (err) {
+    log.error(LOG_PREFIX, "bridge failed to start — the server continues without it", { transportId, error: errorMessage(err) });
+    return null;
+  }
+}
+
 export async function startConfiguredBridges(deps: {
   host: BridgeHost;
   env?: Record<string, string | undefined>;
   workspaceRoot?: string;
 }): Promise<StartedBridges> {
   const env = deps.env ?? process.env;
-  let config;
-  try {
-    // `loadJsonFile` swallows ENOENT but RETHROWS anything else — EACCES on a
-    // workspace file is a real read failure, not an absent one. Catching it here
-    // rather than letting it escape keeps the promise this function returns from
-    // ever rejecting, which is what the caller's isolation depends on.
-    config = parseBridgesConfig(loadJsonFile<unknown>(resolvePath(deps.workspaceRoot ?? workspacePath, WORKSPACE_FILES.bridges), {}));
-  } catch (err) {
-    log.error(LOG_PREFIX, "could not read config/bridges.json — no bridges started", { error: errorMessage(err) });
-    return { running: [], closeAll: () => {} };
-  }
-
-  for (const { key, reason } of config.rejected) {
-    log.warn(LOG_PREFIX, "ignoring a malformed entry in config/bridges.json", { key, reason });
-  }
-
   const handles: InProcessBridgeHandle[] = [];
   const running: string[] = [];
-  for (const transportId of config.enabled) {
-    const starter = STARTERS[transportId];
-    if (!starter) {
-      log.warn(LOG_PREFIX, "enabled bridge cannot run in-process yet — start it with its CLI instead", { transportId });
-      continue;
-    }
-    try {
-      const client = createInProcessBridgeClient({
-        transportId,
-        relay: deps.host.relay,
-        registerPush: deps.host.registerInProcessBridge,
-      });
-      const handle = await starter(client, env);
-      // The poll loop outlives this call, so its rejection has nowhere else to
-      // land. Without this an unhandled rejection takes the SERVER down — the
-      // exact blast radius this isolation exists to prevent.
-      handle.done.catch((err: unknown) => log.error(LOG_PREFIX, "bridge stopped with an error", { transportId, error: errorMessage(err) }));
-      handles.push(handle);
-      running.push(transportId);
-      log.info(LOG_PREFIX, "bridge started in-process", { transportId });
-    } catch (err) {
-      // C-4: never block startup. A bad token or a missing env var costs that
-      // one bridge, not the server.
-      log.error(LOG_PREFIX, "bridge failed to start — the server continues without it", { transportId, error: errorMessage(err) });
-    }
+  for (const transportId of readEnabledTransports(deps.workspaceRoot)) {
+    const handle = await startOne(transportId, { host: deps.host, env });
+    if (handle === null) continue;
+    handles.push(handle);
+    running.push(transportId);
   }
 
   let closed = false;
