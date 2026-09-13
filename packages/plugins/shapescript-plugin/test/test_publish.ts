@@ -89,7 +89,7 @@ function contextFor(gallery: ShapeGalleryWriter | null, renderThumbnail = noThum
 describe("publishShapeScript tool", () => {
   it("exposes its name and takes a title plus script XOR path", () => {
     assert.equal(PUBLISH_TOOL_NAME, "publishShapeScript");
-    assert.deepEqual(Object.keys(PUBLISH_SCHEMA.properties), ["title", "script", "path", "description", "keywords", "prompt", "published"]);
+    assert.deepEqual(Object.keys(PUBLISH_SCHEMA.properties), ["title", "script", "path", "description", "keywords", "prompt", "aiModel", "published"]);
     assert.deepEqual(PUBLISH_SCHEMA.required, ["title"]);
   });
 
@@ -114,6 +114,7 @@ describe("publishShapeScript tool", () => {
         thumbnailId: "",
         forkedFrom: null,
         keywords: [],
+        aiModel: "",
         published: true,
       },
     );
@@ -132,6 +133,8 @@ describe("publishShapeScript tool", () => {
     assert.throws(() => shapePostFrom(writer, { title: "x".repeat(121), scriptId: "s" }), /`title` is too long/);
     assert.throws(() => shapePostFrom(writer, { title: "t", scriptId: "s", description: "d".repeat(2001) }), /`description` is too long/);
     assert.equal(shapePostFrom({ uid: "u", authorName: "n".repeat(100) }, { title: "t", scriptId: "s" }).authorName.length, SHAPE_POST_LIMITS.authorNameMax);
+    assert.throws(() => shapePostFrom(writer, { title: "t", scriptId: "s", aiModel: "m".repeat(81) }), /`aiModel` is too long/);
+    assert.equal(shapePostFrom(writer, { title: "t", scriptId: "s", aiModel: " claude-opus-5 " }).aiModel, "claude-opus-5");
   });
 
   // The script cap is the gallery's STORAGE rule — 10 MiB in UTF-8 bytes — since the script is
@@ -160,6 +163,7 @@ describe("publishShapeScript tool", () => {
       description: "A cube",
       keywords: ["Cube", "test"],
       prompt: "make a cube",
+      aiModel: "claude-opus-5",
     });
     assert.equal(posts.size, 1);
     const [id, doc] = [...posts.entries()][0]!;
@@ -174,6 +178,7 @@ describe("publishShapeScript tool", () => {
     assert.equal(Object.hasOwn(doc, "script"), false);
     assert.deepEqual(doc.keywords, ["cube", "test"]);
     assert.equal(doc.prompt, "make a cube");
+    assert.equal(doc.aiModel, "claude-opus-5");
     assert.equal(doc.published, true);
     assert.match(result.message, /^Published: "Tiny Cube" is at https:/);
     assert.doesNotMatch(result.message, /No thumbnail/);
