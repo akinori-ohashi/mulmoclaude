@@ -10,9 +10,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.2`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.8.0`, `@mulmoclaude/shapescript-plugin@2.7.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.2`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.8.0`, `@mulmoclaude/shapescript-plugin@2.8.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ### Added
+
+#### `@mulmoclaude/shapescript-plugin@2.8.0` — Copy button in the `presentShapeScript` view
+
+The view's header gains a **Copy** button, between Grid and Download USDZ, that puts the
+ShapeScript source on the clipboard and reads "Copied" for a moment. It copies the text as shown
+in the source editor — unapplied edits included — since that is what the user is looking at. The
+feedback timer is cleared on unmount, and a clipboard write still pending at unmount is ignored.
+Localised across all 8 locales.
 
 #### `@mulmoclaude/shapescript-plugin@2.7.0` — `publishShapeScript` posts a model to the gallery
 
@@ -80,7 +88,6 @@ MulmoClaude は `claude` を `--model` なしで spawn していたため、モ�
   下限をどこに置いても宣言上の穴が残る。用途は `server/system/optionalDeps.ts` の PATH 探索 1 箇所。
 - **`mermaid` 12** — 既定レイアウトが同梱 ELK、テーマ/look が redux-color/neo に変わり、既存の図が
   引き直されて色が変わる。目視確認の要る独立した作業。
-
 
 #### Node.js の下限を 20.12 → 22.19 に引き上げ
 
