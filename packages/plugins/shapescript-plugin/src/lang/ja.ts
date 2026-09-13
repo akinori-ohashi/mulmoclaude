@@ -12,6 +12,8 @@ const ja: Messages = {
   saveError: "保存に失敗しました:",
   downloadUsdz: "USDZ をダウンロード",
   exportError: "エクスポートに失敗しました:",
+  copyScript: "コピー",
+  copied: "コピーしました",
   sceneWarnings: "描画されないもの:",
   printOutput: "出力:",
 };

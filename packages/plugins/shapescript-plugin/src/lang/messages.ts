@@ -10,6 +10,10 @@ export interface Messages {
   saveError: string;
   downloadUsdz: string;
   exportError: string;
+  /** Copies the ShapeScript source to the clipboard. */
+  copyScript: string;
+  /** Transient label after a successful copy. */
+  copied: string;
   /** Heading for commands the script used that this viewer does not draw. */
   sceneWarnings: string;
   /** Heading for the script's `print` lines. */

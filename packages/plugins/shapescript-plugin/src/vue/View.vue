@@ -15,6 +15,10 @@
           <span class="material-icons">{{ showGrid ? "visibility_off" : "visibility" }}</span>
           {{ t.grid }}
         </button>
+        <button class="control-btn" data-testid="shapescript-copy-script" @click="copyScript">
+          <span class="material-icons">{{ copied ? "check" : "content_copy" }}</span>
+          {{ copied ? t.copied : t.copyScript }}
+        </button>
         <!-- Disabled while the source panel holds unapplied edits: the export
              is built from the APPLIED script, which is also what the viewport
              renders, so a dirty editor would otherwise download a model the
@@ -118,6 +122,12 @@ const printOutput = ref<string[]>([]);
 const saveError = ref<string | null>(null);
 const exportError = ref<string | null>(null);
 const exporting = ref(false);
+/** True for a moment after a successful copy, so the button can confirm it. */
+const copied = ref(false);
+let copiedTimeout: number | null = null;
+/** Set by `cleanup()`, so a clipboard write still pending at unmount does not
+ *  set state or start a timer on a component that is gone. */
+let disposed = false;
 /** Bumped by every operation that establishes what the source now IS, so an
  *  older in-flight read can tell that it has been superseded. Not a ref: no
  *  template reads it, and reactivity would only invite a watcher. */
@@ -431,6 +441,28 @@ async function downloadUsdz() {
   }
 }
 
+/** How long the Copy button reads "Copied" before reverting. */
+const COPIED_FEEDBACK_MS = 1500;
+
+/** Copy the source as shown in the editor — unapplied edits included, since
+ *  that is the text the user is looking at. Success feedback is local (the
+ *  label and icon swap for a moment); a rejected write (blocked clipboard,
+ *  unfocused document) simply shows no confirmation. */
+async function copyScript() {
+  try {
+    await navigator.clipboard.writeText(editableScript.value);
+  } catch {
+    return;
+  }
+  if (disposed) return;
+  copied.value = true;
+  if (copiedTimeout !== null) clearTimeout(copiedTimeout);
+  copiedTimeout = window.setTimeout(() => {
+    copied.value = false;
+    copiedTimeout = null;
+  }, COPIED_FEEDBACK_MS);
+}
+
 function toggleWireframe() {
   showWireframe.value = !showWireframe.value;
 }
@@ -440,8 +472,12 @@ function toggleGrid() {
 }
 
 function cleanup() {
+  disposed = true;
   if (cameraChangeTimeout !== null) {
     clearTimeout(cameraChangeTimeout);
+  }
+  if (copiedTimeout !== null) {
+    clearTimeout(copiedTimeout);
   }
   sceneObjects.forEach((obj) => removeAndDispose(scene, obj));
   sceneObjects = [];
