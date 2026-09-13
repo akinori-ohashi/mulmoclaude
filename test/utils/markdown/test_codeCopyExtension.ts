@@ -83,8 +83,11 @@ describe("codeCopyExtension", () => {
 
   it("escapes the body itself when no highlighter ran (the plugin's chain)", () => {
     const html = markedLikePlugin().parse("```\n<script>alert(1)</script>\n```") as string;
-    assert.match(html, /&lt;script&gt;/);
-    assert.doesNotMatch(html, /<script>/);
+    assert.ok(html.includes("&lt;script&gt;"));
+    // Substring on a lower-cased copy, not a `/<script>/` regex: the
+    // regex form asserts less than it looks like it does (it misses
+    // `<SCRIPT>`), which is what CodeQL's js/bad-tag-filter is for.
+    assert.ok(!html.toLowerCase().includes("<script"));
   });
 
   it("drops a fence tag that is not a plain language word", () => {
