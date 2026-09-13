@@ -30,6 +30,25 @@ const POLL_MS = 100;
 
 const isAddressInfo = (value: AddressInfo | string | null): value is AddressInfo => value !== null && typeof value === "object";
 
+/** The port `DEFAULT_API_URL` names. One case below has to bind THIS port and no
+ *  other — it exists to prove the fall-through to the documented default — so it
+ *  is the only thing in this file that cannot ask the OS for a free one. */
+const DEFAULT_API_PORT = 3001;
+
+/** Can we bind the default port right now?
+ *
+ *  Every developer of this repo has a MulmoClaude on 3001, so for them that case
+ *  cannot run, and it used to fail as an unexplained assertion 24 seconds in —
+ *  which reads as "main is broken" and is how a suite stops being believed.
+ *  Probing turns it into a skip that says why. CI has a clean machine and runs it. */
+const canBindDefaultPort = (): Promise<boolean> =>
+  new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", () => resolve(false));
+    probe.once("listening", () => probe.close(() => resolve(true)));
+    probe.listen(DEFAULT_API_PORT, "127.0.0.1");
+  });
+
 interface Generation {
   label: string;
   port: number;
@@ -41,7 +60,8 @@ const closeIo = (server: IOServer): Promise<void> => new Promise((resolve) => se
 const closeHttp = (server: Server): Promise<void> => new Promise((resolve) => server.close(() => resolve()));
 
 /** One server generation: its own token, its own name, and by default a port
- *  the OS picks — `port` is only passed by the case that must sit on 3001. */
+ *  the OS picks — `port` is only passed by the case that must sit on
+ *  `DEFAULT_API_PORT`. */
 async function startGeneration(label: string, token: string, port = 0): Promise<Generation> {
   const httpServer = createServer();
   const wsServer = new IOServer(httpServer, { path: CHAT_SOCKET_PATH, transports: ["websocket"] });
@@ -289,9 +309,15 @@ describe("a bridge follows the server across a restart (#3078 A-3)", () => {
   // container without the workspace mounted, say — so there is no fresh secret
   // to strand and refusing the documented default would break a setup that
   // worked. They keep it.
-  it("still uses the default when the CALLER pinned the token", async () => {
+  it("still uses the default when the CALLER pinned the token", async (ctx) => {
+    if (!(await canBindDefaultPort())) {
+      ctx.skip(
+        `port ${DEFAULT_API_PORT} is in use — this case must bind the port DEFAULT_API_URL names, so it cannot be moved to an ephemeral one. Stop whatever holds it (often your own \`yarn dev\`) to run it.`,
+      );
+      return;
+    }
     // No `.session-token` on disk at all: the only credential is the env one.
-    const onDefaultPort = await startGeneration("gen-default", "pinned-token", 3001);
+    const onDefaultPort = await startGeneration("gen-default", "pinned-token", DEFAULT_API_PORT);
     process.env.MULMOCLAUDE_AUTH_TOKEN = "pinned-token";
     const client = createBridgeClient({ transportId: "cli", options: {} });
     try {
