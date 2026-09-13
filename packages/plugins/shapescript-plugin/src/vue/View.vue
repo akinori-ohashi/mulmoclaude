@@ -125,6 +125,9 @@ const exporting = ref(false);
 /** True for a moment after a successful copy, so the button can confirm it. */
 const copied = ref(false);
 let copiedTimeout: number | null = null;
+/** Set by `cleanup()`, so a clipboard write still pending at unmount does not
+ *  set state or start a timer on a component that is gone. */
+let disposed = false;
 /** Bumped by every operation that establishes what the source now IS, so an
  *  older in-flight read can tell that it has been superseded. Not a ref: no
  *  template reads it, and reactivity would only invite a watcher. */
@@ -451,6 +454,7 @@ async function copyScript() {
   } catch {
     return;
   }
+  if (disposed) return;
   copied.value = true;
   if (copiedTimeout !== null) clearTimeout(copiedTimeout);
   copiedTimeout = window.setTimeout(() => {
@@ -468,6 +472,7 @@ function toggleGrid() {
 }
 
 function cleanup() {
+  disposed = true;
   if (cameraChangeTimeout !== null) {
     clearTimeout(cameraChangeTimeout);
   }
