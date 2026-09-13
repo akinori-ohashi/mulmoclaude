@@ -8,6 +8,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Added
+
+#### Settings → Model でチャットのモデルを選べる (#2923)
+
+MulmoClaude は `claude` を `--model` なしで spawn していたため、モデルは常に
+`~/.claude/settings.json` から解決されていた。このファイルは VS Code / Cursor の Claude Code
+拡張が `/model` の選択を保存する先でもあるので、**そちらで切り替えると MulmoClaude のモデルも
+一緒に変わり**、画面には何も出なかった。意図しない価格帯のモデルで動き続ける、あるいは調査主体の
+ロールが最上位モデルの週次枠を食い潰す、という形で表面化する。
+
+`AppSettings.chatModel` を設定すると、その値だけが `--model <alias>` として渡る。受け付けるのは
+ファミリーエイリアス `opus` / `sonnet` / `haiku` のみで、`claude-opus-4-8` のような固定 ID は
+400 で弾く — 保存した選択が新しい世代へ自動追随してほしいため。**未設定は現状どおりフラグ省略**
+（共有ファイルに追従）なので、既定の挙動は変わらない。既存の `effortLevel` (#1323) と同じ経路・
+同じ null センチネル方式に載っている。
+
+`config/settings.json` の `chatModel` が live な値で、`bug-report-faq.md` の
+「MulmoClaude is answering with a different model than I expected」がそこを指す。
+
 ### Fixed
 
 #### The publish-drift gate was scanning 4 packages and counting the wrong thing (#3116)
@@ -147,6 +166,14 @@ that closes it — dropping such a line when an odd number of backticks precedes
 entries and several hundred real names** falling out of the name comparison, to close a case the
 67-entry measurement shows does not occur. The invented name is also identical on both sides unless
 the sample itself changes, so it can cost a false `drifted`, never a false `ok`.
+
+#### 保存中に変えた選択が、失敗時に取り残される (#2923)
+
+Settings → Model の select は `@change` で自動保存する。PUT が飛んでいる間に選択を変えると、その
+change は「保存中」ガードに弾かれて送られない。送り直しは成功パスにしか無かったため、**リクエスト
+が失敗するとその選択は画面に出たままサーバに届かない**状態で固定される。同じ項目を選び直しても
+change イベントは出ないので、ユーザーには復帰手段が無かった。`effortLevel` にも #1323 以来あった
+欠陥で、2 つの select で保存処理を共通化したことで両方に効くようになった。
 
 #### `@mulmoclaude/common@1.3.0`, `@mulmobridge/webhook-runtime@1.2.0`, `@mulmoclaude/core@4.9.1` — the versions catch up with #3084
 
