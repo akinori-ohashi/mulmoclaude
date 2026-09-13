@@ -8,6 +8,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Changed
+
+#### `@mulmoclaude/shapescript-plugin@3.0.0` — `publishShapeScript` uploads the script as a Storage object
+
+The gallery moved a post's ShapeScript source out of its Firestore document into a Storage
+object beside the thumbnail (receptron/mulmoserver#266): the document carries `scriptId`, never
+the text, and the rules there refuse a `script` field. The tool now uploads the script as
+`text/plain` through a new `ShapeGalleryWriter.uploadScript` — required, hence the major: a
+writer built against 2.x fails every publish with `uploadScript is not a function` — then the
+thumbnail, then the document with its id, and takes both objects back out if the document is
+refused. A host's transport budget for the tool is `PUBLISH_TOOL_TIMEOUT_MS` (on `./render`),
+the render's plus a minute for the uploads. The cap moves from 900,000 bytes to
+the Storage rule's 10 MiB, still measured in UTF-8 bytes. Both hosts stamp every object they
+upload `Cache-Control: public, max-age=31536000, immutable`, as the gallery's own editor does.
+
+**A host on the previous plugin cannot publish once the gallery's new rules are deployed** — the
+write is refused, not lost — so update the plugin before, or with, that deploy.
+
 ### Fixed
 
 #### `@mulmoclaude/shapescript-plugin@2.7.1` — `publishShapeScript` allows a script of 900k bytes
@@ -21,7 +39,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@2.8.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@3.0.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 

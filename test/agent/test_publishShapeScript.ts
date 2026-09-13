@@ -1,6 +1,6 @@
 // The host side of `publishShapeScript`: the document it writes is the plugin's
 // post plus the two server stamps mulmoserver's rules demand, and the thumbnail
-// lands under the owner's path the Storage rule scopes.
+// and the script land under the owner's path the Storage rule scopes.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -9,7 +9,7 @@ import type { FirebaseStorage } from "firebase/storage";
 import { SHAPE_POST_KEYS, shapePostFrom } from "@mulmoclaude/shapescript-plugin";
 import { galleryWriterFrom, postDocumentOf, shapeObjectPath } from "../../server/agent/mcp-tools/publishShapeScript.js";
 
-const post = shapePostFrom({ uid: "u-alice", authorName: "Alice" }, { title: "Lamp", script: "cube", keywords: ["lamp"] });
+const post = shapePostFrom({ uid: "u-alice", authorName: "Alice" }, { title: "Lamp", scriptId: "script-1", keywords: ["lamp"] });
 
 describe("publishShapeScript host adapter", () => {
   it("writes the post plus server-stamped createdAt / updatedAt, and nothing else", () => {
@@ -33,6 +33,7 @@ describe("publishShapeScript host adapter", () => {
     assert.equal(writer.authorName, "Alice");
     assert.equal(typeof writer.createPost, "function");
     assert.equal(typeof writer.uploadThumbnail, "function");
+    assert.equal(typeof writer.uploadScript, "function");
     assert.equal(typeof writer.deleteObject, "function");
   });
 });

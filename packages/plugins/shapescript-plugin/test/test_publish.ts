@@ -1,8 +1,9 @@
 // The `publishShapeScript` tool, against a fake gallery writer. What is pinned
 // here is the CONTRACT with mulmoserver: the document's key set (its rules
-// refuse any other), the keyword normalisation both sides share, that nothing
-// is written when the host has no session, and that a refusal leaves no
-// object behind.
+// refuse any other), that the script is a Storage object the document points
+// at rather than a field (receptron/mulmoserver#266), the keyword
+// normalisation both sides share, that nothing is written when the host has
+// no session, and that a refusal leaves no object behind.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { FileOps } from "gui-chat-protocol";
@@ -14,8 +15,10 @@ import {
   NOT_CONNECTED_MESSAGE,
   PUBLISH_SCHEMA,
   PUBLISH_TOOL_NAME,
+  requireScriptBytes,
   SHAPE_POST_KEYS,
   SHAPE_POST_LIMITS,
+  SHAPE_SCRIPT_CONTENT_TYPE,
   type PublishShapeScriptContext,
   type ShapeGalleryWriter,
   type ShapePostDoc,
@@ -50,6 +53,7 @@ function memoryFiles(seed: Record<string, string> = {}): FileOps {
 function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: string) {
   const posts = new Map<string, ShapePostDoc>();
   const uploads: Array<{ id: string; bytes: number }> = [];
+  const scripts: Array<{ id: string; script: string }> = [];
   const deleted: Array<{ id: string; objectId: string }> = [];
   const writer: ShapeGalleryWriter = {
     uid: "u-alice",
@@ -64,11 +68,15 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
       uploads.push({ id, bytes: png.byteLength });
       return `obj-${uploads.length}`;
     },
+    uploadScript: async (id, script) => {
+      scripts.push({ id, script });
+      return `script-${scripts.length}`;
+    },
     deleteObject: async (id, objectId) => {
       deleted.push({ id, objectId });
     },
   };
-  return { writer, posts, uploads, deleted };
+  return { writer, posts, uploads, scripts, deleted };
 }
 
 const noThumbnail = async (): Promise<Uint8Array | null> => null;
@@ -86,10 +94,12 @@ describe("publishShapeScript tool", () => {
   });
 
   // mulmoserver's rules pin the key set with hasOnly: this list IS the contract.
-  it("writes exactly the keys mulmoserver's rules accept, every one present", () => {
-    const doc = shapePostFrom({ uid: "u", authorName: "A" }, { title: "Lamp", script: CUBE });
+  it("writes exactly the keys mulmoserver's rules accept, every one present, and never the script text", () => {
+    const doc = shapePostFrom({ uid: "u", authorName: "A" }, { title: "Lamp", scriptId: "script-1" });
     assert.deepEqual(Object.keys(doc), [...SHAPE_POST_KEYS]);
     for (const [key, value] of Object.entries(doc)) assert.notEqual(value, undefined, `${key} must not be undefined`);
+    // Key ABSENCE: the rule's hasOnly refuses a `script` key with any value.
+    assert.equal(Object.hasOwn(doc, "script"), false);
     assert.deepEqual(
       { ...doc },
       {
@@ -97,7 +107,7 @@ describe("publishShapeScript tool", () => {
         authorName: "A",
         title: "Lamp",
         description: "",
-        script: CUBE,
+        scriptId: "script-1",
         source: "prompt",
         prompt: "",
         photoIds: [],
@@ -118,22 +128,32 @@ describe("publishShapeScript tool", () => {
 
   it("refuses what the rules would refuse, naming the field", () => {
     const writer = { uid: "u", authorName: "A" };
-    assert.throws(() => shapePostFrom(writer, { title: "  ", script: CUBE }), /`title` is required/);
-    assert.throws(() => shapePostFrom(writer, { title: "x".repeat(121), script: CUBE }), /`title` is too long/);
-    assert.throws(() => shapePostFrom(writer, { title: "t", script: CUBE, description: "d".repeat(2001) }), /`description` is too long/);
-    // The script cap is UTF-8 bytes, as the gallery's rule measures it: 300,001 three-byte
-    // characters are over it although the character count is not; 900,000 ASCII bytes are not.
-    assert.throws(() => shapePostFrom(writer, { title: "t", script: "あ".repeat(300001) }), /`script` is too long \(900003 bytes/);
-    assert.equal(shapePostFrom(writer, { title: "t", script: "x".repeat(SHAPE_POST_LIMITS.scriptMax) }).script.length, SHAPE_POST_LIMITS.scriptMax);
-    assert.equal(shapePostFrom({ uid: "u", authorName: "n".repeat(100) }, { title: "t", script: CUBE }).authorName.length, SHAPE_POST_LIMITS.authorNameMax);
+    assert.throws(() => shapePostFrom(writer, { title: "  ", scriptId: "s" }), /`title` is required/);
+    assert.throws(() => shapePostFrom(writer, { title: "x".repeat(121), scriptId: "s" }), /`title` is too long/);
+    assert.throws(() => shapePostFrom(writer, { title: "t", scriptId: "s", description: "d".repeat(2001) }), /`description` is too long/);
+    assert.equal(shapePostFrom({ uid: "u", authorName: "n".repeat(100) }, { title: "t", scriptId: "s" }).authorName.length, SHAPE_POST_LIMITS.authorNameMax);
+  });
+
+  // The script cap is the gallery's STORAGE rule — 10 MiB in UTF-8 bytes — since the script is
+  // an object, not a document field. Three-byte characters are over it although the character
+  // count is well under; the cap itself, in ASCII, is not.
+  it("measures the script in UTF-8 bytes against the Storage rule's 10 MiB", () => {
+    assert.equal(SHAPE_POST_LIMITS.scriptMax, 10 * 1024 * 1024);
+    assert.equal(SHAPE_SCRIPT_CONTENT_TYPE, "text/plain; charset=utf-8");
+    assert.throws(() => requireScriptBytes(""), /`script` is required/);
+    assert.throws(
+      () => requireScriptBytes("あ".repeat(Math.ceil(SHAPE_POST_LIMITS.scriptMax / 3))),
+      /`script` is too long \(\d+ bytes; the gallery allows 10485760\)/,
+    );
+    assert.equal(requireScriptBytes("x".repeat(SHAPE_POST_LIMITS.scriptMax)).length, SHAPE_POST_LIMITS.scriptMax);
   });
 
   it("posts nothing without a session, and says how to get one", async () => {
     await assert.rejects(executePublishShapeScript(contextFor(null), { title: "Lamp", script: CUBE }), new RegExp(NOT_CONNECTED_MESSAGE.slice(0, 30)));
   });
 
-  it("publishes an inline script with its thumbnail and answers the model's URL", async () => {
-    const { writer, posts, uploads } = fakeGallery();
+  it("publishes an inline script as a Storage object, with its thumbnail, and answers the model's URL", async () => {
+    const { writer, posts, uploads, scripts } = fakeGallery();
     const result = await executePublishShapeScript(contextFor(writer, onePixel), {
       title: "Tiny Cube",
       script: CUBE,
@@ -148,7 +168,10 @@ describe("publishShapeScript tool", () => {
     assert.match(result.url, /^https:\/\/server\.mulmocast\.com\/shapes\/[0-9a-f-]{36}$/);
     assert.equal(result.thumbnail, true);
     assert.deepEqual(uploads, [{ id, bytes: 3 }]);
+    assert.deepEqual(scripts, [{ id, script: CUBE }]);
     assert.equal(doc.thumbnailId, "obj-1");
+    assert.equal(doc.scriptId, "script-1");
+    assert.equal(Object.hasOwn(doc, "script"), false);
     assert.deepEqual(doc.keywords, ["cube", "test"]);
     assert.equal(doc.prompt, "make a cube");
     assert.equal(doc.published, true);
@@ -157,7 +180,7 @@ describe("publishShapeScript tool", () => {
   });
 
   it("publishes an existing artifact by path, as a draft, where no browser can render", async () => {
-    const { writer, posts } = fakeGallery(undefined, "https://staging.example/");
+    const { writer, posts, scripts } = fakeGallery(undefined, "https://staging.example/");
     const artifacts = memoryFiles({ "shapes/lamp-1-aaaaaaaa.shape": CUBE });
     const result = await executePublishShapeScript(contextFor(writer, noThumbnail, artifacts), {
       title: "Lamp",
@@ -165,7 +188,8 @@ describe("publishShapeScript tool", () => {
       published: false,
     });
     const doc = [...posts.values()][0]!;
-    assert.equal(doc.script, CUBE);
+    assert.equal(scripts[0]?.script, CUBE);
+    assert.equal(doc.scriptId, "script-1");
     assert.equal(doc.published, false);
     assert.equal(result.thumbnail, false);
     assert.equal(result.url, `https://staging.example/shapes/${result.id}`);
@@ -186,22 +210,41 @@ describe("publishShapeScript tool", () => {
   });
 
   it("refuses a script that will not build, or a post over a limit, before anything is uploaded or written", async () => {
-    const { writer, posts, uploads } = fakeGallery();
+    const { writer, posts, uploads, scripts } = fakeGallery();
     const context = contextFor(writer, onePixel);
     await assert.rejects(executePublishShapeScript(context, { title: "Bad", script: "loft { square }" }), /cross-sections/);
     await assert.rejects(executePublishShapeScript(context, { title: "x".repeat(121), script: CUBE }), /`title` is too long/);
     await assert.rejects(executePublishShapeScript(context, { script: CUBE }), /`title` is required/);
     await assert.rejects(executePublishShapeScript(context, { title: "t", script: CUBE, path: "artifacts/shapes/x.shape" }), /not both/);
+    await assert.rejects(executePublishShapeScript(context, { title: "t", script: "x".repeat(SHAPE_POST_LIMITS.scriptMax + 1) }), /`script` is too long/);
     assert.equal(posts.size, 0);
     assert.deepEqual(uploads, []);
+    assert.deepEqual(scripts, []);
   });
 
-  it("takes the thumbnail back out when the post itself is refused", async () => {
+  // The script goes up before the thumbnail: it is the required one, so its failure must find
+  // nothing already uploaded to orphan.
+  it("uploads the script before the thumbnail, so a failed script upload leaves nothing behind", async () => {
+    const { writer, posts, uploads, deleted } = fakeGallery();
+    writer.uploadScript = async () => {
+      throw new Error("quota");
+    };
+    await assert.rejects(executePublishShapeScript(contextFor(writer, onePixel), { title: "Lamp", script: CUBE }), /quota/);
+    assert.equal(posts.size, 0);
+    assert.deepEqual(uploads, []);
+    assert.deepEqual(deleted, []);
+  });
+
+  it("takes the script and the thumbnail back out when the post itself is refused", async () => {
     const { writer, uploads, deleted } = fakeGallery(async () => {
       throw new Error("permission-denied");
     });
     await assert.rejects(executePublishShapeScript(contextFor(writer, onePixel), { title: "Lamp", script: CUBE }), /permission-denied/);
     assert.equal(uploads.length, 1);
-    assert.deepEqual(deleted, [{ id: uploads[0]!.id, objectId: "obj-1" }]);
+    const id = uploads[0]!.id;
+    assert.deepEqual(deleted, [
+      { id, objectId: "script-1" },
+      { id, objectId: "obj-1" },
+    ]);
   });
 });
