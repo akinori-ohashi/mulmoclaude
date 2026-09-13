@@ -323,9 +323,9 @@ now is. A stale sidecar left by a killed instance does not stop anything: the po
 probed, and only a MulmoClaude-shaped answer counts. A busy port held by some other program still
 walks forward exactly as before.
 
-`MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1` opts back in, with the token stomping that implies
-(`--allow-multiple-instances` is the equivalent flag on `npx mulmoclaude` and `yarn server`; `yarn
-dev` is a compound script and drops trailing args, so the env var is the only form that works there).
+`MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1` opts back in, with the token stomping that implies, and
+`--allow-multiple-instances` is the equivalent flag everywhere — including `yarn dev`, which drops
+trailing args until the fix above lands in the same release.
 
 #### A bridge that crashed said nothing about which bridge it was, and Ctrl-C dropped work in flight (#3084)
 
