@@ -988,6 +988,10 @@ const ptBRMessages = {
     fieldIcon: "Ícone",
     fieldPrompt: "Prompt",
     fieldPlugins: "Plugins",
+    fieldModel: "Modelo",
+    modelUnset: "(sem configurar — seguir a configuração global)",
+    modelHelp:
+      "Sessões iniciadas com este papel usam este modelo. Útil para manter um papel de rotina fora do limite semanal do seu modelo principal. Papéis integrados sempre seguem a configuração global.",
     fieldStarterQueries: "Consultas iniciais",
     onePerLine: "(uma por linha)",
     helpLink: "?",

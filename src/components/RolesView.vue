@@ -95,6 +95,19 @@
 
         <!-- Starter queries -->
         <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1" for="role-model-new">{{ t("pluginManageRoles.fieldModel") }}</label>
+          <select
+            id="role-model-new"
+            v-model="newForm.model"
+            class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-400"
+            data-testid="role-model-new"
+          >
+            <option value="">{{ t("pluginManageRoles.modelUnset") }}</option>
+            <option v-for="model in chatModels" :key="model" :value="model">{{ model }}</option>
+          </select>
+          <p class="mt-1 text-xs text-gray-500">{{ t("pluginManageRoles.modelHelp") }}</p>
+        </div>
+        <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">
             {{ t("pluginManageRoles.fieldStarterQueries") }}
             <span class="text-gray-400 font-normal">{{ t("pluginManageRoles.onePerLine") }}</span>
@@ -242,6 +255,19 @@
 
             <!-- Starter queries -->
             <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1" for="role-model-edit">{{ t("pluginManageRoles.fieldModel") }}</label>
+              <select
+                id="role-model-edit"
+                v-model="editForm.model"
+                class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-400"
+                data-testid="role-model-edit"
+              >
+                <option value="">{{ t("pluginManageRoles.modelUnset") }}</option>
+                <option v-for="model in chatModels" :key="model" :value="model">{{ model }}</option>
+              </select>
+              <p class="mt-1 text-xs text-gray-500">{{ t("pluginManageRoles.modelHelp") }}</p>
+            </div>
+            <div>
               <label class="block text-xs font-medium text-gray-600 mb-1">
                 {{ t("pluginManageRoles.fieldStarterQueries") }}
                 <span class="text-gray-400 font-normal">{{ t("pluginManageRoles.onePerLine") }}</span>
@@ -301,7 +327,8 @@ import { apiGet, apiPost } from "../utils/api";
 import { API_ROUTES } from "../config/apiRoutes";
 import { useImeAwareEnter } from "../composables/useImeAwareEnter";
 import { confirmItemDelete } from "../utils/confirmDelete";
-import { parseCustomRoles, parseManageRolesResult } from "../plugins/manageRoles/roleForm";
+import { type RoleForm, emptyRoleForm, formToRole, parseCustomRoles, parseManageRolesResult, roleToForm } from "../plugins/manageRoles/roleForm";
+import { pluginChatModels } from "../plugins/api";
 
 // Inlined from the former `src/plugins/manageRoles/index.ts`
 // (deleted alongside the manageRoles MCP tool — #949). RolesView
@@ -395,46 +422,17 @@ const selectedId = ref<string | null>(null);
 const saving = ref(false);
 const saveError = ref("");
 
-interface EditForm {
-  id: string;
-  name: string;
-  icon: string;
-  prompt: string;
-  selectedPlugins: string[];
-  queriesText: string;
-}
-
-const editForm = ref<EditForm>({
-  id: "",
-  name: "",
-  icon: "",
-  prompt: "",
-  selectedPlugins: [],
-  queriesText: "",
-});
+const chatModels = pluginChatModels();
+const editForm = ref<RoleForm>(emptyRoleForm());
 
 const creating = ref(false);
 const createError = ref("");
-const newForm = ref<EditForm>({
-  id: "",
-  name: "",
-  icon: "person",
-  prompt: "",
-  selectedPlugins: [],
-  queriesText: "",
-});
+const newForm = ref<RoleForm>(emptyRoleForm());
 
 function startCreate() {
   selectedId.value = null;
   createError.value = "";
-  newForm.value = {
-    id: "",
-    name: "",
-    icon: "person",
-    prompt: "",
-    selectedPlugins: [],
-    queriesText: "",
-  };
+  newForm.value = emptyRoleForm();
   creating.value = true;
 }
 
@@ -450,14 +448,7 @@ function selectRole(role: CustomRole) {
   }
   selectedId.value = role.id;
   saveError.value = "";
-  editForm.value = {
-    id: role.id,
-    name: role.name,
-    icon: role.icon,
-    prompt: role.prompt,
-    selectedPlugins: [...role.availablePlugins],
-    queriesText: (role.queries ?? []).join("\n"),
-  };
+  editForm.value = roleToForm(role);
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -510,7 +501,7 @@ async function refreshList() {
   await Promise.resolve(appApi.refreshRoles());
 }
 
-function validateRoleForm(form: EditForm, excludeId: string | null): string | null {
+function validateRoleForm(form: RoleForm, excludeId: string | null): string | null {
   const trimmedId = form.id.trim();
   const trimmedName = form.name.trim();
   if (!trimmedId) return t("pluginManageRoles.errIdRequired");
@@ -528,20 +519,6 @@ const newFormError = computed<string | null>(() => validateRoleForm(newForm.valu
 
 const editFormError = computed<string | null>(() => validateRoleForm(editForm.value, selectedId.value));
 
-function buildNewRole(): CustomRole {
-  return {
-    id: newForm.value.id.trim(),
-    name: newForm.value.name.trim(),
-    icon: newForm.value.icon.trim() || "person",
-    prompt: newForm.value.prompt,
-    availablePlugins: newForm.value.selectedPlugins,
-    queries: newForm.value.queriesText
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean),
-  };
-}
-
 async function saveNew() {
   if (saving.value) return;
   if (newFormError.value) {
@@ -550,7 +527,7 @@ async function saveNew() {
   }
   saving.value = true;
   createError.value = "";
-  const result = await callManage({ action: "create", role: buildNewRole() });
+  const result = await callManage({ action: "create", role: formToRole(newForm.value) });
   if (result.success) {
     creating.value = false;
     await refreshList();
@@ -570,19 +547,7 @@ async function saveEdit(originalId: string) {
   }
   saving.value = true;
   saveError.value = "";
-  const role: CustomRole = {
-    id: editForm.value.id.trim(),
-    name: editForm.value.name.trim(),
-    // Fall back to the default icon so an edit that clears the field can't
-    // persist an empty icon (create already falls back — keep them in sync).
-    icon: editForm.value.icon.trim() || "person",
-    prompt: editForm.value.prompt,
-    availablePlugins: editForm.value.selectedPlugins,
-    queries: editForm.value.queriesText
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean),
-  };
+  const role: CustomRole = formToRole(editForm.value);
   const result = await callManage({
     action: "update",
     role,

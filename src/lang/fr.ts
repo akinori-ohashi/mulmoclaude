@@ -991,6 +991,10 @@ const frMessages = {
     fieldIcon: "Icône",
     fieldPrompt: "Prompt",
     fieldPlugins: "Plugins",
+    fieldModel: "Modèle",
+    modelUnset: "(non défini — suivre le réglage global)",
+    modelHelp:
+      "Les sessions démarrées avec ce rôle utilisent ce modèle. Pratique pour garder un rôle routinier hors de la limite hebdomadaire de votre modèle principal. Les rôles intégrés suivent toujours le réglage global.",
     fieldStarterQueries: "Questions de démarrage",
     onePerLine: "(une par ligne)",
     helpLink: "?",

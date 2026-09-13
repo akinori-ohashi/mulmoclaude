@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import { RoleSchema, BUILTIN_ROLES } from "../../src/config/roles.js";
+import { CHAT_MODELS } from "../../src/config/models.js";
 
 describe("RoleSchema", () => {
   it("accepts a valid role with all fields", () => {
@@ -252,5 +253,48 @@ describe("Accounting role", () => {
     assert.ok(role);
     assert.match(role.prompt, /インボイス制度/u);
     assert.match(role.prompt, /T-number|taxRegistrationId/u);
+  });
+});
+
+// #3104. The host schema is the SINGLE validator for the alias — the plugin
+// parser deliberately carries any string through, so if this stopped narrowing,
+// an arbitrary string would reach `claude --model` and the CLI would reject the
+// spawn with `unrecognized_model`.
+describe("RoleSchema — model", () => {
+  const base = { id: "r", name: "R", icon: "person", prompt: "p", availablePlugins: [] };
+
+  it("accepts every alias the app offers", () => {
+    CHAT_MODELS.forEach((model) => {
+      assert.equal(RoleSchema.parse({ ...base, model }).model, model);
+    });
+  });
+
+  it("is absent when the role does not set one", () => {
+    const role = RoleSchema.parse(base);
+    assert.equal(role.model, undefined);
+  });
+
+  // A hand-edited file naming a retired alias should cost that field, not the
+  // role: dropping the whole role would remove it from the picker with no
+  // explanation, and a bad alias reaching the CLI fails the spawn outright.
+  it("drops an unknown alias instead of failing the parse", () => {
+    const role = RoleSchema.parse({ ...base, model: "gpt-4o" });
+    assert.equal(role.model, undefined);
+    assert.equal(role.id, "r");
+  });
+
+  it("drops a non-string model", () => {
+    assert.equal(RoleSchema.parse({ ...base, model: 42 }).model, undefined);
+    assert.equal(RoleSchema.parse({ ...base, model: null }).model, undefined);
+    assert.equal(RoleSchema.parse({ ...base, model: { family: "opus" } }).model, undefined);
+  });
+
+  // Built-in roles are never editable in the UI, so none of them should be
+  // pinning a model — that is what makes "built-ins follow the app-wide
+  // setting" true without any special case in the resolver.
+  it("leaves every built-in role without a model", () => {
+    BUILTIN_ROLES.forEach((role) => {
+      assert.equal(role.model, undefined, `${role.id} must not pin a model`);
+    });
   });
 });

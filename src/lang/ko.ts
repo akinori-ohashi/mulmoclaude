@@ -983,6 +983,10 @@ const koMessages = {
     fieldIcon: "아이콘",
     fieldPrompt: "프롬프트",
     fieldPlugins: "플러그인",
+    fieldModel: "모델",
+    modelUnset: "(미설정 — 전체 설정 따르기)",
+    modelHelp:
+      "이 역할로 시작한 세션은 이 모델로 동작합니다. 상주하는 루틴 역할을 최상위 모델의 주간 한도에서 빼두는 데 쓸 수 있습니다. 내장 역할은 항상 전체 설정을 따릅니다.",
     fieldStarterQueries: "시작 질문",
     onePerLine: "(한 줄에 하나)",
     helpLink: "?",
