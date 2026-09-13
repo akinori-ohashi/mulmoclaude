@@ -3,8 +3,12 @@
 ## Goal
 
 Every rendered markdown surface gets a per-code-block copy affordance that behaves the way
-users already expect from ChatGPT / Claude / GitHub: a header strip on top of the block with
-the language on the left and a copy control on the right, feedback on success.
+users already expect from ChatGPT / Claude / GitHub: a control in the block's top-right
+corner, visible without hovering, that puts the raw source on the clipboard with feedback on
+success.
+
+This started out as a ChatGPT-style header strip (language on the left, copy on the right).
+That is NOT what shipped — see *UI* below for why it could not be made to sit flush.
 
 Issue: https://github.com/receptron/mulmoclaude/issues/3125
 Reference prototype (external contributor): https://github.com/IwAgri/mulmoclaude/tree/feat/code-block-copy-button
@@ -44,7 +48,7 @@ markedHighlightExtension  →  codeCopyExtension  →  mermaidExtension
 
 `mermaidExtension` stays outermost so a ```mermaid fence short-circuits to its placeholder
 and never reaches the copy wrapper. Everything else falls through to `codeCopyExtension`,
-which emits the wrapper + header + the `<pre><code>` marked-highlight would have produced.
+which emits the wrapper + button + the `<pre><code>` marked-highlight would have produced.
 
 ### Verified before writing code
 
@@ -67,11 +71,18 @@ tracks it — switching language re-renders the labels with no sweep and no obse
 
 ```text
 ┌──────────────────────────────────────────────┐
-│ typescript                          [copy]   │  ← header strip
-├──────────────────────────────────────────────┤
-│ const a = 1;                                 │  ← existing <pre><code class="hljs …">
+│ const a = 1;                        [copy]   │  ← button floats over the block's corner
+│ console.log(a);                              │  ← existing <pre><code class="hljs …">
 └──────────────────────────────────────────────┘
 ```
+
+**The header strip was tried and abandoned.** `pre` is styled by UNLAYERED css in at least
+three places — `.markdown-content pre` in `src/index.css`, plus scoped `:deep(pre)` in
+textResponse's and skill's Views — and unlayered rules beat Tailwind's `@layer utilities`
+outright, so no utility on the `pre` can flatten its bottom corners to sit under a strip.
+Making it flush would have meant editing the global stylesheet in two packages. The floating
+control collides with none of it. The cost is that **the language tag is not displayed**,
+which is the one part of this a human should second-guess.
 
 - Copy control lives top-right (ChatGPT / Claude / GitHub all agree on the corner).
 - **Always visible, not hover-to-reveal** — answers the issue's open question. Hover-only is

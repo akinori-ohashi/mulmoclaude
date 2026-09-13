@@ -17,6 +17,7 @@ import {
   CODE_COPY_COPIED_LABEL_ATTR,
   CODE_BLOCK_STYLE_FENCED,
   CODE_BLOCK_STYLE_INDENTED,
+  CODE_COPY_NONCE_UNAVAILABLE,
 } from "@mulmoclaude/markdown-utils/markdown/codeCopyExtension";
 
 // `dompurify` reads `window` at module load, so a JSDOM has to be in the
@@ -226,6 +227,44 @@ describe("spoofed markers from author markdown are inert", () => {
       await settle();
       assert.deepEqual(env.writes, []);
     });
+  });
+
+  it("refuses an empty nonce even when the DOCUMENT's is empty too — the no-CSPRNG contract", async () => {
+    // The other spoof cases fail on mismatch, so they pass whether or not
+    // the fail-closed sentinel exists: deleting it left all 45 tests green.
+    // It only bites when the document's own nonce is ALSO empty, which is
+    // the no-CSPRNG case — and there `"" === ""` would otherwise match and
+    // hand the clipboard to any markup that writes `data-code-copy=""`.
+    const restore = codeCopyNonce();
+    try {
+      setCodeCopyNonce(CODE_COPY_NONCE_UNAVAILABLE);
+      const blank = new JSDOM("<!doctype html><body></body>").window.document;
+      _resetCodeCopyHandlerForTests(blank);
+      installCodeCopyHandler(blank);
+      assert.equal(codeCopyNonce(), CODE_COPY_NONCE_UNAVAILABLE, "the fresh document adopted the empty nonce");
+      blank.body.innerHTML = [
+        `<div ${CODE_COPY_BLOCK_ATTR}="${CODE_BLOCK_STYLE_FENCED}">`,
+        `<button type="button" ${CODE_COPY_ATTR}="">Copy</button>`,
+        "<pre><code>evil</code></pre>",
+        "</div>",
+      ].join("");
+      const writes: string[] = [];
+      const view = blank.defaultView;
+      assert.ok(view);
+      Object.defineProperty(view.navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text: string): Promise<void> => {
+            writes.push(text);
+          },
+        },
+      });
+      blank.querySelector<HTMLElement>(`[${CODE_COPY_ATTR}]`)?.click();
+      await settle();
+      assert.deepEqual(writes, []);
+    } finally {
+      setCodeCopyNonce(restore);
+    }
   });
 
   it("still copies from a button carrying the document's own nonce", async () => {
