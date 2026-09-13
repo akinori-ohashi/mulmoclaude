@@ -50,6 +50,7 @@ import { computed, ref, watch, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { apiGet, apiPut } from "../utils/api";
 import { API_ROUTES } from "../config/apiRoutes";
+import { resolveSave, shouldStartSave } from "./settingsFieldSave";
 
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 type EffortLevel = (typeof EFFORT_LEVELS)[number];
@@ -129,8 +130,7 @@ async function load(): Promise<void> {
 }
 
 async function save<T extends string>(field: SettingField<T>): Promise<void> {
-  if (field.saving.value) return;
-  if (field.draft.value === field.stored.value) return;
+  if (!shouldStartSave(field.saving.value, field.draft.value, field.stored.value)) return;
   // Capture the submitted value before awaiting — if the user changes
   // the select again while this PUT is in flight, the second save()
   // would early-return on `saving=true`, and a naive
@@ -145,15 +145,14 @@ async function save<T extends string>(field: SettingField<T>): Promise<void> {
   // select's value is never echoed back and cannot be clobbered.
   const response = await apiPut<unknown>(API_ROUTES.config.settings, { [field.key]: requested === "" ? null : requested });
   field.saving.value = false;
-  if (!response.ok) {
-    errorMessage.value = response.error || t("settingsModal.modelTab.saveError");
-    return;
+  const message = response.ok ? "" : response.error || t("settingsModal.modelTab.saveError");
+  const { store, resend } = resolveSave(response.ok, field.draft.value, requested);
+  if (store) {
+    field.stored.value = requested;
+    emit("saved");
   }
-  field.stored.value = requested;
-  emit("saved");
-  // If the draft moved while we were in flight, re-trigger save so
-  // the latest value reaches the server.
-  if (field.draft.value !== requested) {
+  errorMessage.value = message;
+  if (resend) {
     void save(field);
   }
 }
