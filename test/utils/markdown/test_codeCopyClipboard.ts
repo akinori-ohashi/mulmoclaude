@@ -54,6 +54,30 @@ function harness(): Harness {
   return { document, window, button, writes, fail };
 }
 
+interface ScheduledRevert {
+  revert: () => void;
+  handle: number;
+}
+
+/** Replaces the window's timer pair with recorders, so the 2s feedback
+ *  window costs no wall-clock and the test can inspect what was
+ *  scheduled and what was cancelled. */
+function installFakeTimers(view: DOMWindow, scheduled: ScheduledRevert[], cancelled: Set<number>): void {
+  let nextHandle = 1;
+  const fakeSetTimeout = (revert: () => void): number => {
+    const handle = nextHandle;
+    nextHandle += 1;
+    scheduled.push({ revert, handle });
+    return handle;
+  };
+  const fakeClearTimeout = (handle: number): void => {
+    cancelled.add(handle);
+  };
+  const timers: { setTimeout: unknown; clearTimeout: unknown } = view;
+  timers.setTimeout = fakeSetTimeout;
+  timers.clearTimeout = fakeClearTimeout;
+}
+
 let env: Harness;
 beforeEach(() => {
   env = harness();
@@ -62,6 +86,22 @@ beforeEach(() => {
 describe("codeTextOf", () => {
   it("returns the code's text without highlight markup", () => {
     assert.equal(codeTextOf(env.button), "const a = 1;");
+  });
+
+  it("drops the one trailing newline the renderer leaves on the block", () => {
+    // marked keeps it on an indented block and strips it from a fenced
+    // one; copying the two shapes must not differ.
+    const code = env.document.querySelector("code");
+    assert.ok(code);
+    code.textContent = "indented();\n";
+    assert.equal(codeTextOf(env.button), "indented();");
+  });
+
+  it("keeps a deliberate blank line, dropping only the terminator", () => {
+    const code = env.document.querySelector("code");
+    assert.ok(code);
+    code.textContent = "a();\n\n";
+    assert.equal(codeTextOf(env.button), "a();\n");
   });
 
   it("returns null for a button with no code block around it", () => {
@@ -130,6 +170,32 @@ describe("installCodeCopyHandler", () => {
     later.querySelector<HTMLElement>(`[${CODE_COPY_ATTR}]`)?.click();
     await settle();
     assert.deepEqual(env.writes, ["later();"]);
+  });
+
+  it("a second click restarts the confirmation instead of letting the first timer end it", async () => {
+    // The first click's revert timer must be cancelled: left running, it
+    // fires on the OLD schedule and clears the second click's feedback
+    // early. Uses fake timers so the 2s window is not real wall-clock.
+    installCodeCopyHandler(env.document, () => LABELS);
+    const view = env.window;
+    const scheduled: ScheduledRevert[] = [];
+    const cancelled = new Set<number>();
+    installFakeTimers(view, scheduled, cancelled);
+
+    env.button.click();
+    await settle();
+    env.button.click();
+    await settle();
+
+    assert.equal(scheduled.length, 2, "each click schedules its own revert");
+    const [stale] = scheduled;
+    assert.ok(stale);
+    assert.ok(cancelled.has(stale.handle), "the first click's revert was cancelled");
+    // Belt and braces: even if the cancelled timer still fires (already
+    // dispatched when the second click landed), it must not clear the
+    // live confirmation.
+    stale.revert();
+    assert.equal(env.button.getAttribute("aria-label"), "Copied");
   });
 
   it("ignores a click outside any copy button", async () => {

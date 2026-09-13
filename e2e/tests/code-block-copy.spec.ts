@@ -97,9 +97,10 @@ test.describe("code block copy button", () => {
     // The clipboard is the external ground truth here — asserting the
     // icon changed would only prove the app agrees with itself.
     const clipboard = await page.evaluate(() => navigator.clipboard.readText());
-    // Highlight.js wraps tokens in <span>s; none of that may reach the
-    // clipboard, and the trailing newline marked adds must not either.
-    expect(clipboard.trim()).toBe(CODE_BODY);
+    // Exact, not trimmed: highlight.js's <span>s must not reach the
+    // clipboard, and neither must a trailing newline. Trimming would
+    // hide a regression in either.
+    expect(clipboard).toBe(CODE_BODY);
 
     await expect(button).toHaveAttribute("aria-label", "Copied");
   });

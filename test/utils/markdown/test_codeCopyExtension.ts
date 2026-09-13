@@ -101,6 +101,15 @@ describe("codeCopyExtension", () => {
     assert.match(html, /<code class="hljs language-ts">/);
   });
 
+  it("gives an indented code block a button too — deliberately", () => {
+    // marked renders a 4-space block as the same `<pre><code>` a fence
+    // produces, so a reader has the same reason to copy it. Skipping it
+    // would make the affordance appear and vanish for no visible reason.
+    const html = markedLikeHost().parse("paragraph\n\n    indented();\n") as string;
+    assert.match(html, new RegExp(CODE_COPY_ATTR));
+    assert.match(html, /<code class="hljs">/);
+  });
+
   it("renders the provider's labels and escapes them", () => {
     setCodeCopyLabelProvider(() => ({ copy: 'Copy "code"', copied: "Copied" }));
     const html = markedLikePlugin().parse("```\nx\n```") as string;

@@ -40,24 +40,51 @@ const isHtmlElement = (value: unknown): value is HTMLElement => isElement(value)
 export function codeTextOf(button: Element): string | null {
   const block = button.closest(`[${CODE_COPY_BLOCK_ATTR}]`);
   const code = block?.querySelector("pre > code");
-  return code?.textContent ?? null;
+  const text = code?.textContent;
+  return text === undefined || text === null ? null : stripTrailingNewline(text);
 }
+
+/** Drops the ONE line terminator the renderer leaves on the block, so a
+ *  paste does not gain a stray blank line. It is a rendering artifact,
+ *  not content: marked keeps it on an indented block and strips it from
+ *  a fenced one, and copying the two shapes should not differ. Only one
+ *  is removed — a deliberate blank line before it survives. */
+function stripTrailingNewline(text: string): string {
+  if (text.endsWith("\r\n")) return text.slice(0, -2);
+  return text.endsWith("\n") ? text.slice(0, -1) : text;
+}
+
+// One pending revert per button. Without this, clicking again while the
+// confirmation is up leaves the FIRST timer running: it fires on the old
+// schedule and clears the second click's feedback early. Keyed weakly so
+// a button removed by the next streamed re-render is collectable.
+const pendingReverts = new WeakMap<HTMLElement, number>();
 
 function showCopied(button: HTMLElement, labels: CodeCopyLabels): void {
   button.innerHTML = CODE_COPIED_ICON;
   button.classList.add(COPIED_TINT_CLASS);
   button.setAttribute("aria-label", labels.copied);
   button.setAttribute("title", labels.copied);
+  const view = button.ownerDocument.defaultView;
+  if (view === null || view === undefined) return;
+  const pending = pendingReverts.get(button);
+  if (pending !== undefined) view.clearTimeout(pending);
   // Re-reading the labels on revert rather than closing over today's
   // copy keeps the idle title correct if the user switched language
   // while the confirmation was on screen.
-  button.ownerDocument.defaultView?.setTimeout(() => {
+  const handle: number = view.setTimeout(() => {
+    // Identity check, not just `clearTimeout`: a stale callback that
+    // still runs — a timer already dispatched when the second click
+    // cancelled it — must not clear the live confirmation.
+    if (pendingReverts.get(button) !== handle) return;
+    pendingReverts.delete(button);
     button.innerHTML = CODE_COPY_ICON;
     button.classList.remove(COPIED_TINT_CLASS);
     const idle = labels.copy;
     button.setAttribute("aria-label", idle);
     button.setAttribute("title", idle);
   }, FEEDBACK_DURATION_MS);
+  pendingReverts.set(button, handle);
 }
 
 async function handleClick(event: Event, getLabels: () => CodeCopyLabels): Promise<void> {
