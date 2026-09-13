@@ -1,1 +1,11 @@
 @import "tailwindcss";
+
+/* Tailwind v4 scans the project its css entry belongs to, and this
+   package's vite root is the package — so the utility classes the copy
+   button's markup is built from (they live in a `@mulmoclaude/markdown-utils`
+   source file, not in a template here) are invisible to this build and
+   would drop out of `dist/style.css`. Same shape as #2989. */
+@source "../../../markdown-utils/src/markdown/codeCopyExtension.ts";
+/* The copied-state tint is applied by the click handler, so its class
+   lives in a second file — one `@source` per file that names a class. */
+@source "../../../markdown-utils/src/markdown/codeCopyClipboard.ts";

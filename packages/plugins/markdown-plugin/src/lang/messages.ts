@@ -21,6 +21,8 @@ export interface Messages {
   saveError: string;
   copyLabel: string;
   copiedLabel: string;
+  codeCopyLabel: string;
+  codeCopiedLabel: string;
   taskCountMismatch: string;
   marpSlidesMode: string;
   marpExportPdf: string;

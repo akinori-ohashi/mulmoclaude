@@ -1020,6 +1020,10 @@ const jaMessages = {
   pluginUiImage: {
     promptLabel: "{label}:",
   },
+  markdownCodeCopy: {
+    copyLabel: "コードをコピー",
+    copiedLabel: "コピーしました",
+  },
   markdownMermaid: {
     loadFailed: "⚠ Mermaid の読み込みに失敗しました: {error}",
     renderFailed: "⚠ Mermaid の描画に失敗しました: {error}",

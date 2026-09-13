@@ -18,6 +18,8 @@ const ptBR: Messages = {
   saveError: "⚠ {error}",
   copyLabel: "Copiar",
   copiedLabel: "Copiado!",
+  codeCopyLabel: "Copiar código",
+  codeCopiedLabel: "Copiado",
   taskCountMismatch: "O número de tarefas diverge entre a fonte Markdown e a saída renderizada. A alternância foi recusada para evitar corromper o arquivo.",
   marpSlidesMode: "Slides Marp · {count}",
   marpExportPdf: "Exportar PDF",
