@@ -1000,6 +1000,10 @@ const zhMessages = {
   pluginUiImage: {
     promptLabel: "{label}:",
   },
+  markdownCodeCopy: {
+    copyLabel: "复制代码",
+    copiedLabel: "已复制",
+  },
   markdownMermaid: {
     loadFailed: "⚠ Mermaid 加载失败: {error}",
     renderFailed: "⚠ Mermaid 渲染失败: {error}",

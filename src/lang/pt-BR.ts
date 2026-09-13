@@ -1019,6 +1019,10 @@ const ptBRMessages = {
   pluginUiImage: {
     promptLabel: "{label}:",
   },
+  markdownCodeCopy: {
+    copyLabel: "Copiar código",
+    copiedLabel: "Copiado",
+  },
   markdownMermaid: {
     loadFailed: "⚠ Falha ao carregar o Mermaid: {error}",
     renderFailed: "⚠ Falha ao renderizar o Mermaid: {error}",

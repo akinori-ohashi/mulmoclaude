@@ -20,8 +20,15 @@ import { registerBuiltInWikiEmbeds, setEmbedLocaleProvider } from "./wikiEmbedHa
 import { workspaceLinkifyExtension } from "./workspaceLinkify";
 import { markedHighlightExtension } from "./highlight";
 import { mermaidExtension } from "@mulmoclaude/markdown-utils/markdown/mermaidExtension";
+import { codeCopyExtension, setCodeCopyLabelProvider, type CodeCopyLabels } from "@mulmoclaude/markdown-utils/markdown/codeCopyExtension";
+import { installCodeCopyHandler } from "@mulmoclaude/markdown-utils/markdown/codeCopyClipboard";
 
 let installed = false;
+
+const codeCopyLabels = (): CodeCopyLabels => ({
+  copy: i18n.global.t("markdownCodeCopy.copyLabel"),
+  copied: i18n.global.t("markdownCodeCopy.copiedLabel"),
+});
 
 export function setupMarked(): void {
   // Idempotent: tests reach for `setupMarked()` before each
@@ -39,11 +46,26 @@ export function setupMarked(): void {
   // `workspaceLinkify.ts` for the detection contract (#1300).
   marked.use(workspaceLinkifyExtension);
   marked.use(markedHighlightExtension);
+  // Reading the labels through a provider — rather than passing today's
+  // strings — is what keeps them live: `t()` reads the reactive locale,
+  // the read happens while a viewer's `renderedHtml` computed evaluates,
+  // and Vue therefore re-renders the buttons on a language switch.
+  setCodeCopyLabelProvider(codeCopyLabels);
+  // Copy buttons are a `code` renderer override too, and must land AFTER
+  // highlight for the same reason mermaid does: highlight's `walkTokens`
+  // has by then rewritten `token.text` into highlighted html, which this
+  // renderer emits inside its own wrapper.
+  marked.use(codeCopyExtension);
   // Mermaid is a `code` renderer override, so it must land AFTER
   // highlight — later `.use()` calls wrap earlier ones, and returning
-  // `false` from our override falls through to the highlight renderer
-  // underneath. That gives us: `mermaid` fence → placeholder; any
-  // other fence → highlight.js styling.
+  // `false` from our override falls through to the renderer underneath.
+  // Registering it LAST makes it outermost, so: `mermaid` fence →
+  // placeholder, untouched by the copy wrapper; any other fence → falls
+  // through to the copy wrapper around highlight.js output.
   marked.use(mermaidExtension);
+  // One delegated listener for every copy button the extension emits,
+  // now and after each streamed re-render. Idempotent, so the markdown
+  // plugin's own install is a no-op on this document.
+  installCodeCopyHandler(document, codeCopyLabels);
   installed = true;
 }

@@ -237,6 +237,8 @@ import { createAutoSaver } from "./autoSaver";
 import { rewriteMarkdownImageRefs } from "@mulmoclaude/markdown-utils/image/rewriteMarkdownImageRefs";
 import { findTaskLines, makeTasksInteractive, toggleTaskAt } from "@mulmoclaude/markdown-utils/markdown/taskList";
 import { mermaidExtension } from "@mulmoclaude/markdown-utils/markdown/mermaidExtension";
+import { codeCopyExtension, setCodeCopyLabelProvider } from "@mulmoclaude/markdown-utils/markdown/codeCopyExtension";
+import { installCodeCopyHandler } from "@mulmoclaude/markdown-utils/markdown/codeCopyClipboard";
 import { mathExtension } from "@mulmoclaude/markdown-utils/markdown/mathExtension";
 import { useMermaidRenderer } from "../../utils/markdown/useMermaid";
 import { useMathRenderer } from "../../utils/markdown/useMath";
@@ -254,10 +256,22 @@ import MarpSplitEditor from "./MarpSplitEditor.vue";
 // time, but idempotent-ish: registering the same extension twice
 // would double-tokenise; module-level call fires exactly once per
 // bundle load.
+// Registered BEFORE mermaid so mermaid stays outermost: a `mermaid`
+// fence must reach its placeholder without picking up a copy button,
+// and every other fence falls through from mermaid to here.
+marked.use(codeCopyExtension);
 marked.use(mermaidExtension);
 marked.use(mathExtension);
 
 const t = useT();
+// `useT` reads the host runtime through `inject`, so the provider can
+// only be wired at setup scope — not beside the `marked.use` calls above.
+const codeCopyLabels = () => ({ copy: t("codeCopyLabel"), copied: t("codeCopiedLabel") });
+setCodeCopyLabelProvider(codeCopyLabels);
+// No-op when the host already installed its own listener on this
+// document; the guard lives on the document, not in module state, so it
+// holds across the two bundled copies of this package.
+installCodeCopyHandler(document, codeCopyLabels);
 const { dispatch } = useRuntime();
 
 const props = defineProps<{
