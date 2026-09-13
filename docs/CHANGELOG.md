@@ -155,6 +155,30 @@ MulmoClaude は `claude` を `--model` なしで spawn していたため、モ�
 
 ### Fixed
 
+#### `yarn dev --<flag>` did nothing at all, for every flag (#3113)
+
+All six toggles in the CLI-flag registry were silent no-ops on `yarn dev`, while
+`docs/developer.md` and the bundled `helps/sandbox.md` said they worked — since #1089.
+`dev` was a compound `a && b && c` script in package.json, and yarn appends a script's
+trailing args to its LAST command only, so the flag landed on `concurrently`, which
+drops what it does not recognise. Both halves measured rather than reasoned:
+
+```
+$ yarn chain --allow-multiple-instances     # "node show.js A && node show.js B"
+A argv=[]
+B argv=["--allow-multiple-instances"]
+
+$ concurrently -n a -k "node -e '…print argv…'" --allow-multiple-instances
+[a] child argv= []
+```
+
+`yarn dev` now runs through `scripts/dev.mjs`, which translates the flags to env
+before the first step, so every step of the chain inherits them. The step commands
+are the same strings package.json held, run by the same shell, so the no-flag path
+is unchanged. `dev:debug` and `dev:full-build` go the same way.
+
+An unrecognised flag is now **refused** with the list of valid ones, rather than
+ignored — ignoring it is the same bug one typo removed.
 #### The publish-drift gate was scanning 4 packages and counting the wrong thing (#3116)
 
 `scripts/mulmoclaude/drift.mjs` exists to refuse one specific state: a new runtime export shipped
@@ -377,9 +401,9 @@ now is. A stale sidecar left by a killed instance does not stop anything: the po
 probed, and only a MulmoClaude-shaped answer counts. A busy port held by some other program still
 walks forward exactly as before.
 
-`MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1` opts back in, with the token stomping that implies
-(`--allow-multiple-instances` is the equivalent flag on `npx mulmoclaude` and `yarn server`; `yarn
-dev` is a compound script and drops trailing args, so the env var is the only form that works there).
+`MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1` opts back in, with the token stomping that implies, and
+`--allow-multiple-instances` is the equivalent flag everywhere — including `yarn dev`, which drops
+trailing args until the fix above lands in the same release.
 
 #### A bridge that crashed said nothing about which bridge it was, and Ctrl-C dropped work in flight (#3084)
 
@@ -580,8 +604,6 @@ refused too, while `fill` on its own and inside `hull` stay legal. And a section
 did not repeat its first was dropped as an open stroke, so a two-section loft failed with "requires
 at least two cross-sections"; upstream closes such a section implicitly and so does this builder
 now. Sections keep their written order when open and closed ones mix.
-
-Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.1`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.8.0`, `@mulmoclaude/shapescript-plugin@2.7.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 #### A bridge no longer has to be restarted every time the server is (#3078)
 

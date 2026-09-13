@@ -70,12 +70,10 @@ export function shouldStopForRunningInstance({ livePort, allowMultiple }) {
  * What to tell someone whose launch just stopped: where the instance they
  * already have is, and how to insist if a second one is really wanted.
  *
- * The env var, not the flag, is the headline: `yarn dev` is a COMPOUND script and
- * yarn appends extra args to its last command only, so `yarn dev
- * --allow-multiple-instances` lands the flag on `concurrently`, which silently
- * swallows it — the reset guard that printed this message never sees it. Measured,
- * not assumed (Codex review, PR #3107). The flag does reach the single-command
- * `yarn server` and the npm launcher, which is why it is still named here.
+ * The env var leads because it works from every entry point without qualification.
+ * The flag is equivalent everywhere as of #3113 — before that it was a silent
+ * no-op on `yarn dev`, whose compound script handed trailing args to
+ * `concurrently`, which dropped them.
  *
  * @param {number} port
  * @returns {string}
@@ -86,7 +84,7 @@ export function instanceGuardMessage(port) {
     "  Two instances over one workspace overwrite each other's session token, and plugin views stop rendering on one of them.",
     "  To run a second one against its OWN workspace: MULMOCLAUDE_WORKSPACE_PATH=<dir> PORT=<n>",
     "  To share this workspace anyway: MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1",
-    "  (--allow-multiple-instances is the same switch on `npx mulmoclaude` and `yarn server`, but NOT `yarn dev`)",
+    "  (--allow-multiple-instances is the same switch)",
   ].join("\n");
 }
 

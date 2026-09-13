@@ -83,21 +83,17 @@ describe("instanceGuardMessage", () => {
     assert.match(message, /--allow-multiple-instances/);
   });
 
-  // The message is printed from three callers, and one of them is the
-  // `yarn wait:backend --reset` step of `yarn dev`. `yarn dev` is a compound
-  // `a && b && c` script and yarn appends trailing args to the LAST command only,
-  // where `concurrently` silently swallows them — so `yarn dev
-  // --allow-multiple-instances` never reaches that guard. Measured, not assumed
-  // (Codex review, PR #3107). Leading with the env var is what keeps the advice
-  // true from every caller; a message that offered only the flag would be telling
-  // `yarn dev` users to run something that does nothing.
-  it("leads with the env var, the only opt-in that works from every caller", () => {
+  // This message is printed from three callers, one of them the
+  // `yarn wait:backend --reset` step of `yarn dev`. So whatever it offers has to
+  // work from all three: until #3113 the flag was silently dropped by `yarn dev`'s
+  // compound script, and for that period the message had to say so. Now both forms
+  // work everywhere, and what is worth pinning is that BOTH are named — a message
+  // offering only one of them sends half its readers to the wrong switch.
+  it("offers both forms of the opt-in, since both now work from every caller", () => {
     const message = instanceGuardMessage(3001);
     assert.match(message, /MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1/);
-    const envAt = message.indexOf("MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1");
-    const flagAt = message.indexOf("--allow-multiple-instances");
-    assert.ok(envAt < flagAt, "the env var must be offered before the flag");
-    assert.match(message, /NOT `yarn dev`/, "the message must say where the flag does not work");
+    assert.match(message, /--allow-multiple-instances/);
+    assert.doesNotMatch(message, /NOT `yarn dev`/, "that exception ended with #3113");
   });
 });
 
