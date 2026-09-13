@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Package releases
+
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.2`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.8.0`, `@mulmoclaude/shapescript-plugin@2.6.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+
 ### Added
 
 #### `@mulmoclaude/shapescript-plugin@2.7.0` — `publishShapeScript` posts a model to the gallery
@@ -41,6 +45,35 @@ MulmoClaude は `claude` を `--model` なしで spawn していたため、モ�
 
 `config/settings.json` の `chatModel` が live な値で、`bug-report-faq.md` の
 「MulmoClaude is answering with a different model than I expected」がそこを指す。
+
+### Changed
+
+#### Node.js の下限を 20.12 → 22.19 に引き上げ
+
+`google-auth-library@11` と `matrix-js-sdk@42` が Node >= 22 を要求するようになり、20.x のままでは
+取り込めない。取り込む 2 本の要求は `>=22` なので **`>=22.19` は厳密な必要値ではなく判断**で、根拠は
+(1) `node:sqlite` (>= 22.5) を内包し sqlite storage が「条件付きで動く機能」から「常にある機能」に
+なる、(2) `mermaid@12` (>= 22.12.0) の道を開けておき engines をもう一度動かさずに済む、
+(3) `which@7` が `^22.22.2` を要求するようにエコシステムの要求はもっと上にある、
+(4) 22.19.0 自体が約 1 年前 (2025-08-28) のリリースで、22.x を常識的に追っていれば既に満たす線。
+
+- `engines.node` を root と `packages/mulmoclaude` の両方で `>=22.19` に。
+- 起動をハードにブロックする launcher の `REQUIRED_NODE` も同じ値へ。両者のズレは
+  `test/utils/launcher/test_preflight.ts` の drift テストが落として教える。
+- `which@7` は**上げない**。7.0.0 の変更内容はサポート Node 範囲を狭めたことそのもので機能差分が無く、
+  範囲 `^22.22.2 || ^24.15.0 || >=26.0.0` が Node 23.x / 24.0–24.14 / 25.x を除外するため、
+  下限をどこに置いても宣言上の穴が残る。用途は `server/system/optionalDeps.ts` の PATH 探索 1 箇所。
+- 副作用として **`node:sqlite` (Node >= 22.5) が下限に含まれた**。lazy import と degradation は
+  「そのモジュール抜きでビルドされた Node」向けの防御として残すが、`sqliteStore.ts` /
+  `backendAvailability.ts` / `docs/shared-utils.md` / `assets/helps/error-recovery.md` の
+  「app の floor は 20.12」という記述はすべて事実と合わなくなったので直した。
+
+#### `@mulmoclaude/core@4.9.2`
+
+`assets/helps/error-recovery.md` の sqlite セクションが上の下限変更で事実と食い違うため。export も
+挙動も変わらない（エージェントはツール失敗時にこのファイルを読むので、記述は npm 経由で届く必要がある）。
+宣言 range を **17 / 9 ファイル** sweep — launcher の `dependencies` と 8 プラグインの
+`devDependencies` + `peerDependencies`。launcher 自身の `version` は不変。
 
 ### Fixed
 
