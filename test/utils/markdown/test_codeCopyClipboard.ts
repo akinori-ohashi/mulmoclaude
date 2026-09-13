@@ -10,6 +10,7 @@ import { installCodeCopyHandler, codeTextOf, _resetCodeCopyHandlerForTests } fro
 import {
   codeCopyExtension,
   codeCopyNonce,
+  setCodeCopyNonce,
   CODE_COPY_ATTR,
   CODE_COPY_BLOCK_ATTR,
   CODE_COPY_IDLE_LABEL_ATTR,
@@ -137,6 +138,51 @@ describe("codeTextOf", () => {
   it("returns null for a button with no code block around it", () => {
     const orphan = env.document.createElement("button");
     assert.equal(codeTextOf(orphan), null);
+  });
+});
+
+describe("renderer / listener nonce pairing", () => {
+  // Both of these pin invariants a mutation proved were untested: with
+  // `setCodeCopyNonce` moved below the install guard, all 39 other tests
+  // stayed green while plugin-rendered buttons would have gone inert.
+  const markedForNonce = new Marked();
+  markedForNonce.use(codeCopyExtension);
+
+  const renderInto = (doc: Document, source: string): void => {
+    doc.body.innerHTML = markedForNonce.parse(source) as string;
+  };
+
+  it("a second bundle's install adopts the document's nonce even though its listener install is a no-op", () => {
+    // The host installs first and owns the only listener; the plugin then
+    // installs into the same document. Its renderer is a SEPARATE module
+    // instance with its own seed, and it has to end up on the host's
+    // value or its buttons are refused.
+    installCodeCopyHandler(env.document);
+    const documentNonce = codeCopyNonce();
+    setCodeCopyNonce("a-second-bundle-with-its-own-seed");
+    installCodeCopyHandler(env.document);
+    assert.equal(codeCopyNonce(), documentNonce);
+  });
+
+  it("two documents in one realm converge, so A/B/A still copies in A", async () => {
+    // codex round 2 P3: pair A, pair B, re-render A. A fresh document
+    // adopts the renderer's value rather than minting its own, so the
+    // renderer never holds a nonce some paired document will refuse.
+    const docB = new JSDOM("<!doctype html><body></body>").window.document;
+    _resetCodeCopyHandlerForTests(docB);
+
+    installCodeCopyHandler(env.document);
+    renderInto(env.document, "```ts\nfromA();\n```");
+    installCodeCopyHandler(docB);
+    renderInto(docB, "```ts\nfromB();\n```");
+
+    // Re-render A WITHOUT reinstalling — the step that used to break.
+    renderInto(env.document, "```ts\nfromA();\n```");
+    const buttonA = env.document.querySelector(`[${CODE_COPY_ATTR}]`);
+    assert.ok(buttonA);
+    buttonA.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true }));
+    await settle();
+    assert.deepEqual(env.writes, ["fromA();"]);
   });
 });
 

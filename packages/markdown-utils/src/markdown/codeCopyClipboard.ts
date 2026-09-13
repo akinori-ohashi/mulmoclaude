@@ -23,7 +23,7 @@ import {
   CODE_COPY_COPIED_LABEL_ATTR,
   CODE_BLOCK_STYLE_INDENTED,
   CODE_COPY_NONCE_UNAVAILABLE,
-  createCodeCopyNonce,
+  codeCopyNonce,
   setCodeCopyNonce,
 } from "./codeCopyExtension.js";
 
@@ -41,17 +41,27 @@ interface InstallTarget extends Document {
   __mulmoclaudeCodeCopyNonce?: string;
 }
 
-/** The nonce lives on the DOCUMENT for the same reason the install flag
+/** Pairs a document with the renderer, and returns the nonce they agree on.
+ *
+ *  The value lives on the DOCUMENT for the same reason the install flag
  *  does: host and plugin each have their own module instance, and the
- *  document is the only thing they share. Minted once, then read by
- *  both renderers so their buttons match the one listener that runs. */
+ *  document is the only thing they share.
+ *
+ *  A document that has none adopts the RENDERER's current value rather
+ *  than minting its own, and that direction is the whole point. The
+ *  renderer's nonce is module state with no idea which document it is
+ *  rendering for, so minting per document lets the two drift: pair A,
+ *  pair B, then re-render A, and A's buttons carry B's nonce while A's
+ *  listener still demands A's. Adopting makes every document in a realm
+ *  converge on one value, which costs nothing — the nonce defends against
+ *  markup that cannot read ANY of them (codex round 2, P3). */
 function ensureNonce(doc: Document): string {
   const target: InstallTarget = doc;
   const existing = target.__mulmoclaudeCodeCopyNonce;
   if (existing !== undefined) return existing;
-  const minted = createCodeCopyNonce();
-  target.__mulmoclaudeCodeCopyNonce = minted;
-  return minted;
+  const adopted = codeCopyNonce();
+  target.__mulmoclaudeCodeCopyNonce = adopted;
+  return adopted;
 }
 
 // `nodeType`, not `instanceof Element`: this package is browser-SAFE, not
