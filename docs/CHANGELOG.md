@@ -48,6 +48,40 @@ MulmoClaude は `claude` を `--model` なしで spawn していたため、モ�
 
 ### Changed
 
+#### Node 22 が下限になって解けた依存 — `matrix-js-sdk@42` / `google-auth-library@11`
+
+`engines` が `>=22.19` になったので取り込めるようになった 2 本。上げなかったものと、その理由も
+残しておく（どれも「上げる利得が無い」であって「危なくて上げられない」ではない）。
+
+- **`matrix-js-sdk` 41.9.0 → 42.3.0** — 実コードの変わる唯一の更新。42 の破壊的変更は
+  Matrix v1.18 OAuth2 API 対応と `getContentUri` 削除だが、`packages/bridges/matrix/src/index.ts`
+  は `accessToken` 認証で、どちらの経路にも乗っていない。使用 API 面
+  (`createClient` / `RoomEvent.Timeline` / `MatrixEvent.getType|getSender|getContent` /
+  `Room.roomId` / `startClient` / `sendTextMessage`) を 42.3.0 の実物に対し strict で型チェックし、
+  通ることを確認済み。**このブリッジにはテストが無い** (`"test": "echo no tests yet"`) ので、
+  実挙動の担保は型のみ。
+- **`google-auth-library` 10.9.1 → 11.0.2** — v11 系列の `build/` は 10.9.1 と**全バイト同一**
+  (92 ファイル、ハッシュ一致)。major の中身は `engines` を `>=18` から `>=22` に上げたことだけで、
+  API 差分は無い。上げる意味は将来側で、10.x は 10.9.1 で打ち止め、以後の修正は 11.x に乗る。
+  **代償として `packages/core/node_modules` に 1.8MB のネスト**が生まれる — `@google/genai`
+  (`^10.3.0`) と `google-gax` (`^10.1.0`) が 10.x に上限を掛けているため。`GoogleGenAI` は
+  `apiKey` だけで生成され core の `OAuth2Client` は外に出ないので、2 つのコピーが `instanceof` や
+  モジュール状態で干渉することはない。`@google/genai` が `^11` に移れば重複は自然に解消する。
+
+上げなかったもの:
+
+- **`undici` 8** — この repo は undici を import しておらず root の `resolutions` ピン専用。
+  advisory は 0 件でピンの目的は 7.29.x で達成済みな一方、8 を強制すると `discord.js` /
+  `@discordjs/rest` (`^6.27.0`)、`@slack/socket-mode` (`^7.0.0`)、`jsdom` (`^7.25.0`) を宣言範囲を
+  越えて引っ張り、`miniflare` の exact ピン `7.29.0` まで上書きする。8 の破壊的変更
+  ("remove legacy handler wrappers" / "enable h2 by default") はまさにそれらが触る内部。
+- **`which` 7** — 7.0.0 の中身はサポート Node 範囲を狭めたことそのもので機能差分が無く、
+  範囲 `^22.22.2 || ^24.15.0 || >=26.0.0` が Node 23.x / 24.0–24.14 / 25.x を除外するため、
+  下限をどこに置いても宣言上の穴が残る。用途は `server/system/optionalDeps.ts` の PATH 探索 1 箇所。
+- **`mermaid` 12** — 既定レイアウトが同梱 ELK、テーマ/look が redux-color/neo に変わり、既存の図が
+  引き直されて色が変わる。目視確認の要る独立した作業。
+
+
 #### Node.js の下限を 20.12 → 22.19 に引き上げ
 
 `google-auth-library@11` と `matrix-js-sdk@42` が Node >= 22 を要求するようになり、20.x のままでは
