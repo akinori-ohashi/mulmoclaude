@@ -46,13 +46,14 @@ export const SHAPE_POST_LIMITS = {
   authorNameMax: 80,
   keywordsMax: 10,
   keywordMax: 30,
+  aiModelMax: 80,
 } as const;
 
 export const PUBLISH_DESCRIPTION =
   "Publish a ShapeScript model to the public gallery at server.mulmocast.com/shapes, where anyone can view it in 3D, read the source, download the USDZ and fork it. Takes the same source as presentShapeScript: inline `script`, or `path` to a saved .shape file. Posts under the user's own Google account — the app must be connected to Remote Host (signed in) first — and returns the model's URL. A thumbnail is rendered and attached when the host can rasterise; the post still lands without one.";
 
 export const PUBLISH_PROMPT =
-  "Use publishShapeScript ONLY when the user asks to publish, post or share a model to the gallery — never on your own initiative, since it makes the model public under their name. Before calling it, make sure the model previews correctly (presentShapeScript / renderShapeScript) and give it a short title, a sentence of description and a few lowercase keywords someone would search for. Pass the user's original request as `prompt` so the post records how the model was made. If the tool answers that Remote Host is not connected, tell the user to connect it (the Remote Host control in the app, Google sign-in) and offer to try again.";
+  "Use publishShapeScript ONLY when the user asks to publish, post or share a model to the gallery — never on your own initiative, since it makes the model public under their name. Before calling it, make sure the model previews correctly (presentShapeScript / renderShapeScript) and give it a short title, a sentence of description and a few lowercase keywords someone would search for. Pass the user's original request as `prompt` so the post records how the model was made, and the model you are running as (its id, e.g. claude-opus-5) as `aiModel` when you know it. If the tool answers that Remote Host is not connected, tell the user to connect it (the Remote Host control in the app, Google sign-in) and offer to try again.";
 
 /** The tool's JSON schema, in the shape both a gui-chat-protocol
  *  `ToolDefinition` (`parameters`) and an MCP tool (`inputSchema`) take. */
@@ -85,6 +86,10 @@ export const PUBLISH_SCHEMA = {
       type: "string",
       description: `The request the model was made from, recorded as its provenance (up to ${SHAPE_POST_LIMITS.promptMax} characters). Optional.`,
     },
+    aiModel: {
+      type: "string",
+      description: `The AI model that wrote the script — the id you are running as, e.g. claude-opus-5 (up to ${SHAPE_POST_LIMITS.aiModelMax} characters). Optional.`,
+    },
     published: {
       type: "boolean",
       description: "false saves a draft only the user can see in the gallery's My models. Default true.",
@@ -110,6 +115,8 @@ export interface ShapePostDoc {
   thumbnailId: string;
   forkedFrom: null;
   keywords: string[];
+  /** The AI model that wrote the script; "" when not said. */
+  aiModel: string;
   published: boolean;
 }
 
@@ -126,6 +133,7 @@ export const SHAPE_POST_KEYS = [
   "thumbnailId",
   "forkedFrom",
   "keywords",
+  "aiModel",
   "published",
 ] as const;
 
@@ -225,6 +233,7 @@ export function shapePostFrom(
     description?: string | undefined;
     prompt?: string | undefined;
     keywords?: unknown;
+    aiModel?: string | undefined;
     published?: boolean | undefined;
     thumbnailId?: string | undefined;
   },
@@ -241,6 +250,7 @@ export function shapePostFrom(
     thumbnailId: fields.thumbnailId ?? "",
     forkedFrom: null,
     keywords: normalizeKeywords(fields.keywords),
+    aiModel: requireLength("aiModel", (fields.aiModel ?? "").trim(), SHAPE_POST_LIMITS.aiModelMax),
     published: fields.published !== false,
   };
 }
@@ -311,6 +321,7 @@ export async function executePublishShapeScript(context: PublishShapeScriptConte
     description: optionalString(args.description),
     prompt: optionalString(args.prompt),
     keywords: args.keywords,
+    aiModel: optionalString(args.aiModel),
     published: args.published !== false,
   });
   const id = newPostId();
