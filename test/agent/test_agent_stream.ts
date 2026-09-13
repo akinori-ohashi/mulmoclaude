@@ -341,6 +341,17 @@ describe("system/init model", () => {
     assert.deepEqual(parseStreamEvent({ type: "system", subtype: "hook_response" }), []);
   });
 
+  // Codex round 1: a whitespace-only model passes a bare truthiness check, gets
+  // written to session meta, and then formats to nothing — junk on disk behind
+  // a blank chip. Trimmed at the parser so it never gets that far.
+  it("trims the model and drops a whitespace-only one", () => {
+    assert.deepEqual(parseStreamEvent({ type: "system", subtype: "init", model: "  claude-opus-5[1m]  " }), [
+      { type: SESSION_MODEL, model: "claude-opus-5[1m]" },
+    ]);
+    assert.deepEqual(parseStreamEvent({ type: "system", subtype: "init", model: "   " }), []);
+    assert.deepEqual(parseStreamEvent({ type: "system", subtype: "init", model: "\t\n" }), []);
+  });
+
   it("emits nothing when the frame carries no usable model", () => {
     assert.deepEqual(parseStreamEvent({ type: "system", subtype: "init" }), []);
     assert.deepEqual(parseStreamEvent({ type: "system", subtype: "init", model: "" }), []);

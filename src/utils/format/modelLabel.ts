@@ -15,10 +15,12 @@
 //
 // Parsed by splitting rather than by one matching regex. The natural pattern
 // (`claude-([a-z]+)-(\d+(?:-\d+)*)(?:-\d{8})?`) nests a quantifier inside a
-// quantifier, which both `security/detect-unsafe-regex` and
-// `sonarjs/super-linear-regex` reject: on a long non-matching input it
-// backtracks super-linearly, and this input arrives from another process.
-// Every regex below is anchored and flat, so each runs in one pass.
+// quantifier, and both `security/detect-unsafe-regex` and
+// `sonarjs/super-linear-regex` reject that shape. Stated precisely, because
+// the test file says the same: those rules reject the SHAPE — no input was
+// found that actually made the old pattern backtrack pathologically. This is
+// a flagged risk removed, not a measured exploit fixed. Every regex below is
+// anchored and flat, so each runs in one pass.
 
 const LOWER_WORD = /^[a-z]+$/;
 const DIGITS = /^\d+$/;

@@ -9,9 +9,11 @@ import { EVENT_TYPES } from "../../src/types/events.js";
 export const INJECTED_TEXT = "injected_text";
 
 // The model the CLI actually resolved for this session, reported by its own
-// `system`/`init` frame before the first token. Kept OFF the wire protocol for
-// the same reason as INJECTED_TEXT: it is an out-of-band meta event that
-// updates session meta and is never broadcast (see `handleAgentEvent`).
+// `system`/`init` frame before the first token. Kept OFF the wire protocol:
+// like INJECTED_TEXT this constant never appears on the wire, and
+// `handleAgentEvent` consumes it out of band. The VALUE does reach clients —
+// re-wrapped as the existing `session_meta` event — which is why no protocol
+// addition was needed.
 //
 // This is the ONLY honest answer to "which model is this session on" (#2554).
 // Reading the setting cannot answer it: with `chatModel` unset MulmoClaude
@@ -175,7 +177,11 @@ function resultEvents(event: RawStreamEvent, textEmitted: boolean): AgentEvent[]
  *  empty array (init frame, no usable model) is distinct from null. */
 function initModelEvents(event: RawStreamEvent): AgentEvent[] | null {
   if (event.type !== "system" || event.subtype !== "init") return null;
-  return typeof event.model === "string" && event.model ? [{ type: SESSION_MODEL, model: event.model }] : [];
+  // Trimmed before the emptiness check: a whitespace-only model would pass a
+  // bare truthiness test, get written to session meta, and then render as
+  // nothing — junk on disk behind a blank chip (Codex round 1).
+  const model = typeof event.model === "string" ? event.model.trim() : "";
+  return model ? [{ type: SESSION_MODEL, model }] : [];
 }
 
 export function createStreamParser(): {

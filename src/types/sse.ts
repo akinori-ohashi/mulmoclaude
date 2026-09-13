@@ -104,7 +104,7 @@ export interface SseGenerationFinished {
  *  turn too. Fields are optional because the event carries a delta. */
 export interface SseSessionMeta {
   type: typeof EVENT_TYPES.sessionMeta;
-  resolvedModel?: string;
+  resolvedModel?: string | undefined;
 }
 
 export type SseEvent =

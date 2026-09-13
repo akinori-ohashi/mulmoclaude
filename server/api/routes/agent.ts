@@ -695,6 +695,32 @@ const CLAUDE_CLI_SKILL_BODY_PREFIX = "Base directory for this skill: ";
 // broadcast + optional jsonl append + optional tool-trace side effect.
 type AgentStreamEvent = Awaited<ReturnType<typeof runAgent>> extends AsyncGenerator<infer E> ? E : never;
 
+/** Both destinations for the model the CLI reported, kept together and
+ *  injectable so the pair is pinned by a test rather than only by a live run.
+ *
+ *  SESSION_MODEL itself never goes on the wire — it is out-of-band like
+ *  `claudeSessionId`. Its VALUE reaches clients twice over, which is why no
+ *  protocol addition was needed (#2554):
+ *    on disk — session meta, so a reload still shows it;
+ *    live    — re-wrapped as the existing `session_meta` event, so the chip is
+ *              right during the FIRST turn rather than one turn later.
+ *
+ *  Losing either half fails silently in opposite directions: without the
+ *  persist the chip vanishes on reload, without the publish it never appears
+ *  until one. The live half was already broken once in review, with the disk
+ *  half working, so nothing on screen and the right value on disk. */
+export async function applyResolvedModel(
+  chatSessionId: string,
+  model: string,
+  deps: {
+    persist: (sessionId: string, resolvedModel: string) => Promise<void>;
+    publish: (sessionId: string, event: Record<string, unknown>) => void;
+  },
+): Promise<void> {
+  await deps.persist(chatSessionId, model);
+  deps.publish(chatSessionId, { type: EVENT_TYPES.sessionMeta, resolvedModel: model });
+}
+
 async function handleAgentEvent(event: AgentStreamEvent, ctx: EventContext): Promise<void> {
   if (event.type === EVENT_TYPES.claudeSessionId) {
     await flushTextAccumulator(ctx);
@@ -706,15 +732,7 @@ async function handleAgentEvent(event: AgentStreamEvent, ctx: EventContext): Pro
     return;
   }
   if (event.type === SESSION_MODEL) {
-    // Out-of-band like claudeSessionId: it updates meta and never reaches
-    // clients as its own event. The frontend picks it up from the
-    // `session_meta` prefix entry the transcript read already emits, so no
-    // wire-protocol addition is needed for it to be displayable (#2554).
-    await updateResolvedModel(ctx.chatSessionId, event.model);
-    // Broadcast so the chip is right during the FIRST turn too. `session_meta`
-    // is an existing wire type and `pushSessionEvent` only publishes to the
-    // channel (no jsonl append), so this adds nothing to the transcript.
-    pushSessionEvent(ctx.chatSessionId, { type: EVENT_TYPES.sessionMeta, resolvedModel: event.model });
+    await applyResolvedModel(ctx.chatSessionId, event.model, { persist: updateResolvedModel, publish: pushSessionEvent });
     return;
   }
   if (event.type === INJECTED_TEXT) {
