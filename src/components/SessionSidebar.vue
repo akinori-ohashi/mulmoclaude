@@ -3,7 +3,12 @@
     <div class="shrink-0 flex items-center gap-2 text-xs text-gray-400 px-3 py-2 border-b border-gray-100" data-testid="sidebar-role-header">
       <span v-if="sessionRoleIcon" class="material-icons text-xs leading-none" :class="ROLE_ICON_CONTAINMENT">{{ sessionRoleIcon }}</span>
       <span v-if="sessionRoleName" class="truncate">{{ sessionRoleName }}</span>
-      <SessionModelChip :model="sessionModel" :override="sessionModelOverride" @update:override="(model) => emit('update:sessionModelOverride', model)" />
+      <SessionModelChip
+        v-if="sessionRoleName"
+        :model="sessionModel"
+        :override="sessionModelOverride"
+        @update:override="(model) => emit('update:sessionModelOverride', model)"
+      />
       <div class="ml-auto flex items-center gap-0.5 shrink-0">
         <CopyChatButton :results="results" :result-timestamps="resultTimestamps" :session-role-name="sessionRoleName" />
         <button

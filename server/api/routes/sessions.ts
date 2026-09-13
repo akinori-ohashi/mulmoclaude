@@ -5,6 +5,7 @@ import { readTextSafe } from "../../utils/files/safe.js";
 import { workspacePath } from "../../workspace/workspace.js";
 import { WORKSPACE_PATHS } from "../../workspace/paths.js";
 import { isChatModel } from "../../../src/config/models.js";
+import { isSafeSessionId } from "../../utils/files/sessionId.js";
 import { mulmoScriptOps } from "../../plugins/mulmoscript-server.js";
 import {
   readSessionMeta as readSessionMetaIO,
@@ -416,6 +417,14 @@ router.post(
     async (req, res) => {
       const { id: sessionId } = req.params;
       const sessionIdForLog = singleLineForLog(sessionId);
+      // `session-io` refuses an id that is not path-safe, but refusing it there
+      // and answering 200 here would report success for a write that never
+      // happened. Say so at the boundary the id arrives at instead.
+      if (!isSafeSessionId(sessionId)) {
+        log.warn("sessions", "chat-model: rejected an unsafe session id", { sessionId: sessionIdForLog });
+        res.status(400).json({ error: "Invalid session id" });
+        return;
+      }
       const requested = req.body?.chatModel;
       // Validated here as well as in session-io: this value ends up on the
       // `claude --model` command line, so an unknown alias is a 400 rather

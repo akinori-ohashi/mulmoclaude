@@ -225,7 +225,9 @@ export async function sessionJsonlChangedSinceIndex(workspaceRoot: string, sessi
 //      taint originates upstream is neutralised here.
 //   2. `SAFE_SESSION_ID_RE` narrows the character class further
 //      (word chars, `.`, `-`, up to 200 long) and rejects any
-//      `..` substring, mirroring `server/api/bridge/sessionRole.ts`.
+//      `..` substring, mirroring `server/utils/files/sessionId.ts`.
+//      Kept as a local copy on purpose: the literal regex beside the
+//      `basename` call is what CodeQL reads as the barrier.
 //
 // Returns the cleaned id on success (identical to the input for
 // legit ids) or `null` on any hostile / malformed input.

@@ -126,6 +126,17 @@ describe("POST /api/sessions/:id/chat-model", () => {
     assert.equal((await sessionIo.readSessionMeta("cm-5"))?.chatModel, undefined);
   });
 
+  // `session-io` refuses these anyway; the point here is that the ROUTE does
+  // not answer 200 for a write that never happened. Reproduced over real HTTP
+  // before the guard: Express hands `..%2F..%2Fconfig%2Fsettings` through as
+  // `../../config/settings`, and session-io resolved it onto the workspace's
+  // own settings file.
+  it("rejects a session id that is not path-safe", async () => {
+    for (const hostile of ["../../config/settings", "..", "a/../b", "foo/bar"]) {
+      assert.equal((await post(hostile, { chatModel: "opus" })).status, 400, `${hostile} must be rejected`);
+    }
+  });
+
   it("rejects the empty string rather than storing it as a shadowing value", async () => {
     await sessionIo.createSessionMeta("cm-6", "general", "hi");
     assert.equal((await post("cm-6", { chatModel: "" })).status, 400);

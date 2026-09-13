@@ -1,5 +1,5 @@
 <template>
-  <span v-if="label || override" class="shrink-0 inline-flex items-center gap-1">
+  <span class="shrink-0 inline-flex items-center gap-1">
     <select
       v-model="draft"
       class="appearance-none bg-transparent border-0 p-0 pr-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-400 rounded"
@@ -9,7 +9,13 @@
       data-testid="session-model-chip"
       @change="onChange"
     >
-      <!-- The effective model is the label on the "no override" option, so the
+      <!-- Rendered unconditionally: as a display (#2554) an empty slot was the
+           honest thing to show before the first turn reported a model, but this
+           is now the only control for the override (#3147) and hiding it took
+           away the first message — the moment a per-chat model is most worth
+           choosing. Whether a session is open at all is the parent's question,
+           and both parents already answer it for the role name beside this.
+           The effective model is the label on the "no override" option, so the
            closed select reads as the current state rather than as an empty
            control. That is the whole chip's job (#2554) and it has to survive
            becoming a picker (#3147).
@@ -57,8 +63,11 @@ const emit = defineEmits<{
 const label = computed(() => formatModelLabel(props.model));
 const draft = ref<ChatModel | "">(props.override ?? "");
 
-// The override can change from outside this component (another tab, a reload),
-// so the select follows the prop rather than owning the value.
+// The prop is the source of truth, not `draft`: a reload re-reads the value
+// from session meta, and a rejected write rolls the parent's copy back under
+// this component. (A change made in ANOTHER tab does not arrive until that
+// tab's next reload — the sessions list the other tab refreshes from carries
+// no `chatModel`. Tracked separately; see the PR.)
 watch(
   () => props.override,
   (next) => {

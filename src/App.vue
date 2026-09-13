@@ -528,9 +528,9 @@ const selectedResultUuid = computed<string | null>({
 // session meta so it survives a reload; the local session object is updated
 // optimistically because the chip must not lag the click, and the next turn
 // reads the persisted value rather than this copy.
-async function setSessionModelOverride(model: ChatModel | undefined): Promise<void> {
-  const session = activeSession.value;
-  if (!session) return;
+const pendingModelWrite = ref<Promise<void> | null>(null);
+
+async function persistSessionModelOverride(session: ActiveSession, model: ChatModel | undefined): Promise<void> {
   const previous = session.chatModel;
   if (model) session.chatModel = model;
   else delete session.chatModel;
@@ -542,6 +542,19 @@ async function setSessionModelOverride(model: ChatModel | undefined): Promise<vo
   // thing #2554 existed to end.
   if (previous) session.chatModel = previous;
   else delete session.chatModel;
+}
+
+// Queued, and `sendMessage` waits on the queue before it dispatches: the next
+// turn reads this choice from DISK, so a send issued straight after a
+// selection would otherwise overtake the write and run on the previous
+// cascade. Chaining also lands two quick selections in the order they were
+// clicked, which two independent requests do not guarantee.
+async function setSessionModelOverride(model: ChatModel | undefined): Promise<void> {
+  const session = activeSession.value;
+  if (!session) return;
+  const queued = (pendingModelWrite.value ?? Promise.resolve()).then(() => persistSessionModelOverride(session, model));
+  pendingModelWrite.value = queued.catch(() => undefined);
+  await queued;
 }
 
 // Display name and icon of the role the active session was created
@@ -1127,6 +1140,9 @@ async function sendMessage(text?: string) {
   beginUserTurn(session, message, attachments);
   ensureSessionSubscription(session);
 
+  // The model override is persisted by its own request and this turn reads it
+  // from disk, so the write is the barrier — not the click that started it.
+  await pendingModelWrite.value;
   const result = await postAgentRun(
     buildAgentRequestBody({
       message,
