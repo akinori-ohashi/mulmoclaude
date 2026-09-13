@@ -16,19 +16,7 @@ import { WORKSPACE_PATHS } from "../workspace/paths.js";
 import { writeFileAtomicSync } from "../utils/files/atomic.js";
 import { readTextSafeSync } from "../utils/files/safe.js";
 import { isRecord, isStringArray, isStringRecord } from "../utils/types.js";
-
-// Reasoning-effort levels accepted by `claude --effort`. Kept as a
-// closed union so the validator + UI stay in lockstep; new levels
-// added by the CLI must be mirrored here intentionally.
-export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
-export type EffortLevel = (typeof EFFORT_LEVELS)[number];
-
-// Model families accepted by `claude --model` (#2923). Deliberately
-// aliases only, never a pinned id like `claude-opus-4-8`: an alias
-// follows the user's saved choice onto the next generation, while a
-// pinned id silently keeps them on a model that is eventually retired.
-export const CHAT_MODELS = ["opus", "sonnet", "haiku"] as const;
-export type ChatModel = (typeof CHAT_MODELS)[number];
+import { CHAT_MODELS, EFFORT_LEVELS, type ChatModel, type EffortLevel } from "../../src/config/models.js";
 
 // Chat-index summarizer setting (#1944). "off" disables the whole
 // AI-title / summary / keywords background indexer; "haiku" / "sonnet"
