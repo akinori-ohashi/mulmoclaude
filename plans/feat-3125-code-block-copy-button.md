@@ -99,6 +99,37 @@ Changed:
 - `src/lang/{en,ja,zh,ko,es,pt-BR,fr,de}.ts` — `markdownCodeCopy.{copyLabel,copiedLabel}`
 - `docs/shared-utils.md` — one row per new helper
 
+## The marker has to be a secret (added after review)
+
+The first cut used a bare `data-code-copy` attribute. That is forgeable: `marked`
+passes an author's raw HTML straight through and DOMPurify's defaults keep
+`<button>` and every `data-*`, so any rendered markdown — a cloned repository's
+README, which is what `sanitizeMarkdownHtml` exists for — could mint a working
+copy control. Measured against the real sanitizer: the spoof reached
+`clipboard.writeText`, and with a `display:none` decoy block the reader saw
+`npm install` while the clipboard took `curl … | bash`. Before this change
+`navigator.clipboard` was not reachable from rendered markdown at all.
+
+Structure cannot be the check, because an author can reproduce any structure.
+Only a secret they cannot read works, and they cannot read this one because the
+sanitizer strips scripts. So the attribute's VALUE is a nonce:
+
+- CSPRNG only (`crypto.randomUUID`, else `getRandomValues`). No `Math.random`
+  fallback — that is a weaker version of the thing being defended. With no CSPRNG
+  the nonce is empty, the listener refuses it, and the button goes inert.
+- It lives on the DOCUMENT, because host and plugin have separate module
+  instances of this package and the document is all they share.
+- A fresh document ADOPTS the renderer's current value instead of minting its
+  own, so every document in a realm converges on one. Minting per document let a
+  realm hold two and the renderer stamp the wrong one.
+
+Deliberately NOT fixed here: a CSS overlay (`position:absolute` on author
+markup) can still hide the real fence so the reader sees one command while the
+genuine button copies another. It pre-dates this change — a manual selection over
+the visible region is fooled identically — and `mathRender.ts` records the
+decision to accept author-controlled positioning for this host. Banning inline
+`style` app-wide is a maintainer call and its own PR.
+
 ## Verification
 
 - `yarn test` (node:test + jsdom) — extension shape, mermaid pass-through, escaped/unescaped

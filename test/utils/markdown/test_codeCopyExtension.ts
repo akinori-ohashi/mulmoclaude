@@ -7,6 +7,8 @@ import assert from "node:assert/strict";
 import { Marked } from "marked";
 import {
   codeCopyExtension,
+  createCodeCopyNonce,
+  CODE_COPY_NONCE_UNAVAILABLE,
   setCodeCopyLabelProvider,
   _resetCodeCopyLabelsForTests,
   CODE_COPY_ATTR,
@@ -48,6 +50,48 @@ function markedLikePlugin(): Marked {
 }
 
 afterEach(() => _resetCodeCopyLabelsForTests());
+
+describe("createCodeCopyNonce", () => {
+  // These pin SECRECY, not just non-emptiness. Codex named the mutation
+  // that proved the gap: `createCodeCopyNonce() { return "fixed-public-nonce" }`
+  // passed all 41 tests — and in an open-source repo a fixed literal is
+  // one an attacker reads off GitHub and pastes into their markdown.
+  const realCrypto = globalThis.crypto;
+  const setCrypto = (value: unknown): void => {
+    Object.defineProperty(globalThis, "crypto", { value, configurable: true, writable: true });
+  };
+  afterEach(() => setCrypto(realCrypto));
+
+  it("returns a different value every call — the whole point of a nonce", () => {
+    const seen = new Set(Array.from({ length: 32 }, () => createCodeCopyNonce()));
+    assert.equal(seen.size, 32);
+    assert.ok(!seen.has(CODE_COPY_NONCE_UNAVAILABLE));
+  });
+
+  it("prefers randomUUID when the platform has it", () => {
+    setCrypto({ randomUUID: () => "uuid-from-the-platform" });
+    assert.equal(createCodeCopyNonce(), "uuid-from-the-platform");
+  });
+
+  it("falls back to getRandomValues, hex-encoded", () => {
+    setCrypto({
+      getRandomValues: (array: Uint8Array) => {
+        array.fill(0xab);
+        return array;
+      },
+    });
+    assert.equal(createCodeCopyNonce(), "ab".repeat(16));
+  });
+
+  it("returns the unavailable sentinel when there is no CSPRNG — never a weak one", () => {
+    // Fail closed. `Math.random` is not a fallback here; it is a weaker
+    // version of the thing being defended.
+    setCrypto(undefined);
+    assert.equal(createCodeCopyNonce(), CODE_COPY_NONCE_UNAVAILABLE);
+    setCrypto({});
+    assert.equal(createCodeCopyNonce(), CODE_COPY_NONCE_UNAVAILABLE);
+  });
+});
 
 describe("codeCopyExtension", () => {
   it("wraps a fenced block with a copy button and keeps the highlight class shape", () => {
