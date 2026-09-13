@@ -10,7 +10,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.2`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.8.0`, `@mulmoclaude/shapescript-plugin@2.7.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.2`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@2.7.1`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+
+#### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
+
+コード変更は無く、**npm に公開される manifest のフィールド**（`dependencies` /
+`peerDependencies`）だけが tag からずれていた 13 本。どれも patch。
+
+| 種類                  | パッケージ                                                                                                                               | 中身                                                                                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **peer 移動 + range** | `accounting-plugin@3.0.1` `html-plugin@4.0.1` `markdown-plugin@4.1.1` `mulmoscript-plugin@4.8.1` `spotify-plugin@2.0.1` `x-plugin@1.0.4` | #3117 で `@mulmoclaude/common` を `dependencies` から `peer` + `dev` へ移した分。npm 上の 6 本は今も `dependencies` 版なので、**この publish で初めて利用者に届く** |
+| range のみ            | `chart-plugin@3.0.1` `collection-plugin@4.6.1` `google-plugin@3.0.1` `shapescript-plugin@2.7.1`                                          | `@mulmoclaude/core` のレンジ（`^4.1.0` → `^4.9.2` など）                                                                                                            |
+| range のみ            | `markdown-utils@2.2.1`                                                                                                                   | `common` `^1.2.0` → `^1.3.0`、`dompurify` `marked`                                                                                                                  |
+| range のみ            | `email-plugin@2.0.1`                                                                                                                     | `mailparser` `nodemailer` `zod`                                                                                                                                     |
+| range のみ            | `relay@1.0.6`                                                                                                                            | `client` `^1.0.2` → `^1.2.0`、`common` `^1.2.0` → `^1.3.0`                                                                                                          |
+
+**上げていないもの**: `devDependencies` しか動いていない package（npm は publish しない）と、
+`src/` が動いていて別途上げた bridge 25 本（別 PR）。launcher 自身の `version` は
+`chore(release)` では触らない規則どおり据え置きで、**レンジだけ**を sweep した。
+
+`markdown-utils@2.2.1` に伴い `@mulmoclaude/core` と `markdown-plugin` のレンジも
+`^2.2.1` に上げた。core は 4.9.2 が**まだ未公開**なので、追加の bump は要らない
+（未公開の 4.9.2 が新しいレンジごと出る）。
+
+#### `@mulmobridge/*` — 25 ブリッジが #3084 の常駐プロセス堅牢化を受け取る
+
+`installProcessGuards` を入れた 24 ブリッジを **minor**、出力の責務が `createBridgeClient` に
+移った `@mulmobridge/cli` を **patch** で上げる。どれも利用者から見える挙動が変わる:
+
+- **SIGINT / SIGTERM** で `[<transport>] SIGTERM — shutting down` を出して exit 0。従来は
+  SIGTERM で**無言で即死**していた（Windows には catchable な SIGTERM が無いので対象外）
+- **unhandledRejection / uncaughtException** をログに出してから終了する
+- 受信型 9 ブリッジ（`google-chat` / `line` / `line-works` / `messenger` / `teams` /
+  `twilio-sms` / `viber` / `webhook` / `whatsapp`）は `listenWebhook` 経由になり、**ポートを
+  打ち間違えると警告して exit(1)**、bind 失敗時に「listening」と嘘をつかない
+
+上げる 25 本:
+
+| bump  | パッケージ                                                                                                                                                                                                                                                       |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| minor | `bluesky` `chatwork` `email` `google-chat` `irc` `line` `line-works` `matrix` `mattermost` `messenger` `nostr` `rocketchat` `signal` `slack` `teams` `telegram` `twilio-sms` `viber` `webhook` `whatsapp` `xmpp` `zulip` を 1.1.0、`discord` `mastodon` を 1.2.0 |
+| patch | `cli` を 1.0.2                                                                                                                                                                                                                                                   |
+
+ブリッジは他のどの workspace からも宣言されていない（利用者が直接 install する末端バイナリ）ので、
+range の sweep は発生しない。依存する `@mulmoclaude/common@1.3.0` と
+`@mulmobridge/webhook-runtime@1.2.0` は公開済み、`@mulmobridge/client@1.2.0` は**未公開**なので、
+**client を先に publish する**こと。
 
 ### Added
 
@@ -48,6 +93,39 @@ MulmoClaude は `claude` を `--model` なしで spawn していたため、モ�
 
 ### Changed
 
+#### Node 22 が下限になって解けた依存 — `matrix-js-sdk@42` / `google-auth-library@11`
+
+`engines` が `>=22.19` になったので取り込めるようになった 2 本。上げなかったものと、その理由も
+残しておく（どれも「上げる利得が無い」であって「危なくて上げられない」ではない）。
+
+- **`matrix-js-sdk` 41.9.0 → 42.3.0** — 実コードの変わる唯一の更新。42 の破壊的変更は
+  Matrix v1.18 OAuth2 API 対応と `getContentUri` 削除だが、`packages/bridges/matrix/src/index.ts`
+  は `accessToken` 認証で、どちらの経路にも乗っていない。使用 API 面
+  (`createClient` / `RoomEvent.Timeline` / `MatrixEvent.getType|getSender|getContent` /
+  `Room.roomId` / `startClient` / `sendTextMessage`) を 42.3.0 の実物に対し strict で型チェックし、
+  通ることを確認済み。**このブリッジにはテストが無い** (`"test": "echo no tests yet"`) ので、
+  実挙動の担保は型のみ。
+- **`google-auth-library` 10.9.1 → 11.0.2** — v11 系列の `build/` は 10.9.1 と**全バイト同一**
+  (92 ファイル、ハッシュ一致)。major の中身は `engines` を `>=18` から `>=22` に上げたことだけで、
+  API 差分は無い。上げる意味は将来側で、10.x は 10.9.1 で打ち止め、以後の修正は 11.x に乗る。
+  **代償として `packages/core/node_modules` に 1.8MB のネスト**が生まれる — `@google/genai`
+  (`^10.3.0`) と `google-gax` (`^10.1.0`) が 10.x に上限を掛けているため。`GoogleGenAI` は
+  `apiKey` だけで生成され core の `OAuth2Client` は外に出ないので、2 つのコピーが `instanceof` や
+  モジュール状態で干渉することはない。`@google/genai` が `^11` に移れば重複は自然に解消する。
+
+上げなかったもの:
+
+- **`undici` 8** — この repo は undici を import しておらず root の `resolutions` ピン専用。
+  advisory は 0 件でピンの目的は 7.29.x で達成済みな一方、8 を強制すると `discord.js` /
+  `@discordjs/rest` (`^6.27.0`)、`@slack/socket-mode` (`^7.0.0`)、`jsdom` (`^7.25.0`) を宣言範囲を
+  越えて引っ張り、`miniflare` の exact ピン `7.29.0` まで上書きする。8 の破壊的変更
+  ("remove legacy handler wrappers" / "enable h2 by default") はまさにそれらが触る内部。
+- **`which` 7** — 7.0.0 の中身はサポート Node 範囲を狭めたことそのもので機能差分が無く、
+  範囲 `^22.22.2 || ^24.15.0 || >=26.0.0` が Node 23.x / 24.0–24.14 / 25.x を除外するため、
+  下限をどこに置いても宣言上の穴が残る。用途は `server/system/optionalDeps.ts` の PATH 探索 1 箇所。
+- **`mermaid` 12** — 既定レイアウトが同梱 ELK、テーマ/look が redux-color/neo に変わり、既存の図が
+  引き直されて色が変わる。目視確認の要る独立した作業。
+
 #### Node.js の下限を 20.12 → 22.19 に引き上げ
 
 `google-auth-library@11` と `matrix-js-sdk@42` が Node >= 22 を要求するようになり、20.x のままでは
@@ -77,6 +155,30 @@ MulmoClaude は `claude` を `--model` なしで spawn していたため、モ�
 
 ### Fixed
 
+#### `yarn dev --<flag>` did nothing at all, for every flag (#3113)
+
+All six toggles in the CLI-flag registry were silent no-ops on `yarn dev`, while
+`docs/developer.md` and the bundled `helps/sandbox.md` said they worked — since #1089.
+`dev` was a compound `a && b && c` script in package.json, and yarn appends a script's
+trailing args to its LAST command only, so the flag landed on `concurrently`, which
+drops what it does not recognise. Both halves measured rather than reasoned:
+
+```
+$ yarn chain --allow-multiple-instances     # "node show.js A && node show.js B"
+A argv=[]
+B argv=["--allow-multiple-instances"]
+
+$ concurrently -n a -k "node -e '…print argv…'" --allow-multiple-instances
+[a] child argv= []
+```
+
+`yarn dev` now runs through `scripts/dev.mjs`, which translates the flags to env
+before the first step, so every step of the chain inherits them. The step commands
+are the same strings package.json held, run by the same shell, so the no-flag path
+is unchanged. `dev:debug` and `dev:full-build` go the same way.
+
+An unrecognised flag is now **refused** with the list of valid ones, rather than
+ignored — ignoring it is the same bug one typo removed.
 #### The publish-drift gate was scanning 4 packages and counting the wrong thing (#3116)
 
 `scripts/mulmoclaude/drift.mjs` exists to refuse one specific state: a new runtime export shipped
@@ -299,9 +401,9 @@ now is. A stale sidecar left by a killed instance does not stop anything: the po
 probed, and only a MulmoClaude-shaped answer counts. A busy port held by some other program still
 walks forward exactly as before.
 
-`MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1` opts back in, with the token stomping that implies
-(`--allow-multiple-instances` is the equivalent flag on `npx mulmoclaude` and `yarn server`; `yarn
-dev` is a compound script and drops trailing args, so the env var is the only form that works there).
+`MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1` opts back in, with the token stomping that implies, and
+`--allow-multiple-instances` is the equivalent flag everywhere — including `yarn dev`, which drops
+trailing args until the fix above lands in the same release.
 
 #### A bridge that crashed said nothing about which bridge it was, and Ctrl-C dropped work in flight (#3084)
 
@@ -502,8 +604,6 @@ refused too, while `fill` on its own and inside `hull` stay legal. And a section
 did not repeat its first was dropped as an open stroke, so a two-section loft failed with "requires
 at least two cross-sections"; upstream closes such a section implicitly and so does this builder
 now. Sections keep their written order when open and closed ones mix.
-
-Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.1`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.8.0`, `@mulmoclaude/shapescript-plugin@2.7.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 #### A bridge no longer has to be restarted every time the server is (#3078)
 

@@ -1528,10 +1528,9 @@ means a real instance answered.
 To share one workspace between two servers anyway — accepting the token stomping:
 
 ```bash
-MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1 yarn dev
+yarn dev --allow-multiple-instances        # or MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1
 ```
 
-Use the env var for `yarn dev`. The `--allow-multiple-instances` flag works on
-`npx mulmoclaude` and `yarn server`, but **not** on `yarn dev`: that is a compound
-`a && b && c` script, yarn appends extra args to the last command only, and the
-guard that stops the launch runs in the first one.
+The flag and the env var are equivalent on `yarn dev`, `yarn server` and
+`npx mulmoclaude` alike. (Before #3113 the flag was silently dropped by `yarn dev`,
+so an older build needs the env var there.)
