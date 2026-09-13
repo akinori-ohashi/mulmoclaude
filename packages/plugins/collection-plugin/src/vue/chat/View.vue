@@ -21,21 +21,9 @@ import type { ToolResult } from "gui-chat-protocol";
 import CollectionView from "../components/CollectionView.vue";
 import { collectionCardKey, type PresentCollectionData } from "@mulmoclaude/core/collection";
 import { toPresentCollectionData } from "./presentCollectionData";
+import { toViewState, type PresentCollectionViewState } from "./presentCollectionViewState";
+import type { CollectionViewMode } from "../collectionViewMode";
 import { provideCollectionScope } from "../scopedUi";
-
-/** Card-local UI state persisted in the tool result's `viewState` so it
- *  survives a re-render — same pattern as presentForm. `selected` is the
- *  open record (`null` once explicitly closed); `view` / `anchorField` /
- *  `groupField` keep the table↔calendar↔kanban choice and its axes sticky.
- *  NOTE: the table sort is deliberately NOT here — it's a single shared
- *  per-collection preference in localStorage (read+written by both the
- *  standalone page and chat cards), so it stays consistent everywhere. */
-interface PresentCollectionViewState {
-  selected?: string | null;
-  view?: "table" | "calendar" | "kanban";
-  anchorField?: string;
-  groupField?: string;
-}
 
 const props = defineProps<{
   selectedResult: ToolResult | null;
@@ -69,18 +57,6 @@ provideCollectionScope(() => data.value?.scope);
 // slug change is what the view already did.
 const viewKey = computed<string>(() => (data.value === null ? "" : collectionCardKey(data.value)));
 
-/** Keep a field only when the stored value still matches what the interface
- *  declares, so `"selected" in state` keeps meaning "the user navigated". */
-function toViewState(value: unknown): PresentCollectionViewState | null {
-  if (typeof value !== "object" || value === null) return null;
-  const state: PresentCollectionViewState = {};
-  if ("selected" in value && (typeof value.selected === "string" || value.selected === null)) state.selected = value.selected;
-  if ("view" in value && (value.view === "table" || value.view === "calendar" || value.view === "kanban")) state.view = value.view;
-  if ("anchorField" in value && typeof value.anchorField === "string") state.anchorField = value.anchorField;
-  if ("groupField" in value && typeof value.groupField === "string") state.groupField = value.groupField;
-  return state;
-}
-
 const viewState = computed<PresentCollectionViewState | null>(() => toViewState(props.selectedResult?.viewState));
 
 /** Open record: the card-local `viewState.selected` once the user has
@@ -97,7 +73,7 @@ function onSelect(itemId: string | null): void {
   emit("updateResult", { ...props.selectedResult, viewState: { ...viewState.value, selected: itemId } });
 }
 
-function onViewStateChange(state: { view: "table" | "calendar" | "kanban"; anchorField: string; groupField: string }): void {
+function onViewStateChange(state: { view: CollectionViewMode; anchorField: string; groupField: string }): void {
   if (!props.selectedResult) return;
   // Skip redundant writes (the anchor/group settling on load fires this once).
   const current = viewState.value;

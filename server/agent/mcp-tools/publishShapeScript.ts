@@ -11,17 +11,21 @@
 // `uid == request.auth.uid`. No session → the tool says how to connect one.
 //
 // The thumbnail comes from the same renderer `renderShapeScript` uses; a host
-// without Chromium posts without a picture rather than failing.
+// without Chromium posts without a picture rather than failing. The script
+// itself is a Storage object too (receptron/mulmoserver#266): the document
+// carries its id, never the text.
 import {
   executePublishShapeScript,
   PUBLISH_DESCRIPTION,
   PUBLISH_PROMPT,
   PUBLISH_SCHEMA,
   PUBLISH_TOOL_NAME,
+  SHAPE_OBJECT_CACHE_CONTROL,
+  SHAPE_SCRIPT_CONTENT_TYPE,
   type ShapeGalleryWriter,
   type ShapePostDoc,
 } from "@mulmoclaude/shapescript-plugin";
-import { renderShapeThumbnail, RENDER_TOOL_TIMEOUT_MS } from "@mulmoclaude/shapescript-plugin/render";
+import { renderShapeThumbnail, PUBLISH_TOOL_TIMEOUT_MS } from "@mulmoclaude/shapescript-plugin/render";
 import { doc, serverTimestamp, setDoc, type Firestore } from "firebase/firestore";
 import { deleteObject, ref as storageRef, uploadBytes, type FirebaseStorage } from "firebase/storage";
 import { currentDisplayName, currentFirestoreSession, currentStorage } from "../../remoteHost/session.js";
@@ -45,20 +49,27 @@ export function shapeObjectPath(uid: string, shapeId: string, objectId: string):
 }
 
 /** The writer over one signed-in session: the Firestore document, and the
- *  Storage object the card shows — under `shapes/{uid}/{id}/…`, the path the
- *  Storage rule lets the owner write. */
+ *  Storage objects — the card's picture and the script — under
+ *  `shapes/{uid}/{id}/…`, the path the Storage rule lets the owner write.
+ *  Every object goes out immutable-cacheable: its id is minted here and it is
+ *  never rewritten. */
 export function galleryWriterFrom(session: { firestore: Firestore; storage: FirebaseStorage; uid: string; authorName: string }): ShapeGalleryWriter {
-  const objectRef = (shapeId: string, objectId: string) => storageRef(session.storage, shapeObjectPath(session.uid, shapeId, objectId));
+  const upload = async (shapeId: string, bytes: Uint8Array | string, contentType: string): Promise<string> => {
+    const objectId = crypto.randomUUID();
+    const data = typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
+    await uploadBytes(storageRef(session.storage, shapeObjectPath(session.uid, shapeId, objectId)), data, {
+      contentType,
+      cacheControl: SHAPE_OBJECT_CACHE_CONTROL,
+    });
+    return objectId;
+  };
   return {
     uid: session.uid,
     authorName: session.authorName,
     createPost: (shapeId, post) => setDoc(doc(session.firestore, SHAPES, shapeId), postDocumentOf(post)),
-    uploadThumbnail: async (shapeId, png) => {
-      const objectId = crypto.randomUUID();
-      await uploadBytes(objectRef(shapeId, objectId), png, { contentType: THUMBNAIL_TYPE });
-      return objectId;
-    },
-    deleteObject: (shapeId, objectId) => deleteObject(objectRef(shapeId, objectId)),
+    uploadThumbnail: (shapeId, png) => upload(shapeId, png, THUMBNAIL_TYPE),
+    uploadScript: (shapeId, script) => upload(shapeId, script, SHAPE_SCRIPT_CONTENT_TYPE),
+    deleteObject: (shapeId, objectId) => deleteObject(storageRef(session.storage, shapeObjectPath(session.uid, shapeId, objectId))),
   };
 }
 
@@ -75,8 +86,9 @@ export const publishShapeScript: McpTool = {
     description: PUBLISH_DESCRIPTION,
     inputSchema: PUBLISH_SCHEMA,
   },
-  // The thumbnail is a render, so the transport must outlast one.
-  bridgeTimeoutMs: RENDER_TOOL_TIMEOUT_MS,
+  // The thumbnail is a render and the script an upload of up to 10 MiB, so the
+  // transport must outlast both.
+  bridgeTimeoutMs: PUBLISH_TOOL_TIMEOUT_MS,
   prompt: PUBLISH_PROMPT,
   handler: async (args: Record<string, unknown>): Promise<string> => {
     log.info("render", "publishShapeScript: start", { args: Object.keys(args).join(",") });

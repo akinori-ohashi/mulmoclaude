@@ -20,6 +20,7 @@ export {
   RENDER_SHAPE_SCRIPT_PROMPT,
   RENDER_SHAPE_SCRIPT_SCHEMA,
   RENDER_TOOL_TIMEOUT_MS,
+  PUBLISH_TOOL_TIMEOUT_MS,
   renderOptionsFrom,
   savedMessage,
 } from "./tool";
