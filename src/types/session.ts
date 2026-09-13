@@ -3,6 +3,7 @@
 
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import { EVENT_TYPES, type PendingGeneration } from "./events";
+import type { ChatModel } from "../config/models";
 import type { ToolCallHistoryItem } from "./toolCallHistory";
 import type { PersistedAttachment } from "./attachment";
 import { isRecord } from "../utils/types";
@@ -101,6 +102,7 @@ export interface SessionEntry {
   source?: string;
   roleId?: string;
   resolvedModel?: string;
+  chatModel?: ChatModel;
   message?: string;
   result?: ToolResultComplete;
 }
@@ -177,6 +179,10 @@ export interface ActiveSession {
    *  is the only way to learn what the shared `~/.claude/settings.json`
    *  supplied. Undefined until the session's first turn reports it. */
   resolvedModel?: string;
+  /** This conversation's one-off override (#3147) — a CHOICE, where
+   *  `resolvedModel` above is an observation. Undefined means the role or the
+   *  app-wide setting decides. */
+  chatModel?: ChatModel;
   toolResults: ToolResultComplete[];
   /** UUID → epoch ms. Recorded when each result is added to the
    *  session — either from a real-time pubsub event or from

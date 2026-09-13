@@ -12,6 +12,7 @@ import {
   backfillFirstUserMessage,
   setClaudeSessionId,
   updateResolvedModel,
+  updateSessionChatModel,
   clearClaudeSessionId,
   appendSessionLine,
   readSessionJsonl,
@@ -228,5 +229,65 @@ describe("updateResolvedModel", () => {
   it("does nothing when there is no session meta to update", async () => {
     await updateResolvedModel("rm-missing", "claude-opus-5", root);
     assert.equal(await readSessionMeta("rm-missing", root), null);
+  });
+});
+
+// #3147. The override is the only model value in this file that reaches
+// `claude --model`, so it is validated on the way in and — the part that is
+// easy to get wrong — the key must LEAVE the file when cleared. A stored empty
+// value would shadow the role and the app-wide setting forever.
+describe("updateSessionChatModel", () => {
+  it("round-trips an override", async () => {
+    await createSessionMeta("sm-1", "general", "hi", root);
+    await updateSessionChatModel("sm-1", "opus", root);
+    assert.equal((await readSessionMeta("sm-1", root))?.chatModel, "opus");
+  });
+
+  it("REMOVES the key when cleared, rather than storing an empty value", async () => {
+    await createSessionMeta("sm-2", "general", "hi", root);
+    await updateSessionChatModel("sm-2", "opus", root);
+    await updateSessionChatModel("sm-2", undefined, root);
+    const meta = await readSessionMeta("sm-2", root);
+    assert.equal(meta?.chatModel, undefined);
+    assert.equal("chatModel" in (meta ?? {}), false, "the key itself must be gone so the cascade falls through");
+  });
+
+  it("preserves the fields it is not writing", async () => {
+    await createSessionMeta("sm-3", "guide", "first", root);
+    await setClaudeSessionId("sm-3", "cli-abc", root);
+    await updateResolvedModel("sm-3", "claude-opus-5[1m]", root);
+    await updateSessionChatModel("sm-3", "haiku", root);
+    const meta = await readSessionMeta("sm-3", root);
+    assert.equal(meta?.chatModel, "haiku");
+    assert.equal(meta?.roleId, "guide");
+    assert.equal(meta?.claudeSessionId, "cli-abc");
+    assert.equal(meta?.resolvedModel, "claude-opus-5[1m]");
+    assert.equal(meta?.firstUserMessage, "first");
+  });
+
+  // The CHOSEN value and the OBSERVED value are different fields on purpose;
+  // writing one must not disturb the other.
+  it("does not disturb resolvedModel, which is an observation, not a setting", async () => {
+    await createSessionMeta("sm-4", "general", "hi", root);
+    await updateResolvedModel("sm-4", "claude-haiku-4-5-20251001", root);
+    await updateSessionChatModel("sm-4", "opus", root);
+    await updateSessionChatModel("sm-4", undefined, root);
+    assert.equal((await readSessionMeta("sm-4", root))?.resolvedModel, "claude-haiku-4-5-20251001");
+  });
+
+  it("does nothing when there is no session meta", async () => {
+    await updateSessionChatModel("sm-missing", "opus", root);
+    assert.equal(await readSessionMeta("sm-missing", root), null);
+  });
+
+  // A hand-edited file naming an unknown alias must not survive the read — the
+  // value would otherwise reach `claude --model` and fail the spawn.
+  it("rejects a stored alias that is not a known one", async () => {
+    await createSessionMeta("sm-5", "general", "hi", root);
+    // Written as raw JSON, not through `writeSessionMeta`: the typed writer
+    // cannot express this, which is the point — only a hand edit can, and a
+    // hand edit is exactly what the validator exists for.
+    writeFileSync(path.join(root, WORKSPACE_DIRS.chat, "sm-5.json"), JSON.stringify({ roleId: "general", chatModel: "gpt-4o" }));
+    assert.equal(await readSessionMeta("sm-5", root), null, "a bad alias must not be handed on to `claude --model`");
   });
 });

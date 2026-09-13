@@ -162,6 +162,11 @@ const jaMessages = {
   },
   sessionModelChip: {
     tooltip: "このセッションが使っているモデル: {model}",
+    tooltipOverride: "このチャットのモデル: {model}（ロール／全体設定を上書き中）",
+    ariaLabel: "このチャットのモデル",
+    clear: "既定に戻す",
+    unknown: "不明",
+    inherited: "{model}（継承）",
   },
   sidebarHeader: {
     newMessages: "新着",

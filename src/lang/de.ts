@@ -159,6 +159,11 @@ const deMessages = {
   },
   sessionModelChip: {
     tooltip: "Modell dieser Sitzung: {model}",
+    tooltipOverride: "Modell dieses Chats: {model} (überschreibt Rolle / globale Einstellung)",
+    ariaLabel: "Modell dieses Chats",
+    clear: "Zurück zum Standard",
+    unknown: "unbekannt",
+    inherited: "{model} (geerbt)",
   },
   sidebarHeader: {
     newMessages: "Neue Nachrichten",

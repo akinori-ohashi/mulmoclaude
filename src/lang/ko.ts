@@ -163,6 +163,11 @@ const koMessages = {
   },
   sessionModelChip: {
     tooltip: "이 세션이 사용 중인 모델: {model}",
+    tooltipOverride: "이 대화의 모델: {model} (역할/전체 설정을 덮어씀)",
+    ariaLabel: "이 대화의 모델",
+    clear: "기본값으로 되돌리기",
+    unknown: "알 수 없음",
+    inherited: "{model} (상속)",
   },
   sidebarHeader: {
     newMessages: "새 메시지",

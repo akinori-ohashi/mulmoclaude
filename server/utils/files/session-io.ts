@@ -1,6 +1,7 @@
 import { appendFile, rm } from "fs/promises";
 import path from "node:path";
 import { WORKSPACE_DIRS, workspacePath } from "../../workspace/paths.js";
+import { isChatModel, type ChatModel } from "../../../src/config/models.js";
 import { readTextUnder, writeTextUnder, resolvePath, ensureWorkspaceDir } from "./workspace-io.js";
 import { isRecord } from "../types.js";
 import { isSessionOrigin, type SessionOrigin } from "../../../src/types/session.js";
@@ -32,6 +33,12 @@ export interface SessionMeta {
    *  per user message so a one-shot session (1) can be told apart from
    *  a long-running conversation. */
   userQueryCount?: number | undefined;
+  /** A one-off model override for THIS conversation (#3147) — the most
+   *  specific level of `session → role → app-wide → shared`. Distinct from
+   *  `resolvedModel` below on purpose: this is what the user CHOSE, that is
+   *  what the CLI REPORTED. Same word as `AppSettings.chatModel` because it is
+   *  the same kind of thing, one scope down. */
+  chatModel?: ChatModel | undefined;
   /** The model the CLI reported for this session in its `system`/`init`
    *  frame — a concrete id like `claude-haiku-4-5-20251001`, or one carrying
    *  a context suffix (`claude-opus-5[1m]`) when the shared
@@ -45,6 +52,11 @@ export interface SessionMeta {
 
 export type ReadMetaResult = { kind: "missing" } | { kind: "ok"; meta: SessionMeta } | { kind: "corrupt"; raw: string };
 
+/** `chatModel` is validated here rather than carried as a loose string: unlike
+ *  `resolvedModel` (an observation we only display) this one reaches
+ *  `claude --model`, so a hand-edited session file must not be able to put an
+ *  arbitrary value on the command line. */
+const isOptionalChatModel = (value: unknown): boolean => value === undefined || isChatModel(value);
 const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
 const isOptionalBoolean = (value: unknown): boolean => value === undefined || typeof value === "boolean";
 
@@ -58,6 +70,7 @@ function isSessionMeta(value: unknown): value is SessionMeta {
     isOptionalString(value.startedAt) &&
     isOptionalString(value.firstUserMessage) &&
     isOptionalString(value.claudeSessionId) &&
+    isOptionalChatModel(value.chatModel) &&
     isOptionalString(value.resolvedModel) &&
     isOptionalBoolean(value.hasUnread) &&
     isOptionalBoolean(value.isBookmarked) &&
@@ -142,6 +155,20 @@ export async function updateIsBookmarked(sessionId: string, isBookmarked: boolea
   const meta = await readSessionMeta(sessionId, rootOverride);
   if (!meta) return;
   await writeSessionMeta(sessionId, { ...meta, isBookmarked }, rootOverride);
+}
+
+/** `undefined` clears the override, which is what "back to the default" does.
+ *  The key has to LEAVE the file — a stored empty value would shadow the role
+ *  and the app-wide setting forever — and `writeSessionMeta`'s `JSON.stringify`
+ *  is what drops it, since `undefined` is not representable in JSON. That is
+ *  load-bearing rather than incidental, so `test_session_io.ts` asserts the key
+ *  is absent, not merely falsy: a writer that preserved `undefined` would
+ *  reintroduce the bug this comment is about. */
+export async function updateSessionChatModel(sessionId: string, chatModel: ChatModel | undefined, rootOverride?: string): Promise<void> {
+  const meta = await readSessionMeta(sessionId, rootOverride);
+  if (!meta) return;
+  if (meta.chatModel === chatModel) return;
+  await writeSessionMeta(sessionId, { ...meta, chatModel }, rootOverride);
 }
 
 export async function updateResolvedModel(sessionId: string, resolvedModel: string, rootOverride?: string): Promise<void> {

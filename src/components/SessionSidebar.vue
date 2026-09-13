@@ -3,7 +3,7 @@
     <div class="shrink-0 flex items-center gap-2 text-xs text-gray-400 px-3 py-2 border-b border-gray-100" data-testid="sidebar-role-header">
       <span v-if="sessionRoleIcon" class="material-icons text-xs leading-none" :class="ROLE_ICON_CONTAINMENT">{{ sessionRoleIcon }}</span>
       <span v-if="sessionRoleName" class="truncate">{{ sessionRoleName }}</span>
-      <SessionModelChip :model="sessionModel" />
+      <SessionModelChip :model="sessionModel" :override="sessionModelOverride" @update:override="(model) => emit('update:sessionModelOverride', model)" />
       <div class="ml-auto flex items-center gap-0.5 shrink-0">
         <CopyChatButton :results="results" :result-timestamps="resultTimestamps" :session-role-name="sessionRoleName" />
         <button
@@ -74,6 +74,7 @@ import { isRecord } from "../utils/types";
 import { ROLE_ICON_CONTAINMENT } from "../utils/role/icon";
 import CanvasViewToggle from "./CanvasViewToggle.vue";
 import SessionModelChip from "./SessionModelChip.vue";
+import type { ChatModel } from "../config/models";
 import CopyChatButton from "./CopyChatButton.vue";
 import type { LayoutMode } from "../utils/canvas/layoutMode";
 
@@ -92,6 +93,8 @@ defineProps<{
   sessionRoleIcon?: string | undefined;
   /** Raw model id this session resolved to (#2554). */
   sessionModel?: string | undefined;
+  /** This conversation's one-off model override (#3147). */
+  sessionModelOverride?: ChatModel | undefined;
   layoutMode: LayoutMode;
   showRightSidebar: boolean;
   /** Output arrived while the reader was scrolled away from the bottom.
@@ -116,6 +119,7 @@ const emit = defineEmits<{
   "update:layoutMode": [mode: LayoutMode];
   "toggle-right-sidebar": [];
   "jump-to-latest": [];
+  "update:sessionModelOverride": [model: ChatModel | undefined];
 }>();
 
 const root = ref<HTMLDivElement | null>(null);

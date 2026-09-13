@@ -20,6 +20,7 @@ import {
 import { getRole } from "../../workspace/roles.js";
 import { runAgent } from "../../agent/index.js";
 import { INJECTED_TEXT, SESSION_MODEL } from "../../agent/stream.js";
+import type { ChatModel } from "../../../src/config/models.js";
 import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
 import {
@@ -341,6 +342,10 @@ async function dispatchAgentRun(
 
   const role = getRole(roleId);
   const claudeSessionId = await readClaudeSessionIdFromSession(chatSessionId);
+  // Read per turn, not once per session: an override chosen mid-conversation
+  // takes effect from the NEXT turn, which is how every other model level in
+  // this app already behaves (#3147).
+  const sessionChatModel = (await readSessionMeta(chatSessionId))?.chatModel;
 
   const requestStartedAt = Date.now();
   log.info("agent", "request received", {
@@ -375,6 +380,7 @@ async function dispatchAgentRun(
     role,
     chatSessionId,
     claudeSessionId,
+    sessionChatModel,
     abortSignal: abortController.signal,
     resultsFilePath,
     requestStartedAt,
@@ -640,6 +646,7 @@ interface BackgroundRunParams {
   role: ReturnType<typeof getRole>;
   chatSessionId: string;
   claudeSessionId: string | undefined;
+  sessionChatModel: ChatModel | undefined;
   abortSignal: AbortSignal;
   resultsFilePath: string;
   requestStartedAt: number;
@@ -1046,6 +1053,7 @@ interface FailoverStreamArgs {
   role: ReturnType<typeof getRole>;
   chatSessionId: string;
   claudeSessionId: string | undefined;
+  sessionChatModel: ChatModel | undefined;
   abortSignal: AbortSignal;
   attachments: Attachment[] | undefined;
   userTimezone: string | undefined;
@@ -1110,7 +1118,7 @@ function discardAbortedPass(eventCtx: EventContext): void {
 // hidden-worker cleanup. Split out of `runAgentInBackground` to keep that
 // function under the max-lines-per-function budget.
 async function runAgentStreamWithFailover(args: FailoverStreamArgs, eventCtx: EventContext): Promise<boolean> {
-  const { decoratedMessage, role, chatSessionId, claudeSessionId, abortSignal, attachments, userTimezone } = args;
+  const { decoratedMessage, role, chatSessionId, claudeSessionId, sessionChatModel, abortSignal, attachments, userTimezone } = args;
 
   // One retry each. Stale-`--resume` only applies when we entered with an id (a
   // fresh session can't hit it); the broker race can hit a fresh session too.
@@ -1132,6 +1140,7 @@ async function runAgentStreamWithFailover(args: FailoverStreamArgs, eventCtx: Ev
       sessionId: chatSessionId,
       port: getBoundPort(),
       claudeSessionId: currentClaudeSessionId,
+      sessionChatModel,
       abortSignal,
       attachments,
       userTimezone,
@@ -1174,8 +1183,19 @@ async function runAgentStreamWithFailover(args: FailoverStreamArgs, eventCtx: Ev
 }
 
 async function runAgentInBackground(params: BackgroundRunParams): Promise<void> {
-  const { decoratedMessage, role, chatSessionId, claudeSessionId, abortSignal, resultsFilePath, requestStartedAt, toolArgsCache, attachments, userTimezone } =
-    params;
+  const {
+    decoratedMessage,
+    role,
+    chatSessionId,
+    claudeSessionId,
+    sessionChatModel,
+    abortSignal,
+    resultsFilePath,
+    requestStartedAt,
+    toolArgsCache,
+    attachments,
+    userTimezone,
+  } = params;
 
   const eventCtx: EventContext = {
     chatSessionId,
@@ -1192,7 +1212,10 @@ async function runAgentInBackground(params: BackgroundRunParams): Promise<void> 
   let didError = false;
 
   try {
-    didError = await runAgentStreamWithFailover({ decoratedMessage, role, chatSessionId, claudeSessionId, abortSignal, attachments, userTimezone }, eventCtx);
+    didError = await runAgentStreamWithFailover(
+      { decoratedMessage, role, chatSessionId, claudeSessionId, sessionChatModel, abortSignal, attachments, userTimezone },
+      eventCtx,
+    );
     // Flush any accumulated streaming text as a single consolidated
     // line in the jsonl. This prevents per-chunk lines that would
     // appear as separate cards on session reload.

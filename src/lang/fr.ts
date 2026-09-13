@@ -157,6 +157,11 @@ const frMessages = {
   },
   sessionModelChip: {
     tooltip: "Modèle utilisé par cette session : {model}",
+    tooltipOverride: "Modèle de cette conversation : {model} (remplace le rôle / le réglage global)",
+    ariaLabel: "Modèle de cette conversation",
+    clear: "Revenir au réglage par défaut",
+    unknown: "inconnu",
+    inherited: "{model} (hérité)",
   },
   sidebarHeader: {
     newMessages: "Nouveaux messages",

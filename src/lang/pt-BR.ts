@@ -157,6 +157,11 @@ const ptBRMessages = {
   },
   sessionModelChip: {
     tooltip: "Modelo que esta sessão está usando: {model}",
+    tooltipOverride: "Modelo deste chat: {model} (sobrepõe o papel / configuração global)",
+    ariaLabel: "Modelo deste chat",
+    clear: "Voltar ao padrão",
+    unknown: "desconhecido",
+    inherited: "{model} (herdado)",
   },
   sidebarHeader: {
     newMessages: "Novas mensagens",

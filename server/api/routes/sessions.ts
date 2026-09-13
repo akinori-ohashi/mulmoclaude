@@ -4,6 +4,7 @@ import { readdir, stat } from "fs/promises";
 import { readTextSafe } from "../../utils/files/safe.js";
 import { workspacePath } from "../../workspace/workspace.js";
 import { WORKSPACE_PATHS } from "../../workspace/paths.js";
+import { isChatModel } from "../../../src/config/models.js";
 import { mulmoScriptOps } from "../../plugins/mulmoscript-server.js";
 import {
   readSessionMeta as readSessionMetaIO,
@@ -11,6 +12,7 @@ import {
   sessionJsonlAbsPath,
   sessionMetaAbsPath,
   updateIsBookmarked,
+  updateSessionChatModel,
   deleteSessionFiles,
 } from "../../utils/files/session-io.js";
 import { readManifest, removeSessionFromIndex } from "../../workspace/chat-index/indexer.js";
@@ -400,6 +402,39 @@ router.post(API_ROUTES.sessions.markRead, async (req: Request<SessionIdParams>, 
   log.info("sessions", "mark-read: ok", { sessionId: singleLineForLog(req.params.id) });
   res.json({ ok: true });
 });
+
+// Set or clear this conversation's one-off model override (#3147).
+//
+// `null` / absent CLEARS it — the caller cannot express "override to nothing",
+// because that is the same request as "use whatever the role or the app-wide
+// setting says", and storing an empty value would shadow both.
+router.post(
+  API_ROUTES.sessions.chatModel,
+  asyncHandler<Request<SessionIdParams, { ok: boolean } | ErrorBody, { chatModel?: unknown }>, ApiResponse<{ ok: boolean }>>(
+    "sessions",
+    "Failed to update session model",
+    async (req, res) => {
+      const { id: sessionId } = req.params;
+      const sessionIdForLog = singleLineForLog(sessionId);
+      const requested = req.body?.chatModel;
+      // Validated here as well as in session-io: this value ends up on the
+      // `claude --model` command line, so an unknown alias is a 400 rather
+      // than something written to disk and silently dropped later.
+      const clearing = requested === undefined || requested === null;
+      if (!clearing && !isChatModel(requested)) {
+        log.warn("sessions", "chat-model: rejected", { sessionId: sessionIdForLog });
+        res.status(400).json({ error: "Invalid chatModel" });
+        return;
+      }
+      const chatModel = isChatModel(requested) ? requested : undefined;
+      log.info("sessions", "chat-model: start", { sessionId: sessionIdForLog, chatModel });
+      await updateSessionChatModel(sessionId, chatModel);
+      publishSessionsChanged();
+      log.info("sessions", "chat-model: ok", { sessionId: sessionIdForLog, chatModel });
+      res.json({ ok: true });
+    },
+  ),
+);
 
 // Toggle the user-set bookmark flag on a session's meta sidecar.
 router.post(

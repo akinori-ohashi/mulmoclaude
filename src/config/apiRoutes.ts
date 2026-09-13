@@ -442,6 +442,7 @@ const HOST_API_ROUTES = {
     detail: "/api/sessions/:id",
     markRead: "/api/sessions/:id/mark-read",
     bookmark: "/api/sessions/:id/bookmark",
+    chatModel: "/api/sessions/:id/chat-model",
   },
 
   // `skills` group migrated to META — see `src/plugins/manageSkills/meta.ts`.

@@ -20,6 +20,11 @@
 export const CHAT_MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
 export type ChatModel = (typeof CHAT_MODELS)[number];
 
+/** Narrows an untrusted value to a known alias. Lives beside the list so the
+ *  check cannot drift from it — the server validates a session override and a
+ *  role file with this, and both end up on the `claude --model` command line. */
+export const isChatModel = (value: unknown): value is ChatModel => CHAT_MODELS.some((model) => model === value);
+
 /** Reasoning-effort levels accepted by `claude --effort` (#1323). A closed
  *  union so the validator and the picker stay in lockstep; a level the CLI
  *  adds must be mirrored here intentionally. */
