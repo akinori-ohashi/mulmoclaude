@@ -61,7 +61,7 @@ x-plugin の dist: export { extractTweetId, formatTweet, readUrlArg, readXPost, 
 - 既存 `test/scripts/mulmoclaude/test_drift.ts` の fixture ベースのテストを新形に移す
 - local dist が無い場合は `skipped` + 理由（黙って pass しない）
 
-## cross-review で出た 8 つの追加穴（すべて再現してから修正）
+## cross-review で出た 13 の追加穴（すべて再現してから修正）
 
 どれも形が同じ — **間違った / 空の答えが clean と読まれる**:
 
@@ -77,4 +77,14 @@ x-plugin の dist: export { extractTweetId, formatTweet, readUrlArg, readXPost, 
 
 8. **`require` 分岐が verdict に出ていなかった** → `exports` 条件は 1 subpath = 1 target で `import` が勝つため、走査対象の **48 subpath が持つ別の `.cjs`** は比較も言及もされていなかった。各行に `N require branch(es) NOT compared` を出すようにした。**パースはしない**（CJS reader の失敗形は「名前 0 個」= 今回潰した「両側 0 で一致」そのもの。実測: 8 行の reader で 48 のうち 10 が 0 名前 — rollup が `exports.x =` をカンマで連結するため）。ゲートは設計として ESM 専用で、それを verdict の場所に書いた。ESM 側の drift が強制する version bump は 1 ビルドが両形式を同じ entry から出すので両方を publish し直す
 
-テストは 69 件。実ゲートは 20 パッケージ / drifted 0 / exit 0。各ガードは mutation で 5/5 赤を確認済み。
+9. **version を上げただけ（export 差分なし）が release blocker になっていなかった** → `pending-publish` は `added.length > 0` のときだけ付いていたので、API 変更の無い patch は `ok` になり `--release` を通っていた。consumer のレンジは既に `^<local>` なので npm に無い version = ETARGET。実際に `@mulmoclaude/core@4.9.1` が clean と表示されていた。status を version だけで決める形に変更（PR では非 fatal、`--release` で fatal）
+10. **公開済みファイルを指す新 subpath が clean だった** → local の `exports` map だけを列挙していたため、`{"./new": "./dist/index.js"}` は同じファイルを 2 回比較して一致。公開 `package.json` に key が無いので `import "pkg/new"` は install 後に失敗する。公開 manifest の subpath key も比較する（manifest が読めないときは「言えない」= 判定しない）
+11. **同じ名前を出す barrel が 2 つあると union していた** → ESM は ambiguous な名前を公開しない（`import { x }` はエラー）。union は「importable でない名前」を報告し、かつ衝突が解消して importable になった変更を clean と言う。2 つ以上の barrel から来る名前は、barrel 自身が明示 re-export していない限り除外
+12. **`require` の報告が nested 条件を見ていなかった** → `{ node: { import, require } }` は ESM に解決されるので、top-level だけ見る実装では何も報告されないまま CJS 分岐が未比較になる
+13. **ファイル全体の brace カウンタが実在の export 行を飲み込んでいた（実 entry 2 件）** → 文の結合をファイル先頭からの brace 深さで行っていたため、文字列の中に brace が 1 つあると壊れる。`@mulmoclaude/core` の `./plugin-vue` dist は列 0 の export 行が 1 本（10 名前）だけで、それが前の行に結合され **両側 0 名前 = 一致** と読まれていた。結合を `export` 行から始める形に変更。効果は合計に出る: `core` 676 → 686、`shapescript-plugin` 47 → 62
+
+テストは 81 件。実ゲートは 20 パッケージ / drifted 0 / exit 0（`--release` は 4 件 block）。各ガードは mutation で 10/10 赤を確認済み。
+
+**パーサは外部の ground truth と突き合わせて判定している**。`scripts/mulmoclaude/drift-groundtruth.mjs` が走査対象の local dist entry を全部 `import()` して `Object.keys(namespace)`（Node が実際に公開する名前）とパーサの結果を比較する: **67 entry / 67 完全一致、取りこぼしも捏造も 0**。上の 13 番はこれで見つかった（パーサを読んでいるだけでは出なかった）。`yarn test` には入れない（ビルド済みコードの import は副作用がある）が、このパーサを触ったら手で回す。
+
+残る制約は 1 つ、これも実測して残した: 複数行のテンプレートリテラル**内部**の列 0 `export` 行は文として読まれるので名前を捏造する。塞ぐガード（直前の backtick が奇数なら行を落として opaque）は **実 entry 6 件・数百の実在名前**を名前比較から落とす一方、67 entry の実測ではその形は 1 件も無い。捏造名は sample 自体が変わらなければ両側同じなので、最悪でも false `drifted` で、false `ok` にはならない。

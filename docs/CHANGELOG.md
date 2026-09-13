@@ -47,8 +47,8 @@ line-count fallback is left for the case where a re-exported file cannot be read
 subpath (`"./*": "./dist/*.js"`) is skipped with a reason, and so is a CommonJS entry — `exports.x =`
 has no `export` statement to read, and zero names on both sides is not a match.
 
-Measured on this tree: 20 packages, 17 `ok`, 3 `pending-publish` (`common`, `webhook-runtime`,
-`client` — the three genuinely awaiting publish), 0 `drifted`. The three false positives the old
+Measured on this tree: 20 packages, 16 `ok`, 4 `pending-publish` (`common`, `webhook-runtime`,
+`client`, `core` — the four genuinely awaiting publish), 0 `drifted`. The three false positives the old
 metric produced are gone, and `client`'s report now names `resolvePublishedApiUrl` — a third
 unpublished export that #3115's review had to find by hand.
 
@@ -56,7 +56,7 @@ The workflow trigger moved with it. `mulmoclaude_smoke.yaml` only ran for
 `packages/{mulmoclaude,protocol,client,chat-service}`, so a PR touching `@mulmoclaude/common` never
 started the job at all: widening the scan set does nothing while the trigger stays narrow.
 
-Eight more holes came out of the cross-review, each reproduced before it was fixed, and they share a
+Thirteen more holes came out of the cross-review, each reproduced before it was fixed, and they share a
 shape: **a wrong or empty answer that reads as clean**. The parser now enumerates what it CAN model —
 a brace list without comments, `default`, a declaration, `type`/`interface` — and marks every other
 `export` statement opaque, because three consecutive findings were each "it silently drops one more
@@ -100,9 +100,48 @@ shape" and a ban-list has no last case. Concretely:
   is ESM-only by design, and now says so where the verdict is read. The version bump a real ESM
   drift forces republishes both formats anyway, since one build emits both from one entry.
 
-`test/scripts/mulmoclaude/test_drift.ts` pins all of it: 69 cases, including the near-misses that
+- **A bump with no API change was not a release blocker, and it is.** `pending-publish` was only
+  assigned when the export set had grown, so a patch release reported `ok` and `--release` let it
+  through — while every consumer already declares `^<local>`, a version npm does not serve, which is
+  the ETARGET failure release mode exists to stop. It was live: `@mulmoclaude/core@4.9.1` printed a
+  clean line. The status now follows the version alone, non-fatal on a PR and fatal under
+  `--release`, which is why the count above reads 4 rather than 3.
+- **A new `exports` subpath pointing at an already-published file read as clean.** The gate
+  enumerates the LOCAL map, so `{"./new": "./dist/index.js"}` at an unchanged version compared the
+  same file twice, matched, and reported `ok` — while `import "pkg/new"` still fails after a plain
+  install, because the PUBLISHED `package.json` has no such key. The published manifest's subpath
+  keys are now compared too; an unreadable manifest says nothing rather than inventing a finding.
+- **Two barrels providing the same name were unioned.** ESM does not expose such a name — it is
+  ambiguous, and `import { x }` from that barrel is an error — so the union both reported a name
+  consumers cannot import and called it clean when a build removed the collision and made it
+  importable. A name from more than one barrel is now left out unless the barrel re-exports it
+  explicitly.
+- **The `require` report missed nested conditions.** `{ node: { import, require } }` resolves to the
+  ESM file, so a top-level lookup said nothing while that CJS branch stayed uncompared.
+- **A whole-file brace counter swallowed a real export line, on two real entries.** Statements were
+  joined by counting braces from the top of the file, which is wrong the moment one brace sits
+  inside a string: `@mulmoclaude/core`'s `./plugin-vue` dist has exactly ONE column-0 export line,
+  listing ten names, and it was being merged into the line above — **0 names on both sides, which
+  reads as a match**. The join is anchored at the `export` line now. The fix is visible in the
+  totals: `core` went 676 → 686 names and `shapescript-plugin` 47 → 62.
+
+`test/scripts/mulmoclaude/test_drift.ts` pins all of it: 81 cases, including the near-misses that
 must come back opaque rather than empty. Every guard above was mutation-checked — reverted one at a
-time, with the corresponding case going red each time.
+time, with the corresponding case going red each time (10 for 10).
+
+**The parser is checked against an external authority, not against itself.**
+`scripts/mulmoclaude/drift-groundtruth.mjs` imports every local dist entry in the scan set and
+compares `Object.keys(namespace)` — what Node actually exposes — against what the parser reports:
+**67 entries, 67 exact, nothing missed and nothing invented**. That is what found the `plugin-vue`
+hole, which no amount of reading the parser had. It is deliberately not in `yarn test` (importing
+built code runs side effects) — run it by hand after touching the parser.
+
+One limitation stays, measured rather than assumed: a line at column 0 beginning with `export`
+INSIDE a multi-line template literal is read as a statement, so its name is invented. Every guard
+that closes it — dropping such a line when an odd number of backticks precedes it — cost **6 real
+entries and several hundred real names** falling out of the name comparison, to close a case the
+67-entry measurement shows does not occur. The invented name is also identical on both sides unless
+the sample itself changes, so it can cost a false `drifted`, never a false `ok`.
 
 #### `@mulmoclaude/common@1.3.0`, `@mulmobridge/webhook-runtime@1.2.0`, `@mulmoclaude/core@4.9.1` — the versions catch up with #3084
 

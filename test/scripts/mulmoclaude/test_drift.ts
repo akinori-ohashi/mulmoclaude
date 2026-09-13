@@ -203,6 +203,51 @@ describe("exportStatements", () => {
   });
 });
 
+// Found by my own adversarial pass in round 6, same class as Codex's `;`-in-string
+// P2: the newline flattening counted braces with its OWN loop, which did not know
+// about strings, and the column-0 line split could not tell a line inside a
+// multi-line template literal from a real statement. Both produced a WRONG name set
+// with `opaque` false — one losing a name, one inventing one.
+describe("exportStatements — the flattening is string-aware too", () => {
+  it("does not let a brace inside a string swallow the following statements", () => {
+    const parsed = drift.parseExportedNames('export const a = "{"\nconst x = 1\nexport const b = 2\n');
+    assert.deepEqual([...parsed.names], ["a", "b"], "a `{` in a string used to collapse the rest of the file into one line");
+    assert.equal(parsed.opaque, false);
+  });
+
+  // KNOWN LIMITATION, measured rather than assumed. A line at column 0 starting with
+  // `export` INSIDE a multi-line template literal is read as a statement, so its
+  // name is invented. Left in place deliberately: across the 67 real dist entries in
+  // the scan set the parser invents zero names, and every guard that closes this
+  // (dropping the line when an odd number of backticks precedes it) cost 6 entries
+  // and several hundred REAL names falling out of the name comparison. The invented
+  // name is also identical on both sides unless the sample itself changes, so it
+  // costs a false `drifted` at worst, never a false `ok`.
+  it("still reads a column-0 export inside a template literal as an export", () => {
+    const parsed = drift.parseExportedNames("export const t = `\nexport const fake = 1;\n`;\nexport const real = 2;\n");
+    assert.deepEqual([...parsed.names], ["t", "fake", "real"]);
+  });
+
+  // The shape that made this a P1 rather than a curiosity: `@mulmoclaude/core`'s
+  // `./plugin-vue` dist has exactly ONE column-0 export line, listing ten names, and
+  // a whole-file brace counter had swallowed it into the line above — 0 names on
+  // BOTH sides, which the gate read as a match.
+  it("finds the export line of a bundle whose earlier lines have unbalanced braces", () => {
+    const bundle = ['const open = "{";', "function f() {", "\treturn `}`;", "}", "export { a, b, c };", ""].join("\n");
+    assert.deepEqual([...drift.parseExportedNames(bundle).names], ["a", "b", "c"]);
+  });
+
+  it("still flattens a real wrapped brace list after a string holding a brace", () => {
+    const parsed = drift.parseExportedNames('export const a = "}";\nexport {\n c,\n d\n};\n');
+    assert.deepEqual([...parsed.names].sort(), ["a", "c", "d"]);
+  });
+
+  it("keeps an escaped quote inside the string it belongs to", () => {
+    const parsed = drift.parseExportedNames('export const a = "he said \\"x;y\\"";\nexport const b = 1;\n');
+    assert.deepEqual([...parsed.names], ["a", "b"]);
+  });
+});
+
 describe("hasTopLevelComma", () => {
   it("ignores a comma inside a string and inside brackets", () => {
     assert.equal(drift.hasTopLevelComma('a = "x,y"'), false);
@@ -239,6 +284,33 @@ describe("collectEntryNames — following `export *` into the files it re-export
   it("reports a transport failure so the caller can skip rather than call it drift", async () => {
     const result = await drift.collectEntryNames({ entryPath: "dist/index.js", read: reader(barrel, ["dist/impl.js"]) });
     assert.equal(result.transportFailed, true);
+  });
+
+  // Raised by Codex as a P2: ESM does not expose a name two `export *` targets both
+  // provide — it is ambiguous, and `import { x }` from such a barrel is an error. So
+  // unioning them reports a name consumers cannot import, and calls it clean when a
+  // build removes the collision and makes it importable.
+  it("drops a name two barrels both provide, and keeps it once only one does", async () => {
+    const ambiguous = {
+      "dist/index.js": 'export * from "./a.js";\nexport * from "./b.js";\n',
+      "dist/a.js": "export { x };\n",
+      "dist/b.js": "export { x, y };\n",
+    };
+    const unique = { ...ambiguous, "dist/b.js": "export { y };\n" };
+    const collided = await drift.collectEntryNames({ entryPath: "dist/index.js", read: reader(ambiguous) });
+    const resolved = await drift.collectEntryNames({ entryPath: "dist/index.js", read: reader(unique) });
+    assert.deepEqual([...collided.names].sort(), ["y"], "x is ambiguous in the published build — not importable");
+    assert.deepEqual([...resolved.names].sort(), ["x", "y"], "x became importable locally — that IS the drift");
+  });
+
+  it("lets the barrel's own explicit re-export win over an ambiguous star name", async () => {
+    const files = {
+      "dist/index.js": 'export * from "./a.js";\nexport * from "./b.js";\nexport { x };\n',
+      "dist/a.js": "export { x };\n",
+      "dist/b.js": "export { x };\n",
+    };
+    const result = await drift.collectEntryNames({ entryPath: "dist/index.js", read: reader(files) });
+    assert.deepEqual([...result.names], ["x"]);
   });
 
   it("stops at a cycle instead of recursing forever", async () => {
@@ -324,6 +396,20 @@ describe("unmeasuredRequireBranches", () => {
 
   it("says nothing for a require-only subpath — the entry loop already reports that one", () => {
     assert.deepEqual(drift.unmeasuredRequireBranches({ exports: { ".": { require: "./dist/index.cjs" } } }), []);
+  });
+
+  // Raised by Codex as a P2 on the round-6 fix: only `value.require` was read, so a
+  // nested `{ node: { import, require } }` reported nothing while its CJS branch
+  // stayed uncompared.
+  it("finds a require target nested inside another condition", () => {
+    const pkg = { exports: { ".": { node: { import: "./dist/index.mjs", require: "./dist/index.cjs" } } } };
+    assert.deepEqual(drift.unmeasuredRequireBranches(pkg), [". → dist/index.cjs"]);
+  });
+
+  it("stops descending instead of recursing forever", () => {
+    let deep: unknown = { require: "./dist/index.cjs" };
+    for (let i = 0; i < 12; i++) deep = { node: deep };
+    assert.deepEqual(drift.unmeasuredRequireBranches({ exports: { ".": deep } }), []);
   });
 
   it("says nothing for a package with no exports map", () => {
@@ -645,6 +731,61 @@ describe("checkPackageDrift — against a fake workspace and a stubbed registry"
     assert.equal(result.status, "ok");
     assert.match(result.partialReason ?? "", /1 require branch\(es\) NOT compared/);
     assert.match(drift.formatLine(result), /require branch\(es\) NOT compared/);
+  });
+
+  // Raised by Codex as a P1: `pending-publish` was assigned only when the export set
+  // had grown, so a bump with no API change reported `ok` and `--release` let it
+  // through — while every consumer already declares `^<local>`, a version npm does
+  // not serve, which is the ETARGET failure this gate's release mode exists to stop.
+  // Live case at the time: `@mulmoclaude/core@4.9.1` printed a clean line.
+  it("blocks a release for a bumped-but-unpublished package even with no new exports", async () => {
+    writeWorkspace("@scope/q", "packages/q", "1.3.0", { "dist/index.js": "export { one };\n" });
+    const result = await drift.checkPackageDrift({
+      root,
+      name: "@scope/q",
+      dir: "packages/q",
+      ...published("1.2.0", { "dist/index.js": "export { one };\n" }),
+    });
+    assert.equal(result.status, "pending-publish");
+    assert.deepEqual(result.added, [], "nothing was added — the VERSION is what blocks");
+    assert.equal(drift.failingStatuses(true).includes(result.status), true, "release must block it");
+    assert.equal(drift.failingStatuses(false).includes(result.status), false, "an ordinary PR must not");
+    assert.match(drift.formatLine(result), /bumped but NOT published yet/);
+    assert.doesNotMatch(drift.formatLine(result), /adds ,/, "no empty `adds` clause when nothing was added");
+  });
+
+  // Raised by Codex as a P1: the gate enumerates the LOCAL `exports` map, so a
+  // subpath added at an unchanged version was invisible when it pointed at a file the
+  // published tarball already had — both sides read the same file and matched, while
+  // `import "pkg/new"` still fails after a plain install because the PUBLISHED
+  // package.json has no such key.
+  it("counts a subpath the published package.json does not declare as drift", async () => {
+    writeWorkspace("@scope/r", "packages/r", "1.0.0", { "dist/index.js": "export { one };\n" }, { ".": "./dist/index.js", "./new": "./dist/index.js" });
+    const result = await drift.checkPackageDrift({
+      root,
+      name: "@scope/r",
+      dir: "packages/r",
+      fetchPublishedVersion: async () => ({ version: "1.0.0", reason: null }),
+      fetchPublishedEntry: async ({ entryPath }: { entryPath: string }) =>
+        entryPath === "package.json"
+          ? { source: JSON.stringify({ name: "@scope/r", version: "1.0.0", exports: { ".": "./dist/index.js" } }), reason: null }
+          : { source: "export { one };\n", reason: null },
+    });
+    assert.equal(result.status, "drifted");
+    assert.match(result.added?.join(" ") ?? "", /SUBPATH not declared/);
+  });
+
+  it("does not invent a subpath finding when the published manifest cannot be read", async () => {
+    writeWorkspace("@scope/s", "packages/s", "1.0.0", { "dist/index.js": "export { one };\n" }, { ".": "./dist/index.js" });
+    const result = await drift.checkPackageDrift({
+      root,
+      name: "@scope/s",
+      dir: "packages/s",
+      fetchPublishedVersion: async () => ({ version: "1.0.0", reason: null }),
+      fetchPublishedEntry: async ({ entryPath }: { entryPath: string }) =>
+        entryPath === "package.json" ? { source: null, reason: "unpkg 500" } : { source: "export { one };\n", reason: null },
+    });
+    assert.equal(result.status, "ok", "an unreadable manifest says nothing about the subpaths");
   });
 
   it("skips when the package is not on the registry", async () => {

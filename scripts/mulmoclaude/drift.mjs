@@ -121,21 +121,45 @@ export function starTargets(source) {
  *  one line split apart. Parsing per LINE instead of per statement silently
  *  returned zero names for both shapes, which reads as "nothing exported" and so
  *  as "no drift" — the exact failure this gate exists to prevent. */
+/** Net brace balance of one line, ignoring braces inside a string literal on that
+ *  line. Bounded to the line on purpose: tracking quotes across a whole file lets
+ *  ONE apostrophe in a comment mark everything after it as string content, which
+ *  measured out as 275 of `@mulmoclaude/core`'s exports silently disappearing. */
+const braceBalance = (line) => {
+  let balance = 0;
+  scanOutsideStrings(line, (char) => {
+    if (char === "{") balance += 1;
+    else if (char === "}") balance -= 1;
+    return true;
+  });
+  return balance;
+};
+
+/** Statements that begin with `export` at column 0, each joined with the lines that
+ *  continue it while its own brace group is still open, and `;`-separated statements
+ *  on one line split apart.
+ *
+ *  The join starts at the `export` line rather than tracking depth from the top of
+ *  the file, because a global counter is wrong the moment one brace hides in a
+ *  string or a regex: `@mulmoclaude/core`'s `./plugin-vue` entry has exactly one
+ *  column-0 export line, listing ten names, and a whole-file counter had swallowed
+ *  it into the previous line — 0 names on BOTH sides, which reads as a match. */
 export function exportStatements(source) {
-  const flattened = [];
-  let depth = 0;
-  for (const char of source) {
-    if (char === "{") depth += 1;
-    else if (char === "}") depth = depth > 0 ? depth - 1 : 0;
-    flattened.push(depth > 0 && (char === "\n" || char === "\r") ? " " : char);
-  }
+  const lines = source.split("\n");
   const statements = [];
-  for (const line of flattened.join("").split("\n")) {
+  for (let index = 0; index < lines.length; index++) {
     // Column 0 only. An indented `export` is not a module-level export in a built
     // file — it is text inside a template literal, a comment, or a namespace — and
     // counting it would invent names the package does not have.
-    if (!line.startsWith("export")) continue;
-    for (const piece of splitStatementsOnSemicolon(line)) {
+    if (!lines[index].startsWith("export")) continue;
+    let statement = lines[index].replace(/\r$/, "");
+    let balance = braceBalance(statement);
+    while (balance > 0 && index + 1 < lines.length) {
+      index += 1;
+      statement += ` ${lines[index].replace(/\r$/, "")}`;
+      balance += braceBalance(lines[index]);
+    }
+    for (const piece of splitStatementsOnSemicolon(statement)) {
       const chunk = piece.trim();
       // `export` must be a complete token — `exported = 1` is not an export — but
       // anything else that IS one is kept even when it looks unparseable
@@ -320,14 +344,48 @@ export function entryTargets(pkg) {
  *  cover. This gate reads `export` statements, so a CommonJS branch is outside what
  *  it can measure — and 48 of the scanned subpaths publish one. Naming them keeps a
  *  partial verdict from being read as a whole one. */
+/** Every `require` target anywhere inside a condition block, not just at its top
+ *  level: `{ node: { import, require } }` resolves to the ESM file, so a top-level
+ *  lookup reports nothing while the CJS branch stays uncompared. */
+const requireTargetsWithin = (value, depth = 0) => {
+  if (depth >= 8 || value === null || typeof value !== "object" || Array.isArray(value)) return [];
+  const out = [];
+  for (const [condition, nested] of Object.entries(value)) {
+    if (condition === "require") {
+      const resolved = resolveConditionTarget(nested);
+      if (resolved !== null) out.push(resolved);
+      continue;
+    }
+    out.push(...requireTargetsWithin(nested, depth + 1));
+  }
+  return out;
+};
+
+/** The `exports` subpath keys a published manifest declares, or null when the
+ *  manifest could not be read or has no `exports` map. Null means "cannot say",
+ *  never "no subpaths" — the caller must not read it as a difference. */
+export function publishedSubpathKeys(manifestSource) {
+  if (typeof manifestSource !== "string") return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(manifestSource);
+  } catch {
+    return null;
+  }
+  const exp = parsed?.exports;
+  if (exp === null || typeof exp !== "object" || Array.isArray(exp)) return null;
+  return new Set(Object.keys(exp));
+}
+
 export function unmeasuredRequireBranches(pkg) {
   const exp = pkg?.exports;
   if (exp === null || typeof exp !== "object" || Array.isArray(exp)) return [];
   const out = [];
   for (const [subpath, value] of Object.entries(exp)) {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
-    const required = resolveConditionTarget(value.require ?? null);
-    if (required !== null && required !== resolveConditionTarget(value)) out.push(`${subpath} → ${required}`);
+    const compared = resolveConditionTarget(value);
+    for (const required of new Set(requireTargetsWithin(value))) {
+      if (required !== compared) out.push(`${subpath} → ${required}`);
+    }
   }
   return out;
 }
@@ -442,6 +500,11 @@ export async function collectEntryNames({ entryPath, read, depth = 0, seen = new
   for (const name of directNames) names.add(name);
   let opaque = directOpaque;
   let transportFailed = false;
+  // How many barrels each name arrives through. ESM does NOT expose a name that two
+  // `export *` targets both provide — it is ambiguous, and `import { x }` is a
+  // SyntaxError — so unioning them would report a name consumers cannot import, and
+  // would call it clean when a build stops the collision and makes it importable.
+  const viaStars = new Map();
   for (const target of starTargets(first.source)) {
     if (target === null || !target.startsWith(".")) {
       // `export * from "some-package"` re-exports a dependency's surface, which is
@@ -451,9 +514,13 @@ export async function collectEntryNames({ entryPath, read, depth = 0, seen = new
     }
     const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(entryPath), target));
     const nested = await collectEntryNames({ entryPath: resolved, read, depth: depth + 1, seen });
-    for (const name of nested.names) names.add(name);
+    for (const name of nested.names) viaStars.set(name, (viaStars.get(name) ?? 0) + 1);
     if (nested.opaque) opaque = true;
     if (nested.transportFailed) transportFailed = true;
+  }
+  // An explicit re-export in the barrel itself wins over any collision below it.
+  for (const [name, sources] of viaStars) {
+    if (sources === 1 || directNames.has(name)) names.add(name);
   }
   return { names, opaque, transportFailed };
 }
@@ -537,6 +604,15 @@ export async function checkPackageDrift({
   }
 
   const entries = entryTargets(manifest);
+  // The gate reads the LOCAL `exports` map to decide what to compare, so a subpath
+  // added at an unchanged version was invisible whenever it pointed at a file the
+  // published tarball already had: both sides read the same file, the names matched,
+  // and `import "pkg/new"` still failed after a plain install because the PUBLISHED
+  // package.json has no such key. Comparing the keys themselves is the only way to
+  // see it.
+  const localHasExportsMap = manifest.exports !== null && typeof manifest.exports === "object" && !Array.isArray(manifest.exports);
+  const publishedManifest = localHasExportsMap ? await fetchPublishedEntry({ name, version: published.version, entryPath: "package.json" }) : null;
+  const publishedSubpaths = publishedSubpathKeys(publishedManifest?.source);
   const added = [];
   const opaqueEntries = [];
   const skipped = [];
@@ -566,6 +642,13 @@ export async function checkPackageDrift({
       // a package whose JS dist was never built would have had its `.` entry
       // skipped, its CSS entry "compared", and the whole package reported `ok`.
       skipped.push(`${subpath} (${entryPath} is not a JS module — no export surface to compare)`);
+      continue;
+    }
+    if (publishedSubpaths !== null && !publishedSubpaths.has(subpath) && !subpath.includes("*")) {
+      // Reported before the file comparison: the file may well be there and match,
+      // which is exactly what hid this case.
+      added.push(`${subpath}:SUBPATH not declared by the published package.json`);
+      compared += 1;
       continue;
     }
     if (subpath.includes("*") || entryPath.includes("*")) {
@@ -653,8 +736,12 @@ export async function checkPackageDrift({
     };
   }
 
-  const drifted = added.length > 0;
-  const status = drifted ? (isLocalVersionAhead(localVersion, published.version) ? "pending-publish" : "drifted") : "ok";
+  // A local version ahead of the registry is the release blocker on its own: every
+  // consumer range is `^<local>`, so publishing the launcher against a version npm
+  // does not serve fails with ETARGET — whether or not the export surface changed.
+  // It stays non-fatal on a PR (a mid-cascade bump is normal) and fatal under
+  // `--release`, which is what `failingStatuses` encodes.
+  const status = isLocalVersionAhead(localVersion, published.version) ? "pending-publish" : added.length > 0 ? "drifted" : "ok";
   return {
     packageBaseName: name,
     localVersion,
@@ -691,7 +778,8 @@ export function formatLine(result) {
     return `  ⚠ ${packageBaseName} ${local} ${published}: ${counts} — adds ${result.added.join(", ")}${partial}${opaque}`;
   }
   if (status === "pending-publish") {
-    return `  ⧗ ${packageBaseName} ${local} ${published}: ${counts} — adds ${result.added.join(", ")}, bumped but NOT published yet${partial}${opaque}`;
+    const what = result.added.length > 0 ? `adds ${result.added.join(", ")}, ` : "";
+    return `  ⧗ ${packageBaseName} ${local} ${published}: ${counts} — ${what}bumped but NOT published yet${partial}${opaque}`;
   }
   if (status === "skipped") {
     return `  · ${packageBaseName} ${local}: skipped — ${result.reason}`;

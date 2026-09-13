@@ -16,10 +16,18 @@ export interface ExportedNames {
   stars: number;
 }
 
-/** Statements beginning with `export`, with a brace group's newlines flattened so
- *  a wrapped list is one statement, and `;`-separated statements split apart.
- *  Column 0 only — an indented `export` in a built file is text, not an export. */
+/** Statements beginning with `export` at column 0, each joined with the lines that
+ *  continue it while its OWN brace group is open, and `;`-separated statements split
+ *  apart. The join is anchored at the `export` line rather than tracked from the top
+ *  of the file: a whole-file brace counter is wrong as soon as one brace hides in a
+ *  string, which had swallowed `@mulmoclaude/core`'s only `./plugin-vue` export line
+ *  and reported 0 names on both sides. */
 export function exportStatements(source: string): string[];
+
+/** The `exports` subpath keys a published manifest declares, or null when the
+ *  manifest could not be read or has no `exports` map. Null means "cannot say" —
+ *  a caller must not read it as "no subpaths". */
+export function publishedSubpathKeys(manifestSource: string | null | undefined): Set<string> | null;
 
 export function parseExportedNames(source: string): ExportedNames;
 
@@ -70,7 +78,10 @@ export function starTargets(source: string): (string | null)[];
  *  not there) plus whether the failure was transport rather than absence; depth and
  *  a visited set bound the walk, and anything unresolvable keeps the result opaque
  *  rather than understating the surface. `transportFailed` propagates up so the
- *  caller can skip instead of reading a 5xx as a missing export. */
+ *  caller can skip instead of reading a 5xx as a missing export. A name TWO barrels
+ *  both provide is left out: ESM makes it ambiguous and unimportable, so counting it
+ *  would both report a name consumers cannot use and call it clean when a build
+ *  removes the collision. The barrel's own explicit re-export wins. */
 export function collectEntryNames(args: {
   entryPath: string;
   read: (path: string) => Promise<{ source: string | null; retryable: boolean }>;
@@ -121,9 +132,10 @@ export interface PackageDriftResult {
   packageBaseName: string;
   localVersion: string | null;
   publishedVersion?: string | null;
-  /** `pending-publish` means the local build has new exports AND the local
-   *  version is ahead of the registry — the bump is in place, the cascade
-   *  publish just has not landed. Smoke treats it as non-fatal. */
+  /** `pending-publish` means the local version is ahead of the registry — whether
+   *  or not the export surface changed. A bump alone is a release blocker: every
+   *  consumer range is `^<local>`, so publishing against a version npm does not
+   *  serve fails with ETARGET. Smoke treats it as non-fatal; `--release` does not. */
   status: "ok" | "drifted" | "pending-publish" | "skipped";
   /** Total exported names in the local build, summed over compared entries. */
   localCount?: number;
