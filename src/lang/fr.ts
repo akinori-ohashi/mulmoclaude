@@ -1031,6 +1031,10 @@ const frMessages = {
   pluginUiImage: {
     promptLabel: "{label} :",
   },
+  markdownCodeCopy: {
+    copyLabel: "Copier le code",
+    copiedLabel: "Copié",
+  },
   markdownMermaid: {
     loadFailed: "⚠ Échec du chargement de Mermaid : {error}",
     renderFailed: "⚠ Échec du rendu Mermaid : {error}",

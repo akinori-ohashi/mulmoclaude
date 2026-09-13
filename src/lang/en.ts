@@ -1052,6 +1052,10 @@ const enMessages = {
   pluginUiImage: {
     promptLabel: "{label}:",
   },
+  markdownCodeCopy: {
+    copyLabel: "Copy code",
+    copiedLabel: "Copied",
+  },
   markdownMermaid: {
     loadFailed: "⚠ Mermaid failed to load: {error}",
     renderFailed: "⚠ Mermaid render failed: {error}",

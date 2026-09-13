@@ -38,6 +38,31 @@ write is refused, not lost — so update the plugin before, or with, that deploy
 
 ### Fixed
 
+#### `@mulmoclaude/collection-plugin@4.7.0` — a Canvas card could not keep a custom collection view (#3061)
+
+Picking a custom view on a `presentCollection` card held until the card next mounted —
+reselecting the session put it back on the table. The card's restore state
+(`viewState.view`, kept on the tool result) was narrowed to the three built-in modes on the
+way out, so `custom:<id>` was written as `"table"`. The reading half had accepted a custom
+mode all along; only the writing half dropped it.
+
+It was a degree worse than "not saved". `loading` is a dependency of the persist watch, so
+the card wrote `view: "table"` of its own accord once the collection resolved — and a card's
+`initialView` outranks the slug's stored preference, so a custom view chosen on the standalone
+`/collections/:slug` page was overwritten by the card too.
+
+`viewState.view` is now the full `CollectionViewMode`, and both restore paths — the slug's
+localStorage preference and the card's own state — share one guard, `isCollectionViewMode`,
+instead of each deciding separately what a mode may be. A `custom:<id>` the schema no longer
+declares still collapses to the table at render time (`resolveActiveViewMode`), so a stale
+value is safe to carry. `builtInViewOrTable` had no caller left and is gone.
+
+Fixed in #3141; the app carries it from that merge on. The minor rather than a patch is the
+emit: `CollectionView`'s `viewStateChange` payload widens from `BuiltInViewMode` to
+`CollectionViewMode`, and that component is exported. Nothing outside the plugin listens to it
+today — a host that mounts `CollectionView` standalone never sees the event at all, it is
+emitted only in embedded mode — so no consumer has to change.
+
 #### `@mulmoclaude/shapescript-plugin@2.7.1` — `publishShapeScript` allows a script of 900k bytes
 
 The tool refused a generated model of 234,796 characters with "the gallery allows 100000". The
@@ -49,7 +74,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@3.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.3.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@3.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 
@@ -68,9 +93,18 @@ Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`,
 `src/` が動いていて別途上げた bridge 25 本（別 PR）。launcher 自身の `version` は
 `chore(release)` では触らない規則どおり据え置きで、**レンジだけ**を sweep した。
 
-`markdown-utils@2.2.1` に伴い `@mulmoclaude/core` と `markdown-plugin` のレンジも
-`^2.2.1` に上げた。core は 4.9.2 が**まだ未公開**なので、追加の bump は要らない
-（未公開の 4.9.2 が新しいレンジごと出る）。
+`markdown-utils` に伴い `@mulmoclaude/core` と `markdown-plugin` のレンジも上げた
+（最終的な値は下の 2.3.0 の項を参照）。core は 4.9.3 が**まだ未公開**なので、追加の
+bump は要らない（未公開の 4.9.3 が新しいレンジごと出る）。
+
+#### `@mulmoclaude/markdown-utils@2.3.0` — コードブロックのコピーボタン (#3125)
+
+`codeCopyExtension`（marked の `code` renderer。fence にコピーボタンごと描画する）と
+`codeCopyClipboard`（document ごとに 1 つの委譲クリックリスナ）を追加。**新規 export が
+あるので minor** — 上の表は manifest だけが動いた patch の一覧なので、こちらは別項。
+
+レンジは `@mulmoclaude/core` / `markdown-plugin` / launcher の 3 箇所すべてを `^2.3.0` に
+sweep 済み。
 
 #### `@mulmobridge/*` — 25 ブリッジが #3084 の常駐プロセス堅牢化を受け取る
 

@@ -18,6 +18,8 @@ const en: Messages = {
   saveError: "⚠ Save failed: {error}",
   copyLabel: "Copy",
   copiedLabel: "Copied!",
+  codeCopyLabel: "Copy code",
+  codeCopiedLabel: "Copied",
   taskCountMismatch: "Markdown source and rendered output disagree on the number of tasks. Refusing to toggle to avoid corruption.",
   marpSlidesMode: "Marp slides · {count}",
   marpExportPdf: "Export PDF",

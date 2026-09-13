@@ -18,6 +18,8 @@ const zh: Messages = {
   saveError: "⚠ 保存失败: {error}",
   copyLabel: "复制",
   copiedLabel: "已复制!",
+  codeCopyLabel: "复制代码",
+  codeCopiedLabel: "已复制",
   taskCountMismatch: "Markdown 源与渲染输出的任务数不一致，为避免文件损坏，已拒绝切换。",
   marpSlidesMode: "Marp 幻灯片 · {count}",
   marpExportPdf: "导出 PDF",
