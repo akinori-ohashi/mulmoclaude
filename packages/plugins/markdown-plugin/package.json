@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@marp-team/marp-core": "^4.4.0",
-    "@mulmoclaude/markdown-utils": "^2.2.1",
+    "@mulmoclaude/markdown-utils": "^2.3.0",
     "js-yaml": "^5.4.1",
     "marked": "^18.0.12",
     "mathjax-full": "^3.2.2",

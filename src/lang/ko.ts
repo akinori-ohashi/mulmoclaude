@@ -1018,6 +1018,10 @@ const koMessages = {
   pluginUiImage: {
     promptLabel: "{label}:",
   },
+  markdownCodeCopy: {
+    copyLabel: "코드 복사",
+    copiedLabel: "복사됨",
+  },
   markdownMermaid: {
     loadFailed: "⚠ Mermaid 로드 실패: {error}",
     renderFailed: "⚠ Mermaid 렌더링 실패: {error}",
