@@ -775,6 +775,35 @@ describe("checkPackageDrift — against a fake workspace and a stubbed registry"
     assert.match(result.added?.join(" ") ?? "", /SUBPATH not declared/);
   });
 
+  // Raised by Codex as a P1 on the round-7 fix: "readable but no `exports` map" was
+  // returning the same null as "could not be read", so a `main` → `exports` migration
+  // could add subpaths at an unchanged version and still report clean. A manifest with
+  // no `exports` map serves `.` through `main` and NO named subpath, which is a
+  // determinate answer rather than an unknown one.
+  it("counts a new subpath against a published manifest that has no exports map at all", async () => {
+    writeWorkspace("@scope/t", "packages/t", "1.0.0", { "dist/index.js": "export { one };\n" }, { ".": "./dist/index.js", "./new": "./dist/index.js" });
+    const result = await drift.checkPackageDrift({
+      root,
+      name: "@scope/t",
+      dir: "packages/t",
+      fetchPublishedVersion: async () => ({ version: "1.0.0", reason: null }),
+      fetchPublishedEntry: async ({ entryPath }: { entryPath: string }) =>
+        entryPath === "package.json"
+          ? { source: JSON.stringify({ name: "@scope/t", version: "1.0.0", main: "./dist/index.js" }), reason: null }
+          : { source: "export { one };\n", reason: null },
+    });
+    assert.equal(result.status, "drifted");
+    assert.match(result.added?.join(" ") ?? "", /\.\/new:SUBPATH not declared/);
+    assert.doesNotMatch(result.added?.join(" ") ?? "", /^\.:SUBPATH/, "the root entry is still served through `main`");
+  });
+
+  it("separates an unreadable manifest from one with no exports map", () => {
+    assert.equal(drift.publishedSubpathKeys(null), null, "unreadable — cannot say");
+    assert.equal(drift.publishedSubpathKeys("{not json"), null, "unparseable — cannot say");
+    assert.deepEqual([...(drift.publishedSubpathKeys(JSON.stringify({ main: "./d.js" })) ?? [])], ["."]);
+    assert.deepEqual([...(drift.publishedSubpathKeys(JSON.stringify({ exports: "./d.js" })) ?? [])], ["."]);
+  });
+
   it("does not invent a subpath finding when the published manifest cannot be read", async () => {
     writeWorkspace("@scope/s", "packages/s", "1.0.0", { "dist/index.js": "export { one };\n" }, { ".": "./dist/index.js" });
     const result = await drift.checkPackageDrift({

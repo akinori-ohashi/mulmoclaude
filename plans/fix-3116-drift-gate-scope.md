@@ -61,7 +61,7 @@ x-plugin の dist: export { extractTweetId, formatTweet, readUrlArg, readXPost, 
 - 既存 `test/scripts/mulmoclaude/test_drift.ts` の fixture ベースのテストを新形に移す
 - local dist が無い場合は `skipped` + 理由（黙って pass しない）
 
-## cross-review で出た 13 の追加穴（すべて再現してから修正）
+## cross-review で出た 14 の追加穴（すべて再現してから修正）
 
 どれも形が同じ — **間違った / 空の答えが clean と読まれる**:
 
@@ -83,7 +83,9 @@ x-plugin の dist: export { extractTweetId, formatTweet, readUrlArg, readXPost, 
 12. **`require` の報告が nested 条件を見ていなかった** → `{ node: { import, require } }` は ESM に解決されるので、top-level だけ見る実装では何も報告されないまま CJS 分岐が未比較になる
 13. **ファイル全体の brace カウンタが実在の export 行を飲み込んでいた（実 entry 2 件）** → 文の結合をファイル先頭からの brace 深さで行っていたため、文字列の中に brace が 1 つあると壊れる。`@mulmoclaude/core` の `./plugin-vue` dist は列 0 の export 行が 1 本（10 名前）だけで、それが前の行に結合され **両側 0 名前 = 一致** と読まれていた。結合を `export` 行から始める形に変更。効果は合計に出る: `core` 676 → 686、`shapescript-plugin` 47 → 62
 
-テストは 81 件。実ゲートは 20 パッケージ / drifted 0 / exit 0（`--release` は 4 件 block）。各ガードは mutation で 10/10 赤を確認済み。
+14. **「読めたが `exports` map が無い」を「判定できない」と答えていた** → 10 番の最初の実装は「manifest が読めない」と「`exports` map が無い」を同じ null で返していたため、`main` → `exports` への移行で subpath を足しても version 据え置きで clean になり得た。後者は確定した答え（`main` 経由で `.` だけを serve、named subpath は無い）なので `new Set(["."])` を返す。判定を降りるのは読めないときだけ
+
+テストは 83 件。実ゲートは 20 パッケージ / drifted 0 / exit 0（`--release` は 4 件 block）。各ガードは mutation で 11/11 赤を確認済み。
 
 **パーサは外部の ground truth と突き合わせて判定している**。`scripts/mulmoclaude/drift-groundtruth.mjs` が走査対象の local dist entry を全部 `import()` して `Object.keys(namespace)`（Node が実際に公開する名前）とパーサの結果を比較する: **67 entry / 67 完全一致、取りこぼしも捏造も 0**。上の 13 番はこれで見つかった（パーサを読んでいるだけでは出なかった）。`yarn test` には入れない（ビルド済みコードの import は副作用がある）が、このパーサを触ったら手で回す。
 

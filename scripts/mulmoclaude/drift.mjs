@@ -362,8 +362,13 @@ const requireTargetsWithin = (value, depth = 0) => {
 };
 
 /** The `exports` subpath keys a published manifest declares, or null when the
- *  manifest could not be read or has no `exports` map. Null means "cannot say",
- *  never "no subpaths" — the caller must not read it as a difference. */
+ *  manifest could not be READ. Null means "cannot say", never "no subpaths" — the
+ *  caller must not read it as a difference.
+ *
+ *  A manifest that reads fine but has no `exports` map is a different answer, and a
+ *  determinate one: such a package serves `.` through `main` and no named subpath at
+ *  all, so `import "pkg/new"` fails. Returning null for that case let a `main` →
+ *  `exports` migration add subpaths at an unchanged version and still report clean. */
 export function publishedSubpathKeys(manifestSource) {
   if (typeof manifestSource !== "string") return null;
   let parsed;
@@ -373,7 +378,8 @@ export function publishedSubpathKeys(manifestSource) {
     return null;
   }
   const exp = parsed?.exports;
-  if (exp === null || typeof exp !== "object" || Array.isArray(exp)) return null;
+  if (typeof exp === "string") return new Set(["."]);
+  if (exp === null || typeof exp !== "object" || Array.isArray(exp)) return new Set(["."]);
   return new Set(Object.keys(exp));
 }
 

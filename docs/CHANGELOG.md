@@ -56,7 +56,7 @@ The workflow trigger moved with it. `mulmoclaude_smoke.yaml` only ran for
 `packages/{mulmoclaude,protocol,client,chat-service}`, so a PR touching `@mulmoclaude/common` never
 started the job at all: widening the scan set does nothing while the trigger stays narrow.
 
-Thirteen more holes came out of the cross-review, each reproduced before it was fixed, and they share a
+Fourteen more holes came out of the cross-review, each reproduced before it was fixed, and they share a
 shape: **a wrong or empty answer that reads as clean**. The parser now enumerates what it CAN model —
 a brace list without comments, `default`, a declaration, `type`/`interface` — and marks every other
 `export` statement opaque, because three consecutive findings were each "it silently drops one more
@@ -111,6 +111,11 @@ shape" and a ban-list has no last case. Concretely:
   same file twice, matched, and reported `ok` — while `import "pkg/new"` still fails after a plain
   install, because the PUBLISHED `package.json` has no such key. The published manifest's subpath
   keys are now compared too; an unreadable manifest says nothing rather than inventing a finding.
+- **"Readable but no `exports` map" was answering "cannot say".** The first version of that check
+  returned the same "unknown" for a manifest it could not read and for one that simply has no
+  `exports` map — so a package migrating from `main` to `exports` could add subpaths at an unchanged
+  version and still report clean. The second case is determinate: such a package serves `.` through
+  `main` and no named subpath at all. Only an unreadable manifest declines to judge now.
 - **Two barrels providing the same name were unioned.** ESM does not expose such a name — it is
   ambiguous, and `import { x }` from that barrel is an error — so the union both reported a name
   consumers cannot import and called it clean when a build removed the collision and made it
@@ -125,9 +130,9 @@ shape" and a ban-list has no last case. Concretely:
   reads as a match**. The join is anchored at the `export` line now. The fix is visible in the
   totals: `core` went 676 → 686 names and `shapescript-plugin` 47 → 62.
 
-`test/scripts/mulmoclaude/test_drift.ts` pins all of it: 81 cases, including the near-misses that
+`test/scripts/mulmoclaude/test_drift.ts` pins all of it: 83 cases, including the near-misses that
 must come back opaque rather than empty. Every guard above was mutation-checked — reverted one at a
-time, with the corresponding case going red each time (10 for 10).
+time, with the corresponding case going red each time (11 for 11).
 
 **The parser is checked against an external authority, not against itself.**
 `scripts/mulmoclaude/drift-groundtruth.mjs` imports every local dist entry in the scan set and
