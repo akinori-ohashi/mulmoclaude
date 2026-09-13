@@ -30,7 +30,9 @@ export const SHAPE_GALLERY_URL = "https://server.mulmocast.com";
 export const SHAPE_POST_LIMITS = {
   titleMax: 120,
   descriptionMax: 2000,
-  scriptMax: 100_000,
+  /** In UTF-8 BYTES — the gallery's rule measures `toUtf8().size()`, since Firestore's 1 MiB
+   *  document cap is in bytes and a script with Japanese comments is up to three a character. */
+  scriptMax: 900_000,
   promptMax: 4000,
   authorNameMax: 80,
   keywordsMax: 10,
@@ -183,6 +185,14 @@ function requireLength(name: string, value: string, max: number, min = 0): strin
   return value;
 }
 
+/** The script's limit is in UTF-8 bytes, measured as the rule measures it. */
+function requireScriptBytes(value: string): string {
+  if (value.length < 1) throw new Error("`script` is required");
+  const bytes = new TextEncoder().encode(value).length;
+  if (bytes > SHAPE_POST_LIMITS.scriptMax) throw new Error(`\`script\` is too long (${bytes} bytes; the gallery allows ${SHAPE_POST_LIMITS.scriptMax})`);
+  return value;
+}
+
 /** The document for one post, built field by field so nothing the caller
  *  passed can reach Firestore uninvited. Throws on a limit the rules would
  *  refuse, naming the field. */
@@ -203,7 +213,7 @@ export function shapePostFrom(
     authorName: writer.authorName.slice(0, SHAPE_POST_LIMITS.authorNameMax),
     title: requireLength("title", fields.title.trim(), SHAPE_POST_LIMITS.titleMax, 1),
     description: requireLength("description", fields.description ?? "", SHAPE_POST_LIMITS.descriptionMax),
-    script: requireLength("script", fields.script, SHAPE_POST_LIMITS.scriptMax, 1),
+    script: requireScriptBytes(fields.script),
     source: "prompt",
     prompt: requireLength("prompt", fields.prompt ?? "", SHAPE_POST_LIMITS.promptMax),
     photoIds: [],

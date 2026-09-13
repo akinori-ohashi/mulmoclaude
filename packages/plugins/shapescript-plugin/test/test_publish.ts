@@ -121,6 +121,10 @@ describe("publishShapeScript tool", () => {
     assert.throws(() => shapePostFrom(writer, { title: "  ", script: CUBE }), /`title` is required/);
     assert.throws(() => shapePostFrom(writer, { title: "x".repeat(121), script: CUBE }), /`title` is too long/);
     assert.throws(() => shapePostFrom(writer, { title: "t", script: CUBE, description: "d".repeat(2001) }), /`description` is too long/);
+    // The script cap is UTF-8 bytes, as the gallery's rule measures it: 300,001 three-byte
+    // characters are over it although the character count is not; 900,000 ASCII bytes are not.
+    assert.throws(() => shapePostFrom(writer, { title: "t", script: "あ".repeat(300001) }), /`script` is too long \(900003 bytes/);
+    assert.equal(shapePostFrom(writer, { title: "t", script: "x".repeat(SHAPE_POST_LIMITS.scriptMax) }).script.length, SHAPE_POST_LIMITS.scriptMax);
     assert.equal(shapePostFrom({ uid: "u", authorName: "n".repeat(100) }, { title: "t", script: CUBE }).authorName.length, SHAPE_POST_LIMITS.authorNameMax);
   });
 
