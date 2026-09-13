@@ -156,6 +156,9 @@ const zhMessages = {
     customViewHint: "如需移动端优化的视图，请让 Claude 创建 {keyword}（而不是普通的 custom view）。",
     qrHint: "也可以用手机相机扫描此二维码打开。",
   },
+  sessionModelChip: {
+    tooltip: "此会话正在使用的模型:{model}",
+  },
   sidebarHeader: {
     newMessages: "新消息",
     home: "前往最新对话",

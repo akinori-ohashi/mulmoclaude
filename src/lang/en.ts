@@ -175,6 +175,9 @@ const enMessages = {
     customViewHint: "For a mobile-friendly view, ask Claude to build a {keyword} (not a regular custom view).",
     qrHint: "Or scan this QR code with your phone's camera.",
   },
+  sessionModelChip: {
+    tooltip: "Model this session is running on: {model}",
+  },
   sidebarHeader: {
     newMessages: "New messages",
     home: "Go to latest chat",
