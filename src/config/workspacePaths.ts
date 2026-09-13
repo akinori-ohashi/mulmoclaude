@@ -26,6 +26,10 @@ export const WORKSPACE_FILES = {
   schedulerUserTasks: "config/scheduler/tasks.json",
   schedulerOverrides: "config/scheduler/overrides.json",
   newsReadState: "config/news-read-state.json",
+  /** Which chat bridges the server starts in its own process (#3080).
+   *  Shape: `{ "bridges": { "<transportId>": { "enabled": true } } }`.
+   *  Only the on/off switch lives here — credentials stay in `.env`. */
+  bridges: "config/bridges.json",
   /** Manually-pinned launcher shortcuts (collections / feeds). Workspace
    *  data — tied to specific content slugs — so it lives with the
    *  workspace, not in browser localStorage. Shape: `{ shortcuts: [] }`. */
