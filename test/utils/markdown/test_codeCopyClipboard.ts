@@ -198,6 +198,25 @@ describe("installCodeCopyHandler", () => {
     assert.equal(env.button.getAttribute("aria-label"), "Copied");
   });
 
+  it("re-reads the labels when reverting, so a switch during the confirmation lands", async () => {
+    let labels: CodeCopyLabels = LABELS;
+    installCodeCopyHandler(env.document, () => labels);
+    const scheduled: ScheduledRevert[] = [];
+    installFakeTimers(env.window, scheduled, new Set<number>());
+
+    env.button.click();
+    await settle();
+    assert.equal(env.button.getAttribute("aria-label"), "Copied");
+
+    // Locale switches while the confirmation is on screen.
+    labels = { copy: "コードをコピー", copied: "コピーしました" };
+    const [revert] = scheduled;
+    assert.ok(revert);
+    revert.revert();
+    assert.equal(env.button.getAttribute("aria-label"), "コードをコピー");
+    assert.equal(env.button.getAttribute("title"), "コードをコピー");
+  });
+
   it("ignores a click outside any copy button", async () => {
     installCodeCopyHandler(env.document, () => LABELS);
     env.document.querySelector("pre")?.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true }));

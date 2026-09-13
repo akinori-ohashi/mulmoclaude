@@ -54,24 +54,33 @@ function stripTrailingNewline(text: string): string {
   return text.endsWith("\n") ? text.slice(0, -1) : text;
 }
 
+/** The accessible name and the tooltip are the same string; setting them
+ *  in one place is what stops the two drifting apart. */
+function setLabel(button: HTMLElement, label: string): void {
+  button.setAttribute("aria-label", label);
+  button.setAttribute("title", label);
+}
+
 // One pending revert per button. Without this, clicking again while the
 // confirmation is up leaves the FIRST timer running: it fires on the old
 // schedule and clears the second click's feedback early. Keyed weakly so
 // a button removed by the next streamed re-render is collectable.
 const pendingReverts = new WeakMap<HTMLElement, number>();
 
-function showCopied(button: HTMLElement, labels: CodeCopyLabels): void {
+function showCopied(button: HTMLElement, getLabels: () => CodeCopyLabels): void {
+  const view = button.ownerDocument.defaultView;
+  // No window means a detached document nobody is looking at. Bail
+  // before mutating, rather than leaving a confirmation that can never
+  // revert because there is no timer to schedule.
+  if (view === null || view === undefined) return;
+  setLabel(button, getLabels().copied);
   button.innerHTML = CODE_COPIED_ICON;
   button.classList.add(COPIED_TINT_CLASS);
-  button.setAttribute("aria-label", labels.copied);
-  button.setAttribute("title", labels.copied);
-  const view = button.ownerDocument.defaultView;
-  if (view === null || view === undefined) return;
   const pending = pendingReverts.get(button);
   if (pending !== undefined) view.clearTimeout(pending);
-  // Re-reading the labels on revert rather than closing over today's
-  // copy keeps the idle title correct if the user switched language
-  // while the confirmation was on screen.
+  // The getter is called again on revert rather than closed over, so
+  // the idle title is right even if the user switched language while
+  // the confirmation was on screen.
   const handle: number = view.setTimeout(() => {
     // Identity check, not just `clearTimeout`: a stale callback that
     // still runs — a timer already dispatched when the second click
@@ -80,9 +89,7 @@ function showCopied(button: HTMLElement, labels: CodeCopyLabels): void {
     pendingReverts.delete(button);
     button.innerHTML = CODE_COPY_ICON;
     button.classList.remove(COPIED_TINT_CLASS);
-    const idle = labels.copy;
-    button.setAttribute("aria-label", idle);
-    button.setAttribute("title", idle);
+    setLabel(button, getLabels().copy);
   }, FEEDBACK_DURATION_MS);
   pendingReverts.set(button, handle);
 }
@@ -105,7 +112,7 @@ async function handleClick(event: Event, getLabels: () => CodeCopyLabels): Promi
     // place to report a permission the user controls.
     return;
   }
-  showCopied(button, getLabels());
+  showCopied(button, getLabels);
 }
 
 /**
