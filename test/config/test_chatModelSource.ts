@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { resolveChatModel } from "../../src/config/chatModelSource.js";
+import { CHAT_MODELS } from "../../src/config/models.js";
 
 // #3104. The cascade is one line, but the SOURCE is the part that matters:
 // #2923 existed because the model changed and nothing said so, and adding a
@@ -34,8 +35,10 @@ describe("resolveChatModel", () => {
     assert.equal("model" in shared, false);
   });
 
+  // Iterates CHAT_MODELS rather than restating it: an alias added to the single
+  // source must be covered here automatically, which a literal list would not do.
   it("is the same answer for every alias, so no family is special-cased", () => {
-    (["fable", "opus", "sonnet", "haiku"] as const).forEach((model) => {
+    CHAT_MODELS.forEach((model) => {
       assert.deepEqual(resolveChatModel(model, undefined), { model, source: "role" });
       assert.deepEqual(resolveChatModel(undefined, model), { model, source: "global" });
     });

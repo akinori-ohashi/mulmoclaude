@@ -29,7 +29,7 @@
    （`server/api/routes/roles.ts:17`）ので、組み込みロールは編集画面に存在せず
    `model` を持ちようがない
 3. エイリアスは `src/config/models.ts` の `CHAT_MODELS` をそのまま使う（#3130 で
-   単一化済み。`fable` / `opus` / `sonnet` / `haiku`）
+   単一化済み）。一覧はここに再掲しない — 再掲した時点で2つ目の真実になる
 
 ## 解決
 
