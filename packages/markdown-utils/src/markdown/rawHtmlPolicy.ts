@@ -1,0 +1,160 @@
+// Author-supplied raw HTML in markdown may carry neither `class` nor
+// `style`.
+//
+// WHY, and why the narrower rules do not work. Markdown passes raw HTML
+// straight through, and DOMPurify's defaults keep both attributes. That
+// lets a rendered file position content of its own over the app's output:
+// a `<pre>` absolutely positioned across a fenced code block, with an
+// opaque background, makes the reader see one command while the block
+// underneath holds another — and both the copy button and a plain text
+// selection then take the hidden one. Measured in a real browser
+// (receptron/mulmoclaude#3151).
+//
+// Banning `style` alone does NOT close it. This app ships a utility-CSS
+// framework, so the same overlay is available as `class="absolute inset-0
+// bg-white pointer-events-none"` with no `style` anywhere — every one of
+// those utilities is in the shipped stylesheet because the app's own UI
+// uses them. `mathRender.ts` warned about exactly this: a utility-CSS
+// framework turns a class name into positioning. A denylist of CSS
+// properties or class names is the shape that comes back every time
+// someone finds one more spelling, so the rule states what is PERMITTED:
+// neither attribute, on author HTML only.
+//
+// It applies to author HTML ONLY, which is possible because `marked`
+// routes raw HTML — and nothing else — through `renderer.html`. Highlight
+// spans, the copy button, mermaid placeholders and wiki embeds come from
+// other renderers and keep their classes. The markdown-level sanitiser
+// cannot make that distinction: by the time it runs, the two are one
+// document.
+
+import type { MarkedExtension, Tokens } from "marked";
+
+/** Attributes an author may not set. Presentation only — this is not the
+ *  XSS boundary, which stays with DOMPurify. */
+const FORBIDDEN = ["class", "style"];
+
+const isAsciiLetter = (char: string): boolean => (char >= "a" && char <= "z") || (char >= "A" && char <= "Z");
+
+/** True when `<` at `index` opens a tag rather than being literal text.
+ *  `a < b` in prose must survive untouched. */
+function opensTag(fragment: string, index: number): boolean {
+  const next = fragment[index + 1];
+  if (next === undefined) return false;
+  return isAsciiLetter(next) || next === "/";
+}
+
+/** Index just past the `>` that closes the tag starting at `start`, with
+ *  quoted attribute values skipped so a `>` inside one does not end it.
+ *  Returns the string length for an unterminated tag. */
+function tagEnd(fragment: string, start: number): number {
+  let quote = "";
+  for (let index = start; index < fragment.length; index += 1) {
+    const char = fragment[index];
+    if (quote !== "") {
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === '"' || char === "'") quote = char;
+    else if (char === ">") return index + 1;
+  }
+  return fragment.length;
+}
+
+/** Index just past an attribute value beginning at `start` (which may be
+ *  quoted or bare). */
+function valueEnd(tag: string, start: number): number {
+  const first = tag[start];
+  if (first === '"' || first === "'") {
+    const close = tag.indexOf(first, start + 1);
+    return close === -1 ? tag.length : close + 1;
+  }
+  let index = start;
+  while (index < tag.length && !/[\s>]/.test(tag[index] ?? ">")) index += 1;
+  return index;
+}
+
+/** Length of the `=value` that may follow an attribute name at `from`,
+ *  including surrounding whitespace. Zero when the attribute is bare. */
+function assignmentLength(tag: string, from: number): number {
+  let index = from;
+  while (index < tag.length && /\s/.test(tag[index] ?? "")) index += 1;
+  if (tag[index] !== "=") return 0;
+  index += 1;
+  while (index < tag.length && /\s/.test(tag[index] ?? "")) index += 1;
+  return valueEnd(tag, index) - from;
+}
+
+/** Removes the forbidden attributes from ONE tag's source text. */
+function stripFromTag(tag: string): string {
+  const out: string[] = [];
+  let index = 0;
+  while (index < tag.length) {
+    const rest = tag.slice(index);
+    const match = /^(\s+)([A-Za-z_:][-A-Za-z0-9_:.]*)/.exec(rest);
+    if (match === null) {
+      out.push(tag[index] ?? "");
+      index += 1;
+      continue;
+    }
+    const [whole, , rawName] = match;
+    const name = rawName ?? "";
+    const nameEnd = index + whole.length;
+    const span = whole.length + assignmentLength(tag, nameEnd);
+    if (FORBIDDEN.includes(name.toLowerCase())) index += span;
+    else {
+      out.push(tag.slice(index, index + span));
+      index += span;
+    }
+  }
+  return out.join("");
+}
+
+/**
+ * Removes `class` and `style` from every tag in an HTML fragment, leaving
+ * text, comments and every other attribute byte-identical.
+ *
+ * Lexical on purpose: `marked` chunks raw HTML into pieces that are not
+ * well-formed — an opening `<div …>` and its `</div>` arrive as separate
+ * tokens — so parsing a chunk as a document and re-serialising it would
+ * close the first and delete the second.
+ */
+export function stripPresentationAttributes(fragment: string): string {
+  const out: string[] = [];
+  let index = 0;
+  while (index < fragment.length) {
+    const char = fragment[index] ?? "";
+    if (char !== "<") {
+      out.push(char);
+      index += 1;
+      continue;
+    }
+    // Comments and doctype/CDATA are copied verbatim; they carry no
+    // attributes and their contents must not be treated as a tag.
+    if (fragment.startsWith("<!", index)) {
+      const close = fragment.indexOf(">", index);
+      const end = close === -1 ? fragment.length : close + 1;
+      out.push(fragment.slice(index, end));
+      index = end;
+      continue;
+    }
+    if (!opensTag(fragment, index)) {
+      out.push(char);
+      index += 1;
+      continue;
+    }
+    const end = tagEnd(fragment, index);
+    out.push(stripFromTag(fragment.slice(index, end)));
+    index = end;
+  }
+  return out.join("");
+}
+
+/** Marked extension applying the rule. Register in every marked setup that
+ *  renders markdown the app did not write. */
+export const rawHtmlPolicyExtension: MarkedExtension = {
+  renderer: {
+    html(token: Tokens.HTML | Tokens.Tag): string {
+      return stripPresentationAttributes(token.text);
+    },
+  },
+};

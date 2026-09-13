@@ -239,6 +239,7 @@ import { findTaskLines, makeTasksInteractive, toggleTaskAt } from "@mulmoclaude/
 import { mermaidExtension } from "@mulmoclaude/markdown-utils/markdown/mermaidExtension";
 import { codeCopyExtension, setCodeCopyLabelProvider } from "@mulmoclaude/markdown-utils/markdown/codeCopyExtension";
 import { installCodeCopyHandler } from "@mulmoclaude/markdown-utils/markdown/codeCopyClipboard";
+import { rawHtmlPolicyExtension } from "@mulmoclaude/markdown-utils/markdown/rawHtmlPolicy";
 import { mathExtension } from "@mulmoclaude/markdown-utils/markdown/mathExtension";
 import { useMermaidRenderer } from "../../utils/markdown/useMermaid";
 import { useMathRenderer } from "../../utils/markdown/useMath";
@@ -259,6 +260,8 @@ import MarpSplitEditor from "./MarpSplitEditor.vue";
 // Registered BEFORE mermaid so mermaid stays outermost: a `mermaid`
 // fence must reach its placeholder without picking up a copy button,
 // and every other fence falls through from mermaid to here.
+// Author raw HTML may carry neither `class` nor `style` — see #3151.
+marked.use(rawHtmlPolicyExtension);
 marked.use(codeCopyExtension);
 marked.use(mermaidExtension);
 marked.use(mathExtension);
