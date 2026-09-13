@@ -60,6 +60,10 @@ export interface ChatService {
    *  before `attachSocket`: the message is queued and flushes on
    *  the next bridge connection for that transport. */
   pushToBridge: PushFn;
+  /** Subscribe an IN-PROCESS bridge to this transport's pushes (#3080).
+   *  Returns the unsubscribe function. An in-process bridge is always live, so
+   *  its pushes are never queued. */
+  registerInProcessBridge(transportId: string, handler: (event: { chatId: string; message: string }) => void): () => void;
 }
 
 // Inlined (not imported from `../utils/httpError.js`) so the module
@@ -104,7 +108,30 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
   // enqueued during the pre-attach window flush on first connect.
   let livePush: PushFn | null = null;
 
+  // In-process bridges (#3080). Keyed by transportId, at most one each: two
+  // bridges claiming one transportId is what #3079 exists to stop, and the
+  // registry refuses the second rather than silently fanning a reply out twice.
+  const inProcessBridges = new Map<string, (event: { chatId: string; message: string }) => void>();
+
+  const registerInProcessBridge = (transportId: string, handler: (event: { chatId: string; message: string }) => void): (() => void) => {
+    if (inProcessBridges.has(transportId)) {
+      throw new Error(`an in-process bridge is already registered for transport "${transportId}"`);
+    }
+    inProcessBridges.set(transportId, handler);
+    return () => {
+      if (inProcessBridges.get(transportId) === handler) inProcessBridges.delete(transportId);
+    };
+  };
+
   const pushToBridge: PushFn = (transportId, chatId, message) => {
+    // An in-process bridge is in this very process, so it is live by
+    // construction — deliver and return rather than consulting the socket
+    // layer, whose miss path would queue a message that has been delivered.
+    const inProcess = inProcessBridges.get(transportId);
+    if (inProcess) {
+      inProcess({ chatId, message });
+      return;
+    }
     if (livePush) {
       livePush(transportId, chatId, message);
       return;
@@ -205,6 +232,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       livePush = handle.pushToBridge;
     },
     pushToBridge,
+    registerInProcessBridge,
   };
 }
 

@@ -130,6 +130,7 @@ import schedulerTasksRoutes from "./api/routes/schedulerTasks.js";
 import { loadSchedulerOverrides, UTC_HH_MM_RE } from "./utils/files/scheduler-overrides-io.js";
 import type { IPubSub } from "./events/pub-sub/index.js";
 import { connectRelay } from "./events/relay-client.js";
+import { startConfiguredBridges } from "./bridges/registry.js";
 import { requireSameOrigin } from "./api/csrfGuard.js";
 import { bearerAuth } from "./api/auth/bearerAuth.js";
 import { isViewDataPath } from "./api/auth/viewToken.js";
@@ -1093,6 +1094,21 @@ function attachTransports(httpServer: ReturnType<typeof app.listen>, pubsub: IPu
       logger: log,
     });
   }
+
+  // --- In-process chat bridges (#3080) ---
+  // Same shape as the Relay client above: read the config, start what is
+  // switched on, never block startup on a failure. Deliberately not awaited —
+  // a bridge's poll loop never resolves, and the registry isolates its own
+  // errors, so the only thing an await would buy is a server that never boots.
+  void startConfiguredBridges({
+    host: { relay: chatService.relay, registerInProcessBridge: chatService.registerInProcessBridge },
+  }).then((started) => {
+    if (started.running.length === 0) return;
+    log.info("bridges", "in-process bridges running", { transports: started.running });
+    // Registered only once something is running, so a server with no bridges
+    // does not carry a hook that closes nothing.
+    registerShutdownHook(() => started.closeAll());
+  });
 
   // --- Session Store ---
   initSessionStore(pubsub);

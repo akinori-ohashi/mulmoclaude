@@ -11,6 +11,12 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./start": {
+      "types": "./dist/start.d.ts",
+      "import": "./dist/start.js",
+      "require": "./dist/start.js",
+      "default": "./dist/start.js"
     }
   },
   "bin": {
