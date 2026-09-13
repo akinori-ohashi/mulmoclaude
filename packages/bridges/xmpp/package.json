@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/xmpp",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "XMPP / Jabber bridge for MulmoBridge — connect any XMPP server (ejabberd, Prosody, etc.) to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",
