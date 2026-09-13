@@ -189,6 +189,69 @@ describe("exportStatements", () => {
   it("keeps out identifiers that merely start with `export`", () => {
     assert.deepEqual(drift.exportStatements("exported = 1\nexportable()\n"), []);
   });
+
+  // Raised by Codex as a P2: splitting a line on every `;` invented a second
+  // statement out of a string literal, and `export const b = 1"` then registered
+  // `b` — a name the module does not have — as a local-only export, i.e. drift.
+  it("does not split on a `;` inside a string literal", () => {
+    assert.deepEqual(drift.exportStatements('export const a = "x;export const b = 1"\n'), ['export const a = "x;export const b = 1"']);
+    assert.deepEqual([...drift.parseExportedNames('export const a = "x;export const b = 1"\n').names], ["a"]);
+  });
+
+  it("splits on a real `;` that follows a string containing one", () => {
+    assert.deepEqual(drift.splitStatementsOnSemicolon('const s = "a;b"; x'), ['const s = "a;b"', " x"]);
+  });
+});
+
+describe("hasTopLevelComma", () => {
+  it("ignores a comma inside a string and inside brackets", () => {
+    assert.equal(drift.hasTopLevelComma('a = "x,y"'), false);
+    assert.equal(drift.hasTopLevelComma("a = [1, 2]"), false);
+    assert.equal(drift.hasTopLevelComma("a = 1, b = 2"), true);
+  });
+});
+
+describe("collectEntryNames — following `export *` into the files it re-exports", () => {
+  const reader =
+    (files: Record<string, string>, unreachable: string[] = []) =>
+    async (rel: string) =>
+      unreachable.includes(rel) ? { source: null, retryable: true } : { source: files[rel] ?? null, retryable: false };
+
+  const barrel = { "dist/index.js": 'export * from "./impl.js";\nexport { direct };\n', "dist/impl.js": "export { deep };\n" };
+
+  it("resolves a barrel exactly instead of staying opaque", async () => {
+    const result = await drift.collectEntryNames({ entryPath: "dist/index.js", read: reader(barrel) });
+    assert.deepEqual([...result.names].sort(), ["deep", "direct"]);
+    assert.equal(result.opaque, false);
+    assert.equal(result.transportFailed, false);
+  });
+
+  it("stays opaque when the re-exported file is genuinely absent", async () => {
+    const result = await drift.collectEntryNames({ entryPath: "dist/index.js", read: reader({ "dist/index.js": barrel["dist/index.js"] }) });
+    assert.deepEqual([...result.names], ["direct"]);
+    assert.equal(result.opaque, true);
+    assert.equal(result.transportFailed, false, "absence is a fact about the package, not about the network");
+  });
+
+  // Raised by Codex as a P1: a 5xx on a nested barrel target read as "the published
+  // build lacks these names", so a registry hiccup reported the local tree as
+  // DRIFTED — a red gate nobody can fix by changing code.
+  it("reports a transport failure so the caller can skip rather than call it drift", async () => {
+    const result = await drift.collectEntryNames({ entryPath: "dist/index.js", read: reader(barrel, ["dist/impl.js"]) });
+    assert.equal(result.transportFailed, true);
+  });
+
+  it("stops at a cycle instead of recursing forever", async () => {
+    const cyclic = { "dist/a.js": 'export * from "./b.js";\n', "dist/b.js": 'export * from "./a.js";\nexport { x };\n' };
+    const result = await drift.collectEntryNames({ entryPath: "dist/a.js", read: reader(cyclic) });
+    assert.deepEqual([...result.names], ["x"]);
+    assert.equal(result.opaque, true);
+  });
+
+  it("stays opaque for a bare-specifier re-export — that surface is not in this tarball", async () => {
+    const result = await drift.collectEntryNames({ entryPath: "dist/index.js", read: reader({ "dist/index.js": 'export * from "other-pkg";\n' }) });
+    assert.equal(result.opaque, true);
+  });
 });
 
 describe("entryTargets", () => {
@@ -451,6 +514,91 @@ describe("checkPackageDrift — against a fake workspace and a stubbed registry"
     });
     assert.equal(result.status, "skipped", `expected skipped, got ${result.status}`);
     assert.match(result.reason ?? "", /not a JS module|build first/);
+  });
+
+  // Raised by Codex as a P1: a CommonJS entry has no `export` statements, so this
+  // metric read zero names on BOTH sides and called that a match — a clean verdict
+  // without having compared anything.
+  it("skips a CommonJS entry instead of reading 0 == 0 as clean", async () => {
+    writeWorkspace("@scope/k", "packages/k", "1.0.0", { "dist/index.cjs": "exports.one = 1;\nexports.two = 2;\n" }, { ".": { require: "./dist/index.cjs" } });
+    const result = await drift.checkPackageDrift({
+      root,
+      name: "@scope/k",
+      dir: "packages/k",
+      ...published("1.0.0", { "dist/index.cjs": "exports.one = 1;\n" }),
+    });
+    assert.equal(result.status, "skipped");
+    assert.match(result.reason ?? "", /CommonJS/);
+  });
+
+  it("prefers the ESM condition of a dual package, so it still gets compared", async () => {
+    writeWorkspace(
+      "@scope/l",
+      "packages/l",
+      "1.0.0",
+      { "dist/index.mjs": "export { one, two };\n", "dist/index.cjs": "exports.one = 1;\n" },
+      { ".": { import: "./dist/index.mjs", require: "./dist/index.cjs" } },
+    );
+    const result = await drift.checkPackageDrift({
+      root,
+      name: "@scope/l",
+      dir: "packages/l",
+      ...published("1.0.0", { "dist/index.mjs": "export { one };\n" }),
+    });
+    assert.equal(result.status, "drifted");
+    assert.deepEqual(result.added, [".:two"]);
+  });
+
+  it("compares a barrel by walking it on BOTH sides", async () => {
+    writeWorkspace("@scope/m", "packages/m", "1.0.0", {
+      "dist/index.js": 'export * from "./impl.js";\n',
+      "dist/impl.js": "export { one, two };\n",
+    });
+    const result = await drift.checkPackageDrift({
+      root,
+      name: "@scope/m",
+      dir: "packages/m",
+      ...published("1.0.0", { "dist/index.js": 'export * from "./impl.js";\n', "dist/impl.js": "export { one };\n" }),
+    });
+    assert.equal(result.status, "drifted");
+    assert.deepEqual(result.added, [".:two"]);
+    assert.equal(result.opaqueEntries, undefined, "a resolved barrel is not opaque");
+  });
+
+  // Raised by Codex as a P1: only the ENTRY fetch distinguished a 404 from a 5xx,
+  // so an unreachable file *inside* the barrel walk looked like a published build
+  // missing those names — drift caused by the network.
+  it("skips when a file inside the barrel walk is unreachable", async () => {
+    writeWorkspace("@scope/n", "packages/n", "1.0.0", {
+      "dist/index.js": 'export * from "./impl.js";\n',
+      "dist/impl.js": "export { one };\n",
+    });
+    const result = await drift.checkPackageDrift({
+      root,
+      name: "@scope/n",
+      dir: "packages/n",
+      fetchPublishedVersion: async () => ({ version: "1.0.0", reason: null }),
+      fetchPublishedEntry: async ({ entryPath }: { entryPath: string }) =>
+        entryPath === "dist/index.js" ? { source: 'export * from "./impl.js";\n', reason: null } : { source: null, reason: "unpkg 503" },
+    });
+    assert.equal(result.status, "skipped", `expected skipped, got ${result.status}`);
+    assert.match(result.reason ?? "", /unreachable|network/);
+  });
+
+  // The other half of the 404-vs-5xx split: a barrel target that is genuinely not
+  // in the tarball (an extensionless specifier, say) must degrade to the coarse
+  // line comparison — NOT report the package unreachable, which would stop the gate
+  // looking at it for as long as the specifier stays that way.
+  it("falls back to the coarse comparison when a barrel target is absent, rather than skipping", async () => {
+    writeWorkspace("@scope/o", "packages/o", "1.0.0", { "dist/index.js": 'export * from "./impl";\nexport { one, two };\n' });
+    const result = await drift.checkPackageDrift({
+      root,
+      name: "@scope/o",
+      dir: "packages/o",
+      ...published("1.0.0", { "dist/index.js": 'export * from "./impl";\nexport { one };\n' }),
+    });
+    assert.notEqual(result.status, "skipped", "an absent file is a fact about the package, not a network failure");
+    assert.deepEqual(result.opaqueEntries, ["."]);
   });
 
   it("skips when the package is not on the registry", async () => {

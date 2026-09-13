@@ -51,20 +51,26 @@ export function compareEntry(localSource: string, publishedSource: string): Entr
 /** True when `text` holds a `,` outside every bracket, brace, paren and string. */
 export function hasTopLevelComma(text: string): boolean;
 
+/** Splits one line on the `;` that separate statements, ignoring any `;` inside a
+ *  string literal. A minified bundle puts several exports on one line. */
+export function splitStatementsOnSemicolon(line: string): string[];
+
 /** The relative specifiers of every `export * from "…"` barrel in a source.
  *  `export * as ns from` is excluded — that exports one namespace name. */
 export function starTargets(source: string): (string | null)[];
 
 /** Every runtime name an entry exposes, following `export *` into the files it
- *  re-exports. `read` maps a package-relative path to source text or null; depth
- *  and a visited set bound the walk, and anything unresolvable keeps the result
- *  opaque rather than understating the surface. */
+ *  re-exports. `read` maps a package-relative path to source text (null when it is
+ *  not there) plus whether the failure was transport rather than absence; depth and
+ *  a visited set bound the walk, and anything unresolvable keeps the result opaque
+ *  rather than understating the surface. `transportFailed` propagates up so the
+ *  caller can skip instead of reading a 5xx as a missing export. */
 export function collectEntryNames(args: {
   entryPath: string;
-  read: (path: string) => Promise<string | null>;
+  read: (path: string) => Promise<{ source: string | null; retryable: boolean }>;
   depth?: number;
   seen?: Set<string>;
-}): Promise<{ names: Set<string>; opaque: boolean }>;
+}): Promise<{ names: Set<string>; opaque: boolean; transportFailed: boolean }>;
 
 /**
  * Returns true when `local` (a semver-ish string) is strictly greater than

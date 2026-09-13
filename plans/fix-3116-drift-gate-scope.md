@@ -57,11 +57,11 @@ x-plugin の dist: export { extractTweetId, formatTweet, readUrlArg, readXPost, 
 
 - 20 パッケージを新指標で測り、**DRIFTED が 0 件**（= 赤いゲートを landing させない）ことを確認してから push
 - `parseExportedNames` を両方向でユニットテスト（`export {a, b as c} from`、`export const/function/class`、
-  `export default` を名前に数えない、`export * from` は opaque として扱う）
+  `export default` を名前に数えない、`export * from` は barrel として数え、読めれば両側で辿る）
 - 既存 `test/scripts/mulmoclaude/test_drift.ts` の fixture ベースのテストを新形に移す
 - local dist が無い場合は `skipped` + 理由（黙って pass しない）
 
-## cross-review で出た 4 つの追加穴（すべて再現してから修正）
+## cross-review で出た 7 つの追加穴（すべて再現してから修正）
 
 どれも形が同じ — **間違った / 空の答えが clean と読まれる**:
 
@@ -69,7 +69,10 @@ x-plugin の dist: export { extractTweetId, formatTweet, readUrlArg, readXPost, 
 2. **非 JS target（`./style.css`）が「比較成功」に数えられていた** → 走査 20 のうち 8 個が該当。JS 未ビルドでも `ok` になり得た
 3. **パーサが読めない名前を推測していた** → `export { a as "string name" }` が `a`、`export { café }` が `caf`
 4. **opaque の fallback が名前比較を置き換えていた** / **ネスト条件と types のみの subpath** → 前者は 1 行対 1 行で clean、後者は別ファイルを比較
+5. **`export * from` を列挙せず行数に落としていた** → 両側で辿るようにした（深さ 4 / cycle guard）。実ゲートの opaque entry は 0 になり、`core` の 33 entries も名前で比較される
+6. **CJS entry が「0 名前 vs 0 名前 = 一致」だった** → `require` だけの subpath は `export` 文を持たないので skip + 理由。dual package は `import` 条件で比較されるので損失なし
+7. **文字列内の `;` が文を捏造していた** → `export const a = "x;export const b = 1"` が 2 文に割れて存在しない `b` を drift として報告。`;` split / `,` 判定 / bracket 追跡を 1 つの文字列対応スキャナに寄せた。加えて **barrel walk 中の到達不能ファイルが「公開側に無い名前」= drift と読まれていた** → 404 は粗い比較に降格、transport 失敗は skip
 
-3 回続けて「もう 1 つの形を落としている」と指摘されたので、**ルールを ban-list から許可リストに反転**した（文 / 指定子 / 宣言名 / 条件解決の 4 段）。安全なコードの一部も粗い比較に落ちるが、リリースゲートとしてはその取引が正しい。
+3 回続けて「もう 1 つの形を落としている」と指摘されたので、**ルールを ban-list から許可リストに反転**した（文 / 指定子 / 宣言名 / 条件解決 / barrel 解決の 5 段）。安全なコードの一部も粗い比較に落ちるが、リリースゲートとしてはその取引が正しい。
 
-テストは 48 件。実ゲートは 20 パッケージ / drifted 0 / exit 0。
+テストは 64 件。実ゲートは 20 パッケージ / drifted 0 / exit 0。各ガードは mutation で赤を確認済み。

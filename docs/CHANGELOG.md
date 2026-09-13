@@ -41,9 +41,11 @@ clean.
 `export { extractTweetId, formatTweet, readUrlArg, readXPost, searchX, tweetBody };` — so a seventh
 name added there leaves the count at 1 and the gate passes. The unit is now the set of exported
 **names**, per `exports` subpath, which is also what lets the gate say WHICH export is new instead of
-"the count went up by one". A `export * from` entry cannot be enumerated without the published
-tarball, so it falls back to line counting and says so; a wildcard subpath (`"./*": "./dist/*.js"`)
-is skipped with a reason.
+"the count went up by one". An `export * from` barrel is followed into the files it re-exports, on
+both sides, so a bundle that puts its whole surface behind one barrel is still compared by name; the
+line-count fallback is left for the case where a re-exported file cannot be read at all. A wildcard
+subpath (`"./*": "./dist/*.js"`) is skipped with a reason, and so is a CommonJS entry — `exports.x =`
+has no `export` statement to read, and zero names on both sides is not a match.
 
 Measured on this tree: 20 packages, 17 `ok`, 3 `pending-publish` (`common`, `webhook-runtime`,
 `client` — the three genuinely awaiting publish), 0 `drifted`. The three false positives the old
@@ -54,7 +56,7 @@ The workflow trigger moved with it. `mulmoclaude_smoke.yaml` only ran for
 `packages/{mulmoclaude,protocol,client,chat-service}`, so a PR touching `@mulmoclaude/common` never
 started the job at all: widening the scan set does nothing while the trigger stays narrow.
 
-Four more holes came out of the cross-review, each reproduced before it was fixed, and they share a
+Seven more holes came out of the cross-review, each reproduced before it was fixed, and they share a
 shape: **a wrong or empty answer that reads as clean**. The parser now enumerates what it CAN model —
 a brace list without comments, `default`, a declaration, `type`/`interface` — and marks every other
 `export` statement opaque, because three consecutive findings were each "it silently drops one more
@@ -76,9 +78,22 @@ shape" and a ban-list has no last case. Concretely:
 - **A subpath whose `exports` conditions resolve to no file is reported, not substituted.** A nested
   `{ node: { import: … } }` block was dropped entirely, and a types-only entry fell back to the
   package's `main` — comparing a different file's export surface.
+- **A CommonJS entry was "compared" as zero names against zero names.** A `require`-only subpath has
+  no `export` statement at all, so the metric read an empty set on each side and called it a match.
+  It is skipped with a reason now; a dual package is still compared through its `import` condition,
+  which `resolveConditionTarget` prefers.
+- **A `;` inside a string literal invented a statement.** Splitting a minified line on every `;`
+  turned `export const a = "x;export const b = 1"` into two statements and registered `b` — a name
+  the module does not have — as a local-only export, i.e. drift. One string-aware scanner now backs
+  the `;` split, the `,` check and the bracket tracking.
+- **An unreachable file inside the barrel walk read as a missing export.** Only the entry fetch told
+  a 404 from a 5xx, so a registry hiccup on a re-exported chunk reported the local tree as
+  **drifted** — a red gate no code change can fix. Absence still degrades to the coarse comparison;
+  a transport failure skips.
 
-`test/scripts/mulmoclaude/test_drift.ts` pins all of it: 48 cases, including the near-misses that
-must come back opaque rather than empty.
+`test/scripts/mulmoclaude/test_drift.ts` pins all of it: 64 cases, including the near-misses that
+must come back opaque rather than empty. Every guard above was mutation-checked — reverted one at a
+time, with the corresponding case going red each time.
 
 #### `@mulmoclaude/common@1.3.0`, `@mulmobridge/webhook-runtime@1.2.0`, `@mulmoclaude/core@4.9.1` — the versions catch up with #3084
 

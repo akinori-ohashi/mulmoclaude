@@ -43,9 +43,12 @@ const REGISTRY_BASE = "https://registry.npmjs.org";
 const UNPKG_BASE = "https://unpkg.com";
 const REGISTRY_TIMEOUT_MS = 15_000;
 
-/** True when `text` holds a `,` outside every bracket, brace, paren and string —
- *  i.e. a second declarator rather than a comma inside an initialiser. */
-export function hasTopLevelComma(text) {
+/** Walk `text`, calling `onChar(char, depth)` for every character that sits
+ *  outside a string literal, with `depth` counting open brackets, braces and
+ *  parens. One scanner for both the `;` split and the declarator check: they were
+ *  written separately and only one of them knew about strings, which is how
+ *  `export const a = "x;export const b = 1"` invented the name `b`. */
+function scanOutsideStrings(text, onChar) {
   let depth = 0;
   let quote = null;
   for (let i = 0; i < text.length; i++) {
@@ -55,12 +58,46 @@ export function hasTopLevelComma(text) {
       else if (char === quote) quote = null;
       continue;
     }
-    if (char === '"' || char === "'" || char === "`") quote = char;
-    else if (char === "(" || char === "[" || char === "{") depth += 1;
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "(" || char === "[" || char === "{") depth += 1;
     else if (char === ")" || char === "]" || char === "}") depth = depth > 0 ? depth - 1 : 0;
-    else if (char === "," && depth === 0) return true;
+    if (onChar(char, depth, i) === false) return;
   }
-  return false;
+}
+
+/** True when `text` holds a `,` outside every bracket, brace, paren and string —
+ *  i.e. a second declarator rather than a comma inside an initialiser. */
+export function hasTopLevelComma(text) {
+  let found = false;
+  scanOutsideStrings(text, (char, depth) => {
+    if (char === "," && depth === 0) {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+/** Split on `;` outside strings, so a semicolon inside a string literal cannot
+ *  manufacture a second statement. */
+export function splitStatementsOnSemicolon(line) {
+  const cuts = [];
+  scanOutsideStrings(line, (char, _depth, index) => {
+    if (char === ";") cuts.push(index);
+    return true;
+  });
+  const pieces = [];
+  let start = 0;
+  for (const cut of cuts) {
+    pieces.push(line.slice(start, cut));
+    start = cut + 1;
+  }
+  pieces.push(line.slice(start));
+  return pieces;
 }
 
 /** The relative specifiers of every `export * from "…"` in a source. A barrel's
@@ -98,7 +135,7 @@ export function exportStatements(source) {
     // file — it is text inside a template literal, a comment, or a namespace — and
     // counting it would invent names the package does not have.
     if (!line.startsWith("export")) continue;
-    for (const piece of line.split(";")) {
+    for (const piece of splitStatementsOnSemicolon(line)) {
       const chunk = piece.trim();
       // `export` must be a complete token — `exported = 1` is not an export — but
       // anything else that IS one is kept even when it looks unparseable
@@ -376,14 +413,20 @@ export async function defaultFetchPublishedEntry({ name, version, entryPath, tim
  */
 export async function collectEntryNames({ entryPath, read, depth = 0, seen = new Set() }) {
   const names = new Set();
-  if (depth > 4 || seen.has(entryPath)) return { names, opaque: true };
+  if (depth > 4 || seen.has(entryPath)) return { names, opaque: true, transportFailed: false };
   seen.add(entryPath);
-  const source = await read(entryPath);
-  if (source === null) return { names, opaque: true };
-  const { names: directNames, opaque: directOpaque } = parseExportedNames(source);
+  const first = await read(entryPath);
+  if (first.source === null) {
+    // A transport failure says nothing about the package — the caller turns it into
+    // a skip. A genuine 404 inside a barrel walk is a real difference, but the
+    // caller decides that too, so both are reported rather than judged here.
+    return { names, opaque: true, transportFailed: first.retryable === true };
+  }
+  const { names: directNames, opaque: directOpaque } = parseExportedNames(first.source);
   for (const name of directNames) names.add(name);
   let opaque = directOpaque;
-  for (const target of starTargets(source)) {
+  let transportFailed = false;
+  for (const target of starTargets(first.source)) {
     if (target === null || !target.startsWith(".")) {
       // `export * from "some-package"` re-exports a dependency's surface, which is
       // not in this tarball at all. Not resolvable here; stay opaque.
@@ -394,11 +437,9 @@ export async function collectEntryNames({ entryPath, read, depth = 0, seen = new
     const nested = await collectEntryNames({ entryPath: resolved, read, depth: depth + 1, seen });
     for (const name of nested.names) names.add(name);
     if (nested.opaque) opaque = true;
+    if (nested.transportFailed) transportFailed = true;
   }
-  // A barrel whose targets all resolved is NOT opaque: the union is the surface.
-  // `opaque` above only ever comes from a shape the parser cannot model or a star
-  // that could not be followed.
-  return { names, opaque };
+  return { names, opaque, transportFailed };
 }
 
 // Compare two module sources and say which runtime names the local one adds.
@@ -494,7 +535,15 @@ export async function checkPackageDrift({
       skipped.push(`${subpath} (no runtime target resolved from its exports conditions)`);
       continue;
     }
-    if (!/\.(?:js|mjs|cjs)$/.test(entryPath)) {
+    if (/\.cjs$/.test(entryPath)) {
+      // A CommonJS entry has no `export` statements at all, so this metric reads
+      // zero names on BOTH sides and calls that a match — clean without having
+      // compared anything. Say so instead. A dual package still gets compared
+      // through its ESM condition, which `resolveConditionTarget` prefers.
+      skipped.push(`${subpath} (${entryPath} is CommonJS — this gate measures ESM export names)`);
+      continue;
+    }
+    if (!/\.(?:js|mjs)$/.test(entryPath)) {
       // A `./style.css` or `./package.json` entry carries no export surface this
       // metric can speak about, and counting it as a successful comparison is
       // worse than useless: eight of the scanned packages export a stylesheet, so
@@ -540,12 +589,22 @@ export async function checkPackageDrift({
     // one identical line.
     const localNames = await collectEntryNames({
       entryPath,
-      read: async (rel) => readFile(path.join(root, dir ?? "", rel), "utf8").catch(() => null),
+      read: async (rel) => ({ source: await readFile(path.join(root, dir ?? "", rel), "utf8").catch(() => null), retryable: false }),
     });
     const publishedNames = await collectEntryNames({
       entryPath,
-      read: async (rel) => (await fetchPublishedEntry({ name, version: published.version, entryPath: rel })).source,
+      read: async (rel) => {
+        const fetched = await fetchPublishedEntry({ name, version: published.version, entryPath: rel });
+        // Only a 404 means "the published package does not have this". Anything
+        // else — 5xx, 429, a timeout — is the network, and must not be read as a
+        // difference between the two trees.
+        return { source: fetched.source, retryable: fetched.source === null && !(fetched.reason ?? "").includes("404") };
+      },
     });
+    if (localNames.transportFailed || publishedNames.transportFailed) {
+      skipped.push(`${subpath} (a file in its barrel walk was unreachable — network, not drift)`);
+      continue;
+    }
     const addedNames = [...localNames.names].filter((exportName) => !publishedNames.names.has(exportName)).sort();
     const entryOpaque = localNames.opaque || publishedNames.opaque;
     compared += 1;
