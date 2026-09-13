@@ -12,6 +12,8 @@ const es: Messages = {
   saveError: "Error al guardar:",
   downloadUsdz: "Descargar USDZ",
   exportError: "Error al exportar:",
+  copyScript: "Copiar",
+  copied: "Copiado",
   sceneWarnings: "No renderizado:",
   printOutput: "Salida:",
 };

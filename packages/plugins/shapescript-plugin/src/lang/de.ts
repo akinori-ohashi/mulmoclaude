@@ -12,6 +12,8 @@ const de: Messages = {
   saveError: "Speichern fehlgeschlagen:",
   downloadUsdz: "USDZ herunterladen",
   exportError: "Export fehlgeschlagen:",
+  copyScript: "Kopieren",
+  copied: "Kopiert",
   sceneWarnings: "Nicht gerendert:",
   printOutput: "Ausgabe:",
 };
