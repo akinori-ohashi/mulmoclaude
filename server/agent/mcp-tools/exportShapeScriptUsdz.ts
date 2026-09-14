@@ -90,7 +90,7 @@ export function makeArtifactsShapeFiles(workspaceFor: () => string): ShapeFileOp
 }
 
 /** The `{ artifacts, byPath }` pair every ShapeScript tool reads through —
- *  shared with `publishShapeScript`, so the two accept exactly the same paths. */
+ *  shared with `manageShapeScript`, so the two accept exactly the same paths. */
 export const shapeFiles = { artifacts: makeArtifactsShapeFiles(() => workspacePath), byPath: makeByPathFileOps(SHAPE_EXTENSIONS) };
 
 export const exportShapeScriptUsdz: McpTool = {

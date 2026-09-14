@@ -29,12 +29,12 @@ const TOP_ELEVATION = 85;
  *  call that was about to succeed. */
 export const RENDER_TOOL_TIMEOUT_MS = RENDER_BUDGET_MS + 30_000;
 
-/** Milliseconds a host must allow `publishShapeScript`: the thumbnail render
+/** Milliseconds a host must allow `manageShapeScript` (publish / update): the thumbnail render
  *  above, plus the two Storage uploads — the script may be 10 MiB on a slow
  *  link. A transport sized to the render alone aborts the caller while the
  *  uploads and the document write go on, so the post lands after the user was
  *  told it failed. */
-export const PUBLISH_TOOL_TIMEOUT_MS = RENDER_TOOL_TIMEOUT_MS + 60_000;
+export const MANAGE_TOOL_TIMEOUT_MS = RENDER_TOOL_TIMEOUT_MS + 60_000;
 
 export const RENDER_SHAPE_SCRIPT_TOOL_NAME = "renderShapeScript";
 

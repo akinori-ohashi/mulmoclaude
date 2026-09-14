@@ -10,6 +10,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+#### `@mulmoclaude/shapescript-plugin@5.0.0` — `manageShapeScript` replaces `publishShapeScript`: one gallery tool with `publish`, `update`, `delete`, `get`, `getList`
+
+The gallery had a way to post a model and, since 4.0.0, to update one — and no way to read one
+back or to see what the user has posted. Rather than a third and fourth tool, the gallery is now
+ONE tool with an `action`, the shape `manageCollection` has, and `publishShapeScript` is gone:
+
+- `publish` — what `publishShapeScript` did without `id`: a new post, its URL answered.
+- `update` — what it did with `id`, now explicit: the user's own post rewritten in place, only
+  the fields given sent, the same conditional field-level patch as 4.0.0.
+- `delete` — the user's own post removed: the document first, so it is gone from the gallery at
+  once — conditional on the object ids the read saw, as an update is, so an edit that landed
+  meanwhile is refused rather than deleted with its new objects left behind — then the script,
+  the thumbnail and any reference photos of the document AS DELETED (`deletePost` answers it),
+  so a photo the web editor swapped in meanwhile goes too; an object that will not go is a
+  warning, since nothing links to it any more.
+- `get` — one post's readable fields (title, description, keywords, prompt, aiModel, published,
+  source, forkedFrom, authorName, the two server stamps as ISO strings, its URL — never the
+  object ids) plus its ShapeScript source, downloaded from under the post's owner. Anyone's
+  published post, or the user's own draft; another account's draft reads as absent, as the
+  gallery shows it. `save: true` also writes the source as a new `.shape` under
+  `artifacts/shapes/`, where `presentShapeScript` opens it, so a model can be fetched, edited
+  and `update`d — or forked — in a round trip.
+- `getList` — the user's own posts, drafts included, newest first, at most `limit` (default 20,
+  up to 100): the gallery's own "My models" query, which the rules admit and the index serves.
+
+`action` is the one required argument; what each action needs beyond it (`title` and a source for
+`publish`, `id` for `update` / `delete` / `get`) the tool checks, since JSON Schema cannot. The
+reads answer JSON (`{ post, script, savedPath }` and `{ count, posts }`); the writes answer a
+sentence. Nothing runs without a Remote Host session, reads included, since the host reaches the
+gallery only through it.
+
+Major because the tool is renamed (`TOOL_NAMES.manageShapeScript`; a role granting
+`publishShapeScript` grants nothing) and `ShapeGalleryWriter` gains three required members —
+`deletePost(id, expect)`, `listPosts(uid, limit)` and `readScript(ownerUid, id, scriptId)` — with `readPost`
+now required to answer `null` for a document the rules hide rather than throw. Every `PUBLISH_*`
+export is `MANAGE_*` (`MANAGE_TOOL_TIMEOUT_MS` on `./render`), `executePublishShapeScript` is
+`executeManageShapeScript`, and its result is a union by `action`. MulmoClaude's host adapter
+supplies the three (a transactional delete, the `where("uid") + orderBy("createdAt", "desc") + limit`
+query, and a Storage `getBytes` under the owner's path) and maps `permission-denied` on a read to
+`null`; MulmoTerminal's `server/infra/shapescript-publish-tool.ts` needs the same before it takes
+5.0.0.
+
 #### `@mulmoclaude/shapescript-plugin@4.0.0` — `publishShapeScript` updates a published model by `id`
 
 A new optional `id` argument — the tail of a post's gallery URL, or the id an earlier call
@@ -100,7 +142,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.3.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@4.0.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.3.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@5.0.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 

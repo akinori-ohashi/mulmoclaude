@@ -30,16 +30,22 @@ export {
 } from "../export/tool";
 export type { ExportUsdzResult } from "../export/tool";
 export {
-  executePublishShapeScript,
+  executeManageShapeScript,
   existingShapePost,
   shapePostFrom,
   shapePostPatch,
+  shapePostSummary,
   shapePostUrl,
+  stampOf,
+  listLimitOf,
   normalizeKeywords as normalizeShapeKeywords,
-  PUBLISH_TOOL_NAME,
-  PUBLISH_DESCRIPTION,
-  PUBLISH_PROMPT,
-  PUBLISH_SCHEMA,
+  MANAGE_TOOL_NAME,
+  MANAGE_ACTIONS,
+  MANAGE_DESCRIPTION,
+  MANAGE_PROMPT,
+  MANAGE_SCHEMA,
+  GET_LIST_DEFAULT_LIMIT,
+  GET_LIST_MAX_LIMIT,
   SHAPE_GALLERY_URL,
   SHAPE_POST_KEYS,
   SHAPE_POST_LIMITS,
@@ -48,8 +54,17 @@ export {
   requireScriptBytes,
   NOT_CONNECTED_MESSAGE,
   POST_CHANGED_MESSAGE,
-} from "./publish";
-export type { PublishShapeScriptContext, PublishShapeResult, ShapeGalleryWriter, ShapePostDoc, ShapePostExpect, ShapePostPatch } from "./publish";
+} from "./manage";
+export type {
+  ManageShapeAction,
+  ManageShapeScriptContext,
+  ManageShapeResult,
+  ShapeGalleryWriter,
+  ShapePostDoc,
+  ShapePostExpect,
+  ShapePostPatch,
+  ShapePostSummary,
+} from "./manage";
 export { samples } from "./samples";
 
 // Re-export ShapeScript utilities

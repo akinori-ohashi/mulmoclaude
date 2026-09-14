@@ -1,4 +1,4 @@
-// One view of a model as a PNG, for the gallery card `publishShapeScript`
+// One view of a model as a PNG, for the gallery card `manageShapeScript`
 // posts. A host passes this as the tool's `renderThumbnail`; the core entry
 // cannot hold it because rasterising needs the headless browser this
 // server-only subpath is for.
@@ -11,7 +11,7 @@ const THUMBNAIL_AZIMUTH = 30;
 const THUMBNAIL_ELEVATION = 25;
 
 /** Render `script` to a PNG, or null where this host has no browser. A script
- *  that will not build throws, as the renderer does — the publish tool has
+ *  that will not build throws, as the renderer does — the gallery tool has
  *  already built it once by then, so that is a renderer fault, which the tool
  *  reports as a warning and posts without a picture. */
 export async function renderShapeThumbnail(script: string, onWarning?: (message: string) => void): Promise<Uint8Array | null> {

@@ -1,9 +1,12 @@
-// The `publishShapeScript` TOOL: post a model to the public gallery on
-// mulmoserver (https://server.mulmocast.com/shapes).
+// The `manageShapeScript` TOOL: the user's models in the public gallery on
+// mulmoserver (https://server.mulmocast.com/shapes) — publish one, update or
+// delete one of the user's own, fetch one, list the user's own.
 //
-// What a MODEL sees — name, description, schema, the document a post is —
-// lives here so the two hosts cannot drift, exactly as `exportShapeScriptUsdz`
-// does. What is deliberately NOT here is Firebase: the gallery is written
+// One tool with an `action`, as `manageCollection` is, rather than five: what a
+// model reads is one description and one schema, and the host wires one
+// handler. What a MODEL sees — name, description, schema, the document a post is
+// — lives here so the two hosts cannot drift, exactly as `exportShapeScriptUsdz`
+// does. What is deliberately NOT here is Firebase: the gallery is reached
 // through a small `ShapeGalleryWriter` the host builds over its own remote-host
 // session (the server signs into mulmoserver's Firebase AS THE USER — see
 // docs/remote-host.md in MulmoClaude), so this entry stays browser-safe and
@@ -27,8 +30,17 @@ import { parseShapeScript } from "../shapescript/parser";
 import { astToThreeJS } from "../shapescript/toThreeJS";
 import { resolveShapeSource } from "../export/tool";
 import type { ShapeScriptDispatchContext } from "./dispatch";
+import { shapeArtifactPath } from "./paths";
 
-export const PUBLISH_TOOL_NAME = "publishShapeScript";
+export const MANAGE_TOOL_NAME = "manageShapeScript";
+
+/** What one call does. `publish` and `update` write, `delete` removes, `get` and `getList` read. */
+export const MANAGE_ACTIONS = ["publish", "update", "delete", "get", "getList"] as const;
+export type ManageShapeAction = (typeof MANAGE_ACTIONS)[number];
+
+/** How many of the user's posts `getList` answers when the call does not say, and the most it will. */
+export const GET_LIST_DEFAULT_LIMIT = 20;
+export const GET_LIST_MAX_LIMIT = 100;
 
 /** Where the gallery lives. A host may override it (a staging deploy). */
 export const SHAPE_GALLERY_URL = "https://server.mulmocast.com";
@@ -49,61 +61,77 @@ export const SHAPE_POST_LIMITS = {
   aiModelMax: 80,
 } as const;
 
-export const PUBLISH_DESCRIPTION =
-  "Publish a ShapeScript model to the public gallery at server.mulmocast.com/shapes, where anyone can view it in 3D, read the source, download the USDZ and fork it. Takes the same source as presentShapeScript: inline `script`, or `path` to a saved .shape file. Posts under the user's own Google account — the app must be connected to Remote Host (signed in) first — and returns the model's URL. A thumbnail is rendered and attached when the host can rasterise; the post still lands without one. To update a model the user already published, pass its `id` (the tail of its gallery URL): the post is rewritten in place, keeping its URL, and only the account that published it can do so.";
+export const MANAGE_DESCRIPTION =
+  "Manage the user's ShapeScript models in the public gallery at server.mulmocast.com/shapes, where anyone can view a model in 3D, read its source, download the USDZ and fork it. `action` says what to do. `publish` posts a new model — the same source as presentShapeScript, inline `script` or `path` to a saved .shape file, plus a `title` — and returns its URL. `update` changes a model the user already published, by `id` (the tail of its gallery URL), sending only the fields that change. `delete` removes one of the user's models by `id`. `get` fetches one post's details and its ShapeScript source by `id` — any published model, or the user's own draft — and with `save: true` also saves the source under artifacts/shapes/ where presentShapeScript can open it. `getList` lists the models the user has posted, drafts included, newest first. Every action runs under the user's own Google account — the app must be connected to Remote Host (signed in) first — and only the account that published a model can update or delete it. On publish and update a thumbnail is rendered and attached when the host can rasterise; the post still lands without one.";
 
-export const PUBLISH_PROMPT =
-  "Use publishShapeScript ONLY when the user asks to publish, post or share a model to the gallery — never on your own initiative, since it makes the model public under their name. Before calling it, make sure the model previews correctly (presentShapeScript / renderShapeScript) and give it a short title, a sentence of description and a few lowercase keywords someone would search for. Pass the user's original request as `prompt` so the post records how the model was made, and the model you are running as (its id, e.g. claude-opus-5) as `aiModel` when you know it. To change a model that is already in the gallery — a fix, a new version — pass its `id` rather than publishing a second copy; with `id`, send only the fields that change (a new `script` or `path`, a new `title`, …) and the rest stay as they are. If the tool answers that Remote Host is not connected, tell the user to connect it (the Remote Host control in the app, Google sign-in) and offer to try again.";
+export const MANAGE_PROMPT =
+  "Use manageShapeScript for the gallery. `publish` and `update` make a model public under the user's name and `delete` removes one for good, so use those three ONLY when the user asks to publish, post, share, change or remove a model — never on your own initiative. `get` and `getList` only read, and are fine whenever they help: to find the id of a model the user wants to change, or to fetch a published model the user wants to see, fork or build on (`get` with `save: true` puts its source under artifacts/shapes/, where presentShapeScript opens it by `path`). Before publishing, make sure the model previews correctly (presentShapeScript / renderShapeScript) and give it a short title, a sentence of description and a few lowercase keywords someone would search for. Pass the user's original request as `prompt` so the post records how the model was made, and the model you are running as (its id, e.g. claude-opus-5) as `aiModel` when you know it. To change a model that is already in the gallery — a fix, a new version — `update` it by `id` rather than publishing a second copy, sending only the fields that change (a new `script` or `path`, a new `title`, …); the rest stay as they are. If the tool answers that Remote Host is not connected, tell the user to connect it (the Remote Host control in the app, Google sign-in) and offer to try again.";
 
 /** The tool's JSON schema, in the shape both a gui-chat-protocol
  *  `ToolDefinition` (`parameters`) and an MCP tool (`inputSchema`) take. */
-export const PUBLISH_SCHEMA = {
+export const MANAGE_SCHEMA = {
   type: "object" as const,
   properties: {
+    action: {
+      type: "string",
+      enum: [...MANAGE_ACTIONS],
+      description:
+        "What to do. publish: a new post (needs `title` and `script` or `path`). update: change the user's own post `id`, sending only the fields that change. delete: remove the user's own post `id`. get: one post's details and source by `id`. getList: the user's own posts, newest first.",
+    },
     id: {
       type: "string",
       description:
-        "The id of a post to UPDATE — the tail of its gallery URL, or the id an earlier publishShapeScript call returned. The post is rewritten in place under the same URL; only the account that published it can. With `id` every other field is optional: one given replaces the post's, one omitted keeps it. Omit to publish a new post.",
+        "The post's id — the tail of its gallery URL, or the id an earlier publish returned. Required for update, delete and get; not used by publish and getList.",
     },
     title: {
       type: "string",
-      description: `The model's title (1–${SHAPE_POST_LIMITS.titleMax} characters). Required for a new post.`,
+      description: `publish and update: the model's title (1–${SHAPE_POST_LIMITS.titleMax} characters). Required for publish.`,
     },
     script: {
       type: "string",
       description:
-        "ShapeScript source to publish. Provide either this or `path`, not both. Required for a new post; with `id`, omit both to keep the model as it is.",
+        "publish and update: ShapeScript source. Provide either this or `path`, not both. Required for publish; for update, omit both to keep the model as it is.",
     },
     path: {
       type: "string",
       description:
-        "Path to an existing .shape file — an `artifacts/shapes/...` path presentShapeScript saved, or any .shape the host can read. Provide either this or `script`, not both.",
+        "publish and update: path to an existing .shape file — an `artifacts/shapes/...` path presentShapeScript saved, or any .shape the host can read. Provide either this or `script`, not both.",
     },
     description: {
       type: "string",
-      description: `What the model is, for the gallery page (up to ${SHAPE_POST_LIMITS.descriptionMax} characters). Optional.`,
+      description: `publish and update: what the model is, for the gallery page (up to ${SHAPE_POST_LIMITS.descriptionMax} characters). Optional; on update, "" clears it.`,
     },
     keywords: {
       type: "array",
       items: { type: "string" },
-      description: `Up to ${SHAPE_POST_LIMITS.keywordsMax} short lowercase tags someone would search for. Optional.`,
+      description: `publish and update: up to ${SHAPE_POST_LIMITS.keywordsMax} short lowercase tags someone would search for. Optional.`,
     },
     prompt: {
       type: "string",
-      description: `The request the model was made from, recorded as its provenance (up to ${SHAPE_POST_LIMITS.promptMax} characters). Optional.`,
+      description: `publish and update: the request the model was made from, recorded as its provenance (up to ${SHAPE_POST_LIMITS.promptMax} characters). Optional; on update, "" clears it.`,
     },
     aiModel: {
       type: "string",
-      description: `The AI model that wrote the script — the id you are running as, e.g. claude-opus-5 (up to ${SHAPE_POST_LIMITS.aiModelMax} characters). Optional.`,
+      description: `publish and update: the AI model that wrote the script — the id you are running as, e.g. claude-opus-5 (up to ${SHAPE_POST_LIMITS.aiModelMax} characters). Optional; on update, "" clears it.`,
     },
     published: {
       type: "boolean",
-      description: "false saves a draft only the user can see in the gallery's My models. Default true.",
+      description:
+        "publish and update: false makes the post a draft only the user can see in the gallery's My models. Default true on publish; unchanged on update.",
+    },
+    save: {
+      type: "boolean",
+      description: "get: true also saves the fetched source as a new .shape file under artifacts/shapes/ and returns its path. Default false.",
+    },
+    limit: {
+      type: "number",
+      description: `getList: at most this many posts, newest first (1–${GET_LIST_MAX_LIMIT}). Default ${GET_LIST_DEFAULT_LIMIT}.`,
     },
   },
-  // `title` and a source are required for a NEW post and optional with `id`; JSON Schema
-  // cannot say that, so the descriptions do and the tool refuses a new post without them.
-  required: [],
+  // What each action needs beyond `action` differs (`title` and a source for publish, `id`
+  // for update / delete / get); JSON Schema cannot say that, so the descriptions do and the
+  // tool refuses a call that lacks it.
+  required: ["action"],
 };
 
 /** The document a post is, minus the two server-stamped times the host adds
@@ -146,9 +174,27 @@ export const SHAPE_POST_KEYS = [
   "published",
 ] as const;
 
-/** What a host supplies: who is posting, and the writes, over its own
- *  signed-in session — the Firestore document and the Storage object the
- *  gallery card shows. */
+/** One post as `get` and `getList` answer it: the document's readable fields plus its id,
+ *  URL and the two server stamps as ISO strings. Never the object ids, which mean nothing
+ *  outside the writer, and never the script — `get` carries that beside. */
+export interface ShapePostSummary {
+  id: string;
+  url: string;
+  title: string;
+  description: string;
+  keywords: string[];
+  prompt: string;
+  aiModel: string;
+  published: boolean;
+  source: ShapePostDoc["source"];
+  forkedFrom: string | null;
+  authorName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** What a host supplies: who is posting, and the reads and writes, over its own
+ *  signed-in session — the Firestore document and the Storage objects under it. */
 export interface ShapeGalleryWriter {
   /** The signed-in user's Firebase uid — the post's owner. */
   uid: string;
@@ -159,7 +205,9 @@ export interface ShapeGalleryWriter {
   /** Create `shapes/{id}` from `doc` plus the server timestamps. */
   createPost: (id: string, doc: ShapePostDoc) => Promise<void>;
   /** The data of `shapes/{id}` as stored, or null when there is no such post (or the rules
-   *  hide it — another account's draft reads as absent). The plugin coerces it. */
+   *  hide it — another account's draft reads as absent). The plugin coerces it; `createdAt`
+   *  and `updatedAt` may stay whatever the host's SDK returns (a `Date`, or anything with
+   *  `toDate()`). */
   readPost: (id: string) => Promise<Record<string, unknown> | null>;
   /** Merge `patch` into `shapes/{id}` with a server `updatedAt` — a field-level update
    *  (Firestore `updateDoc`), never a whole-document write: a field absent from the patch
@@ -169,16 +217,31 @@ export interface ShapeGalleryWriter {
    *  `POST_CHANGED_MESSAGE` or a cause of the host's own) when it no longer does: a
    *  transaction, so a concurrent edit that replaced the script cannot lose its objects. */
   updatePost: (id: string, patch: ShapePostPatch, expect: ShapePostExpect) => Promise<void>;
+  /** Remove `shapes/{id}`. CONDITIONAL like `updatePost`: only while the document still
+   *  matches `expect`, refused (throw, `POST_CHANGED_MESSAGE`) when it no longer does — a
+   *  transaction — so an update that landed after the plugin's read cannot have its new
+   *  objects orphaned by a delete that only knows the old ids. Answers the document AS
+   *  DELETED — the data the transaction read — since the objects under the post are the
+   *  plugin's to remove, through `deleteObject`, and it must remove that version's (a
+   *  reference photo the web editor swapped in meanwhile is not in `expect`). */
+  deletePost: (id: string, expect: ShapePostExpect) => Promise<Record<string, unknown>>;
+  /** The posts of `uid` — drafts included, which the rules show the owner — newest first
+   *  (`createdAt` descending), at most `limit`. Each as `readPost` answers it, with its id. */
+  listPosts: (uid: string, limit: number) => Promise<Array<{ id: string; data: Record<string, unknown> }>>;
+  /** The ShapeScript source of a post: the Storage object `scriptId` under `shapes/{ownerUid}/{id}/`.
+   *  `ownerUid` is the POST's owner, not the session's — the rule opens the objects to anyone. */
+  readScript: (ownerUid: string, id: string, scriptId: string) => Promise<string>;
   /** Store a PNG under the post and return the object id the document carries. */
   uploadThumbnail: (id: string, png: Uint8Array) => Promise<string>;
   /** Store the ShapeScript source under the post as `SHAPE_SCRIPT_CONTENT_TYPE` and return
    *  the object id the document carries as `scriptId`. */
   uploadScript: (id: string, script: string) => Promise<string>;
-  /** Remove an object under the post — the thumbnail or script of a post that was never written. */
+  /** Remove an object under the session user's post — a replaced thumbnail or script, one of a
+   *  post that was never written, or every object of a deleted post. */
   deleteObject: (id: string, objectId: string) => Promise<void>;
 }
 
-export interface PublishShapeScriptContext extends ShapeScriptDispatchContext {
+export interface ManageShapeScriptContext extends ShapeScriptDispatchContext {
   /** null when the host has no signed-in session — the tool then says how to get one. */
   gallery: ShapeGalleryWriter | null;
   /** Rasterise one view of `script` to a PNG, or null where this host cannot
@@ -188,19 +251,17 @@ export interface PublishShapeScriptContext extends ShapeScriptDispatchContext {
    *  card without one shows the model icon, and the post's owner can add one
    *  from the web editor. */
   renderThumbnail: (script: string) => Promise<Uint8Array | null>;
-  /** A fault that did not stop the post — a thumbnail that could not be made. */
+  /** A fault that did not stop the call — a thumbnail that could not be made. */
   onWarning?: (message: string) => void;
 }
 
-export interface PublishShapeResult {
-  message: string;
-  /** The post's id under `shapes/`. */
-  id: string;
-  /** The model's page. */
-  url: string;
-  /** Whether a thumbnail was attached. */
-  thumbnail: boolean;
-}
+/** What one call did. `message` is the sentence — or, for the two reads, the JSON — the agent
+ *  reads; the rest is for a host that logs or links. */
+export type ManageShapeResult =
+  | { action: "publish" | "update"; message: string; id: string; url: string; thumbnail: boolean }
+  | { action: "delete"; message: string; id: string; url: string }
+  | { action: "get"; message: string; id: string; url: string; post: ShapePostSummary; script: string; savedPath: string | null }
+  | { action: "getList"; message: string; posts: ShapePostSummary[] };
 
 /** What a host uploads the script as; the gallery's Storage rule admits `text/plain.*`. */
 export const SHAPE_SCRIPT_CONTENT_TYPE = "text/plain; charset=utf-8";
@@ -223,7 +284,7 @@ export const POST_CHANGED_MESSAGE =
   "The post changed while this update was being prepared (another edit replaced its model); nothing was written — read it again and retry.";
 
 export const NOT_CONNECTED_MESSAGE =
-  "Not connected to the gallery: publishing posts under the user's Google account, which needs the app's Remote Host connected (sign in with Google in the Remote Host control), then try again.";
+  "Not connected to the gallery: it is reached under the user's Google account, which needs the app's Remote Host connected (sign in with Google in the Remote Host control), then try again.";
 
 const optionalString = (value: unknown): string | undefined => (typeof value === "string" && value.trim() !== "" ? value : undefined);
 
@@ -304,7 +365,7 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 
 /** The thumbnail's object id, or "" when none could be made — a warning, not a
  *  failure, since the post is what the user asked for. */
-async function thumbnailFor(context: PublishShapeScriptContext, gallery: ShapeGalleryWriter, id: string, script: string): Promise<string> {
+async function thumbnailFor(context: ManageShapeScriptContext, gallery: ShapeGalleryWriter, id: string, script: string): Promise<string> {
   try {
     const png = await context.renderThumbnail(script);
     return png ? await gallery.uploadThumbnail(id, png) : "";
@@ -316,7 +377,7 @@ async function thumbnailFor(context: PublishShapeScriptContext, gallery: ShapeGa
 
 /** Write the post; if that fails, take the script and the thumbnail back out
  *  so a refused write does not leave objects nothing references. */
-async function writePost(context: PublishShapeScriptContext, gallery: ShapeGalleryWriter, id: string, doc: ShapePostDoc): Promise<void> {
+async function writePost(context: ManageShapeScriptContext, gallery: ShapeGalleryWriter, id: string, doc: ShapePostDoc): Promise<void> {
   try {
     await gallery.createPost(id, doc);
   } catch (error) {
@@ -350,13 +411,46 @@ export function existingShapePost(data: Record<string, unknown>): ShapePostDoc {
   };
 }
 
+const hasToDate = (value: unknown): value is { toDate: () => Date } =>
+  typeof value === "object" && value !== null && typeof (value as { toDate?: unknown }).toDate === "function";
+
+/** A server stamp as an ISO string, whatever the host's SDK handed over: a `Date`, a
+ *  Firestore `Timestamp` (anything with `toDate()`), a string already, or "" for none. */
+export function stampOf(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (hasToDate(value)) return stampOf(value.toDate());
+  return typeof value === "string" ? value : "";
+}
+
+/** One stored post as the two reads answer it. */
+export function shapePostSummary(id: string, data: Record<string, unknown>, siteUrl?: string): ShapePostSummary {
+  const post = existingShapePost(data);
+  return {
+    id,
+    url: shapePostUrl(id, siteUrl),
+    title: post.title,
+    description: post.description,
+    keywords: post.keywords,
+    prompt: post.prompt,
+    aiModel: post.aiModel,
+    published: post.published,
+    source: post.source,
+    forkedFrom: post.forkedFrom,
+    authorName: post.authorName,
+    createdAt: stampOf(data.createdAt),
+    updatedAt: stampOf(data.updatedAt),
+  };
+}
+
+const noSuchPost = (id: string): string => `No gallery post has the id "${id}" (or it is another account's draft, which only that account can see)`;
+
 /** The post `id` names, when it exists and is the session user's own. Refused here with the
  *  reason — the rules would refuse the write too, but only as a bare permission error. */
-async function requireOwnPost(gallery: ShapeGalleryWriter, id: string): Promise<ShapePostDoc> {
+async function requireOwnPost(gallery: ShapeGalleryWriter, id: string, verb: "update" | "delete"): Promise<ShapePostDoc> {
   const data = await gallery.readPost(id);
-  if (!data) throw new Error(`No gallery post has the id "${id}"`);
+  if (!data) throw new Error(noSuchPost(id));
   const existing = existingShapePost(data);
-  if (existing.uid !== gallery.uid) throw new Error(`The post "${id}" was published by another account; only its publisher can update it`);
+  if (existing.uid !== gallery.uid) throw new Error(`The post "${id}" was published by another account; only its publisher can ${verb} it`);
   return existing;
 }
 
@@ -402,7 +496,7 @@ export function shapePostPatch(
 const hasSource = (args: Record<string, unknown>): boolean => optionalString(args.script) !== undefined || optionalString(args.path) !== undefined;
 
 /** A checked script: resolved from `script` / `path`, within the Storage cap, and buildable. */
-async function checkedScript(context: PublishShapeScriptContext, args: Record<string, unknown>): Promise<string> {
+async function checkedScript(context: ManageShapeScriptContext, args: Record<string, unknown>): Promise<string> {
   const { script } = await resolveShapeSource(context, args);
   requireScriptBytes(script);
   requireBuildable(script);
@@ -411,14 +505,14 @@ async function checkedScript(context: PublishShapeScriptContext, args: Record<st
 
 /** Upload the script, then its thumbnail, under `id`. The script first: it is required, so a
  *  failed upload must not have a thumbnail to orphan. */
-async function uploadObjects(context: PublishShapeScriptContext, gallery: ShapeGalleryWriter, id: string, script: string) {
+async function uploadObjects(context: ManageShapeScriptContext, gallery: ShapeGalleryWriter, id: string, script: string) {
   const scriptId = await gallery.uploadScript(id, script);
   const thumbnailId = await thumbnailFor(context, gallery, id, script);
   return { scriptId, thumbnailId };
 }
 
 /** Best-effort removal of objects nothing references any more; each failure is a warning. */
-async function discardObjects(context: PublishShapeScriptContext, gallery: ShapeGalleryWriter, id: string, objectIds: string[]): Promise<void> {
+async function discardObjects(context: ManageShapeScriptContext, gallery: ShapeGalleryWriter, id: string, objectIds: string[]): Promise<void> {
   await Promise.all(
     objectIds
       .filter((objectId) => objectId !== "")
@@ -426,13 +520,13 @@ async function discardObjects(context: PublishShapeScriptContext, gallery: Shape
   );
 }
 
-function resultOf(doc: ShapePostDoc, id: string, gallery: ShapeGalleryWriter, state: string): PublishShapeResult {
+function writtenResult(action: "publish" | "update", doc: ShapePostDoc, id: string, gallery: ShapeGalleryWriter, state: string): ManageShapeResult {
   const url = shapePostUrl(id, gallery.siteUrl);
   const picture = doc.thumbnailId ? "" : " No thumbnail could be attached; the gallery shows a placeholder until the user edits the post.";
-  return { message: `${state}: "${doc.title}" is at ${url}.${picture}`, id, url, thumbnail: doc.thumbnailId !== "" };
+  return { action, message: `${state}: "${doc.title}" is at ${url}.${picture}`, id, url, thumbnail: doc.thumbnailId !== "" };
 }
 
-async function publishNewPost(context: PublishShapeScriptContext, gallery: ShapeGalleryWriter, args: Record<string, unknown>): Promise<PublishShapeResult> {
+async function publishNewPost(context: ManageShapeScriptContext, gallery: ShapeGalleryWriter, args: Record<string, unknown>): Promise<ManageShapeResult> {
   const title = optionalString(args.title);
   if (!title) throw new Error("`title` is required");
   const script = await checkedScript(context, args);
@@ -449,7 +543,7 @@ async function publishNewPost(context: PublishShapeScriptContext, gallery: Shape
   const id = newPostId();
   const doc: ShapePostDoc = { ...post, ...(await uploadObjects(context, gallery, id, script)) };
   await writePost(context, gallery, id, doc);
-  return resultOf(doc, id, gallery, doc.published ? "Published" : "Saved as a draft (only the user can see it, under My models)");
+  return writtenResult("publish", doc, id, gallery, doc.published ? "Published" : "Saved as a draft (only the user can see it, under My models)");
 }
 
 /** Rewrite the user's own post `id`. A new source replaces the script object and the
@@ -459,12 +553,12 @@ async function publishNewPost(context: PublishShapeScriptContext, gallery: Shape
  *  edits racing on one post cannot orphan the winner's objects: the loser is refused with
  *  `POST_CHANGED_MESSAGE`, its uploads taken back out. */
 async function updateExistingPost(
-  context: PublishShapeScriptContext,
+  context: ManageShapeScriptContext,
   gallery: ShapeGalleryWriter,
   id: string,
   args: Record<string, unknown>,
-): Promise<PublishShapeResult> {
-  const existing = await requireOwnPost(gallery, id);
+): Promise<ManageShapeResult> {
+  const existing = await requireOwnPost(gallery, id, "update");
   const script = hasSource(args) ? await checkedScript(context, args) : null;
   // Limits are named before any upload: a first merge, without new objects, is the dry run.
   shapePostPatch(existing, args);
@@ -477,20 +571,91 @@ async function updateExistingPost(
     throw error;
   }
   if (objects) await discardObjects(context, gallery, id, [existing.scriptId, existing.thumbnailId]);
-  return resultOf(doc, id, gallery, doc.published ? "Updated" : "Updated as a draft (only the user can see it, under My models)");
+  return writtenResult("update", doc, id, gallery, doc.published ? "Updated" : "Updated as a draft (only the user can see it, under My models)");
+}
+
+/** Remove the user's own post `id`: the document first, so the post is gone from the gallery
+ *  at once, then every object under it — script, thumbnail, and the reference photos of a
+ *  post the web editor made. The removal is conditional on the object ids the read saw, as
+ *  an update is: an edit that replaced the model meanwhile is refused with
+ *  `POST_CHANGED_MESSAGE` rather than deleted with its new objects left behind (Codex on
+ *  #3161). An object that will not go is an orphan of random name that nothing links to, so
+ *  that is a warning, not a failure. */
+async function deleteOwnPost(context: ManageShapeScriptContext, gallery: ShapeGalleryWriter, id: string): Promise<ManageShapeResult> {
+  const existing = await requireOwnPost(gallery, id, "delete");
+  // The objects to remove are the DELETED document's, not the read's: `expect` pins the model,
+  // not the reference photos, which the web editor may have swapped in between (CodeRabbit).
+  const gone = existingShapePost(await gallery.deletePost(id, { uid: existing.uid, scriptId: existing.scriptId, thumbnailId: existing.thumbnailId }));
+  await discardObjects(context, gallery, id, [gone.scriptId, gone.thumbnailId, ...gone.photoIds]);
+  const url = shapePostUrl(id, gallery.siteUrl);
+  return { action: "delete", message: `Deleted: "${existing.title}" (${url}) is no longer in the gallery.`, id, url };
+}
+
+/** The fetched source as a new file under artifacts/shapes/, named after the post. */
+async function saveScript(context: ManageShapeScriptContext, title: string, script: string): Promise<string> {
+  const { relPath, filePath } = shapeArtifactPath(title);
+  await context.files.artifacts.write(relPath, script);
+  return filePath;
+}
+
+/** One post — anyone's published one, or the user's own draft — with its source. */
+async function getPost(context: ManageShapeScriptContext, gallery: ShapeGalleryWriter, id: string, args: Record<string, unknown>): Promise<ManageShapeResult> {
+  const data = await gallery.readPost(id);
+  if (!data) throw new Error(noSuchPost(id));
+  const stored = existingShapePost(data);
+  const post = shapePostSummary(id, data, gallery.siteUrl);
+  const script = await gallery.readScript(stored.uid, id, stored.scriptId);
+  const savedPath = args.save === true ? await saveScript(context, post.title, script) : null;
+  return { action: "get", message: JSON.stringify({ post, script, savedPath }), id, url: post.url, post, script, savedPath };
+}
+
+/** `limit` as a count in range; the default when not given, the nearest bound when outside. */
+export function listLimitOf(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return GET_LIST_DEFAULT_LIMIT;
+  return Math.min(GET_LIST_MAX_LIMIT, Math.max(1, Math.floor(value)));
+}
+
+/** The session user's own posts, drafts included, newest first. */
+async function listOwnPosts(gallery: ShapeGalleryWriter, args: Record<string, unknown>): Promise<ManageShapeResult> {
+  const rows = await gallery.listPosts(gallery.uid, listLimitOf(args.limit));
+  const posts = rows.map((row) => shapePostSummary(row.id, row.data, gallery.siteUrl));
+  return { action: "getList", message: JSON.stringify({ count: posts.length, posts }), posts };
+}
+
+function actionOf(args: Record<string, unknown>): ManageShapeAction {
+  const action = args.action;
+  if (typeof action === "string" && (MANAGE_ACTIONS as readonly string[]).includes(action)) return action as ManageShapeAction;
+  throw new Error(`\`action\` must be one of ${MANAGE_ACTIONS.join(", ")}`);
+}
+
+function requireId(args: Record<string, unknown>, action: ManageShapeAction): string {
+  const id = optionalString(args.id);
+  if (!id) throw new Error(`\`id\` is required for ${action} — the tail of the post's gallery URL`);
+  return id.trim();
 }
 
 /**
- * Run one `publishShapeScript` call. Throws on a missing session, a missing or
- * invalid source, a limit the gallery would refuse, and on ShapeScript errors
- * — the host's error path reports those to the model as it does for
- * `renderShapeScript`. Everything that can be refused is checked BEFORE
- * anything is uploaded, so a refusal writes nothing. With `id`, the post is
- * rewritten in place instead — the session user's own post only.
+ * Run one `manageShapeScript` call. Throws on a missing session, an unknown action, a
+ * missing `id`, a missing or invalid source, a limit the gallery would refuse, and on
+ * ShapeScript errors — the host's error path reports those to the model as it does for
+ * `renderShapeScript`. Everything that can be refused is checked BEFORE anything is
+ * uploaded or removed, so a refusal changes nothing. `update` and `delete` are the
+ * session user's own posts only.
  */
-export async function executePublishShapeScript(context: PublishShapeScriptContext, args: Record<string, unknown>): Promise<PublishShapeResult> {
+export async function executeManageShapeScript(context: ManageShapeScriptContext, args: Record<string, unknown>): Promise<ManageShapeResult> {
   const gallery = context.gallery;
   if (!gallery) throw new Error(NOT_CONNECTED_MESSAGE);
-  const id = optionalString(args.id);
-  return id === undefined ? publishNewPost(context, gallery, args) : updateExistingPost(context, gallery, id.trim(), args);
+  const action = actionOf(args);
+  switch (action) {
+    case "publish":
+      return publishNewPost(context, gallery, args);
+    case "update":
+      return updateExistingPost(context, gallery, requireId(args, action), args);
+    case "delete":
+      return deleteOwnPost(context, gallery, requireId(args, action));
+    case "get":
+      return getPost(context, gallery, requireId(args, action), args);
+    case "getList":
+      return listOwnPosts(gallery, args);
+  }
 }
