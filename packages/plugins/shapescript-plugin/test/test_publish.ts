@@ -14,6 +14,7 @@ import {
   shapePostFrom,
   shapePostUrl,
   NOT_CONNECTED_MESSAGE,
+  POST_CHANGED_MESSAGE,
   PUBLISH_SCHEMA,
   PUBLISH_TOOL_NAME,
   requireScriptBytes,
@@ -71,10 +72,15 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
       const stored = posts.get(id);
       return stored ? { ...stored, createdAt: "t0", updatedAt: "t0" } : null;
     },
-    // Field-level, as Firestore's updateDoc is: a field absent from the patch is untouched.
-    updatePost: async (id, patch) => {
+    // Field-level, as Firestore's updateDoc is (a field absent from the patch is untouched),
+    // and conditional, as the host's transaction is: refused unless the post still matches.
+    updatePost: async (id, patch, expect) => {
+      const stored = posts.get(id);
+      if (!stored || stored.uid !== expect.uid || stored.scriptId !== expect.scriptId || stored.thumbnailId !== expect.thumbnailId) {
+        throw new Error(POST_CHANGED_MESSAGE);
+      }
       patches.push(patch);
-      posts.set(id, { ...posts.get(id)!, ...patch });
+      posts.set(id, { ...stored, ...patch });
     },
     uploadThumbnail: async (id, png) => {
       uploads.push({ id, bytes: png.byteLength });
@@ -390,6 +396,26 @@ describe("publishShapeScript tool", () => {
         { id, objectId: "obj-2" },
       ]);
       assert.equal(posts.get(id)!.scriptId, "script-1");
+    });
+
+    // CodeRabbit on #3158: two edits racing on one post. The write is conditional on the
+    // object ids the read saw, so the second to land is refused and takes its uploads back
+    // out — the first's objects stay referenced, nothing is orphaned.
+    it("refuses an update whose read is stale — another edit replaced the model — and takes its uploads back out", async () => {
+      const { context, writer, posts, deleted, id } = await seeded();
+      const slowRead = writer.readPost;
+      writer.readPost = async (postId) => {
+        const snapshot = await slowRead(postId);
+        // Another client's edit lands between this read and the write.
+        posts.set(id, { ...posts.get(id)!, scriptId: "script-other", thumbnailId: "obj-other" });
+        return snapshot;
+      };
+      await assert.rejects(executePublishShapeScript(context, { id, script: CUBE_2 }), new RegExp(POST_CHANGED_MESSAGE.slice(0, 40)));
+      assert.deepEqual(deleted, [
+        { id, objectId: "script-2" },
+        { id, objectId: "obj-2" },
+      ]);
+      assert.equal(posts.get(id)!.scriptId, "script-other");
     });
   });
 });

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import type { Firestore } from "firebase/firestore";
 import type { FirebaseStorage } from "firebase/storage";
 import { SHAPE_POST_KEYS, shapePostFrom } from "@mulmoclaude/shapescript-plugin";
-import { galleryWriterFrom, postDocumentOf, postUpdateOf, shapeObjectPath } from "../../server/agent/mcp-tools/publishShapeScript.js";
+import { galleryWriterFrom, postDocumentOf, postStillMatches, postUpdateOf, shapeObjectPath } from "../../server/agent/mcp-tools/publishShapeScript.js";
 
 const post = shapePostFrom({ uid: "u-alice", authorName: "Alice" }, { title: "Lamp", scriptId: "script-1", keywords: ["lamp"] });
 
@@ -29,6 +29,15 @@ describe("publishShapeScript host adapter", () => {
     assert.deepEqual(Object.keys(update), ["title", "scriptId", "updatedAt"]);
     assert.equal((update.updatedAt as { _methodName?: string })._methodName, "serverTimestamp");
     assert.equal(Object.hasOwn(update, "createdAt"), false);
+  });
+
+  it("applies an update only while the post still carries the owner and object ids the plugin read", () => {
+    const expect = { uid: "u-alice", scriptId: "script-1", thumbnailId: "obj-1" };
+    assert.equal(postStillMatches({ uid: "u-alice", scriptId: "script-1", thumbnailId: "obj-1", title: "Lamp" }, expect), true);
+    assert.equal(postStillMatches({ uid: "u-alice", scriptId: "script-2", thumbnailId: "obj-1" }, expect), false);
+    assert.equal(postStillMatches({ uid: "u-alice", scriptId: "script-1", thumbnailId: "obj-2" }, expect), false);
+    assert.equal(postStillMatches({ uid: "u-bob", scriptId: "script-1", thumbnailId: "obj-1" }, expect), false);
+    assert.equal(postStillMatches(undefined, expect), false);
   });
 
   it("keeps a picture under the owner, where the Storage rule scopes writes", () => {

@@ -163,8 +163,12 @@ export interface ShapeGalleryWriter {
   readPost: (id: string) => Promise<Record<string, unknown> | null>;
   /** Merge `patch` into `shapes/{id}` with a server `updatedAt` — a field-level update
    *  (Firestore `updateDoc`), never a whole-document write: a field absent from the patch
-   *  must keep what the document holds now. `createdAt` is not sent; the rules freeze it. */
-  updatePost: (id: string, patch: ShapePostPatch) => Promise<void>;
+   *  must keep what the document holds now. `createdAt` is not sent; the rules freeze it.
+   *  CONDITIONAL: the write applies only while the document still matches `expect` — the
+   *  owner and the object ids the plugin read — and is refused (throw, with
+   *  `POST_CHANGED_MESSAGE` or a cause of the host's own) when it no longer does: a
+   *  transaction, so a concurrent edit that replaced the script cannot lose its objects. */
+  updatePost: (id: string, patch: ShapePostPatch, expect: ShapePostExpect) => Promise<void>;
   /** Store a PNG under the post and return the object id the document carries. */
   uploadThumbnail: (id: string, png: Uint8Array) => Promise<string>;
   /** Store the ShapeScript source under the post as `SHAPE_SCRIPT_CONTENT_TYPE` and return
@@ -204,6 +208,19 @@ export const SHAPE_SCRIPT_CONTENT_TYPE = "text/plain; charset=utf-8";
 /** The header a host puts on every object it uploads under a post. Each has a random id and
  *  is never rewritten, so a browser — and the gallery's CDN, when it has one — may keep it. */
 export const SHAPE_OBJECT_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+/** What `updatePost` must still find on the document for the write to apply: the read the
+ *  plugin merged against. Object ids are minted per upload and never reused, so an equal
+ *  pair means no other edit replaced the model in between. */
+export interface ShapePostExpect {
+  uid: string;
+  scriptId: string;
+  thumbnailId: string;
+}
+
+/** The refusal a host raises from `updatePost` when the post no longer matches `expect`. */
+export const POST_CHANGED_MESSAGE =
+  "The post changed while this update was being prepared (another edit replaced its model); nothing was written — read it again and retry.";
 
 export const NOT_CONNECTED_MESSAGE =
   "Not connected to the gallery: publishing posts under the user's Google account, which needs the app's Remote Host connected (sign in with Google in the Remote Host control), then try again.";
@@ -437,7 +454,10 @@ async function publishNewPost(context: PublishShapeScriptContext, gallery: Shape
 
 /** Rewrite the user's own post `id`. A new source replaces the script object and the
  *  thumbnail; the replaced objects go once the document points at the new ones, and the new
- *  ones go if the document is refused — either way nothing is left that nothing references. */
+ *  ones go if the document is refused — either way nothing is left that nothing references.
+ *  The write is conditional on the post still carrying the object ids the read saw, so two
+ *  edits racing on one post cannot orphan the winner's objects: the loser is refused with
+ *  `POST_CHANGED_MESSAGE`, its uploads taken back out. */
 async function updateExistingPost(
   context: PublishShapeScriptContext,
   gallery: ShapeGalleryWriter,
@@ -451,7 +471,7 @@ async function updateExistingPost(
   const objects = script === null ? undefined : await uploadObjects(context, gallery, id, script);
   const { doc, patch } = shapePostPatch(existing, args, objects);
   try {
-    await gallery.updatePost(id, patch);
+    await gallery.updatePost(id, patch, { uid: existing.uid, scriptId: existing.scriptId, thumbnailId: existing.thumbnailId });
   } catch (error) {
     if (objects) await discardObjects(context, gallery, id, [objects.scriptId, objects.thumbnailId]);
     throw error;

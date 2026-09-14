@@ -14,22 +14,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 A new optional `id` argument — the tail of a post's gallery URL, or the id an earlier call
 returned — rewrites that post in place under the same URL instead of publishing a second copy.
-Only the account that published it can: the tool reads the post first and refuses one whose
-`uid` is not the session's, naming the reason, where the gallery's rules would only say
+Only the account that published it can update it. The tool reads the post first and refuses one
+whose `uid` is not the session's, naming the reason, where the gallery's rules would only say
 "permission denied". With `id` every other argument is optional — a field given replaces the
 post's (an explicit `""` clears `description` / `prompt` / `aiModel`), one omitted keeps it — so
 `{ id, script }` swaps the model and `{ id, title }` renames it. The write is a field-level
-patch of exactly what the call changes, never the whole document from the read: two clients
-editing one post cannot put back each other's replaced (and deleted) script object. A new `script` / `path` uploads a new script object and thumbnail and removes the replaced
-ones once the document carries the new ids; a refused rewrite takes the new ones back out and
-leaves the post as it was. `title` and the source stay required for a NEW post, checked by the
+patch of exactly what the call changes, never the whole document from the read, and it is
+conditional: it applies only while the post still carries the owner and object ids the read
+saw, so two edits racing on one post cannot put back or orphan each other's script object —
+the loser is refused with `POST_CHANGED_MESSAGE` and its uploads are taken back out. A new
+`script` / `path` uploads a new script object and thumbnail and removes the replaced ones once
+the document carries the new ids; a refused rewrite takes the new ones back out and leaves the
+post as it was. `title` and the source stay required for a NEW post, checked by the
 tool since JSON Schema cannot say "required unless `id`" (`PUBLISH_SCHEMA.required` is now `[]`).
 
 Major because `ShapeGalleryWriter` gains two required members, `readPost(id)` and
-`updatePost(id, patch)`; a host built against 3.x fails every update with `readPost is not a
-function`. MulmoClaude's host adapter supplies both (a `getDoc`, and an `updateDoc` of the
-patch with a server `updatedAt` and no `createdAt`, which the rules freeze — it must stay
-field-level, never a `setDoc`); MulmoTerminal's
+`updatePost(id, patch, expect)`; a host built against 3.x fails every update with `readPost is
+not a function`. MulmoClaude's host adapter supplies both (a `getDoc`, and a `runTransaction`
+that re-reads the post, refuses it unless it still matches `expect`, and applies the patch
+field-level with a server `updatedAt` and no `createdAt`, which the rules freeze — never a
+`setDoc`); MulmoTerminal's
 `server/infra/shapescript-publish-tool.ts` needs the same two lines before it takes 4.0.0.
 
 #### `@mulmoclaude/shapescript-plugin@3.1.0` — `publishShapeScript` records which AI model wrote the script

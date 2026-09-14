@@ -47,8 +47,9 @@ export {
   SHAPE_OBJECT_CACHE_CONTROL,
   requireScriptBytes,
   NOT_CONNECTED_MESSAGE,
+  POST_CHANGED_MESSAGE,
 } from "./publish";
-export type { PublishShapeScriptContext, PublishShapeResult, ShapeGalleryWriter, ShapePostDoc, ShapePostPatch } from "./publish";
+export type { PublishShapeScriptContext, PublishShapeResult, ShapeGalleryWriter, ShapePostDoc, ShapePostExpect, ShapePostPatch } from "./publish";
 export { samples } from "./samples";
 
 // Re-export ShapeScript utilities

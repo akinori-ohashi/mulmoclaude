@@ -25,10 +25,12 @@ import {
   SHAPE_SCRIPT_CONTENT_TYPE,
   type ShapeGalleryWriter,
   type ShapePostDoc,
+  POST_CHANGED_MESSAGE,
+  type ShapePostExpect,
   type ShapePostPatch,
 } from "@mulmoclaude/shapescript-plugin";
 import { renderShapeThumbnail, PUBLISH_TOOL_TIMEOUT_MS } from "@mulmoclaude/shapescript-plugin/render";
-import { doc, getDoc, serverTimestamp, setDoc, updateDoc, type Firestore } from "firebase/firestore";
+import { doc, getDoc, runTransaction, serverTimestamp, setDoc, type Firestore } from "firebase/firestore";
 import { deleteObject, ref as storageRef, uploadBytes, type FirebaseStorage } from "firebase/storage";
 import { currentDisplayName, currentFirestoreSession, currentStorage } from "../../remoteHost/session.js";
 import { log } from "../../system/logger/index.js";
@@ -49,6 +51,12 @@ export function postDocumentOf(post: ShapePostDoc): Record<string, unknown> {
  *  what the document holds now, not what a read a moment ago saw. */
 export function postUpdateOf(patch: ShapePostPatch): Record<string, unknown> {
   return { ...patch, updatedAt: serverTimestamp() };
+}
+
+/** Whether the stored document is still the one the plugin merged against: same owner, same
+ *  object ids. Object ids are minted per upload, so a match means no edit landed in between. */
+export function postStillMatches(data: Record<string, unknown> | undefined, expect: ShapePostExpect): boolean {
+  return data !== undefined && data.uid === expect.uid && data.scriptId === expect.scriptId && data.thumbnailId === expect.thumbnailId;
 }
 
 /** Where a post's picture lives in Storage — `shapes/{uid}/{shapeId}/{objectId}`,
@@ -80,7 +88,15 @@ export function galleryWriterFrom(session: { firestore: Firestore; storage: Fire
       const snapshot = await getDoc(doc(session.firestore, SHAPES, shapeId));
       return snapshot.exists() ? snapshot.data() : null;
     },
-    updatePost: (shapeId, patch) => updateDoc(doc(session.firestore, SHAPES, shapeId), postUpdateOf(patch)),
+    // A transaction: the check and the field-level update are one atomic step, so a
+    // concurrent edit either lands before (and this one is refused) or after (and sees ours).
+    updatePost: (shapeId, patch, expect) =>
+      runTransaction(session.firestore, async (transaction) => {
+        const ref = doc(session.firestore, SHAPES, shapeId);
+        const snapshot = await transaction.get(ref);
+        if (!postStillMatches(snapshot.data(), expect)) throw new Error(POST_CHANGED_MESSAGE);
+        transaction.update(ref, postUpdateOf(patch));
+      }),
     uploadThumbnail: (shapeId, png) => upload(shapeId, png, THUMBNAIL_TYPE),
     uploadScript: (shapeId, script) => upload(shapeId, script, SHAPE_SCRIPT_CONTENT_TYPE),
     deleteObject: (shapeId, objectId) => deleteObject(storageRef(session.storage, shapeObjectPath(session.uid, shapeId, objectId))),
