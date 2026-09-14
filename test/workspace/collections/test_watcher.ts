@@ -136,6 +136,46 @@ afterEach(async () => {
   rmSync(notifierDir, { recursive: true, force: true });
 });
 
+// #3160. `stopCollectionWatchers` awaited the boot and the clock tick but not
+// the EVENT-driven reconcile passes. A pass still running when teardown
+// returned landed its notifier write afterwards — into whatever file the next
+// caller had pointed the notifier at. In this suite that is the next test's
+// fresh `active.json`, which then holds its own entry plus the stale one: the
+// `2 !== 1` seen on macOS CI, where FSEvents' slower delivery widens the
+// window.
+//
+// The assertion is on the CONTRACT rather than on the leak. "Nothing leaked"
+// can only be checked after a sleep, and a sleep long enough to be meaningful
+// is also long enough to be flaky — which is the bug class this test belongs
+// to. "Teardown did not return while a pass was running" is the same property,
+// observable without waiting for anything.
+describe("stopCollectionWatchers drains in-flight reconciles", () => {
+  it("does not return while a reconcile pass is still running", async () => {
+    writeSchema(buildSchema());
+    writeItem("a", { read: false });
+    await startCollectionWatchers({
+      discoveryOpts: { workspaceRoot: workdir, userSkillsDir: userDir },
+      rediscoveryIntervalMs: null,
+    });
+    const collection = await loadCollection(SLUG, { workspaceRoot: workdir, userSkillsDir: userDir });
+    assert.ok(collection, "fixture must load");
+
+    // Deliberately NOT awaited: this is the pass a file event leaves running.
+    let passSettled = false;
+    const inFlight = _scheduleItemReconcileForTesting(collection, "a", workdir).then(() => {
+      passSettled = true;
+    });
+
+    await stopCollectionWatchers();
+    // One microtask tick so the `.then` above can run if its promise is already
+    // resolved. Without the drain the pass is still mid-IO and no tick helps.
+    await Promise.resolve();
+    assert.equal(passSettled, true, "teardown returned while a reconcile pass was still running");
+
+    await inFlight;
+  });
+});
+
 describe("startCollectionWatchers boot reconcile", () => {
   it("publishes bell entries for pending items already on disk at boot", async () => {
     writeSchema(buildSchema());
