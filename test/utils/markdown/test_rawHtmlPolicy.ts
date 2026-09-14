@@ -84,6 +84,61 @@ describe("stripPresentationAttributes — leaves alone", () => {
   });
 });
 
+describe("the RULE itself, differentially against a real parser", () => {
+  // The boundary oracle below pins raw text. This one pins the actual
+  // security property, and it exists because my hand-picked cases could
+  // not have found what they did not imagine: `<div /class="absolute">`
+  // reached the DOM as a real class, because HTML treats a `/` before an
+  // attribute name as a separator and my matcher only accepted whitespace
+  // (codex round 4, P1).
+  //
+  // So the assertion is not "these spellings are removed" — it is: after
+  // stripping, NO element a real parser finds has either attribute,
+  // whatever spelling was used.
+  const survivingPresentationAttrs = (html: string): string[] => {
+    const parsed = new JSDOM(`<!doctype html><body>${stripPresentationAttributes(html)}</body>`);
+    const found: string[] = [];
+    parsed.window.document.querySelectorAll("*").forEach((element) => {
+      ["class", "style"].forEach((name) => {
+        if (element.hasAttribute(name)) found.push(`${element.tagName.toLowerCase()}[${name}]`);
+      });
+    });
+    return found;
+  };
+
+  const spellings: string[] = [
+    '<div class="absolute">x</div>',
+    "<div class=absolute>x</div>",
+    "<div class='absolute'>x</div>",
+    '<div CLASS="absolute">x</div>',
+    '<div class = "absolute">x</div>',
+    '<div\nclass="absolute">x</div>',
+    '<div\tclass="absolute">x</div>',
+    // The slash forms — HTML's before-attribute-name state accepts them.
+    '<div /class="absolute">x</div>',
+    '<div\n/class="absolute">x</div>',
+    "<div //class=absolute>x</div>",
+    '<div id="k" /class=z>x</div>',
+    '<pre /style="position:fixed">x</pre>',
+    '<div style="position:absolute" class="inset-0">x</div>',
+    '<p><span class="a"><b style="b">x</b></span></p>',
+  ];
+
+  spellings.forEach((html) => {
+    it(`no class or style survives — ${html.replace(/\n/g, "\\n").replace(/\t/g, "\\t")}`, () => {
+      assert.deepEqual(survivingPresentationAttrs(html), []);
+    });
+  });
+
+  it("the oracle is not vacuous — it sees the attributes when they are NOT stripped", () => {
+    // A check that matches nothing passes just as well as one that works.
+    const parsed = new JSDOM('<!doctype html><body><div class="absolute" style="x">y</div></body>');
+    const element = parsed.window.document.querySelector("div");
+    assert.ok(element);
+    assert.ok(element.hasAttribute("class") && element.hasAttribute("style"));
+  });
+});
+
 describe("raw-text boundaries, differentially against a real parser", () => {
   // Four of the findings on this scanner were raw-text boundary bugs, so the
   // hand-picked cases above get an ORACLE rather than more of my guesses:

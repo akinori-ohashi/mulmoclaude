@@ -150,7 +150,14 @@ function stripFromTag(tag: string): string {
   let index = 0;
   while (index < tag.length) {
     const rest = tag.slice(index);
-    const match = /^(\s+)([A-Za-z_:][-A-Za-z0-9_:.]*)/.exec(rest);
+    // Separator run: whitespace OR `/`. HTML's before-attribute-name state
+    // treats a `/` that is not followed by `>` as a parse error and then
+    // reads an attribute name anyway, so `<div /class="absolute">` really
+    // does set a class — verified through marked + the sanitiser into the
+    // DOM. Matching only whitespace left that bypass open (codex round 4,
+    // P1). A terminal `/>` is untouched: nothing follows it to match as a
+    // name, so it falls through to the byte copy below.
+    const match = /^([\s/]+)([A-Za-z_:][-A-Za-z0-9_:.]*)/.exec(rest);
     if (match === null) {
       out.push(tag[index] ?? "");
       index += 1;
