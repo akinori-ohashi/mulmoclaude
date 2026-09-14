@@ -230,7 +230,7 @@ publish 済みの manifest が、その後に動いた依存レンジを反映�
 | --- | --- | --- |
 | 版が先行済み | `client@1.3.0` `chat-service@1.2.0` `telegram@1.2.0` | src が動いていて版だけ上がっていた。**`client` が未公開のまま 28 ブリッジが `^1.3.0` を宣言していた**ので、これを先頭に出す |
 | patch（ブリッジ 26 本） | `bluesky` `chatwork` `discord` `email` `google-chat` `irc` `line` `line-works` `mastodon` `matrix` `mattermost` `messenger` `nostr` `rocketchat` `signal` `slack` `teams` `twilio-sms` `viber` `webhook` `whatsapp` `xmpp` `zulip` `cli` `mock-server` `relay` | `@mulmobridge/client` のレンジ `^1.2.0` → `^1.3.0`。`email` は `imapflow` `nodemailer` の major も、`mock-server` は README も反映 |
-| patch（プラグイン 7 本） | `accounting@3.0.2` `chart@3.0.2` `collection@4.7.1` `email@2.0.2` `google@3.0.2` `html@4.0.2` `mulmoscript@4.8.2` `shapescript@5.1.1` | `@mulmoclaude/core` のレンジ（`^4.9.2` / `^4.9.3` → `^4.9.4`）。`collection` は `zod`、`email-plugin` は imapflow 2 への型追従と、日付が壊れていても list が落ちない `envelopeDateIso`（公開 entry からは出ていないので patch） |
+| patch（プラグイン 8 本） | `accounting@3.0.2` `chart@3.0.2` `collection@4.7.1` `email@2.0.2` `google@3.0.2` `html@4.0.2` `mulmoscript@4.8.2` `shapescript@5.1.1` | `@mulmoclaude/core` のレンジ（`^4.9.2` / `^4.9.3` → `^4.9.4`）。`collection` は `zod`、`email-plugin` は imapflow 2 への型追従と、日付が壊れていても list が落ちない `envelopeDateIso`（公開 entry からは出ていないので patch） |
 
 launcher (`mulmoclaude`) の `version` は `chore(release)` では触らない規則どおり据え置き。
 アプリ本体（`server/` / `src/`）が npm 利用者に届くのは `/publish-mulmoclaude` 経由なので、

@@ -43,15 +43,39 @@ manifests.forEach(({ file, json }) => {
   if (json.name && INTERNAL.test(json.name) && !json.private) publishable.set(json.name, { file, json });
 });
 
-const bumpPatch = (version) => {
-  const [major, minor, patch] = version.split(".").map(Number);
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
+const parseVersion = (version, what) => {
+  const match = SEMVER.exec(version);
+  if (!match) throw new Error(`${what}: "${version}" is not a plain x.y.z version — resolve it by hand`);
+  return match.slice(1, 4).map(Number);
+};
+
+// -1 / 0 / 1, the way a comparator reads.
+const compareVersions = (a, b, what) => {
+  const left = parseVersion(a, what);
+  const right = parseVersion(b, what);
+  for (let i = 0; i < 3; i += 1) {
+    if (left[i] !== right[i]) return left[i] < right[i] ? -1 : 1;
+  }
+  return 0;
+};
+
+const bumpPatch = (version, what) => {
+  const [major, minor, patch] = parseVersion(version, what);
   return `${major}.${minor}.${patch + 1}`;
 };
 
 const decide = (row) => {
-  if (row.local !== row.npm) return { action: "publish as-is", newVersion: row.local };
+  const direction = compareVersions(row.local, row.npm, row.name);
+  // npm ahead of the workspace means someone published from elsewhere. Bumping
+  // from the local number would sweep every consumer's range BACKWARDS onto a
+  // version older than what npm already serves, so refuse rather than guess.
+  if (direction < 0) {
+    throw new Error(`${row.name}: npm serves ${row.npm} but the workspace is ${row.local}. Pull the newer release in first.`);
+  }
+  if (direction > 0) return { action: "publish as-is", newVersion: row.local };
   if (row.name === LAUNCHER) return { action: "SKIP - launcher version belongs to /publish-mulmoclaude", newVersion: row.local };
-  return { action: "bump", newVersion: bumpPatch(row.local) };
+  return { action: "bump", newVersion: bumpPatch(row.local, row.name) };
 };
 
 const decisions = [];
