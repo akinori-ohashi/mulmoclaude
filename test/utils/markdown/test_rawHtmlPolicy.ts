@@ -184,10 +184,53 @@ describe("the WHOLE contract, differentially against a real parser", () => {
   // combination, so the next boundary nobody thought of is caught by
   // construction rather than by someone thinking of it.
   it("holds over generated combinations, not just the cases someone thought of", () => {
-    const names = ["div", "span", "pre", "style", "textarea", "script", "title", "style:foo", "style=foo", "style\u00e9", "scriptx", "textarea:x"];
-    const attrs = ["", ' class="a"', " class=a", ' style="s"', " data-x=1", ' id="k" class="c"', ' class="a>b"'];
+    // Every raw-text member, not a sample of them: dropping one from
+    // RAW_TEXT_ELEMENTS is a mutation the narrower list survives.
+    const names = [
+      "div",
+      "span",
+      "pre",
+      "style",
+      "textarea",
+      "script",
+      "title",
+      "xmp",
+      "iframe",
+      "noembed",
+      "noframes",
+      "plaintext",
+      "style:foo",
+      "style=foo",
+      "style\u00e9",
+      "scriptx",
+      "textarea:x",
+    ];
+    const attrs = [
+      "",
+      ' class="a"',
+      " class=a",
+      ' style="s"',
+      " data-x=1",
+      ' id="k" class="c"',
+      ' class="a>b"',
+      // Case, because names are matched lower-cased.
+      ' CLASS="a"',
+      ' Style="s"',
+      " ClAsS=a",
+      // No separator after a QUOTED value — HTML starts a new attribute name
+      // there, and requiring one let `<div id="a"class="absolute">` through.
+      ' class="a"style="b"',
+      ' id="a"class="b"',
+      ' data-x="1"style="position:fixed"',
+      // ...but not after an unquoted one, where the quote is part of the value.
+      ' class=a"style=b',
+      " class=a class=b",
+    ];
     const separators = [" ", "\t", "\n", "/", ""];
-    const bodies = ["", "x", '<pre class="absolute">y</pre>', "a < b", "<!-- c -->"];
+    const bodies = ["", "x", '<pre class="absolute">y</pre>', "a < b", "<!-- c -->", '<textarea><b class="c"></textarea>'];
+    // marked hands raw HTML over in chunks that are not well-formed, so a
+    // truncated tag is a real input rather than a hypothetical one.
+    const truncations = [(html: string) => html, (html: string) => html.slice(0, Math.max(1, html.length - 1)), (html: string) => html.split(">")[0] ?? html];
 
     // The shared `parse` builds a whole JSDOM per call, which is fine for a
     // hand-written corpus and exhausts the heap over thousands of inputs. One
@@ -205,18 +248,13 @@ describe("the WHOLE contract, differentially against a real parser", () => {
       return body.innerHTML;
     };
 
-    const violations: string[] = [];
-    names.forEach((name) =>
-      attrs.forEach((attr) =>
-        separators.forEach((separator) =>
-          bodies.forEach((body) => {
-            const input = `<${name}${separator}${attr}>${body}</${name}>`;
-            if (shapeOf(stripPresentationAttributes(input), false) !== shapeOf(input, true)) violations.push(input);
-          }),
-        ),
-      ),
+    const tags = names.flatMap((name) =>
+      attrs.flatMap((attr) => separators.flatMap((separator) => bodies.map((body) => `<${name}${separator}${attr}>${body}</${name}>`))),
     );
-    assert.deepEqual(violations, [], `the contract failed on ${violations.length} generated inputs, e.g. ${JSON.stringify(violations[0])}`);
+    const inputs = tags.flatMap((tag) => truncations.map((truncate) => truncate(tag)));
+    const violations = inputs.filter((input) => shapeOf(stripPresentationAttributes(input), false) !== shapeOf(input, true));
+    assert.ok(inputs.length > 20000, `the generator collapsed to ${inputs.length} inputs — it is meant to cross every dimension`);
+    assert.deepEqual(violations, [], `the contract failed on ${violations.length} of ${inputs.length} generated inputs, e.g. ${JSON.stringify(violations[0])}`);
   });
 
   it("the oracle is not vacuous — an unstripped document does NOT match its own expected shape", () => {
@@ -472,6 +510,14 @@ describe("app markup injected into the source can prove itself with a nonce", ()
   it("the marker never reaches the output, believed or not", () => {
     const untrusted = render(`<div class="absolute" ${APP_MARKUP_ATTR}="${NONCE}">x</div>`, NONCE);
     assert.doesNotMatch(untrusted, new RegExp(APP_MARKUP_ATTR));
+  });
+
+  it("a name the trust scan ends early is refused, not granted — the two scans fail closed", () => {
+    // `leadingMarkerAt` scans the name more narrowly than `tagNameEnd`. Where
+    // they disagree the answer must be "not trusted"; pinning it stops a future
+    // unification from silently widening a security check.
+    const html = render(`<span:x ${APP_MARKUP_ATTR}="${NONCE}" class="wiki-link">x</span:x>`, NONCE);
+    assert.doesNotMatch(html, /class="wiki-link"/);
   });
 
   it("an empty nonce trusts nothing — no CSPRNG must fail closed", () => {

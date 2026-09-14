@@ -236,15 +236,24 @@ function valueEnd(tag: string, start: number): number {
   return index;
 }
 
+/** How much of the tag an attribute's `=value` occupies, and whether that
+ *  value was QUOTED — which decides whether the next attribute name may begin
+ *  with no separator at all. */
+interface Assignment {
+  length: number;
+  quoted: boolean;
+}
+
 /** Length of the `=value` that may follow an attribute name at `from`,
  *  including surrounding whitespace. Zero when the attribute is bare. */
-function assignmentLength(tag: string, from: number): number {
+function assignmentLength(tag: string, from: number): Assignment {
   let index = from;
   while (index < tag.length && isHtmlWhitespace(tag[index] ?? "")) index += 1;
-  if (tag[index] !== "=") return 0;
+  if (tag[index] !== "=") return { length: 0, quoted: false };
   index += 1;
   while (index < tag.length && isHtmlWhitespace(tag[index] ?? "")) index += 1;
-  return valueEnd(tag, index) - from;
+  const first = tag[index];
+  return { length: valueEnd(tag, index) - from, quoted: first === '"' || first === "'" };
 }
 
 /** True when `char` ends an attribute name rather than continuing it. */
@@ -281,6 +290,11 @@ function isStripped(name: string): boolean {
  *  so the only tag whose name is followed directly by the marker is the app's
  *  own span. */
 function leadingMarkerAt(tag: string, marker: string): number {
+  // Deliberately a NARROWER name scan than `tagNameEnd`. Ending the name early
+  // can only ever land on a non-whitespace character and REFUSE trust, never
+  // grant it — `<span:x data-app-markup="…">` is refused where the wide scan
+  // would accept it. A trust check should fail closed when the two disagree,
+  // so do not "unify" these two scans without re-deriving that direction.
   const name = /^<([A-Za-z][A-Za-z0-9-]*)/.exec(tag);
   if (name === null) return -1;
   const afterName = 1 + (name[1] ?? "").length;
@@ -310,6 +324,9 @@ function tagNameEnd(tag: string): number {
   return index;
 }
 
+const AFTER_SEPARATOR = /^([ \t\n\f\r/]+)([A-Za-z_:][-A-Za-z0-9_:.]*)/;
+const AFTER_QUOTED_VALUE = /^([ \t\n\f\r/]*)([A-Za-z_:][-A-Za-z0-9_:.]*)/;
+
 /** Removes the forbidden attributes from ONE tag's source text — unless the
  *  tag proves it is app markup, in which case only the proof is removed so it
  *  cannot leak into the document and be copied back in by an author. */
@@ -319,6 +336,14 @@ function stripFromTag(tag: string): string {
   if (markerAt !== -1) return removeMarkerAt(tag, markerAt, marker.length);
   let index = tagNameEnd(tag);
   const out: string[] = [tag.slice(0, index)];
+  // A quoted value is the one place a following attribute needs NO separator.
+  // HTML's after-attribute-value-(quoted) state reconsumes anything that is not
+  // whitespace, `/` or `>` in before-attribute-name, so `<div id="a"class="…">`
+  // really does set a class — measured through marked into jsdom. Requiring a
+  // separator everywhere left that open, and it is the overlay this file exists
+  // to stop. After an UNQUOTED value there is no such case: the value itself
+  // only ends at whitespace or `>`, so a separator is always present.
+  let afterQuotedValue = false;
   while (index < tag.length) {
     const rest = tag.slice(index);
     // Separator run: whitespace OR `/`. HTML's before-attribute-name state
@@ -328,16 +353,19 @@ function stripFromTag(tag: string): string {
     // DOM. Matching only whitespace left that bypass open (codex round 4,
     // P1). A terminal `/>` is untouched: nothing follows it to match as a
     // name, so it falls through to the byte copy below.
-    const match = /^([ \t\n\f\r/]+)([A-Za-z_:][-A-Za-z0-9_:.]*)/.exec(rest);
+    const match = (afterQuotedValue ? AFTER_QUOTED_VALUE : AFTER_SEPARATOR).exec(rest);
     if (match === null) {
       out.push(tag[index] ?? "");
       index += 1;
+      afterQuotedValue = false;
       continue;
     }
     const [whole, , rawName] = match;
     const name = rawName ?? "";
     const nameEnd = index + whole.length;
-    const span = whole.length + assignmentLength(tag, nameEnd);
+    const assignment = assignmentLength(tag, nameEnd);
+    const span = whole.length + assignment.length;
+    afterQuotedValue = assignment.quoted;
     // The matched name must END here, or it is a longer name that merely
     // STARTS with a forbidden one. HTML attribute names run through
     // characters this regex does not accept — non-ASCII, NUL — so `classé`
