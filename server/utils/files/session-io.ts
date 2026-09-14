@@ -15,11 +15,20 @@ export function ensureChatDir(): void {
   ensureWorkspaceDir(CHAT);
 }
 
-function metaRel(sessionId: string): string {
+// Null for an id that is not path-safe. The two functions below are the ONLY
+// places a session id becomes a path, so refusing here is what makes the rule
+// hold for every reader, writer and future caller at once — `path.posix.join`
+// normalises `../` away, which is how `../../config/settings` once resolved
+// onto the app's own settings file. Nullable rather than throwing so the
+// compiler names every consumer, and so a filesystem scan can skip an odd
+// filename instead of failing the whole listing.
+function metaRel(sessionId: string): string | null {
+  if (!isSafeSessionId(sessionId)) return null;
   return path.posix.join(CHAT, `${sessionId}.json`);
 }
 
-function jsonlRel(sessionId: string): string {
+function jsonlRel(sessionId: string): string | null {
+  if (!isSafeSessionId(sessionId)) return null;
   return path.posix.join(CHAT, `${sessionId}.jsonl`);
 }
 
@@ -94,7 +103,9 @@ function isSessionMeta(value: unknown): value is SessionMeta {
 }
 
 export async function readSessionMetaFull(sessionId: string, rootOverride?: string): Promise<ReadMetaResult> {
-  const raw = await readTextUnder(root(rootOverride), metaRel(sessionId));
+  const rel = metaRel(sessionId);
+  if (rel === null) return { kind: "missing" };
+  const raw = await readTextUnder(root(rootOverride), rel);
   if (raw === null) return { kind: "missing" };
   // A file whose fields don't match the declared types joins the existing
   // "corrupt" branch rather than getting a new one: the caller's contract is
@@ -121,8 +132,12 @@ export async function readSessionMeta(sessionId: string, rootOverride?: string):
 }
 
 export async function writeSessionMeta(sessionId: string, meta: SessionMeta, rootOverride?: string): Promise<void> {
-  if (refuseUnsafeSessionId(sessionId, "write meta")) return;
-  await writeTextUnder(root(rootOverride), metaRel(sessionId), JSON.stringify(meta, null, 2));
+  const rel = metaRel(sessionId);
+  if (rel === null) {
+    refuseUnsafeSessionId(sessionId, "write meta");
+    return;
+  }
+  await writeTextUnder(root(rootOverride), rel, JSON.stringify(meta, null, 2));
 }
 
 export async function createSessionMeta(sessionId: string, roleId: string, firstUserMessage: string, rootOverride?: string, origin?: string): Promise<void> {
@@ -145,10 +160,8 @@ export async function createSessionMeta(sessionId: string, roleId: string, first
  *  Reads are deliberately NOT gated here — the listing path enumerates ids from
  *  the filesystem, where `indexer.ts` establishes SKIP rather than refuse as
  *  the handling, and that needs its own change. Tracked separately. */
-function refuseUnsafeSessionId(sessionId: string, action: string): boolean {
-  if (isSafeSessionId(sessionId)) return false;
+function refuseUnsafeSessionId(sessionId: string, action: string): void {
   log.warn("session-io", "refused a session id that is not path-safe", { action, length: sessionId.length });
-  return true;
 }
 
 /** Serialises `task` against every other task holding the same key. Keyed by
@@ -182,12 +195,12 @@ async function runExclusively(key: string, task: () => Promise<void>): Promise<v
  *  `mutate` returns null to write nothing, which is how the "already set" and
  *  "unchanged" cases stay a single early return. */
 async function mutateSessionMeta(sessionId: string, rootOverride: string | undefined, mutate: (meta: SessionMeta) => SessionMeta | null): Promise<void> {
-  // Not the write boundary — `writeSessionMeta` is, and removing this line
-  // alone leaves the suite green. It is here for the READ below: otherwise a
-  // hostile id still gets an arbitrary JSON file opened and parsed for it
-  // before the write is turned away.
-  if (refuseUnsafeSessionId(sessionId, "mutate meta")) return;
-  await runExclusively(resolvePath(root(rootOverride), metaRel(sessionId)), async () => {
+  const rel = metaRel(sessionId);
+  if (rel === null) {
+    refuseUnsafeSessionId(sessionId, "mutate meta");
+    return;
+  }
+  await runExclusively(resolvePath(root(rootOverride), rel), async () => {
     const meta = await readSessionMeta(sessionId, rootOverride);
     if (!meta) return;
     const next = mutate(meta);
@@ -227,6 +240,12 @@ export async function updateIsBookmarked(sessionId: string, isBookmarked: boolea
  *  is absent, not merely falsy: a writer that preserved `undefined` would
  *  reintroduce the bug this comment is about. */
 export async function updateSessionChatModel(sessionId: string, chatModel: ChatModel | undefined, rootOverride?: string): Promise<void> {
+  // The parameter type is not the guard: this value ends up on the
+  // `claude --model` command line, and TypeScript is gone by then.
+  if (chatModel !== undefined && !isChatModel(chatModel)) {
+    log.warn("session-io", "refused to store an alias that is not a known one");
+    return;
+  }
   await mutateSessionMeta(sessionId, rootOverride, (meta) => (meta.chatModel === chatModel ? null : { ...meta, chatModel }));
 }
 
@@ -247,29 +266,51 @@ export async function incrementUserQueryCount(sessionId: string, rootOverride?: 
 export async function deleteSessionFiles(sessionId: string, rootOverride?: string): Promise<void> {
   // Guarded for the same reason as every writer, and more urgently: an
   // unvalidated id here is an arbitrary file delete, not an overwrite.
-  if (refuseUnsafeSessionId(sessionId, "delete session files")) return;
-  await rm(sessionJsonlAbsPath(sessionId, rootOverride), { force: true });
-  await rm(sessionMetaAbsPath(sessionId, rootOverride), { force: true });
+  const jsonlPath = sessionJsonlAbsPath(sessionId, rootOverride);
+  const metaPath = sessionMetaAbsPath(sessionId, rootOverride);
+  if (jsonlPath === null || metaPath === null) {
+    log.warn("session-io", "refused a session id that is not path-safe", { action: "delete session files", length: sessionId.length });
+    return;
+  }
+  await rm(jsonlPath, { force: true });
+  await rm(metaPath, { force: true });
 }
 
-export function sessionJsonlAbsPath(sessionId: string, rootOverride?: string): string {
-  return resolvePath(root(rootOverride), jsonlRel(sessionId));
+/** Null for an id that is not path-safe, so a caller cannot come away holding a
+ *  path it was never allowed to write to.
+ *
+ *  Stated as what is PERMITTED rather than as a list of writers to guard,
+ *  because the list kept being wrong: three separate reviews of this change
+ *  each turned up one more writer deriving a path without checking — the meta
+ *  mutators, then `appendSessionLine` / `createSessionMeta`, then
+ *  `resultsFilePath`, which `startChat` hands to the tool-trace and jsonl
+ *  append sinks. A rule that enumerates bad forms always has one more. */
+export function sessionJsonlAbsPath(sessionId: string, rootOverride?: string): string | null {
+  const rel = jsonlRel(sessionId);
+  return rel === null ? null : resolvePath(root(rootOverride), rel);
 }
 
 // .json sidecar to the event-log jsonl. mtime bumps on every writeSessionMeta — used as a "session changed" signal.
-export function sessionMetaAbsPath(sessionId: string, rootOverride?: string): string {
-  return resolvePath(root(rootOverride), metaRel(sessionId));
+// Null on an unsafe id, for the reason on `sessionJsonlAbsPath`.
+export function sessionMetaAbsPath(sessionId: string, rootOverride?: string): string | null {
+  const rel = metaRel(sessionId);
+  return rel === null ? null : resolvePath(root(rootOverride), rel);
 }
 
 export async function readSessionJsonl(sessionId: string, rootOverride?: string): Promise<string | null> {
-  return readTextUnder(root(rootOverride), jsonlRel(sessionId));
+  const rel = jsonlRel(sessionId);
+  return rel === null ? null : readTextUnder(root(rootOverride), rel);
 }
 
 // Always ends with `\n` to prevent JSONL parse failures from a missing terminator.
 export async function appendSessionLine(sessionId: string, line: string, rootOverride?: string): Promise<void> {
   // `startChat` appends with the `chatSessionId` straight off the request body
   // (server/api/routes/agent.ts), which only checks that it is non-empty.
-  if (refuseUnsafeSessionId(sessionId, "append transcript line")) return;
+  const rel = jsonlRel(sessionId);
+  if (rel === null) {
+    refuseUnsafeSessionId(sessionId, "append transcript line");
+    return;
+  }
   const normalized = line.endsWith("\n") ? line : `${line}\n`;
-  await appendFile(resolvePath(root(rootOverride), jsonlRel(sessionId)), normalized);
+  await appendFile(resolvePath(root(rootOverride), rel), normalized);
 }

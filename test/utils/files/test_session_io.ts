@@ -19,6 +19,8 @@ import {
   readSessionMetaFull,
   updateIsBookmarked,
   deleteSessionFiles,
+  sessionJsonlAbsPath,
+  sessionMetaAbsPath,
 } from "../../../server/utils/files/session-io.js";
 import type { ChatModel } from "../../../src/config/models.js";
 import { WORKSPACE_DIRS } from "../../../server/workspace/paths.js";
@@ -306,11 +308,16 @@ describe("updateSessionChatModel", () => {
     assert.equal((await readSessionMetaFull("sm-5", root)).kind, "ok", "one unknown alias is not a corrupt file");
   });
 
-  // The value is still refused on the way IN — dropping it on read is a
-  // compatibility rule, not a relaxation of what may be stored.
-  it("still refuses to store an alias that is not a known one", async () => {
+  // The value is refused on the way IN too — dropping it on read is a
+  // compatibility rule, not a relaxation of what may be stored. Asserted
+  // against the RAW FILE: reading it back would pass either way, because the
+  // read drops an unknown alias regardless of how it got there, so only the
+  // bytes on disk can tell the two mechanisms apart.
+  it("refuses to store an alias that is not a known one", async () => {
     await createSessionMeta("sm-6", "general", "hi", root);
     await updateSessionChatModel("sm-6", "gpt-4o" as ChatModel, root);
+    const raw = readFileSync(path.join(root, WORKSPACE_DIRS.chat, "sm-6.json"), "utf-8");
+    assert.equal(raw.includes("gpt-4o"), false, "an unknown alias must not reach the file at all");
     assert.equal((await readSessionMeta("sm-6", root))?.chatModel, undefined);
   });
 });
@@ -398,6 +405,43 @@ describe("session meta hostile ids", () => {
     ]);
     assert.equal(readFileSync(victim, "utf-8"), original, "createSessionMeta / writeSessionMeta must not reach outside the chat dir");
     assert.equal(existsSync(transcript), false, "appendSessionLine must not create a transcript outside the chat dir");
+  });
+
+  // The rule, stated as what is PERMITTED. Three rounds of this review each
+  // found one more writer deriving a path without checking — the meta
+  // mutators, then `appendSessionLine` / `createSessionMeta`, then
+  // `resultsFilePath`, which `startChat` hands to the tool-trace and jsonl
+  // append sinks. Enumerating the writers was always going to miss one, so the
+  // getters refuse instead and no caller can hold a path it may not write to.
+  it("hands out no path at all for an id that is not path-safe", () => {
+    HOSTILE.forEach((sessionId) => {
+      assert.equal(sessionJsonlAbsPath(sessionId, root), null, `${sessionId} must not yield a jsonl path`);
+      assert.equal(sessionMetaAbsPath(sessionId, root), null, `${sessionId} must not yield a meta path`);
+    });
+  });
+
+  // The completion of the same rule: reads yield nothing either, so the
+  // invariant is "an unsafe id never becomes a session path", full stop —
+  // not "writes are safe and reads are not", which is the half-rule that
+  // reads as handled.
+  it("reads nothing for an id that is not path-safe", async () => {
+    const victim = path.join(root, "config", "settings.json");
+    mkdirSync(path.join(root, "config"), { recursive: true });
+    writeFileSync(victim, JSON.stringify({ extraAllowedTools: ["Bash"] }));
+    const results = await Promise.all(HOSTILE.map((sessionId) => readSessionMeta(sessionId, root)));
+    assert.deepEqual(
+      results,
+      HOSTILE.map(() => null),
+      "a hostile id must not read a file outside the chat dir",
+    );
+    assert.equal((await readSessionMetaFull("../../config/settings", root)).kind, "missing");
+    assert.equal(await readSessionJsonl("../../config/settings", root), null);
+  });
+
+  it("still hands out a path for a real session id", () => {
+    const real = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+    assert.equal(sessionJsonlAbsPath(real, root), path.join(root, WORKSPACE_DIRS.chat, `${real}.jsonl`));
+    assert.equal(sessionMetaAbsPath(real, root), path.join(root, WORKSPACE_DIRS.chat, `${real}.json`));
   });
 
   it("deletes nothing outside the chat dir", async () => {

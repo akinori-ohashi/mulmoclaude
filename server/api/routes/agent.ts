@@ -7,6 +7,7 @@ import {
   backfillOrigin,
   incrementUserQueryCount,
   readSessionMetaFull,
+  updateSessionChatModel,
   updateResolvedModel,
   readSessionMeta,
   setClaudeSessionId as setClaudeId,
@@ -20,7 +21,7 @@ import {
 import { getRole } from "../../workspace/roles.js";
 import { runAgent } from "../../agent/index.js";
 import { INJECTED_TEXT, SESSION_MODEL } from "../../agent/stream.js";
-import type { ChatModel } from "../../../src/config/models.js";
+import { isChatModel, type ChatModel } from "../../../src/config/models.js";
 import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
 import {
@@ -141,6 +142,9 @@ export interface StartChatParams extends ChatServiceStartChatParams {
    *  Validated server-side before it reaches the system prompt — an
    *  invalid or missing value falls back to server-local time. */
   userTimezone?: string | undefined;
+  /** This conversation's model override (#3147), carried by the FIRST turn
+   *  only. See `persistUserTurn`. */
+  chatModel?: unknown;
 }
 
 export type StartChatResult = { kind: "started"; chatSessionId: string } | { kind: "error"; error: string; status?: number };
@@ -197,23 +201,35 @@ export async function spawnSystemWorker(args: {
   return { ok: true, chatId };
 }
 
+/** Everything that can refuse the request before anything is created, derived
+ *  or stored. The second check is the one that matters: every step below takes
+ *  `resultsFilePath` — the in-memory session, the tool-trace appender, the
+ *  jsonl append queue — so a request that got past it would look persisted and
+ *  write somewhere it must not. */
+function validateStartChatRequest(params: StartChatParams): { kind: "ok"; resultsFilePath: string } | { kind: "error"; error: string; status: number } {
+  const { message, roleId, chatSessionId } = params;
+  if (!message || !roleId || !chatSessionId) {
+    return { kind: "error", error: "message, roleId, and chatSessionId are required", status: 400 };
+  }
+  const resultsFilePath = sessionJsonlAbsPath(chatSessionId);
+  if (resultsFilePath === null) {
+    log.warn("agent", "refused a chatSessionId that is not path-safe");
+    return { kind: "error", error: "chatSessionId is not valid", status: 400 };
+  }
+  return { kind: "ok", resultsFilePath };
+}
+
 export async function startChat(params: StartChatParams): Promise<StartChatResult> {
-  const { message, roleId, chatSessionId, selectedImageData, attachments } = params;
+  const { roleId, chatSessionId, selectedImageData, attachments } = params;
   // Bridge-only compat: external bridge clients may still populate
   // `selectedImageData`. Fold it into `attachments` so the rest of
   // this function only deals with one input shape.
   const normalisedAttachments = mergeBridgeSelectedImage(selectedImageData, attachments);
 
-  if (!message || !roleId || !chatSessionId) {
-    return {
-      kind: "error",
-      error: "message, roleId, and chatSessionId are required",
-      status: 400,
-    };
-  }
-
+  const validated = validateStartChatRequest(params);
+  if (validated.kind === "error") return validated;
+  const { resultsFilePath } = validated;
   ensureChatDir();
-  const resultsFilePath = sessionJsonlAbsPath(chatSessionId);
 
   // Discriminate missing (first turn) from corrupt (warn, don't clobber).
   const metaResult = await readSessionMetaFull(chatSessionId);
@@ -298,6 +314,15 @@ async function persistUserTurn(params: StartChatParams, ctx: { isFirstTurn: bool
   const validOrigin = isSessionOrigin(params.origin) ? params.origin : undefined;
   if (isFirstTurn) {
     await createSessionMeta(chatSessionId, roleId, message, undefined, validOrigin);
+    // The model picker is reachable before the first message — which is when a
+    // per-chat model is most worth choosing — but the session is minted in the
+    // browser and has no sidecar until the line above runs, so the override
+    // rides with this request and is applied the moment the file exists.
+    // Only on the first turn: after that the sidecar is authoritative, and
+    // taking the request's copy would let a stale tab undo a newer choice.
+    // `updateSessionChatModel` validates, so an unknown alias is refused here
+    // exactly as it is on the dedicated route.
+    if (isChatModel(params.chatModel)) await updateSessionChatModel(chatSessionId, params.chatModel);
   } else {
     await backfillMeta(chatSessionId, message);
     if (validOrigin) {

@@ -39,6 +39,9 @@ describe("buildAgentRequestBody — happy path", () => {
       roleId: "coder",
       chatSessionId: "sess-1",
       attachments: [{ path: "artifacts/images/2026/04/abc.png" }],
+      // Present even when the session has no override, so the shape does not
+      // change between the first turn and the rest (#3148).
+      chatModel: undefined,
     });
     // The builder must call Intl — node test runners always expose a
     // recognizable IANA id (even "UTC" in minimal builds). Guard with
@@ -133,5 +136,32 @@ describe("buildAgentRequestBody — edge cases", () => {
       chatSessionId: "s",
     });
     assert.equal(body.roleId, "abc-123");
+  });
+});
+
+// #3148 cross-review. A session is minted in the browser and has no sidecar
+// until its first turn, so a model chosen BEFORE the first message — the
+// moment a per-chat model is most worth choosing — has nowhere on disk to be
+// written. The route accepts it and does nothing. The choice therefore has to
+// ride with the first request, and the server applies it once the sidecar
+// exists. Found by driving the real app: without this the chip said `haiku`
+// and the turn ran on `claude-opus-5[1m]`.
+describe("buildAgentRequestBody — session model override", () => {
+  it("carries the session's override", () => {
+    const body = buildAgentRequestBody({ message: "m", role: makeRole(), chatSessionId: "s", chatModel: "haiku" });
+    assert.equal(body.chatModel, "haiku");
+  });
+
+  it("carries undefined when the session has no override", () => {
+    const body = buildAgentRequestBody({ message: "m", role: makeRole(), chatSessionId: "s" });
+    assert.equal(body.chatModel, undefined);
+  });
+
+  it("keeps the override out of the fields the server reads separately", () => {
+    const body = buildAgentRequestBody({ message: "m", role: makeRole({ id: "r1" }), chatSessionId: "s", chatModel: "opus" });
+    assert.deepEqual(
+      { roleId: body.roleId, chatSessionId: body.chatSessionId, chatModel: body.chatModel },
+      { roleId: "r1", chatSessionId: "s", chatModel: "opus" },
+    );
   });
 });

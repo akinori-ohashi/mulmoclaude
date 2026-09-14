@@ -1149,6 +1149,7 @@ async function sendMessage(text?: string) {
       role: roleOfSession(session),
       chatSessionId: session.id,
       attachments,
+      chatModel: session.chatModel,
     }),
   );
   if (!result.ok) {

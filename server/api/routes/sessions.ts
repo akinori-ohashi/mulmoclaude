@@ -194,15 +194,21 @@ async function cachedSessionMeta(sessionId: string, ctx: SessionRowContext, stam
 
 async function loadSessionRow(sessionId: string, ctx: SessionRowContext): Promise<SessionRow | null> {
   try {
+    // Skipped rather than refused, matching `indexer.ts`'s `safeSessionIdOrNull`:
+    // these ids come off the filesystem, so an odd name is a file to pass over,
+    // not a request to reject.
+    const jsonlPath = sessionJsonlAbsPath(sessionId);
+    const metaPath = sessionMetaAbsPath(sessionId);
+    if (jsonlPath === null || metaPath === null) return null;
     // stat only — no readFile on .jsonl content
-    const fileStat = await stat(sessionJsonlAbsPath(sessionId));
+    const fileStat = await stat(jsonlPath);
     if (ctx.cutoff > 0 && fileStat.mtimeMs < ctx.cutoff) return null;
 
     // The meta sidecar bumps its mtime on hasUnread / origin writes —
     // feed it into changeMs so cursor-based refetches pick up drains
     // of background generations (which only touch meta, not the
     // jsonl). Stat'ed BEFORE the read so it can key the cache.
-    const metaMtimeMs = await stat(sessionMetaAbsPath(sessionId))
+    const metaMtimeMs = await stat(metaPath)
       .then((stats) => stats.mtimeMs)
       .catch(() => 0);
 
@@ -426,9 +432,11 @@ router.post(
         return;
       }
       const requested = req.body?.chatModel;
-      // Validated here as well as in session-io: this value ends up on the
-      // `claude --model` command line, so an unknown alias is a 400 rather
-      // than something written to disk and silently dropped later.
+      // Three layers, each with a different job: a 400 here so the caller is
+      // told, a refusal in `updateSessionChatModel` so no other caller can
+      // store one, and a drop on read so a file written by a build with a
+      // different `CHAT_MODELS` still loads. The value reaches the
+      // `claude --model` command line, which is why it is worth all three.
       const clearing = requested === undefined || requested === null;
       if (!clearing && !isChatModel(requested)) {
         log.warn("sessions", "chat-model: rejected", { sessionId: sessionIdForLog });

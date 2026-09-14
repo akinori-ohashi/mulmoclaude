@@ -47,6 +47,27 @@ test.describe("session model chip", () => {
     await expect(clear).toBeHidden();
   });
 
+  // A session is minted in the browser and has no sidecar until its first
+  // turn, so the chat-model POST is a no-op before then — the choice has to
+  // ride with the request instead. Found by driving the real app: without
+  // this the chip said `haiku` and the first turn ran on the shared default.
+  test("sends the chosen model with the turn, so the FIRST message uses it", async ({ page }) => {
+    const bodies: { chatModel?: string }[] = [];
+    await page.route(`**${CHAT_MODEL_PATH}`, (route) => route.fulfill({ json: { ok: true } }));
+    await page.route("**/api/agent", (route) => {
+      bodies.push(route.request().postDataJSON());
+      return route.fulfill({ status: 202, json: { chatSessionId: SESSION_A.id } });
+    });
+    await page.goto(`/chat/${SESSION_A.id}`);
+
+    await chip(page).selectOption("opus");
+    await page.getByTestId("user-input").fill("hello");
+    await page.getByTestId("send-btn").click();
+
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0]?.chatModel).toBe("opus");
+  });
+
   // The next turn reads the override from disk, so a send issued straight
   // after a selection must not overtake the write that persists it.
   test("does not dispatch a turn before the override write lands", async ({ page }) => {
