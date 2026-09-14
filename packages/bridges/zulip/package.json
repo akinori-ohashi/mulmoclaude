@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/zulip",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Zulip bridge for MulmoBridge — connect Zulip to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",
