@@ -28,7 +28,10 @@ describe("renderMarkdownHtml", () => {
   it("produces a self-contained HTML with inline CSS and data-URI images", async () => {
     const html = await renderMarkdownHtml({ markdown: "# Title\n\n![pic](pic.png)\n", baseDir: `data/${TOKEN}` });
     assert.match(html, /<!DOCTYPE html>/i);
-    assert.match(html, /<style>/);
+    // Nonced since #3151: `style-src` names a per-render nonce so an
+    // author `<style>` block cannot restyle the exported document, and the
+    // route's own stylesheet has to carry it to survive its own policy.
+    assert.match(html, /<style nonce="[0-9a-f-]{36}">/);
     assert.match(html, /Title<\/h1>/);
     assert.match(html, /data:image\/png;base64,/);
     assert.doesNotMatch(html, /src="pic\.png"/);

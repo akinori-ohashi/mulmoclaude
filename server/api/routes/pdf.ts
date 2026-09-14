@@ -1,6 +1,7 @@
 import { realpathSync } from "fs";
 import path from "path";
 import { Router, Request, Response } from "express";
+import { randomUUID } from "node:crypto";
 import { marked } from "marked";
 import { rawHtmlPolicyExtension } from "@mulmoclaude/markdown-utils/markdown/rawHtmlPolicy";
 import { renderMarpDeck } from "@mulmoclaude/markdown-plugin";
@@ -251,13 +252,27 @@ export function inlineImages(html: string, options: InlineImagesOptions = {}): s
 // turns it red.
 const NO_SCRIPT_CSP = "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; child-src 'none'";
 
+// Author `<style>` is the same spoof by another door, and the attribute
+// policy cannot stop it: a stylesheet is raw-text content, which the
+// scanner copies verbatim by design. Measured in Chromium —
+// `<style>pre::before{content:"npm install";position:absolute;inset:0;
+// background:white}</style>` renders that text over the code block in the
+// exported document.
+//
+// So `style-src` names a per-render nonce and the route's own stylesheet
+// carries it. A FRESH nonce each time, for the reason the copy button
+// learned the hard way: a constant in the source is one an attacker reads
+// off GitHub. Measured: author `::before` goes from `"npm install"` to
+// `none` while the route's own CSS still applies.
 function wrapHtml(body: string, css: string): string {
+  const nonce = randomUUID();
+  const policy = `${NO_SCRIPT_CSP}; style-src 'nonce-${nonce}'`;
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${NO_SCRIPT_CSP}">
-<style>${css}</style>
+<meta http-equiv="Content-Security-Policy" content="${policy}">
+<style nonce="${nonce}">${css}</style>
 </head>
 <body>${body}</body>
 </html>`;

