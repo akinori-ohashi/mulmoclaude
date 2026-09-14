@@ -16,7 +16,9 @@ MulmoClaude is a text/task-driven agent app with rich visual output. It uses **C
 - **Unit tests**: `yarn test` (node:test, server handlers + utils)
 - **E2E tests**: `yarn test:e2e` (Playwright, browser UI tests — no backend needed)
 
-**IMPORTANT**: After modifying any source code, always run `yarn format`, `yarn lint`, `yarn typecheck`, and `yarn build` before considering the task done.
+**IMPORTANT**: After modifying any source code, always run `yarn format`, `yarn build:packages`, `yarn typecheck`, `yarn lint`, and `yarn build` before considering the task done.
+
+`build:packages` comes first because `typecheck` reads the workspace packages' generated `.d.ts`. Skip it and you get a wall of `TS7016: Could not find a declaration file for module '@mulmoclaude/*'` — 150 of them on one measurement, 0 after building the packages — none of which are real. CI's own step is named "Build internal packages (required before typecheck)"; this order is the one it runs.
 
 **IMPORTANT**: Always write error handling for all `fetch` calls. Handle both network errors (try/catch) and HTTP errors (`!response.ok`).
 
