@@ -45,6 +45,10 @@ describe("stripPresentationAttributes — removes", () => {
     { name: "a newline-separated attribute among others", input: '<div\nid="k"\nclass="absolute">x</div>', expected: '<div\nid="k">x</div>' },
     // The element's OWN class still goes, only its CONTENT is spared.
     { name: "class on a raw-text element itself", input: '<textarea class="absolute">body</textarea>', expected: "<textarea>body</textarea>" },
+    // The three spellings a real parser DOES accept as the end tag.
+    { name: "close tag with trailing space", input: "<textarea>a</textarea ><div class=x>", expected: "<textarea>a</textarea ><div>" },
+    { name: "close tag with a slash", input: "<textarea>a</textarea/><div class=x>", expected: "<textarea>a</textarea/><div>" },
+    { name: "close tag in a different case", input: "<textarea>a</TEXTAREA><div class=x>", expected: "<textarea>a</TEXTAREA><div>" },
   ];
   removed.forEach(({ name, input, expected }) => {
     it(name, () => assert.equal(stripPresentationAttributes(input), expected));
@@ -68,9 +72,54 @@ describe("stripPresentationAttributes — leaves alone", () => {
     { name: "markup inside a textarea", input: "<textarea><div class=foo></textarea>" },
     { name: "markup inside an unclosed textarea", input: "<textarea>unclosed <div class=x>" },
     { name: "markup inside a title", input: "<title>a <b class=x> b</title>" },
+    // HTML's "appropriate end tag": the name must be followed by whitespace,
+    // `/` or `>`. `</textareax>` closes nothing — verified against jsdom,
+    // where this textarea's VALUE is `keep </textareax><div class=foo>`. A
+    // prefix match ended raw text early and stripped literal text that a
+    // reader is meant to see (codex round 3).
+    { name: "a close tag that only PREFIXES the name", input: "<textarea>keep </textareax><div class=foo></textarea>" },
   ];
   untouched.forEach(({ name, input }) => {
     it(name, () => assert.equal(stripPresentationAttributes(input), input));
+  });
+});
+
+describe("raw-text boundaries, differentially against a real parser", () => {
+  // Four of the findings on this scanner were raw-text boundary bugs, so the
+  // hand-picked cases above get an ORACLE rather than more of my guesses:
+  // whatever a real HTML parser considers raw text must come out of the
+  // stripper unchanged. Deterministic and small on purpose — the point is a
+  // boundary oracle for the axis that keeps producing findings, not a parser
+  // conformance suite (codex round 3).
+  const rawTextValue = (html: string, selector: string): string | null => {
+    const parsed = new JSDOM(`<!doctype html><body>${html}</body>`);
+    return parsed.window.document.querySelector(selector)?.textContent ?? null;
+  };
+
+  const cases: { name: string; input: string; selector: string }[] = [
+    { name: "prefix that does not close", input: "<textarea>keep </textareax><div class=foo></textarea>", selector: "textarea" },
+    { name: "close with trailing space", input: "<textarea>a</textarea ><div class=x>", selector: "textarea" },
+    { name: "close with a slash", input: "<textarea>a</textarea/><div class=x>", selector: "textarea" },
+    { name: "close in a different case", input: "<textarea>a</TEXTAREA><div class=x>", selector: "textarea" },
+    { name: "no close tag at all", input: "<textarea>no close <div class=x>", selector: "textarea" },
+    // `</plaintext>` closes nothing; the element runs to the end.
+    { name: "plaintext consumes the rest", input: "<plaintext><div class=x></plaintext><span class=y>", selector: "plaintext" },
+  ];
+
+  cases.forEach(({ name, input, selector }) => {
+    it(`what the parser calls raw text survives untouched — ${name}`, () => {
+      const before = rawTextValue(input, selector);
+      const after = rawTextValue(stripPresentationAttributes(input), selector);
+      assert.notEqual(before, null, "the fixture must actually produce the element");
+      assert.equal(after, before);
+    });
+  });
+
+  it("a comment's contents survive, however many tag-looking things are in it", () => {
+    // The `<!` branch used to stop at the FIRST `>`, so later comment text
+    // got rewritten — not a security miss, but it broke the verbatim contract.
+    const input = "<!-- <div class=x> <span class=y> -->";
+    assert.equal(stripPresentationAttributes(input), input);
   });
 });
 

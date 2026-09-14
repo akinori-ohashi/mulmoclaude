@@ -44,6 +44,11 @@ const isAsciiLetter = (char: string): boolean => (char >= "a" && char <= "z") ||
 // and must not depend on that staying true.
 const RAW_TEXT_ELEMENTS = ["textarea", "title", "script", "style", "xmp", "iframe", "noembed", "noframes", "plaintext"];
 
+/** `<plaintext>` has no end tag at all — it consumes the rest of the
+ *  document, `</plaintext>` included. Treating it like the others resumed
+ *  markup after a close tag no parser honours (codex round 3). */
+const UNCLOSEABLE_RAW_TEXT = "plaintext";
+
 /** Name of the tag starting at `start`, lower-cased; "" for a closing tag
  *  or anything that is not a plain element name. */
 function openingTagName(fragment: string, start: number): string {
@@ -51,16 +56,43 @@ function openingTagName(fragment: string, start: number): string {
   return match === null ? "" : (match[1] ?? "").toLowerCase();
 }
 
-/** Index just past `</name>` searched from `from`, case-insensitively. The
- *  END of the fragment when there is no close tag — which is what the HTML
- *  parser does too, and is the right answer when `marked` has split the
- *  element across chunks. */
+/** Index just past a `<!…>` run: `-->` for a real comment, the first `>`
+ *  for a doctype or bogus comment. */
+function commentEnd(fragment: string, start: number): number {
+  if (fragment.startsWith("<!--", start)) {
+    const close = fragment.indexOf("-->", start + 4);
+    return close === -1 ? fragment.length : close + 3;
+  }
+  const close = fragment.indexOf(">", start);
+  return close === -1 ? fragment.length : close + 1;
+}
+
+/** Index just past the element's APPROPRIATE END TAG, searched from `from`.
+ *
+ *  "Appropriate" is HTML's own definition, not a rule of mine: the name has
+ *  to be followed by whitespace, `/` or `>`. A prefix match ends raw text at
+ *  `</textareax>`, which no parser does — verified against jsdom, where
+ *  `<textarea>keep </textareax><div class=foo></textarea>` has the VALUE
+ *  `keep </textareax><div class=foo>` (codex round 3).
+ *
+ *  The END of the fragment when there is no such tag, which is again what the
+ *  parser does, and the right answer when `marked` has split the element
+ *  across chunks. */
 function rawTextEnd(fragment: string, from: number, name: string): number {
+  if (name === UNCLOSEABLE_RAW_TEXT) return fragment.length;
   const lowered = fragment.toLowerCase();
-  const close = lowered.indexOf(`</${name}`, from);
-  if (close === -1) return fragment.length;
-  const closeEnd = fragment.indexOf(">", close);
-  return closeEnd === -1 ? fragment.length : closeEnd + 1;
+  const needle = `</${name}`;
+  let search = from;
+  for (;;) {
+    const close = lowered.indexOf(needle, search);
+    if (close === -1) return fragment.length;
+    const after = fragment[close + needle.length] ?? ">";
+    if (after === ">" || after === "/" || /\s/.test(after)) {
+      const closeEnd = fragment.indexOf(">", close);
+      return closeEnd === -1 ? fragment.length : closeEnd + 1;
+    }
+    search = close + 1;
+  }
 }
 
 /** True when `<` at `index` opens a tag rather than being literal text.
@@ -157,10 +189,11 @@ export function stripPresentationAttributes(fragment: string): string {
       continue;
     }
     // Comments and doctype/CDATA are copied verbatim; they carry no
-    // attributes and their contents must not be treated as a tag.
+    // attributes and their contents must not be treated as tags. A comment
+    // ends at `-->`, NOT at the first `>` — `<!-- <div class=x> <span
+    // class=y> -->` was having its later text rewritten (codex round 3).
     if (fragment.startsWith("<!", index)) {
-      const close = fragment.indexOf(">", index);
-      const end = close === -1 ? fragment.length : close + 1;
+      const end = commentEnd(fragment, index);
       out.push(fragment.slice(index, end));
       index = end;
       continue;
