@@ -233,6 +233,13 @@ describe("the WHOLE contract, differentially against a real parser", () => {
       ' \u00e9="a"class="b"',
       ' -x="a"class="b"',
       " 1=a class=b",
+      // `=` in before-attribute-name is a parse error that becomes the name's
+      // FIRST character. Treating it as a boundary made the walk abandon the
+      // rest of the tag, so the `class` after it survived.
+      ' ="x" class="y"',
+      ' ="x"class="y"',
+      ' =class="absolute"',
+      " == class=b",
     ];
     const separators = [" ", "\t", "\n", "/", ""];
     const bodies = [
@@ -250,6 +257,11 @@ describe("the WHOLE contract, differentially against a real parser", () => {
       "</>",
       "</1 class=x>",
       "</=class=x>",
+      // A bogus comment runs to the next `>`, so tag-looking text INSIDE it is
+      // comment content that a parser never treats as markup.
+      "</\u00e9 <span class=x>>after",
+      "</1 <span class=x>>tail",
+      '</9 <div style="position:absolute">> more',
     ];
     // marked hands raw HTML over in chunks that are not well-formed, so a
     // truncated tag is a real input rather than a hypothetical one.

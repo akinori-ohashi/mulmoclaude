@@ -182,6 +182,17 @@ function rawTextEnd(fragment: string, from: number, name: string): number {
   }
 }
 
+/** True when `</` at `index` is NOT an end tag. HTML's end-tag-open state takes
+ *  an ASCII letter and nothing else: `>` drops the token, EOF emits the two
+ *  characters, and anything else opens a BOGUS COMMENT that runs to the next
+ *  `>`. All three want the bytes copied through untouched — and the last one
+ *  matters, because the text inside is comment content a parser never treats as
+ *  markup: `</é <span class=x>>` was having its inner span rewritten
+ *  (codex rounds 19-20). */
+function isBogusEndTag(fragment: string, index: number): boolean {
+  return fragment[index + 1] === "/" && !isAsciiLetter(fragment[index + 2] ?? "");
+}
+
 /** True when `<` at `index` opens a tag rather than being literal text.
  *  `a < b` in prose must survive untouched.
  *
@@ -354,7 +365,12 @@ interface Attribute {
 }
 
 function readAttribute(tag: string, nameStart: number): Attribute {
-  let index = nameStart;
+  // An `=` in before-attribute-name is a parse error that becomes the name's
+  // FIRST character, not a value separator — `<div ="x" class="y">` really has
+  // an attribute called `="x"` and then a separate `class`. Treating it as a
+  // boundary made the walk abandon the rest of the tag, so that `class`
+  // survived (found re-auditing the rewrite against the tokenizer, round 19).
+  let index = nameStart + (tag[nameStart] === "=" ? 1 : 0);
   while (index < tag.length && !endsAttributeName(tag[index])) index += 1;
   return { end: index + assignmentLength(tag, index).length, name: tag.slice(nameStart, index) };
 }
@@ -379,7 +395,7 @@ function stripFromTag(tag: string): string {
   const out: string[] = [tag.slice(0, index)];
   while (index < tag.length) {
     const nameStart = separatorEnd(tag, index);
-    if (nameStart >= tag.length || endsAttributeName(tag[nameStart])) {
+    if (nameStart >= tag.length || tag[nameStart] === ">") {
       out.push(tag.slice(index));
       break;
     }
@@ -414,7 +430,7 @@ export function stripPresentationAttributes(fragment: string): string {
     // attributes and their contents must not be treated as tags. A comment
     // ends at `-->`, NOT at the first `>` — `<!-- <div class=x> <span
     // class=y> -->` was having its later text rewritten (codex round 3).
-    if (fragment.startsWith("<!", index)) {
+    if (fragment.startsWith("<!", index) || isBogusEndTag(fragment, index)) {
       const end = commentEnd(fragment, index);
       out.push(fragment.slice(index, end));
       index = end;
