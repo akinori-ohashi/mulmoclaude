@@ -65,9 +65,12 @@ function importsMarkedAtRuntime(code: string): boolean {
 }
 const REGISTERS_POLICY = /marked\.use\(rawHtmlPolicyExtension\)|instance\.use\(rawHtmlPolicyExtension\)/;
 
-/** Exempt surfaces, each with the reason it cannot host author markdown.
- *  Empty on purpose: nothing currently qualifies. An entry here is a claim
- *  someone has to defend. */
+/** Exempt surfaces, each with the reason it does not need its own
+ *  registration. Only two reasons are acceptable, and every entry below was
+ *  checked against the file: it renders through the GLOBAL `marked` that
+ *  `setup.ts` configures (so it inherits the policy), or it never renders
+ *  author HTML at all. Anything else is an unprotected surface wearing an
+ *  excuse. */
 const EXEMPT: Record<string, string> = {
   // These parse with the GLOBAL `marked`, which `src/utils/markdown/setup.ts`
   // configures before the app mounts. They inherit the policy; registering it
