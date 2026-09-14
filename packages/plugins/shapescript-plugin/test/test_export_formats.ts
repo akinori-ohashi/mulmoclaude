@@ -1,0 +1,135 @@
+// Coverage for the GLB and STL exports added in 5.1.0: the pure serialisers
+// the View's download buttons use. Both are checked at the byte level — a GLB
+// header and its JSON chunk, an STL header and its triangle count — since the
+// point of each is that a third-party reader opens the file.
+
+import { describe, it, before } from "node:test";
+import assert from "node:assert/strict";
+
+import * as THREE from "three";
+import { sceneToGlb, shapeScriptToGlb, GLB_MIME_TYPE, GLB_EXTENSION } from "../src/export/glb";
+import { sceneToStl, shapeScriptToStl, STL_MIME_TYPE, STL_EXTENSION } from "../src/export/stl";
+import { parseShapeScript } from "../src/shapescript/parser";
+import { astToThreeJS } from "../src/shapescript/toThreeJS";
+import { disposeObject3D } from "../src/shapescript/dispose";
+
+const CUBE = "cube { size 1 }";
+const TWO = "cube { size 1 }\ncube {\n size 1\n position 3 0 0\n}";
+
+/** three's `GLTFExporter` merges its buffers through `FileReader`, which the
+ *  browser has and Node does not. The shim is the two calls it makes, on top
+ *  of Node's own `Blob`; the exporter is otherwise DOM-free for untextured
+ *  materials, which is the browser-safety the module relies on. */
+before(() => {
+  if (typeof globalThis.FileReader !== "undefined") return;
+  class NodeFileReader {
+    result: ArrayBuffer | string | null = null;
+    onloadend: (() => void) | null = null;
+    readAsArrayBuffer(blob: Blob) {
+      void blob.arrayBuffer().then((buffer) => {
+        this.result = buffer;
+        this.onloadend?.();
+      });
+    }
+    readAsDataURL(blob: Blob) {
+      void blob.arrayBuffer().then((buffer) => {
+        this.result = `data:${blob.type};base64,${Buffer.from(buffer).toString("base64")}`;
+        this.onloadend?.();
+      });
+    }
+  }
+  (globalThis as unknown as { FileReader: unknown }).FileReader = NodeFileReader;
+});
+
+/** The JSON chunk of a GLB, after its 12-byte header and 8-byte chunk prefix. */
+function glbJson(bytes: Uint8Array): { meshes?: unknown[]; nodes?: unknown[]; materials?: unknown[] } {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  assert.equal(view.getUint32(0, true), 0x46546c67, "magic 'glTF'");
+  assert.equal(view.getUint32(4, true), 2, "glTF 2.0");
+  assert.equal(view.getUint32(8, true), bytes.byteLength, "total length");
+  const jsonLength = view.getUint32(12, true);
+  assert.equal(view.getUint32(16, true), 0x4e4f534a, "first chunk is JSON");
+  return JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + jsonLength)));
+}
+
+/** A binary STL is an 80-byte header, a uint32 triangle count, then 50 bytes per triangle. */
+function stlTriangles(bytes: Uint8Array): number {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const count = view.getUint32(80, true);
+  assert.equal(bytes.byteLength, 84 + count * 50, "byte length matches the triangle count");
+  return count;
+}
+
+describe("shapeScriptToGlb", () => {
+  it("writes a binary glTF 2.0 with the model's mesh", async () => {
+    const json = glbJson(await shapeScriptToGlb(CUBE));
+    assert.equal(json.meshes?.length, 1);
+    assert.equal(json.materials?.length, 1);
+  });
+
+  it("keeps a vertex-coloured mesh's colours as COLOR_0", async () => {
+    const script = "mesh {\n polygon {\n  color 1 0 0\n  point 0 0 0\n  point 1 0 0\n  point 0 1 0\n }\n}";
+    const json = glbJson(await shapeScriptToGlb(script)) as { meshes?: { primitives: { attributes: Record<string, number> }[] }[] };
+    assert.ok(json.meshes?.[0]?.primitives[0]?.attributes.COLOR_0 !== undefined);
+  });
+
+  it("rejects an invalid script rather than exporting nothing", async () => {
+    await assert.rejects(shapeScriptToGlb("cube {"), /RBRACE/);
+  });
+
+  it("leaves a hidden subtree out", async () => {
+    const group = astToThreeJS(parseShapeScript(TWO));
+    group.children[1]!.visible = false;
+    const json = glbJson(await sceneToGlb(group));
+    assert.equal(json.meshes?.length, 1);
+    disposeObject3D(group);
+  });
+
+  it("names the MIME type and extension", () => {
+    assert.equal(GLB_MIME_TYPE, "model/gltf-binary");
+    assert.equal(GLB_EXTENSION, ".glb");
+  });
+});
+
+describe("shapeScriptToStl", () => {
+  it("writes a binary STL with one triangle per face", async () => {
+    // A cube is 6 faces of 2 triangles.
+    assert.equal(stlTriangles(await shapeScriptToStl(CUBE)), 12);
+  });
+
+  it("places every mesh by its world matrix", async () => {
+    const bytes = await shapeScriptToStl(TWO);
+    assert.equal(stlTriangles(bytes), 24);
+    // Vertex x of the first triangle of each 12-triangle run: the second cube
+    // sits at x = 3, so its vertices land at 2.5 / 3.5 rather than ±0.5.
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const xs = new Set<number>();
+    for (let i = 0; i < 24; i++) for (let v = 0; v < 3; v++) xs.add(view.getFloat32(84 + i * 50 + 12 + v * 12, true));
+    assert.ok(xs.has(2.5) && xs.has(3.5), `world-space x: ${[...xs].join(", ")}`);
+  });
+
+  it("leaves a hidden subtree out", async () => {
+    const group = astToThreeJS(parseShapeScript(TWO));
+    group.children[1]!.visible = false;
+    assert.equal(stlTriangles(await sceneToStl(group)), 12);
+    disposeObject3D(group);
+  });
+
+  it("shares geometry with the source instead of copying it", async () => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    let disposed = false;
+    mesh.geometry.addEventListener("dispose", () => void (disposed = true));
+    await sceneToStl(mesh);
+    assert.equal(disposed, false);
+    disposeObject3D(mesh);
+  });
+
+  it("rejects an invalid script rather than exporting nothing", async () => {
+    await assert.rejects(shapeScriptToStl("cube {"), /RBRACE/);
+  });
+
+  it("names the MIME type and extension", () => {
+    assert.equal(STL_MIME_TYPE, "model/stl");
+    assert.equal(STL_EXTENSION, ".stl");
+  });
+});

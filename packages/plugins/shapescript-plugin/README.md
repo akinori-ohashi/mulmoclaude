@@ -13,7 +13,7 @@ name, and the `Present3D*` type names, are renamed throughout.
 | Entry         | Contents                                                                                                                 |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `.`           | `TOOL_NAME`, `TOOL_DEFINITION`, `executePresentShapeScript`, `pluginCore`, `samples`, `parseShapeScript`, `astToThreeJS`, `executeShapeScriptDispatch` + the `artifacts/shapes` path rules |
-| `.` (export) | `shapeScriptToUsdz`, `sceneToUsdz`, `USDZ_MIME_TYPE`, `USDZ_EXTENSION`, and the **`exportShapeScriptUsdz`** tool (`executeExportShapeScriptUsdz`, `EXPORT_USDZ_*`). Browser-safe: it needs no canvas, so the View's "Download USDZ" button and a host's MCP tool run the same code. |
+| `.` (export) | `shapeScriptToUsdz`, `sceneToUsdz`, `USDZ_MIME_TYPE`, `USDZ_EXTENSION`, and the **`exportShapeScriptUsdz`** tool (`executeExportShapeScriptUsdz`, `EXPORT_USDZ_*`); `shapeScriptToGlb` / `sceneToGlb` / `GLB_*` and `shapeScriptToStl` / `sceneToStl` / `STL_*` alongside. Browser-safe: none needs a canvas, so the View's download buttons and a host's MCP tool run the same code. |
 | `./render`    | **server-only** — `renderShapeScriptSheet` and the render page. Rasterises a model to a PNG with Puppeteer's headless Chromium (an OPTIONAL peer); a host without one gets `RenderUnavailableError` carrying the install hint. |
 | `./vue`       | the `ToolPlugin` (View + Preview + `SYSTEM_PROMPT`), plus everything on `.`                                              |
 | `./style.css` | the compiled component styles (Vite lib mode does not auto-inject them)                                                  |
@@ -57,6 +57,10 @@ const { message, filePath } = await executeExportShapeScriptUsdz({ files: shapeF
 The file lands at `artifacts/shapes/<slug>-<epoch-ms>-<token>.usdz`. The View's **Download USDZ**
 button builds the same archive in the browser with `shapeScriptToUsdz` and saves it locally.
 USDZ units are metres, so `size 1` is one metre in AR.
+
+The View also offers **Download GLB** (binary glTF, for the web and game engines; vertex colours
+survive as `COLOR_0`) and **Download STL** (binary, geometry only, in world space, for slicers),
+built the same way by `shapeScriptToGlb` and `shapeScriptToStl`. Neither has an MCP tool yet.
 
 ## The gallery: `manageShapeScript`
 

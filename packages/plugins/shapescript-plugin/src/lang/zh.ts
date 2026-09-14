@@ -11,6 +11,8 @@ const zh: Messages = {
   applyChanges: "应用更改",
   saveError: "保存失败：",
   downloadUsdz: "下载 USDZ",
+  downloadGlb: "下载 GLB",
+  downloadStl: "下载 STL",
   exportError: "导出失败:",
   copyScript: "复制",
   copied: "已复制",

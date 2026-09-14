@@ -11,6 +11,8 @@ const ko: Messages = {
   applyChanges: "변경사항 적용",
   saveError: "저장 실패:",
   downloadUsdz: "USDZ 다운로드",
+  downloadGlb: "GLB 다운로드",
+  downloadStl: "STL 다운로드",
   exportError: "내보내기 실패:",
   copyScript: "복사",
   copied: "복사됨",

@@ -19,6 +19,11 @@ export { isPresentableShapePath, isShapeArtifactPath, shapeArtifactPath, usdzArt
 // the `exportShapeScriptUsdz` tool, which needs only the generic `files`
 // capability — so it lives on `.` rather than a server-only entry.
 export { sceneToUsdz, shapeScriptToUsdz, USDZ_MIME_TYPE, USDZ_EXTENSION } from "../export/usdz";
+// GLB and STL: the same pure shape, browser-side only so far (the View's
+// download buttons); no tool wraps them yet.
+export { sceneToGlb, shapeScriptToGlb, GLB_MIME_TYPE, GLB_EXTENSION } from "../export/glb";
+export { sceneToStl, shapeScriptToStl, STL_MIME_TYPE, STL_EXTENSION } from "../export/stl";
+export type { ExportOptions } from "../export/model";
 export {
   resolveShapeSource,
   executeExportShapeScriptUsdz,

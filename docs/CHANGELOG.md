@@ -10,6 +10,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+#### `@mulmoclaude/shapescript-plugin@5.1.0` — Download GLB and STL; Copy moves to the source bar
+
+The `presentShapeScript` view could save a model only as USDZ. Two more formats now sit beside
+it in the header, built the same way in the browser from the APPLIED script and disabled by the
+same rule while the editor holds unsaved edits:
+
+- **Download GLB** — binary glTF, for the web, game engines and most 3D tools. Vertex-coloured
+  meshes (`mesh { polygon { color … } }`, a `minkowski` result) keep their colours as `COLOR_0`;
+  no material splitting is needed as it is for USDZ.
+- **Download STL** — binary STL for slicers. Geometry only: hidden subtrees are pruned as they
+  are on screen, and every triangle is written in world space so a `position` / `orient` in the
+  script lands where the viewport shows it.
+
+The **Copy** button leaves the header for the right end of the **Edit ShapeScript Source** bar,
+next to the text it copies; clicking it no longer toggles the editor open or closed.
+
+Exported for hosts: `shapeScriptToGlb` / `sceneToGlb` / `GLB_MIME_TYPE` / `GLB_EXTENSION`,
+`shapeScriptToStl` / `sceneToStl` / `STL_MIME_TYPE` / `STL_EXTENSION`, and `exportShapeScript`,
+the shared parse → build → serialise → dispose step the USDZ exporter now runs through too. New
+labels in all 8 locales.
+
 #### `@mulmoclaude/shapescript-plugin@5.0.0` — `manageShapeScript` replaces `publishShapeScript`: one gallery tool with `publish`, `update`, `delete`, `get`, `getList`
 
 The gallery had a way to post a model and, since 4.0.0, to update one — and no way to read one
