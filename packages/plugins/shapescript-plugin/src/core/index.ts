@@ -23,6 +23,7 @@ export { sceneToUsdz, shapeScriptToUsdz, USDZ_MIME_TYPE, USDZ_EXTENSION } from "
 // download buttons); no tool wraps them yet.
 export { sceneToGlb, shapeScriptToGlb, GLB_MIME_TYPE, GLB_EXTENSION } from "../export/glb";
 export { sceneToStl, shapeScriptToStl, STL_MIME_TYPE, STL_EXTENSION } from "../export/stl";
+export { exportShapeScript } from "../export/model";
 export type { ExportOptions } from "../export/model";
 export {
   resolveShapeSource,

@@ -173,6 +173,28 @@ describe("shapeScriptToStl", () => {
     disposeObject3D(instanced);
   });
 
+  it("keeps facets facing outward under a mirroring transform", async () => {
+    // Signed volume from the facets: positive when every triangle winds
+    // outward, negative when a mirror has turned them all inside out.
+    const signedVolume = (bytes: Uint8Array): number => {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const count = view.getUint32(80, true);
+      const at = (i: number, v: number) => new THREE.Vector3(...[0, 4, 8].map((k) => view.getFloat32(84 + i * 50 + 12 + v * 12 + k, true)));
+      return Array.from({ length: count }, (_, i) => at(i, 0).dot(at(i, 1).cross(at(i, 2))) / 6).reduce((a, b) => a + b, 0);
+    };
+    const plain = signedVolume(await shapeScriptToStl(CUBE));
+    assert.ok(Math.abs(plain - 1) < 1e-6, `volume ${plain}`);
+    // Indexed and non-indexed geometry take different paths through the
+    // winding reversal; a mirror on the mesh's own transform exercises both.
+    for (const geometry of [new THREE.BoxGeometry(1, 1, 1), new THREE.BoxGeometry(1, 1, 1).toNonIndexed()]) {
+      const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+      mesh.scale.z = -1;
+      const mirrored = signedVolume(await sceneToStl(mesh));
+      assert.ok(Math.abs(mirrored - 1) < 1e-6, `mirrored volume ${mirrored} (indexed: ${Boolean(geometry.index)})`);
+      disposeObject3D(mesh);
+    }
+  });
+
   it("rejects an invalid script rather than exporting nothing", async () => {
     await assert.rejects(shapeScriptToStl("cube {"), /RBRACE/);
   });

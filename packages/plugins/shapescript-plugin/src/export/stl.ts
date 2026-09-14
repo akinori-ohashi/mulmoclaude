@@ -54,7 +54,10 @@ function bakedWorldGeometries(mesh: THREE.Mesh): THREE.BufferGeometry[] {
 /** A mesh's triangles with every vertex taken through `transform`, as its own
  *  geometry. The index is copied rather than shared: disposing a geometry
  *  hands its index buffer back to the renderer too, and the source may still
- *  be on screen. */
+ *  be on screen. A mirroring transform (`scale -1 1 1`, a negative
+ *  determinant) turns every triangle inside out, which the renderer corrects
+ *  by drawing clockwise faces as front — STL has no such flag, so the winding
+ *  is reversed here instead (codex on #3171). */
 function bakedWorldGeometry(mesh: THREE.Mesh, transform: THREE.Matrix4): THREE.BufferGeometry {
   const source = mesh.geometry;
   const count = source.getAttribute("position").count;
@@ -68,7 +71,20 @@ function bakedWorldGeometry(mesh: THREE.Mesh, transform: THREE.Matrix4): THREE.B
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   if (source.index) geometry.setIndex(source.index.clone());
+  if (transform.determinant() < 0) reverseWinding(geometry);
   return geometry;
+}
+
+/** Swap the second and third vertex of every triangle in place. */
+function reverseWinding(geometry: THREE.BufferGeometry): void {
+  const attribute = geometry.index ?? geometry.getAttribute("position");
+  for (let face = 0; face * 3 < attribute.count; face++) {
+    for (let k = 0; k < attribute.itemSize; k++) {
+      const b = attribute.getComponent(face * 3 + 1, k);
+      attribute.setComponent(face * 3 + 1, k, attribute.getComponent(face * 3 + 2, k));
+      attribute.setComponent(face * 3 + 2, k, b);
+    }
+  }
 }
 
 /** The meshes under `object` that are shown: none below a hidden node. */
