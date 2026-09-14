@@ -183,11 +183,19 @@ function rawTextEnd(fragment: string, from: number, name: string): number {
 }
 
 /** True when `<` at `index` opens a tag rather than being literal text.
- *  `a < b` in prose must survive untouched. */
+ *  `a < b` in prose must survive untouched.
+ *
+ *  A closing tag needs an ASCII LETTER after the `/`, which is HTML's own rule:
+ *  end-tag-open only enters end-tag-name for a letter, and treats anything else
+ *  as a bogus comment. Accepting any `</` rewrote parser COMMENT text as if it
+ *  were a tag — `</ class=x>` came back as `</>`, while a parser reads the
+ *  original as `<!-- class=x-->` (codex round 19). Left alone the bytes are
+ *  copied through and the parser still sees its comment. */
 function opensTag(fragment: string, index: number): boolean {
   const next = fragment[index + 1];
   if (next === undefined) return false;
-  return isAsciiLetter(next) || next === "/";
+  if (next === "/") return isAsciiLetter(fragment[index + 2] ?? "");
+  return isAsciiLetter(next);
 }
 
 /** Index just past the `>` that closes the tag starting at `start`, with
@@ -324,8 +332,41 @@ function tagNameEnd(tag: string): number {
   return index;
 }
 
-const AFTER_SEPARATOR = /^([ \t\n\f\r/]+)([A-Za-z_:][-A-Za-z0-9_:.]*)/;
-const AFTER_QUOTED_VALUE = /^([ \t\n\f\r/]*)([A-Za-z_:][-A-Za-z0-9_:.]*)/;
+/** Index just past a run of separators — whitespace, or a `/` that is not
+ *  closing the tag. HTML's before-attribute-name state treats such a `/` as a
+ *  parse error and then reads an attribute name anyway, so
+ *  `<div /class="absolute">` really does set a class (codex round 4, P1). */
+function separatorEnd(tag: string, from: number): number {
+  let index = from;
+  while (index < tag.length && (isHtmlWhitespace(tag[index] ?? "") || tag[index] === "/")) index += 1;
+  return index;
+}
+
+/** One attribute's extent, read the way the tokenizer reads it: the name runs
+ *  to whitespace, `=`, `/` or `>` whatever it STARTS with. Requiring a name to
+ *  start `[A-Za-z_:]` and byte-copying past the ones that did not was the root
+ *  of three separate bypasses, because a byte copy loses the position and the
+ *  attribute AFTER the unrecognised one stopped being seen at all:
+ *  `<div 1="a"class="absolute">` kept its class (round 18). */
+interface Attribute {
+  end: number;
+  name: string;
+}
+
+function readAttribute(tag: string, nameStart: number): Attribute {
+  let index = nameStart;
+  while (index < tag.length && !endsAttributeName(tag[index])) index += 1;
+  return { end: index + assignmentLength(tag, index).length, name: tag.slice(nameStart, index) };
+}
+
+/** Whether the separators before a dropped attribute may go with it. They may,
+ *  unless the next attribute has none of its own — which HTML allows directly
+ *  after a quoted value, and where dropping them fuses `<div class="x"id="a">`
+ *  into `<divid="a">`. */
+function separatorsAreSpare(tag: string, after: number): boolean {
+  const next = tag[after];
+  return next === undefined || next === ">" || next === "/" || isHtmlWhitespace(next);
+}
 
 /** Removes the forbidden attributes from ONE tag's source text — unless the
  *  tag proves it is app markup, in which case only the proof is removed so it
@@ -336,46 +377,16 @@ function stripFromTag(tag: string): string {
   if (markerAt !== -1) return removeMarkerAt(tag, markerAt, marker.length);
   let index = tagNameEnd(tag);
   const out: string[] = [tag.slice(0, index)];
-  // A quoted value is the one place a following attribute needs NO separator.
-  // HTML's after-attribute-value-(quoted) state reconsumes anything that is not
-  // whitespace, `/` or `>` in before-attribute-name, so `<div id="a"class="…">`
-  // really does set a class — measured through marked into jsdom. Requiring a
-  // separator everywhere left that open, and it is the overlay this file exists
-  // to stop. After an UNQUOTED value there is no such case: the value itself
-  // only ends at whitespace or `>`, so a separator is always present.
-  let afterQuotedValue = false;
   while (index < tag.length) {
-    const rest = tag.slice(index);
-    // Separator run: whitespace OR `/`. HTML's before-attribute-name state
-    // treats a `/` that is not followed by `>` as a parse error and then
-    // reads an attribute name anyway, so `<div /class="absolute">` really
-    // does set a class — verified through marked + the sanitiser into the
-    // DOM. Matching only whitespace left that bypass open (codex round 4,
-    // P1). A terminal `/>` is untouched: nothing follows it to match as a
-    // name, so it falls through to the byte copy below.
-    const match = (afterQuotedValue ? AFTER_QUOTED_VALUE : AFTER_SEPARATOR).exec(rest);
-    if (match === null) {
-      out.push(tag[index] ?? "");
-      index += 1;
-      afterQuotedValue = false;
-      continue;
+    const nameStart = separatorEnd(tag, index);
+    if (nameStart >= tag.length || endsAttributeName(tag[nameStart])) {
+      out.push(tag.slice(index));
+      break;
     }
-    const [whole, , rawName] = match;
-    const name = rawName ?? "";
-    const nameEnd = index + whole.length;
-    const assignment = assignmentLength(tag, nameEnd);
-    const span = whole.length + assignment.length;
-    afterQuotedValue = assignment.quoted;
-    // The matched name must END here, or it is a longer name that merely
-    // STARTS with a forbidden one. HTML attribute names run through
-    // characters this regex does not accept — non-ASCII, NUL — so `classé`
-    // is one attribute and not `class`, and stripping its prefix produced
-    // `<divé=x>` out of `<div classé=x>` (codex round 8).
-    if (isStripped(name) && endsAttributeName(tag[nameEnd])) index += span;
-    else {
-      out.push(tag.slice(index, index + span));
-      index += span;
-    }
+    const attribute = readAttribute(tag, nameStart);
+    if (isStripped(attribute.name)) out.push(separatorsAreSpare(tag, attribute.end) ? "" : " ");
+    else out.push(tag.slice(index, attribute.end));
+    index = attribute.end;
   }
   return out.join("");
 }

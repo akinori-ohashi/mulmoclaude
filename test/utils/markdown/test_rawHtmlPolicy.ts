@@ -225,9 +225,32 @@ describe("the WHOLE contract, differentially against a real parser", () => {
       // ...but not after an unquoted one, where the quote is part of the value.
       ' class=a"style=b',
       " class=a class=b",
+      // Names the tokenizer accepts and a `[A-Za-z_:]`-anchored matcher does
+      // not. Byte-copying past these lost the position, so the attribute AFTER
+      // them stopped being seen: `<div 1="a"class="absolute">` kept its class.
+      ' 1="a"class="absolute"',
+      ' 9="a"style="position:fixed"',
+      ' \u00e9="a"class="b"',
+      ' -x="a"class="b"',
+      " 1=a class=b",
     ];
     const separators = [" ", "\t", "\n", "/", ""];
-    const bodies = ["", "x", '<pre class="absolute">y</pre>', "a < b", "<!-- c -->", '<textarea><b class="c"></textarea>'];
+    const bodies = [
+      "",
+      "x",
+      '<pre class="absolute">y</pre>',
+      "a < b",
+      "<!-- c -->",
+      '<textarea><b class="c"></textarea>',
+      // Bogus end-tag-open: HTML enters end-tag-name only for a LETTER after
+      // `/` and reads anything else as a comment, so these are parser COMMENT
+      // text and must come through byte-identical rather than be rewritten.
+      "</ class=x>",
+      "</ style=s>",
+      "</>",
+      "</1 class=x>",
+      "</=class=x>",
+    ];
     // marked hands raw HTML over in chunks that are not well-formed, so a
     // truncated tag is a real input rather than a hypothetical one.
     const truncations = [(html: string) => html, (html: string) => html.slice(0, Math.max(1, html.length - 1)), (html: string) => html.split(">")[0] ?? html];
