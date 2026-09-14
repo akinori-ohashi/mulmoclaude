@@ -27,71 +27,18 @@
 // cannot make that distinction: by the time it runs, the two are one
 // document.
 //
-// One kind of app markup is NOT safe by that argument, and assuming it was
-// broke every `[[wiki-link]]` in the app. `renderWikiLinks` rewrites `[[x]]`
-// into a `<span class="wiki-link">` and injects it into the markdown SOURCE,
-// before marked runs — so it arrives here as an author raw-HTML token and is
-// indistinguishable from one. Losing the class cost both the styling and
-// `WikiPageBody`'s `closest(".wiki-link")` click handler. Pre-injected app
-// markup therefore has to identify itself, and the only way it can do that
-// against an author who may write any static text is a nonce the author
-// cannot guess — the same defence the copy button uses.
-//
-// Guessing is not the only way to obtain it, which is why the proof is
-// POSITIONAL. `renderWikiLinks` rewrites `[[x]]` anywhere, author tags
-// included, so an author can make the app inject a live marker into markup
-// they wrote. Only a marker in FIRST attribute position is app markup, because
-// the injection always begins `<span `.
+// It once had to make an exception. `[[wiki-link]]` used to be a rewrite of the
+// markdown SOURCE, so its span arrived here indistinguishable from author HTML
+// and needed an unforgeable per-render nonce to keep its class. Wiki links are
+// a marked extension now (#3164), so nothing app-generated reaches this
+// renderer and the whole mechanism is gone — which is the point: a security
+// control with one fewer moving part, rather than one more.
 
 import type { MarkedExtension, Tokens } from "marked";
-import { createCodeCopyNonce } from "./codeCopyExtension.js";
 
 /** Attributes an author may not set. Presentation only — this is not the
  *  XSS boundary, which stays with DOMPurify. */
 const FORBIDDEN = ["class", "style"];
-
-/** Attribute by which app markup injected into the markdown SOURCE declares
- *  itself. Its value must equal the nonce of the parse currently running; a
- *  bare or stale marker is treated as author text and stripped along with it. */
-export const APP_MARKUP_ATTR = "data-app-markup";
-
-// Empty means "trust nothing", which is the state every surface is in except
-// during the one synchronous `parse()` that `withTrustedAppMarkup` wraps. An
-// author token carrying an empty marker must never match, hence the guard in
-// `trustedMarker` rather than a plain comparison.
-let trustedNonce = "";
-
-/** A value author markup cannot guess. Delegates rather than reimplements:
- *  the copy button already owns the CSPRNG-only helper, and a second
- *  implementation of "make an unguessable value" is how one of them ends up
- *  with a `Math.random` fallback. Returns "" when there is no CSPRNG, which
- *  fails CLOSED — nothing is trusted. */
-export function createAppMarkupNonce(): string {
-  return createCodeCopyNonce();
-}
-
-/** Runs `parse` with `nonce` trusted. Synchronous by contract: marked's
- *  renderers run inline, so the window closes before any other render can
- *  start. An async marked extension would break that and is why the wiki
- *  pipeline asserts its result is a string. */
-export function withTrustedAppMarkup<T>(nonce: string, parse: () => T): T {
-  // Restores rather than clears: an inner render finishing must not revoke the
-  // trust an outer one is still relying on.
-  const outer = trustedNonce;
-  trustedNonce = nonce;
-  try {
-    return parse();
-  } finally {
-    trustedNonce = outer;
-  }
-}
-
-/** The exact attribute text app markup must carry to keep its attributes,
- *  or "" when nothing is trusted. */
-function trustedMarker(): string {
-  if (trustedNonce === "") return "";
-  return `${APP_MARKUP_ATTR}="${trustedNonce}"`;
-}
 
 const isAsciiLetter = (char: string): boolean => (char >= "a" && char <= "z") || (char >= "A" && char <= "Z");
 
@@ -313,54 +260,6 @@ function endsAttributeName(char: string | undefined): boolean {
   return isHtmlWhitespace(char) || char === "=" || char === "/" || char === ">";
 }
 
-/** Cuts the proof out of the tag, taking the whitespace that separated it from
- *  the previous attribute. Trimming a trailing `\s+>` instead would be wrong:
- *  the first such run in `<span data-page="a >b" data-app-markup="…">` is inside
- *  a quoted VALUE, and collapsing it would rewrite the author's text. */
-/** The marker is app plumbing, so it is removed wherever it appears and not
- *  only where it is believed: a tag that fails the position check would
- *  otherwise carry the live nonce out into the rendered document. Per-render,
- *  so a leaked one is not replayable — but a value that exists to be secret
- *  does not belong in output at all. */
-function isStripped(name: string): boolean {
-  const lowered = name.toLowerCase();
-  return FORBIDDEN.includes(lowered) || lowered === APP_MARKUP_ATTR;
-}
-
-/** Index of the proof when it is the tag's FIRST attribute, else -1.
- *
- *  Position is the whole defence. Trusting the marker merely because it appears
- *  SOMEWHERE in the tag is forgeable without guessing it: `renderWikiLinks`
- *  rewrites `[[x]]` anywhere, including inside an author's own tag, so
- *  `<div class="absolute" data-x="[[Home]]">` makes the app splice a live
- *  marker into the attacker's tag and the whole thing was then trusted —
- *  measured through the real pipeline into jsdom, which still saw
- *  `class="absolute"` (codex round 16, P1).
- *
- *  First position is unforgeable because the injection always begins `<span `,
- *  so the only tag whose name is followed directly by the marker is the app's
- *  own span. */
-function leadingMarkerAt(tag: string, marker: string): number {
-  // Deliberately a NARROWER name scan than `tagNameEnd`. Ending the name early
-  // can only ever land on a non-whitespace character and REFUSE trust, never
-  // grant it — `<span:x data-app-markup="…">` is refused where the wide scan
-  // would accept it. A trust check should fail closed when the two disagree,
-  // so do not "unify" these two scans without re-deriving that direction.
-  const name = /^<([A-Za-z][A-Za-z0-9-]*)/.exec(tag);
-  if (name === null) return -1;
-  const afterName = 1 + (name[1] ?? "").length;
-  let index = afterName;
-  while (index < tag.length && isHtmlWhitespace(tag[index] ?? "")) index += 1;
-  if (index === afterName) return -1;
-  return tag.startsWith(marker, index) ? index : -1;
-}
-
-function removeMarkerAt(tag: string, markerAt: number, length: number): string {
-  let start = markerAt;
-  while (start > 0 && isHtmlWhitespace(tag[start - 1] ?? "")) start -= 1;
-  return tag.slice(0, start) + tag.slice(markerAt + length);
-}
-
 /** Index just past `<`, an optional `/`, and the tag name.
  *
  *  The attribute walk has to START here. Beginning at the `<` instead made the
@@ -416,13 +315,8 @@ function separatorsAreSpare(tag: string, after: number): boolean {
   return next === undefined || next === ">" || next === "/" || isHtmlWhitespace(next);
 }
 
-/** Removes the forbidden attributes from ONE tag's source text — unless the
- *  tag proves it is app markup, in which case only the proof is removed so it
- *  cannot leak into the document and be copied back in by an author. */
+/** Removes the forbidden attributes from ONE tag's source text. */
 function stripFromTag(tag: string): string {
-  const marker = trustedMarker();
-  const markerAt = marker === "" ? -1 : leadingMarkerAt(tag, marker);
-  if (markerAt !== -1) return removeMarkerAt(tag, markerAt, marker.length);
   let index = tagNameEnd(tag);
   const out: string[] = [tag.slice(0, index)];
   while (index < tag.length) {
@@ -432,7 +326,7 @@ function stripFromTag(tag: string): string {
       break;
     }
     const attribute = readAttribute(tag, nameStart);
-    if (isStripped(attribute.name)) out.push(separatorsAreSpare(tag, attribute.end) ? "" : " ");
+    if (FORBIDDEN.includes(attribute.name.toLowerCase())) out.push(separatorsAreSpare(tag, attribute.end) ? "" : " ");
     else out.push(tag.slice(index, attribute.end));
     index = attribute.end;
   }

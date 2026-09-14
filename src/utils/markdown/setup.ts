@@ -16,6 +16,7 @@ import { marked } from "marked";
 import "highlight.js/styles/github.css";
 import i18n from "../../lib/vue-i18n";
 import { wikiEmbedExtension } from "./wikiEmbeds";
+import { wikiLinkExtension } from "./wikiLinks";
 import { registerBuiltInWikiEmbeds, setEmbedLocaleProvider } from "./wikiEmbedHandlers";
 import { workspaceLinkifyExtension } from "./workspaceLinkify";
 import { markedHighlightExtension } from "./highlight";
@@ -41,6 +42,12 @@ export function setupMarked(): void {
   // discoverable.
   setEmbedLocaleProvider(() => String(unref(i18n.global.locale)));
   registerBuiltInWikiEmbeds();
+  // BEFORE the embeds, and the order is load-bearing. Both tokenizers start at
+  // `[[`, and marked tries the most recently registered FIRST — measured, not
+  // assumed; the first version of this line had it backwards and
+  // `[[amazon:B00ICN066A]]` rendered as a link to a page of that name. Pinned
+  // by a test.
+  marked.use(wikiLinkExtension);
   marked.use(wikiEmbedExtension);
   // Fallback for the LLM-output residue where a generated file gets
   // emitted as an inline-code span instead of a Markdown link. See

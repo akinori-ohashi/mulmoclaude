@@ -2,7 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { marked } from "marked";
-import { rawHtmlPolicyExtension, createAppMarkupNonce } from "@mulmoclaude/markdown-utils/markdown/rawHtmlPolicy";
+import { rawHtmlPolicyExtension } from "@mulmoclaude/markdown-utils/markdown/rawHtmlPolicy";
+import { wikiLinkExtension } from "../../../src/utils/markdown/wikiLinks.js";
 import {
   renderWikiLinks,
   renderWikiPageHtml,
@@ -329,14 +330,18 @@ describe("computeToggledContent", () => {
   });
 });
 
-// The regression this pins is the one two CI e2e tests caught and fifteen
-// rounds of review did not: `renderWikiLinks` injects its span into the
-// markdown SOURCE, so the raw-HTML policy (#3151) saw app markup as author
-// markup and stripped `class="wiki-link"` — killing both the styling and
-// `WikiPageBody`'s `closest(".wiki-link")` click handler. Registering the
-// policy on the global `marked` here is what `setupMarked()` does in the app;
-// the host's real setup imports a stylesheet and cannot be loaded in Node.
+// The full wiki pipeline, with the policy registered exactly as `setupMarked()`
+// does it in the app — the host's real setup imports a stylesheet and cannot be
+// loaded in Node, so the registration is mirrored here.
+//
+// The regression this pins is the one CI caught and fifteen rounds of review
+// did not: wiki links used to be a rewrite of the markdown SOURCE, so the
+// raw-HTML policy (#3151) read them as author markup and stripped
+// `class="wiki-link"`, killing the styling and `WikiPageBody`'s
+// `closest(".wiki-link")` click handler. As an extension they never reach that
+// renderer, which is what #3164 changed.
 describe("renderWikiPageHtml under the raw-HTML policy", () => {
+  marked.use(wikiLinkExtension);
   marked.use(rawHtmlPolicyExtension);
 
   it("keeps the wiki-link class the click handler and styling both need", () => {
@@ -351,49 +356,37 @@ describe("renderWikiPageHtml under the raw-HTML policy", () => {
     assert.doesNotMatch(html, /class="absolute inset-0 bg-white"/);
   });
 
-  it("does not leak the proof into the rendered page", () => {
-    const html = renderWikiPageHtml("[[Home]]", "data/wiki/pages");
-    assert.doesNotMatch(html, /data-app-markup/);
-  });
-
-  it("gives every render a different nonce, so one page's proof cannot be reused", () => {
-    // Not observable in the output by design, so this drives the generator the
-    // pipeline actually calls rather than asserting on rendered HTML.
-    const seen = new Set(Array.from({ length: 16 }, () => createAppMarkupNonce()));
-    assert.equal(seen.size, 16);
-  });
-
-  it("an author writing the marker themselves gains no class", () => {
-    const html = renderWikiPageHtml('<span data-app-markup="guessed" class="absolute inset-0">x</span>', "data/wiki/pages");
-    assert.doesNotMatch(html, /class="absolute inset-0"/);
+  it("leaves `[[x]]` in a code block alone, markup and all", () => {
+    const html = renderWikiPageHtml("`[[Home]]` and\n\n```\n[[Home]]\n```", "data/wiki/pages");
+    assert.doesNotMatch(html, /class="wiki-link"/);
+    assert.doesNotMatch(html, /data-app-markup/, "no app plumbing may reach the page, least of all inside code");
+    assert.match(html, /\[\[Home\]\]/);
   });
 });
 
-// The transplant attack (codex round 16, P1): the author never guesses the
-// nonce — `renderWikiLinks` rewrites `[[x]]` anywhere, author tags included, so
-// they make the APP splice a live marker into markup they wrote. Trusting a
-// marker found anywhere in the tag handed them `class="absolute"` back. These
-// run the whole real pipeline, because neither half is wrong on its own.
-describe("renderWikiPageHtml — an author cannot have the app vouch for their tag", () => {
+// An author writing an overlay into a wiki page must get nothing, whatever
+// shape they write it in. These ran the whole real pipeline when the app had a
+// nonce to defend and they still do now that it does not — the property was
+// never about the nonce, it is that author `class`/`style` does not survive.
+describe("renderWikiPageHtml — an author's overlay gets nothing", () => {
   const outerAttr = (html: string, attr: string): string | null => {
     const rendered = new JSDOM(`<!doctype html><body>${html}</body>`).window.document;
     return rendered.querySelector("div,span")?.getAttribute(attr) ?? null;
   };
   const attacks: [string, string][] = [
-    ["marker spliced into a quoted value", '<div class="absolute inset-0 bg-white" data-x="[[Home]]">x</div>'],
-    ["marker spliced bare inside the tag", '<div [[Home]] class="absolute inset-0">x</div>'],
-    ["marker right after the tag name", '<div[[Home]] class="absolute inset-0">x</div>'],
+    ["a plain overlay", '<div class="absolute inset-0 bg-white">x</div>'],
+    ["a link inside a quoted value", '<div class="absolute inset-0 bg-white" data-x="[[Home]]">x</div>'],
+    ["a link bare inside the tag", '<div [[Home]] class="absolute inset-0">x</div>'],
+    ["a link right after the tag name", '<div[[Home]] class="absolute inset-0">x</div>'],
     ["style rather than class", '<div style="position:absolute;inset:0" data-x="[[Home]]">x</div>'],
-    ["author opens a span of their own", '<span [[Home]] class="absolute inset-0">x</span>'],
-    // These probe the position check's boundary specifically: what counts as
-    // "the tag name ended and a separator followed". A refactor that accepted
-    // `/` here, or that let a name run past what the regex matches, reopens the
-    // transplant.
+    ["an author span of their own", '<span [[Home]] class="absolute inset-0">x</span>'],
     ["tab as the separator", '<div\t[[Home]] class="absolute inset-0">x</div>'],
     ["slash as the separator", '<div/[[Home]] class="absolute inset-0">x</div>'],
     ["a character the name regex stops at", '<div_ [[Home]] class="absolute inset-0">x</div>'],
     ["a non-ASCII tag name", '<div\u00e9 [[Home]] class="absolute inset-0">x</div>'],
     ["two links in one tag", '<div [[A]][[B]] class="absolute inset-0">x</div>'],
+    ["no separator before the class", '<div id="a"class="absolute inset-0">x</div>'],
+    ["an abrupt-closing comment first", '<!---><div class="absolute inset-0">x</div>'],
   ];
   attacks.forEach(([name, source]) => {
     it(`gives the author nothing — ${name}`, () => {
@@ -402,13 +395,6 @@ describe("renderWikiPageHtml — an author cannot have the app vouch for their t
       assert.notEqual(outerAttr(html, "class"), "absolute inset-0");
       assert.equal(outerAttr(html, "style"), null);
     });
-  });
-
-  it("a forged marker in first position is still rejected on its value", () => {
-    const upper = renderWikiPageHtml('<span DATA-APP-MARKUP="x" class="absolute inset-0">x</span>', "data/wiki/pages");
-    const bare = renderWikiPageHtml('<span data-app-markup class="absolute inset-0">x</span>', "data/wiki/pages");
-    assert.equal(outerAttr(upper, "class"), null);
-    assert.equal(outerAttr(bare, "class"), null);
   });
 
   it("still renders an ordinary wiki link on a page that also contains an attack", () => {
