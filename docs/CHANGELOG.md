@@ -142,7 +142,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.3.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@5.0.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@5.0.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 
@@ -162,16 +162,36 @@ Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`,
 `chore(release)` では触らない規則どおり据え置きで、**レンジだけ**を sweep した。
 
 `markdown-utils` に伴い `@mulmoclaude/core` と `markdown-plugin` のレンジも上げた
-（最終的な値は下の 2.3.0 の項を参照）。core は 4.9.3 が**まだ未公開**なので、追加の
+（最終的な値は下の 3.0.0 の項を参照）。core は 4.9.3 が**まだ未公開**なので、追加の
 bump は要らない（未公開の 4.9.3 が新しいレンジごと出る）。
 
-#### `@mulmoclaude/markdown-utils@2.3.0` — コードブロックのコピーボタン (#3125)
+#### `@mulmoclaude/markdown-utils@3.0.0` — コピーボタン / 表示のなりすまし対策 / mermaid 12 (#3125, #3151, #3164, #3166)
 
-`codeCopyExtension`（marked の `code` renderer。fence にコピーボタンごと描画する）と
-`codeCopyClipboard`（document ごとに 1 つの委譲クリックリスナ）を追加。**新規 export が
-あるので minor** — 上の表は manifest だけが動いた patch の一覧なので、こちらは別項。
+**major の理由は peer の変更**。`mermaid` の `peerDependencies` が `^11.16.1` → `^12.0.0`
+になり、公開済みの 2.2.1 がサポートしていた mermaid 11 が範囲から外れる。
+`peerDependenciesMeta` は無い hard peer なので、11 を入れたまま上げると解決できない。
+番号は #3125 の時点で 2.3.0（新規 export → minor）と決めていたが、その後に #3166 が
+peer を動かしたので major に改めた。npm 上でこのパッケージを宣言しているのは
+`@mulmoclaude/core` / `markdown-plugin` / launcher の 3 本だけで、どれも既に
+mermaid `^12.0.0` を宣言している。
 
-レンジは `@mulmoclaude/core` / `markdown-plugin` / launcher の 3 箇所すべてを `^2.3.0` に
+中身は 4 本:
+
+- **#3125 — コードブロックのコピーボタン**: `codeCopyExtension`（marked の `code`
+  renderer。fence にコピーボタンごと描画する）と `codeCopyClipboard`（document ごとに
+  1 つの委譲クリックリスナ）を新規 export。
+- **#3151 — 著者の raw HTML が描画結果に重なれない**: `rawHtmlPolicy` を新規 export。
+  markdown 側が書いた生 HTML から `class` / `style` を落とし、CSS で本文の上に別の内容を
+  重ねてコピーボタンに隠れたテキストを掴ませる経路を塞ぐ。HTML の tokenizer と同じ
+  読み方（タグ名の終端、属性の区切り、bogus comment、`<!-->` / `--!>`、`<?…>`）で
+  タグを走査する。
+- **#3164 — `[[wiki-link]]` を marked 拡張に**: 文字列置換をやめたことで #3151 が入れた
+  nonce 機構（`APP_MARKUP_ATTR` ほか）が不要になり、`rawHtmlPolicy` から 114 行削除。
+- **#3166 — mermaid 12**: `mermaid.initialize` に `layout: "dagre"` と `look: "classic"`
+  を足して 12 以前の見た目を固定した（ピンを外すと 8 種中 5 種の図が色・レイアウトごと
+  引き直される）。
+
+レンジは `@mulmoclaude/core` / `markdown-plugin` / launcher の 3 箇所すべてを `^3.0.0` に
 sweep 済み。
 
 #### `@mulmobridge/*` — 25 ブリッジが #3084 の常駐プロセス堅牢化を受け取る
