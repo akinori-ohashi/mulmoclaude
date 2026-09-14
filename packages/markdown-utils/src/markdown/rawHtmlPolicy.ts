@@ -144,9 +144,19 @@ function openingTagName(fragment: string, start: number): string {
 }
 
 /** Index just past a `<!…>` run: `-->` for a real comment, the first `>`
- *  for a doctype or bogus comment. */
+ *  for a doctype or bogus comment.
+ *
+ *  `<!-->` and `<!--->` are COMPLETE empty comments — the spec's
+ *  abrupt-closing-of-empty-comment, reached from comment-start and
+ *  comment-start-dash — so the markup after them is LIVE. Searching only for
+ *  `-->` from `start + 4` misses both, and the scanner then copied the rest of
+ *  the fragment verbatim: `<!---><pre class="absolute inset-0 bg-white">` kept
+ *  its class all the way through marked and the sanitiser, which is the overlay
+ *  this file exists to stop (codex round 21, P1). */
 function commentEnd(fragment: string, start: number): number {
   if (fragment.startsWith("<!--", start)) {
+    if (fragment[start + 4] === ">") return start + 5;
+    if (fragment[start + 4] === "-" && fragment[start + 5] === ">") return start + 6;
     const close = fragment.indexOf("-->", start + 4);
     return close === -1 ? fragment.length : close + 3;
   }
@@ -426,10 +436,13 @@ export function stripPresentationAttributes(fragment: string): string {
       index += 1;
       continue;
     }
-    // Comments and doctype/CDATA are copied verbatim; they carry no
-    // attributes and their contents must not be treated as tags. A comment
-    // ends at `-->`, NOT at the first `>` — `<!-- <div class=x> <span
-    // class=y> -->` was having its later text rewritten (codex round 3).
+    // Comments, doctype/CDATA and bogus end tags are copied verbatim; they
+    // carry no attributes and their contents must not be treated as tags.
+    // Where each one ENDS is the whole question, and both directions have been
+    // wrong: a comment runs to `-->` and not to the first `>`, or later text
+    // gets rewritten (round 3) — but `<!-->` and `<!--->` end right there, or
+    // the live markup after them is swallowed and keeps its class (round 21).
+    // `commentEnd` owns both rules.
     if (fragment.startsWith("<!", index) || isBogusEndTag(fragment, index)) {
       const end = commentEnd(fragment, index);
       out.push(fragment.slice(index, end));

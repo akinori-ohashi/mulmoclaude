@@ -286,7 +286,14 @@ describe("the WHOLE contract, differentially against a real parser", () => {
     const tags = names.flatMap((name) =>
       attrs.flatMap((attr) => separators.flatMap((separator) => bodies.map((body) => `<${name}${separator}${attr}>${body}</${name}>`))),
     );
-    const inputs = tags.flatMap((tag) => truncations.map((truncate) => truncate(tag)));
+    // A comment form ALONE round-trips whether or not the scanner ends it in the
+    // right place — the bytes are just copied. It is only wrong when live markup
+    // FOLLOWS, which is how `<!--->` kept an overlay's class through the whole
+    // pipeline. So cross the declaration forms with a following tag.
+    const prefixes = ["<!--->", "<!-->", "<!---->", "<!--a-->", "<!--- -->", "<![CDATA[x]]>", "</\u00e9 <span class=q>>", "<!DOCTYPE html>"];
+    const overlay = '<div class="absolute inset-0 bg-white" style="position:absolute">x</div>';
+    const prefixed = prefixes.flatMap((prefix) => [`${prefix}${overlay}`, ...attrs.map((attr) => `${prefix}<div${attr}>y</div>`)]);
+    const inputs = [...tags.flatMap((tag) => truncations.map((truncate) => truncate(tag))), ...prefixed];
     const violations = inputs.filter((input) => shapeOf(stripPresentationAttributes(input), false) !== shapeOf(input, true));
     assert.ok(inputs.length > 20000, `the generator collapsed to ${inputs.length} inputs — it is meant to cross every dimension`);
     assert.deepEqual(violations, [], `the contract failed on ${violations.length} of ${inputs.length} generated inputs, e.g. ${JSON.stringify(violations[0])}`);
