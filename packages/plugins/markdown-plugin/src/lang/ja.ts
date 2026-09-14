@@ -18,6 +18,8 @@ const ja: Messages = {
   saveError: "⚠ 保存失敗: {error}",
   copyLabel: "コピー",
   copiedLabel: "コピーしました！",
+  codeCopyLabel: "コードをコピー",
+  codeCopiedLabel: "コピーしました",
   taskCountMismatch: "Markdown ソースと描画結果でタスク数が一致しないため、ファイル破損を避けるためトグル操作を中止しました。",
   marpSlidesMode: "Marp スライド · {count}",
   marpExportPdf: "PDFを書き出し",

@@ -60,12 +60,6 @@ export function resolveActiveViewMode(
   return "table";
 }
 
-/** Narrow a (possibly custom) mode to a built-in one, for surfaces that can
- *  only represent the built-ins (the embedded card's `viewState`). */
-export function builtInViewOrTable(mode: CollectionViewMode): BuiltInViewMode {
-  return mode === "calendar" || mode === "kanban" ? mode : "table";
-}
-
 const STORAGE_KEY = "collection_view_modes";
 const SORT_STORAGE_KEY = "collection_sorts";
 
@@ -81,8 +75,10 @@ function readEntries(source: object): [string, unknown][] {
  *  key (the id is validated against the live schema at render time, so an
  *  unknown custom id simply collapses to the table there). Takes `unknown`
  *  and type-guards `string` first: a corrupted localStorage entry could hold a
- *  number/object, and calling `.startsWith` on that would throw. */
-function isValidViewMode(value: unknown): value is CollectionViewMode {
+ *  number/object, and calling `.startsWith` on that would throw. Shared with
+ *  the embedded card's `viewState` reader so both restore paths accept exactly
+ *  the same set of modes. */
+export function isCollectionViewMode(value: unknown): value is CollectionViewMode {
   return typeof value === "string" && (BUILT_IN_MODES.some((mode) => mode === value) || value.startsWith(CUSTOM_VIEW_PREFIX));
 }
 
@@ -100,7 +96,7 @@ function readAll(): ViewModeMap {
     // stored value no longer validates rather than handing them back.
     const out: ViewModeMap = {};
     for (const [slug, value] of readEntries(parsed)) {
-      if (isValidViewMode(value)) out[slug] = value;
+      if (isCollectionViewMode(value)) out[slug] = value;
     }
     return out;
   } catch {
@@ -110,7 +106,7 @@ function readAll(): ViewModeMap {
 
 export function readCollectionViewMode(slug: string): CollectionViewMode | null {
   const stored: unknown = readAll()[slug];
-  return isValidViewMode(stored) ? stored : null;
+  return isCollectionViewMode(stored) ? stored : null;
 }
 
 export function writeCollectionViewMode(slug: string, view: CollectionViewMode): void {

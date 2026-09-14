@@ -18,6 +18,8 @@ const de: Messages = {
   saveError: "⚠ {error}",
   copyLabel: "Kopieren",
   copiedLabel: "Kopiert!",
+  codeCopyLabel: "Code kopieren",
+  codeCopiedLabel: "Kopiert",
   taskCountMismatch:
     "Die Anzahl der Aufgaben in der Markdown-Quelle und im gerenderten Ergebnis stimmt nicht überein. Das Umschalten wurde abgelehnt, um eine Beschädigung der Datei zu vermeiden.",
   marpSlidesMode: "Marp-Folien · {count}",
