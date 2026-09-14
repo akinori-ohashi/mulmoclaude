@@ -309,6 +309,11 @@ describe("the WHOLE contract, differentially against a real parser", () => {
       '<!DOCTYPE html SYSTEM "a>b">',
       "<![CDATA[a>b]]>",
       "<!-- <!-- nested -->",
+      // `<?` is a bogus comment to the next `>`, so its contents are text.
+      "<?x <span class=y>>",
+      '<?php echo "<div class=absolute>"; ?>',
+      "<?>",
+      "<? <b class=q> >",
     ];
     const overlay = '<div class="absolute inset-0 bg-white" style="position:absolute">x</div>';
     const prefixed = prefixes.flatMap((prefix) => [`${prefix}${overlay}`, ...attrs.map((attr) => `${prefix}<div${attr}>y</div>`)]);

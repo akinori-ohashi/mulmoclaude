@@ -215,6 +215,16 @@ function isBogusEndTag(fragment: string, index: number): boolean {
   return fragment[index + 1] === "/" && !isAsciiLetter(fragment[index + 2] ?? "");
 }
 
+/** True when `<?` opens a bogus comment. Tag-open takes `?` as an
+ *  unexpected-question-mark-instead-of-tag-name parse error and reconsumes in
+ *  bogus comment state, so everything to the next `>` is comment TEXT. Copying
+ *  only the `<` and scanning on rewrote that text: `<?x <span class=y>>` lost
+ *  the class a parser keeps (codex round 23). Every other non-letter after `<`
+ *  is literal text and needs no special case — the bytes are copied either way. */
+function isProcessingInstruction(fragment: string, index: number): boolean {
+  return fragment[index + 1] === "?";
+}
+
 /** True when `<` at `index` opens a tag rather than being literal text.
  *  `a < b` in prose must survive untouched.
  *
@@ -448,15 +458,24 @@ export function stripPresentationAttributes(fragment: string): string {
       index += 1;
       continue;
     }
-    // Comments, doctype/CDATA and bogus end tags are copied verbatim; they
-    // carry no attributes and their contents must not be treated as tags.
+    // Comments, doctype, CDATA, bogus end tags and `<?…>` processing
+    // instructions are copied verbatim; they carry no attributes and their
+    // contents must not be treated as tags.
+    //
+    // `<![CDATA[` is read as HTML's bogus comment — ending at the first `>` —
+    // which is right everywhere markdown raw HTML actually lands. Inside
+    // FOREIGN content (`<svg>`, `<math>`) a parser would instead run it to
+    // `]]>`, so a `>` in the body diverges. Not fixed on purpose: knowing
+    // whether we are in foreign content needs element state that cannot survive
+    // marked handing raw HTML over in chunks, and the divergence only ever
+    // rewrites text a parser keeps — it cannot let an attribute through.
     // Where each one ENDS is the whole question, and both directions have been
     // wrong. Too early: a comment runs to `-->`, not to the first `>`, or its
     // later text gets rewritten (round 3). Too late: `<!-->`, `<!--->` and
     // `--!>` all end a comment where a `-->` search does not find one, and the
     // live markup after them was swallowed and kept its class (rounds 21-22).
     // `commentEnd` owns every one of those rules.
-    if (fragment.startsWith("<!", index) || isBogusEndTag(fragment, index)) {
+    if (fragment.startsWith("<!", index) || isBogusEndTag(fragment, index) || isProcessingInstruction(fragment, index)) {
       const end = commentEnd(fragment, index);
       out.push(fragment.slice(index, end));
       index = end;
