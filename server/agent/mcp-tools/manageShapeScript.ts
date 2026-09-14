@@ -1,26 +1,27 @@
-// `publishShapeScript` — post a ShapeScript model to the public gallery on
-// mulmoserver (server.mulmocast.com/shapes) under the user's own account.
+// `manageShapeScript` — the user's ShapeScript models in the public gallery on
+// mulmoserver (server.mulmocast.com/shapes): publish, update, delete, get, getList.
 //
-// A pure MCP tool like `exportShapeScriptUsdz`: no View, the answer is the
-// model's URL. Everything a model sees — schema, description, the document a
-// post is, the keyword rules — lives in `@mulmoclaude/shapescript-plugin`, and
-// that entry is Firebase-free on purpose. What this host contributes is the
-// signed-in session: the remote-host runner signs into mulmoserver's Firebase
-// AS THE USER (docs/remote-host.md, "Option B"), so a post is a plain
-// Firestore write on `shapes/{id}` that the gallery's rules accept because
-// `uid == request.auth.uid`. No session → the tool says how to connect one.
+// A pure MCP tool like `exportShapeScriptUsdz`: no View, the answer is a URL
+// or, for the two reads, JSON. Everything a model sees — schema, description,
+// the document a post is, the keyword rules — lives in
+// `@mulmoclaude/shapescript-plugin`, and that entry is Firebase-free on
+// purpose. What this host contributes is the signed-in session: the
+// remote-host runner signs into mulmoserver's Firebase AS THE USER
+// (docs/remote-host.md, "Option B"), so a post is a plain Firestore write on
+// `shapes/{id}` that the gallery's rules accept because `uid == request.auth.uid`,
+// and the reads are the queries the gallery's own pages run. No session → the
+// tool says how to connect one.
 //
 // The thumbnail comes from the same renderer `renderShapeScript` uses; a host
 // without Chromium posts without a picture rather than failing. The script
 // itself is a Storage object too (receptron/mulmoserver#266): the document
-// carries its id, never the text. With `id` the plugin rewrites the user's own
-// post instead: the read and the `updateDoc` are this host's too.
+// carries its id, never the text — so `get` downloads it from under its owner.
 import {
-  executePublishShapeScript,
-  PUBLISH_DESCRIPTION,
-  PUBLISH_PROMPT,
-  PUBLISH_SCHEMA,
-  PUBLISH_TOOL_NAME,
+  executeManageShapeScript,
+  MANAGE_DESCRIPTION,
+  MANAGE_PROMPT,
+  MANAGE_SCHEMA,
+  MANAGE_TOOL_NAME,
   SHAPE_OBJECT_CACHE_CONTROL,
   SHAPE_SCRIPT_CONTENT_TYPE,
   type ShapeGalleryWriter,
@@ -29,9 +30,23 @@ import {
   type ShapePostExpect,
   type ShapePostPatch,
 } from "@mulmoclaude/shapescript-plugin";
-import { renderShapeThumbnail, PUBLISH_TOOL_TIMEOUT_MS } from "@mulmoclaude/shapescript-plugin/render";
-import { doc, getDoc, runTransaction, serverTimestamp, setDoc, type Firestore } from "firebase/firestore";
-import { deleteObject, ref as storageRef, uploadBytes, type FirebaseStorage } from "firebase/storage";
+import { renderShapeThumbnail, MANAGE_TOOL_TIMEOUT_MS } from "@mulmoclaude/shapescript-plugin/render";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  limit as limitTo,
+  orderBy,
+  query,
+  runTransaction,
+  serverTimestamp,
+  setDoc,
+  where,
+  type Firestore,
+} from "firebase/firestore";
+import { deleteObject, getBytes, ref as storageRef, uploadBytes, type FirebaseStorage } from "firebase/storage";
 import { currentDisplayName, currentFirestoreSession, currentStorage } from "../../remoteHost/session.js";
 import { log } from "../../system/logger/index.js";
 import { shapeFiles } from "./exportShapeScriptUsdz.js";
@@ -59,7 +74,13 @@ export function postStillMatches(data: Record<string, unknown> | undefined, expe
   return data !== undefined && data.uid === expect.uid && data.scriptId === expect.scriptId && data.thumbnailId === expect.thumbnailId;
 }
 
-/** Where a post's picture lives in Storage — `shapes/{uid}/{shapeId}/{objectId}`,
+/** A read the rules refused — another account's draft. The gallery shows the same "not here"
+ *  for that as for a wrong id, and so does the tool: both are null, not an error. */
+export function isHiddenByRules(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "permission-denied";
+}
+
+/** Where a post's objects live in Storage — `shapes/{uid}/{shapeId}/{objectId}`,
  *  under the owner so the Storage rule scopes writes without a Firestore read. */
 export function shapeObjectPath(uid: string, shapeId: string, objectId: string): string {
   return `${SHAPES}/${uid}/${shapeId}/${objectId}`;
@@ -71,6 +92,7 @@ export function shapeObjectPath(uid: string, shapeId: string, objectId: string):
  *  Every object goes out immutable-cacheable: its id is minted here and it is
  *  never rewritten. */
 export function galleryWriterFrom(session: { firestore: Firestore; storage: FirebaseStorage; uid: string; authorName: string }): ShapeGalleryWriter {
+  const post = (shapeId: string) => doc(session.firestore, SHAPES, shapeId);
   const upload = async (shapeId: string, bytes: Uint8Array | string, contentType: string): Promise<string> => {
     const objectId = crypto.randomUUID();
     const data = typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
@@ -83,20 +105,33 @@ export function galleryWriterFrom(session: { firestore: Firestore; storage: Fire
   return {
     uid: session.uid,
     authorName: session.authorName,
-    createPost: (shapeId, post) => setDoc(doc(session.firestore, SHAPES, shapeId), postDocumentOf(post)),
+    createPost: (shapeId, post_) => setDoc(post(shapeId), postDocumentOf(post_)),
     readPost: async (shapeId) => {
-      const snapshot = await getDoc(doc(session.firestore, SHAPES, shapeId));
-      return snapshot.exists() ? snapshot.data() : null;
+      try {
+        const snapshot = await getDoc(post(shapeId));
+        return snapshot.exists() ? snapshot.data() : null;
+      } catch (error) {
+        if (isHiddenByRules(error)) return null;
+        throw error;
+      }
     },
     // A transaction: the check and the field-level update are one atomic step, so a
     // concurrent edit either lands before (and this one is refused) or after (and sees ours).
     updatePost: (shapeId, patch, expect) =>
       runTransaction(session.firestore, async (transaction) => {
-        const ref = doc(session.firestore, SHAPES, shapeId);
-        const snapshot = await transaction.get(ref);
+        const snapshot = await transaction.get(post(shapeId));
         if (!postStillMatches(snapshot.data(), expect)) throw new Error(POST_CHANGED_MESSAGE);
-        transaction.update(ref, postUpdateOf(patch));
+        transaction.update(post(shapeId), postUpdateOf(patch));
       }),
+    deletePost: (shapeId) => deleteDoc(post(shapeId)),
+    // The gallery's own "My models" query: the rules admit it because `uid == me` holds
+    // for every row, and the (uid, createdAt desc) composite index serves it.
+    listPosts: async (uid, count) => {
+      const snapshot = await getDocs(query(collection(session.firestore, SHAPES), where("uid", "==", uid), orderBy("createdAt", "desc"), limitTo(count)));
+      return snapshot.docs.map((row) => ({ id: row.id, data: row.data() }));
+    },
+    readScript: async (ownerUid, shapeId, scriptId) =>
+      new TextDecoder().decode(await getBytes(storageRef(session.storage, shapeObjectPath(ownerUid, shapeId, scriptId)))),
     uploadThumbnail: (shapeId, png) => upload(shapeId, png, THUMBNAIL_TYPE),
     uploadScript: (shapeId, script) => upload(shapeId, script, SHAPE_SCRIPT_CONTENT_TYPE),
     deleteObject: (shapeId, objectId) => deleteObject(storageRef(session.storage, shapeObjectPath(session.uid, shapeId, objectId))),
@@ -110,28 +145,28 @@ function currentGallery(): ShapeGalleryWriter | null {
   return galleryWriterFrom({ firestore: session.firestore, storage: currentStorage(), uid: session.uid, authorName: currentDisplayName() ?? "" });
 }
 
-export const publishShapeScript: McpTool = {
+export const manageShapeScript: McpTool = {
   definition: {
-    name: PUBLISH_TOOL_NAME,
-    description: PUBLISH_DESCRIPTION,
-    inputSchema: PUBLISH_SCHEMA,
+    name: MANAGE_TOOL_NAME,
+    description: MANAGE_DESCRIPTION,
+    inputSchema: MANAGE_SCHEMA,
   },
   // The thumbnail is a render and the script an upload of up to 10 MiB, so the
   // transport must outlast both.
-  bridgeTimeoutMs: PUBLISH_TOOL_TIMEOUT_MS,
-  prompt: PUBLISH_PROMPT,
+  bridgeTimeoutMs: MANAGE_TOOL_TIMEOUT_MS,
+  prompt: MANAGE_PROMPT,
   handler: async (args: Record<string, unknown>): Promise<string> => {
-    log.info("render", "publishShapeScript: start", { args: Object.keys(args).join(",") });
-    const result = await executePublishShapeScript(
+    log.info("render", "manageShapeScript: start", { action: args.action, args: Object.keys(args).join(",") });
+    const result = await executeManageShapeScript(
       {
         files: shapeFiles,
         gallery: currentGallery(),
-        renderThumbnail: (script) => renderShapeThumbnail(script, (message) => log.warn("render", "publishShapeScript: renderer", { message })),
-        onWarning: (message) => log.warn("render", "publishShapeScript", { message }),
+        renderThumbnail: (script) => renderShapeThumbnail(script, (message) => log.warn("render", "manageShapeScript: renderer", { message })),
+        onWarning: (message) => log.warn("render", "manageShapeScript", { message }),
       },
       args,
     );
-    log.info("render", "publishShapeScript: ok", { id: result.id, thumbnail: result.thumbnail });
+    log.info("render", "manageShapeScript: ok", { action: result.action, ...("id" in result ? { id: result.id } : { count: result.posts.length }) });
     return result.message;
   },
 };

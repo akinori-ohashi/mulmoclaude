@@ -58,24 +58,37 @@ The file lands at `artifacts/shapes/<slug>-<epoch-ms>-<token>.usdz`. The View's 
 button builds the same archive in the browser with `shapeScriptToUsdz` and saves it locally.
 USDZ units are metres, so `size 1` is one metre in AR.
 
-## Publishing to the gallery
+## The gallery: `manageShapeScript`
 
-`publishShapeScript` posts a model to the public gallery on mulmoserver (server.mulmocast.com/shapes)
-and returns its URL. The tool's contract — schema, description, the document a post is
-(`SHAPE_POST_KEYS`, which mulmoserver's rules pin with `hasOnly`), the keyword normalisation — is the
-package's; Firebase is not. A host supplies a `ShapeGalleryWriter` over its own signed-in session
-(the remote-host session, which is the user's account on mulmoserver's Firebase) and a
-`renderThumbnail` — `renderShapeThumbnail` from `./render`, which answers `null` where no headless
-browser is installed, so the post still lands, without a picture:
+`manageShapeScript` is the user's models in the public gallery on mulmoserver
+(server.mulmocast.com/shapes), one tool with an `action` — as `manageCollection` is:
+
+| `action`  | Does                                                                                                   | Needs                              |
+| --------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| `publish` | Posts a new model and answers its URL.                                                                 | `title`, `script` or `path`        |
+| `update`  | Changes the user's own post in place, sending only the fields given.                                   | `id`                               |
+| `delete`  | Removes the user's own post and every object under it.                                                 | `id`                               |
+| `get`     | One post's readable fields and its ShapeScript source — anyone's published one, or the user's draft.  | `id`; `save: true` writes a .shape |
+| `getList` | The user's own posts, drafts included, newest first.                                                   | `limit` (default 20, at most 100)  |
+
+The tool's contract — schema, description, the document a post is (`SHAPE_POST_KEYS`, which
+mulmoserver's rules pin with `hasOnly`), the keyword normalisation — is the package's; Firebase is
+not. A host supplies a `ShapeGalleryWriter` over its own signed-in session (the remote-host
+session, which is the user's account on mulmoserver's Firebase) and a `renderThumbnail` —
+`renderShapeThumbnail` from `./render`, which answers `null` where no headless browser is installed,
+so a post still lands, without a picture:
 
 ```ts
-import { executePublishShapeScript, PUBLISH_TOOL_NAME, PUBLISH_DESCRIPTION, PUBLISH_SCHEMA, PUBLISH_PROMPT } from "@mulmoclaude/shapescript-plugin";
+import { executeManageShapeScript, MANAGE_TOOL_NAME, MANAGE_DESCRIPTION, MANAGE_SCHEMA, MANAGE_PROMPT } from "@mulmoclaude/shapescript-plugin";
 import { renderShapeThumbnail } from "@mulmoclaude/shapescript-plugin/render";
 
-// gallery: { uid, authorName, createPost(id, doc), readPost(id), updatePost(id, patch, expect),
+// gallery: { uid, authorName,
+//            createPost(id, doc), readPost(id), updatePost(id, patch, expect), deletePost(id),
+//            listPosts(uid, limit), readScript(ownerUid, id, scriptId),
 //            uploadThumbnail(id, png), uploadScript(id, script), deleteObject(id, objectId) }
 //          — every member required; null when not signed in
-const { message, url } = await executePublishShapeScript({ files: shapeFiles, gallery, renderThumbnail: renderShapeThumbnail }, args);
+const result = await executeManageShapeScript({ files: shapeFiles, gallery, renderThumbnail: renderShapeThumbnail }, args);
+result.message; // the sentence (publish / update / delete) or the JSON (get / getList) the agent reads
 ```
 
 `createPost` must add `createdAt` / `updatedAt` as `serverTimestamp()`; the rules refuse a client
@@ -83,18 +96,29 @@ clock. `deleteObject` is what takes an uploaded thumbnail back out when `createP
 no object is left that nothing references. With `gallery: null` the tool throws
 `NOT_CONNECTED_MESSAGE`, which tells the user to connect Remote Host.
 
-With `id` — the tail of a post's gallery URL — the tool rewrites that post in place instead of
-creating one: `readPost` fetches it, the tool refuses it unless its `uid` is the writer's (only
-the publisher may update a post; the gallery's rules say the same, but without a reason), and
-`updatePost` merges a PATCH — only the fields the caller gave, plus new object ids — with a server
-`updatedAt` and no `createdAt`, which the rules freeze. It must be a field-level update (Firestore
-`updateDoc`), never a whole-document write, so a field not given keeps what the document holds
-now rather than what the read saw; and it must be CONDITIONAL on `expect` (owner and object ids
-as read), refusing with `POST_CHANGED_MESSAGE` when the post changed meanwhile — a
-`runTransaction` that re-reads, compares and updates — so two racing edits cannot orphan each
-other's objects. Every other argument is optional then: a field given replaces
-the post's (an explicit `""` clears `description` / `prompt` / `aiModel`), one omitted keeps it. A new `script` / `path` uploads a new script object and thumbnail and removes
-the replaced ones once the document points at the new ids; without one the model stays as it is.
+`update` rewrites the user's own post `id` in place: `readPost` fetches it, the tool refuses it
+unless its `uid` is the writer's (only the publisher may change a post; the gallery's rules say the
+same, but without a reason), and `updatePost` merges a PATCH — only the fields the caller gave,
+plus new object ids — with a server `updatedAt` and no `createdAt`, which the rules freeze. It must
+be a field-level update (Firestore `updateDoc`), never a whole-document write, so a field not given
+keeps what the document holds now rather than what the read saw; and it must be CONDITIONAL on
+`expect` (owner and object ids as read), refusing with `POST_CHANGED_MESSAGE` when the post changed
+meanwhile — a `runTransaction` that re-reads, compares and updates — so two racing edits cannot
+orphan each other's objects. A field given replaces the post's (an explicit `""` clears
+`description` / `prompt` / `aiModel`), one omitted keeps it. A new `script` / `path` uploads a new
+script object and thumbnail and removes the replaced ones once the document points at the new ids.
+
+`delete` is the same owner check, then `deletePost` — the document first, so the post is gone at
+once — then `deleteObject` for the script, the thumbnail and any reference photos; an object that
+will not go is a warning, since nothing links to it.
+
+`get` and `getList` are reads: `readPost` / `listPosts` answer documents as stored (the server
+stamps may stay whatever the SDK returns — a `Date`, or anything with `toDate()` — the tool turns
+them into ISO strings), and `readScript` downloads the source from under the post's OWNER, which
+need not be the session user: the Storage rule opens the objects to anyone. `readPost` must answer
+`null`, not throw, for a document the rules hide (another account's draft), as it does for a wrong
+id. `listPosts` is the gallery's own "My models" query — `uid == me`, `createdAt` descending — which
+the rules admit and the composite index serves.
 
 ## ShapeScript language
 

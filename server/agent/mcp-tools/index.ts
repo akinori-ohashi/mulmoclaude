@@ -6,7 +6,7 @@ import { spawnBackgroundChat } from "./spawnBackgroundChat.js";
 import { manageCollection } from "./manageCollection.js";
 import { renderShapeScript } from "./renderShapeScript.js";
 import { exportShapeScriptUsdz } from "./exportShapeScriptUsdz.js";
-import { publishShapeScript } from "./publishShapeScript.js";
+import { manageShapeScript } from "./manageShapeScript.js";
 import { errorMessage } from "../../utils/errors.js";
 import { notFound, sendError, serverError } from "../../utils/httpError.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
@@ -55,7 +55,7 @@ export const mcpTools: McpTool[] = [
   manageCollection,
   renderShapeScript,
   exportShapeScriptUsdz,
-  publishShapeScript,
+  manageShapeScript,
 ];
 
 const toolMap = new Map(mcpTools.map((tool) => [tool.definition.name, tool]));
