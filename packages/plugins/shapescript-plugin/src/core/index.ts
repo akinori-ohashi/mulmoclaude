@@ -31,7 +31,9 @@ export {
 export type { ExportUsdzResult } from "../export/tool";
 export {
   executePublishShapeScript,
+  existingShapePost,
   shapePostFrom,
+  shapePostPatch,
   shapePostUrl,
   normalizeKeywords as normalizeShapeKeywords,
   PUBLISH_TOOL_NAME,
@@ -45,8 +47,9 @@ export {
   SHAPE_OBJECT_CACHE_CONTROL,
   requireScriptBytes,
   NOT_CONNECTED_MESSAGE,
+  POST_CHANGED_MESSAGE,
 } from "./publish";
-export type { PublishShapeScriptContext, PublishShapeResult, ShapeGalleryWriter, ShapePostDoc } from "./publish";
+export type { PublishShapeScriptContext, PublishShapeResult, ShapeGalleryWriter, ShapePostDoc, ShapePostExpect, ShapePostPatch } from "./publish";
 export { samples } from "./samples";
 
 // Re-export ShapeScript utilities
