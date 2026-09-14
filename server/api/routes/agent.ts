@@ -303,7 +303,16 @@ export async function startChat(params: StartChatParams): Promise<StartChatResul
 // append the user message to the jsonl, and broadcast it to other
 // tabs viewing this session. Returns the validated origin so the
 // dispatch phase can reuse it.
-async function persistUserTurn(params: StartChatParams, ctx: { isFirstTurn: boolean; attachedFiles: AttachedFile[] }): Promise<SessionOrigin | undefined> {
+/** Exported for testing. The first-turn model carry is applied by one line in
+ *  here, and deleting that line left the whole suite green — the only thing
+ *  covering it was a run against the real CLI, which does not stop a
+ *  regression. Driving `startChat` instead would need a real `~/.claude`
+ *  install; this function touches only files and pub/sub, so a test can call
+ *  it directly with the workspace redirected. */
+export async function persistUserTurn(
+  params: StartChatParams,
+  ctx: { isFirstTurn: boolean; attachedFiles: AttachedFile[] },
+): Promise<SessionOrigin | undefined> {
   const { message, roleId, chatSessionId } = params;
   const { isFirstTurn, attachedFiles } = ctx;
 
