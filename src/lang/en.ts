@@ -177,6 +177,11 @@ const enMessages = {
   },
   sessionModelChip: {
     tooltip: "Model this session is running on: {model}",
+    tooltipOverride: "Model for this chat: {model} (overriding the role / app-wide choice)",
+    ariaLabel: "Model for this chat",
+    clear: "Back to the default",
+    unknown: "unknown",
+    inherited: "{model} (inherited)",
   },
   sidebarHeader: {
     newMessages: "New messages",

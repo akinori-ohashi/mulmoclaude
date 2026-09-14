@@ -162,6 +162,11 @@ const esMessages = {
   },
   sessionModelChip: {
     tooltip: "Modelo que usa esta sesión: {model}",
+    tooltipOverride: "Modelo de este chat: {model} (anula el rol / ajuste global)",
+    ariaLabel: "Modelo de este chat",
+    clear: "Volver al valor por defecto",
+    unknown: "desconocido",
+    inherited: "{model} (heredado)",
   },
   sidebarHeader: {
     newMessages: "Mensajes nuevos",

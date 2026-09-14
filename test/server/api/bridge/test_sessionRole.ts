@@ -5,7 +5,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { isSafeSessionId, resolveBridgeSessionRole } from "../../../../server/api/bridge/sessionRole.ts";
+import { resolveBridgeSessionRole } from "../../../../server/api/bridge/sessionRole.ts";
+import { isSafeSessionId } from "../../../../server/utils/files/sessionId.ts";
 
 describe("isSafeSessionId", () => {
   it("accepts every legitimate session-id form we ship", () => {

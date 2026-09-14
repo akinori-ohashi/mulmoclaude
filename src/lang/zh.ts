@@ -158,6 +158,11 @@ const zhMessages = {
   },
   sessionModelChip: {
     tooltip: "此会话正在使用的模型:{model}",
+    tooltipOverride: "此对话的模型:{model}(覆盖角色/全局设置)",
+    ariaLabel: "此对话的模型",
+    clear: "恢复默认",
+    unknown: "未知",
+    inherited: "{model}(继承)",
   },
   sidebarHeader: {
     newMessages: "新消息",
