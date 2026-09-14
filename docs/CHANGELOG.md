@@ -20,8 +20,10 @@ ONE tool with an `action`, the shape `manageCollection` has, and `publishShapeSc
 - `update` — what it did with `id`, now explicit: the user's own post rewritten in place, only
   the fields given sent, the same conditional field-level patch as 4.0.0.
 - `delete` — the user's own post removed: the document first, so it is gone from the gallery at
-  once, then the script, the thumbnail and any reference photos under it; an object that will
-  not go is a warning, since nothing links to it any more.
+  once — conditional on the object ids the read saw, as an update is, so an edit that landed
+  meanwhile is refused rather than deleted with its new objects left behind — then the script,
+  the thumbnail and any reference photos under it; an object that will not go is a warning,
+  since nothing links to it any more.
 - `get` — one post's readable fields (title, description, keywords, prompt, aiModel, published,
   source, forkedFrom, authorName, the two server stamps as ISO strings, its URL — never the
   object ids) plus its ShapeScript source, downloaded from under the post's owner. Anyone's
@@ -40,11 +42,11 @@ gallery only through it.
 
 Major because the tool is renamed (`TOOL_NAMES.manageShapeScript`; a role granting
 `publishShapeScript` grants nothing) and `ShapeGalleryWriter` gains three required members —
-`deletePost(id)`, `listPosts(uid, limit)` and `readScript(ownerUid, id, scriptId)` — with `readPost`
+`deletePost(id, expect)`, `listPosts(uid, limit)` and `readScript(ownerUid, id, scriptId)` — with `readPost`
 now required to answer `null` for a document the rules hide rather than throw. Every `PUBLISH_*`
 export is `MANAGE_*` (`MANAGE_TOOL_TIMEOUT_MS` on `./render`), `executePublishShapeScript` is
 `executeManageShapeScript`, and its result is a union by `action`. MulmoClaude's host adapter
-supplies the three (a `deleteDoc`, the `where("uid") + orderBy("createdAt", "desc") + limit`
+supplies the three (a transactional delete, the `where("uid") + orderBy("createdAt", "desc") + limit`
 query, and a Storage `getBytes` under the owner's path) and maps `permission-denied` on a read to
 `null`; MulmoTerminal's `server/infra/shapescript-publish-tool.ts` needs the same before it takes
 5.0.0.

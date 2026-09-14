@@ -97,7 +97,12 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
       patches.push(patch);
       posts.set(id, { ...stored, ...patch });
     },
-    deletePost: async (id) => {
+    // Conditional, as the host's transaction is: refused unless the post still matches.
+    deletePost: async (id, expect) => {
+      const stored = posts.get(id);
+      if (!stored || stored.uid !== expect.uid || stored.scriptId !== expect.scriptId || stored.thumbnailId !== expect.thumbnailId) {
+        throw new Error(POST_CHANGED_MESSAGE);
+      }
       posts.delete(id);
     },
     listPosts: async (uid, limit) =>
@@ -493,7 +498,7 @@ describe("manageShapeScript tool", () => {
       posts.set(id, { ...posts.get(id)!, photoIds: ["p-1", "p-2"] });
       const result = await executeManageShapeScript(context, { action: "delete", id });
       assert.equal(result.action, "delete");
-      assert.match(result.message, new RegExp(`^Deleted: "Lamp" \\(${shapePostUrl(id)}\\) is no longer in the gallery`));
+      assert.equal(result.message, `Deleted: "Lamp" (${shapePostUrl(id)}) is no longer in the gallery.`);
       assert.equal(posts.size, 0);
       assert.deepEqual(deleted, [
         { id, objectId: "script-1" },
@@ -509,6 +514,22 @@ describe("manageShapeScript tool", () => {
       writer.uid = "u-bob";
       await assert.rejects(executeManageShapeScript(context, { action: "delete", id }), /published by another account; only its publisher can delete it/);
       assert.equal(posts.size, 1);
+      assert.deepEqual(deleted, []);
+    });
+
+    // Codex on #3161: an update landing between the read and the delete has new objects the
+    // read does not know. The delete is conditional on the ids read, so it is refused instead,
+    // and the post — with its new objects — stays.
+    it("refuses a delete whose read is stale — another edit replaced the model — and removes nothing", async () => {
+      const { context, writer, posts, deleted, id } = await seeded();
+      const slowRead = writer.readPost;
+      writer.readPost = async (postId) => {
+        const snapshot = await slowRead(postId);
+        posts.set(id, { ...posts.get(id)!, scriptId: "script-other", thumbnailId: "obj-other" });
+        return snapshot;
+      };
+      await assert.rejects(executeManageShapeScript(context, { action: "delete", id }), new RegExp(POST_CHANGED_MESSAGE.slice(0, 40)));
+      assert.equal(posts.get(id)!.scriptId, "script-other");
       assert.deepEqual(deleted, []);
     });
 

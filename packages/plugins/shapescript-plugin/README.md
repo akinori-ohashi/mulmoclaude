@@ -83,7 +83,7 @@ import { executeManageShapeScript, MANAGE_TOOL_NAME, MANAGE_DESCRIPTION, MANAGE_
 import { renderShapeThumbnail } from "@mulmoclaude/shapescript-plugin/render";
 
 // gallery: { uid, authorName,
-//            createPost(id, doc), readPost(id), updatePost(id, patch, expect), deletePost(id),
+//            createPost(id, doc), readPost(id), updatePost(id, patch, expect), deletePost(id, expect),
 //            listPosts(uid, limit), readScript(ownerUid, id, scriptId),
 //            uploadThumbnail(id, png), uploadScript(id, script), deleteObject(id, objectId) }
 //          — every member required; null when not signed in
@@ -109,8 +109,10 @@ orphan each other's objects. A field given replaces the post's (an explicit `""`
 script object and thumbnail and removes the replaced ones once the document points at the new ids.
 
 `delete` is the same owner check, then `deletePost` — the document first, so the post is gone at
-once — then `deleteObject` for the script, the thumbnail and any reference photos; an object that
-will not go is a warning, since nothing links to it.
+once, and conditional on `expect` exactly as `updatePost` is (a transaction that re-reads, compares
+and deletes), so an update that landed meanwhile keeps its post and its new objects — then
+`deleteObject` for the script, the thumbnail and any reference photos; an object that will not go
+is a warning, since nothing links to it.
 
 `get` and `getList` are reads: `readPost` / `listPosts` answer documents as stored (the server
 stamps may stay whatever the SDK returns — a `Date`, or anything with `toDate()` — the tool turns

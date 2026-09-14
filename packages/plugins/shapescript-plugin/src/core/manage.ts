@@ -217,9 +217,12 @@ export interface ShapeGalleryWriter {
    *  `POST_CHANGED_MESSAGE` or a cause of the host's own) when it no longer does: a
    *  transaction, so a concurrent edit that replaced the script cannot lose its objects. */
   updatePost: (id: string, patch: ShapePostPatch, expect: ShapePostExpect) => Promise<void>;
-  /** Remove `shapes/{id}`. The objects under it are the plugin's to remove, through
-   *  `deleteObject`, once the document is gone. */
-  deletePost: (id: string) => Promise<void>;
+  /** Remove `shapes/{id}`. CONDITIONAL like `updatePost`: only while the document still
+   *  matches `expect`, refused (throw, `POST_CHANGED_MESSAGE`) when it no longer does — a
+   *  transaction — so an update that landed after the plugin's read cannot have its new
+   *  objects orphaned by a delete that only knows the old ids. The objects under the post
+   *  are the plugin's to remove, through `deleteObject`, once the document is gone. */
+  deletePost: (id: string, expect: ShapePostExpect) => Promise<void>;
   /** The posts of `uid` — drafts included, which the rules show the owner — newest first
    *  (`createdAt` descending), at most `limit`. Each as `readPost` answers it, with its id. */
   listPosts: (uid: string, limit: number) => Promise<Array<{ id: string; data: Record<string, unknown> }>>;
@@ -571,11 +574,14 @@ async function updateExistingPost(
 
 /** Remove the user's own post `id`: the document first, so the post is gone from the gallery
  *  at once, then every object under it — script, thumbnail, and the reference photos of a
- *  post the web editor made. An object that will not go is an orphan of random name that
- *  nothing links to, so that is a warning, not a failure. */
+ *  post the web editor made. The removal is conditional on the object ids the read saw, as
+ *  an update is: an edit that replaced the model meanwhile is refused with
+ *  `POST_CHANGED_MESSAGE` rather than deleted with its new objects left behind (Codex on
+ *  #3161). An object that will not go is an orphan of random name that nothing links to, so
+ *  that is a warning, not a failure. */
 async function deleteOwnPost(context: ManageShapeScriptContext, gallery: ShapeGalleryWriter, id: string): Promise<ManageShapeResult> {
   const existing = await requireOwnPost(gallery, id, "delete");
-  await gallery.deletePost(id);
+  await gallery.deletePost(id, { uid: existing.uid, scriptId: existing.scriptId, thumbnailId: existing.thumbnailId });
   await discardObjects(context, gallery, id, [existing.scriptId, existing.thumbnailId, ...existing.photoIds]);
   const url = shapePostUrl(id, gallery.siteUrl);
   return { action: "delete", message: `Deleted: "${existing.title}" (${url}) is no longer in the gallery.`, id, url };

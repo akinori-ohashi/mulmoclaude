@@ -33,7 +33,6 @@ import {
 import { renderShapeThumbnail, MANAGE_TOOL_TIMEOUT_MS } from "@mulmoclaude/shapescript-plugin/render";
 import {
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -123,7 +122,14 @@ export function galleryWriterFrom(session: { firestore: Firestore; storage: Fire
         if (!postStillMatches(snapshot.data(), expect)) throw new Error(POST_CHANGED_MESSAGE);
         transaction.update(post(shapeId), postUpdateOf(patch));
       }),
-    deletePost: (shapeId) => deleteDoc(post(shapeId)),
+    // The same transaction shape: refused unless the post still carries the ids the plugin
+    // read, so a delete cannot orphan the objects of an update that landed in between.
+    deletePost: (shapeId, expect) =>
+      runTransaction(session.firestore, async (transaction) => {
+        const snapshot = await transaction.get(post(shapeId));
+        if (!postStillMatches(snapshot.data(), expect)) throw new Error(POST_CHANGED_MESSAGE);
+        transaction.delete(post(shapeId));
+      }),
     // The gallery's own "My models" query: the rules admit it because `uid == me` holds
     // for every row, and the (uid, createdAt desc) composite index serves it.
     listPosts: async (uid, count) => {
