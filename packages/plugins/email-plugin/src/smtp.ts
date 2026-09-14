@@ -26,6 +26,12 @@ export interface SendResult {
   rejected: string[];
 }
 
+// nodemailer's own types narrowed these to plain strings, but a transport
+// other than SMTP can still hand back `{ address }`, so both shapes are read.
+export function recipientAddress(entry: string | { address?: string | undefined }): string {
+  return typeof entry === "string" ? entry : (entry.address ?? "");
+}
+
 export async function sendMail(auth: SmtpAuth, draft: SendDraft): Promise<SendResult> {
   const transporter = nodemailer.createTransport({
     host: auth.smtp.host,
@@ -41,8 +47,8 @@ export async function sendMail(auth: SmtpAuth, draft: SendDraft): Promise<SendRe
       text: draft.body,
       ...(draft.html ? { html: draft.html } : {}),
     });
-    const accepted = (info.accepted ?? []).map((a) => (typeof a === "string" ? a : (a.address ?? ""))).filter((s) => s.length > 0);
-    const rejected = (info.rejected ?? []).map((a) => (typeof a === "string" ? a : (a.address ?? ""))).filter((s) => s.length > 0);
+    const accepted = (info.accepted ?? []).map(recipientAddress).filter((s) => s.length > 0);
+    const rejected = (info.rejected ?? []).map(recipientAddress).filter((s) => s.length > 0);
     // nodemailer resolves successfully when the SMTP handshake +
     // DATA upload succeed, even if the server rejected every
     // recipient (RCPT TO 550). Treat zero-accepted as a hard
