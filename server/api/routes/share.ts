@@ -57,9 +57,22 @@ interface PackMarkdownBody {
 
 // A shared markdown zip is opened directly by the recipient (unlike the
 // PDF path, which puppeteer renders once), so neutralize any script the
-// source markdown carries — `marked` passes raw HTML through. A strict
-// CSP blocks `<script>` / inline handlers / `javascript:` and plugins
-// without stripping content or touching images/styles.
+// source markdown carries — `marked` passes raw HTML through. This policy
+// blocks `<script>` / inline handlers / `javascript:` and plugins.
+//
+// It is an EXTRA policy layered on the document `renderMarkdownHtml`
+// already produces, not the whole story: multiple CSP meta tags are each
+// enforced, so the shared file is at least as locked down as the exported
+// PDF. What the shared renderer itself does — and what this comment used
+// to deny (#3151) — is strip author `class` / `style` from raw HTML and
+// nonce-lock the stylesheet, so author presentation does NOT survive into
+// a shared document.
+//
+// The one case this policy carries alone is Marp: that document
+// deliberately ships no CSP of its own, because it needs its own
+// custom-elements polyfill for the in-app preview. In a shared zip this
+// blocks that polyfill too. The slides are static markup and still
+// render; that trade predates #3151 and is left as it was.
 const SHARE_MARKDOWN_CSP = "script-src 'none'; object-src 'none'; base-uri 'none'";
 
 export function withScriptCsp(html: string): string {
@@ -76,10 +89,15 @@ async function buildMarkdownZip(body: PackMarkdownBody): Promise<{ filename: str
 }
 
 // POST /api/share/pack-markdown — render markdown (or a wiki page) to a
-// self-contained HTML (CSS inlined, images embedded as data URIs, scripts
-// neutralized) and return it zipped as index.html. Shares the render path
-// with the PDF route (`renderMarkdownHtml`). `baseDir` resolves relative
-// image refs; traversal is rejected downstream by the shared image resolver.
+// self-contained HTML and return it zipped as index.html. Shares the
+// render path with the PDF route (`renderMarkdownHtml`), and therefore
+// inherits everything that path does: CSS inlined and nonce-locked, author
+// `class` / `style` stripped from raw HTML, scripts and frames blocked,
+// LOCAL images embedded as data URIs. Remote image URLs are deliberately
+// left as URLs — `test_renderMarkdownHtml.ts` pins that — so a shared file
+// is not fully offline when the source references remote images.
+// `baseDir` resolves relative image refs; traversal is rejected downstream
+// by the shared image resolver.
 router.post(API_ROUTES.share.packMarkdown, async (req: Request<object, unknown, PackMarkdownBody>, res: Response) => {
   const { body } = req;
   if (!body || typeof body !== "object" || Array.isArray(body)) {

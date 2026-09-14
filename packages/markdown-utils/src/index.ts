@@ -14,6 +14,7 @@ export * from "./markdown/mermaidRender.js";
 export * from "./markdown/mermaidExtension.js";
 export * from "./markdown/codeCopyExtension.js";
 export * from "./markdown/codeCopyClipboard.js";
+export * from "./markdown/rawHtmlPolicy.js";
 export * from "./markdown/mathExtension.js";
 export * from "./markdown/mathRender.js";
 export * from "./dom/adoptSvg.js";
