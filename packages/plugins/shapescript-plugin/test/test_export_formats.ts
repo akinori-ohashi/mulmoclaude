@@ -3,7 +3,7 @@
 // header and its JSON chunk, an STL header and its triangle count — since the
 // point of each is that a third-party reader opens the file.
 
-import { describe, it, before } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import * as THREE from "three";
@@ -15,31 +15,6 @@ import { disposeObject3D } from "../src/shapescript/dispose";
 
 const CUBE = "cube { size 1 }";
 const TWO = "cube { size 1 }\ncube {\n size 1\n position 3 0 0\n}";
-
-/** three's `GLTFExporter` merges its buffers through `FileReader`, which the
- *  browser has and Node does not. The shim is the two calls it makes, on top
- *  of Node's own `Blob`; the exporter is otherwise DOM-free for untextured
- *  materials, which is the browser-safety the module relies on. */
-before(() => {
-  if (typeof globalThis.FileReader !== "undefined") return;
-  class NodeFileReader {
-    result: ArrayBuffer | string | null = null;
-    onloadend: (() => void) | null = null;
-    readAsArrayBuffer(blob: Blob) {
-      void blob.arrayBuffer().then((buffer) => {
-        this.result = buffer;
-        this.onloadend?.();
-      });
-    }
-    readAsDataURL(blob: Blob) {
-      void blob.arrayBuffer().then((buffer) => {
-        this.result = `data:${blob.type};base64,${Buffer.from(buffer).toString("base64")}`;
-        this.onloadend?.();
-      });
-    }
-  }
-  (globalThis as unknown as { FileReader: unknown }).FileReader = NodeFileReader;
-});
 
 /** The JSON chunk of a GLB, after its 12-byte header and 8-byte chunk prefix. */
 function glbJson(bytes: Uint8Array): { meshes?: unknown[]; nodes?: unknown[]; materials?: unknown[] } {
@@ -75,6 +50,11 @@ describe("shapeScriptToGlb", () => {
 
   it("rejects an invalid script rather than exporting nothing", async () => {
     await assert.rejects(shapeScriptToGlb("cube {"), /RBRACE/);
+  });
+
+  it("runs under Node, where three's exporter would otherwise want FileReader", () => {
+    // The suite itself is that proof; this pins the reason the shim exists.
+    assert.equal(typeof globalThis.FileReader, "function");
   });
 
   it("leaves a hidden subtree out", async () => {
@@ -170,6 +150,34 @@ describe("shapeScriptToStl", () => {
     }
     assert.deepEqual([...xs].sort(), [-0.5, 0.5, 2.5, 3.5], `instance x: ${[...xs].join(", ")}`);
     assert.deepEqual([...ys].sort(), [0.5, 1.5], `mesh y: ${[...ys].join(", ")}`);
+    disposeObject3D(instanced);
+  });
+
+  it("bakes each instance with its own morph weights", async () => {
+    // One morph target that shifts every vertex +2 along x; instance 0 at
+    // weight 0, instance 1 at weight 1, both at the same instance matrix.
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const base = geometry.getAttribute("position");
+    const shifted = new Float32Array(base.array as Float32Array);
+    for (let i = 0; i < base.count; i++) shifted[i * 3] = base.getX(i) + 2;
+    geometry.morphAttributes.position = [new THREE.Float32BufferAttribute(shifted, 3)];
+    const instanced = new THREE.InstancedMesh(geometry, new THREE.MeshStandardMaterial(), 2);
+    instanced.morphTargetInfluences = [0];
+    instanced.setMatrixAt(0, new THREE.Matrix4());
+    instanced.setMatrixAt(1, new THREE.Matrix4());
+    const weights = new THREE.Mesh(geometry);
+    weights.morphTargetInfluences = [0];
+    instanced.setMorphAt(0, weights);
+    weights.morphTargetInfluences = [1];
+    instanced.setMorphAt(1, weights);
+    const bytes = await sceneToStl(instanced);
+    assert.equal(stlTriangles(bytes), 24);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const xs = new Set<number>();
+    for (let i = 0; i < 24; i++) for (let v = 0; v < 3; v++) xs.add(view.getFloat32(84 + i * 50 + 12 + v * 12, true));
+    assert.deepEqual([...xs].sort(), [-0.5, 0.5, 1.5, 2.5], `morphed x: ${[...xs].join(", ")}`);
+    // The mesh's own weights are back to what they were.
+    assert.deepEqual(instanced.morphTargetInfluences, [0]);
     disposeObject3D(instanced);
   });
 

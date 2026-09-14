@@ -40,15 +40,24 @@ export async function sceneToStl(object: THREE.Object3D): Promise<Uint8Array<Arr
 
 /** A mesh's triangles in world space, one geometry per drawn copy: a plain
  *  mesh is one, an `InstancedMesh` is one per instance, each placed by the
- *  mesh's world matrix composed with that instance's own. */
+ *  mesh's world matrix composed with that instance's own. Per-instance morph
+ *  weights (`setMorphAt`) live in a texture `getVertexPosition` never reads,
+ *  so each instance's are loaded onto the mesh for its bake and the mesh's
+ *  own restored after (codex on #3171). */
 function bakedWorldGeometries(mesh: THREE.Mesh): THREE.BufferGeometry[] {
   const instanced = mesh as THREE.InstancedMesh;
   if (!instanced.isInstancedMesh) return [bakedWorldGeometry(mesh, mesh.matrixWorld)];
-  return Array.from({ length: instanced.count }, (_, i) => {
-    const matrix = new THREE.Matrix4();
-    instanced.getMatrixAt(i, matrix);
-    return bakedWorldGeometry(mesh, matrix.premultiply(mesh.matrixWorld));
-  });
+  const influences = instanced.morphTargetInfluences?.slice();
+  try {
+    return Array.from({ length: instanced.count }, (_, i) => {
+      const matrix = new THREE.Matrix4();
+      instanced.getMatrixAt(i, matrix);
+      if (instanced.morphTexture && instanced.morphTargetInfluences) instanced.getMorphAt(i, instanced);
+      return bakedWorldGeometry(mesh, matrix.premultiply(mesh.matrixWorld));
+    });
+  } finally {
+    if (influences) instanced.morphTargetInfluences = influences;
+  }
 }
 
 /** A mesh's triangles with every vertex taken through `transform`, as its own
