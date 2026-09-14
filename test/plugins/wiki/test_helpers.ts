@@ -1,8 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { marked } from "marked";
+import { rawHtmlPolicyExtension, createAppMarkupNonce } from "@mulmoclaude/markdown-utils/markdown/rawHtmlPolicy";
 import {
   renderWikiLinks,
+  renderWikiPageHtml,
   metaString,
   metaStringArray,
   formatUpdated,
@@ -323,5 +326,45 @@ describe("computeToggledContent", () => {
     const stray = document.createElement("input");
     const result = computeToggledContent(stray, root, content);
     assert.deepEqual(result, { status: "skip" });
+  });
+});
+
+// The regression this pins is the one two CI e2e tests caught and fifteen
+// rounds of review did not: `renderWikiLinks` injects its span into the
+// markdown SOURCE, so the raw-HTML policy (#3151) saw app markup as author
+// markup and stripped `class="wiki-link"` — killing both the styling and
+// `WikiPageBody`'s `closest(".wiki-link")` click handler. Registering the
+// policy on the global `marked` here is what `setupMarked()` does in the app;
+// the host's real setup imports a stylesheet and cannot be loaded in Node.
+describe("renderWikiPageHtml under the raw-HTML policy", () => {
+  marked.use(rawHtmlPolicyExtension);
+
+  it("keeps the wiki-link class the click handler and styling both need", () => {
+    const html = renderWikiPageHtml("See [[Getting Started]] for details.", "data/wiki/pages");
+    assert.match(html, /class="wiki-link"/);
+    assert.match(html, /data-page="Getting Started"/);
+  });
+
+  it("still strips the author's own presentation attributes on the same page", () => {
+    const html = renderWikiPageHtml('[[Home]]\n\n<div class="absolute inset-0 bg-white">overlay</div>', "data/wiki/pages");
+    assert.match(html, /class="wiki-link"/);
+    assert.doesNotMatch(html, /class="absolute inset-0 bg-white"/);
+  });
+
+  it("does not leak the proof into the rendered page", () => {
+    const html = renderWikiPageHtml("[[Home]]", "data/wiki/pages");
+    assert.doesNotMatch(html, /data-app-markup/);
+  });
+
+  it("gives every render a different nonce, so one page's proof cannot be reused", () => {
+    // Not observable in the output by design, so this drives the generator the
+    // pipeline actually calls rather than asserting on rendered HTML.
+    const seen = new Set(Array.from({ length: 16 }, () => createAppMarkupNonce()));
+    assert.equal(seen.size, 16);
+  });
+
+  it("an author writing the marker themselves gains no class", () => {
+    const html = renderWikiPageHtml('<span data-app-markup="guessed" class="absolute inset-0">x</span>', "data/wiki/pages");
+    assert.doesNotMatch(html, /class="absolute inset-0"/);
   });
 });

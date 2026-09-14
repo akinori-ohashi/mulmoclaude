@@ -22,16 +22,70 @@
 //
 // It applies to author HTML ONLY, which is possible because `marked`
 // routes raw HTML — and nothing else — through `renderer.html`. Highlight
-// spans, the copy button, mermaid placeholders and wiki embeds come from
+// spans, the copy button, mermaid placeholders and wiki EMBEDS come from
 // other renderers and keep their classes. The markdown-level sanitiser
 // cannot make that distinction: by the time it runs, the two are one
 // document.
+//
+// One kind of app markup is NOT safe by that argument, and assuming it was
+// broke every `[[wiki-link]]` in the app. `renderWikiLinks` rewrites `[[x]]`
+// into a `<span class="wiki-link">` and injects it into the markdown SOURCE,
+// before marked runs — so it arrives here as an author raw-HTML token and is
+// indistinguishable from one. Losing the class cost both the styling and
+// `WikiPageBody`'s `closest(".wiki-link")` click handler. Pre-injected app
+// markup therefore has to identify itself, and the only way it can do that
+// against an author who may write any static text is a nonce the author
+// cannot guess — the same defence the copy button uses.
 
 import type { MarkedExtension, Tokens } from "marked";
+import { createCodeCopyNonce } from "./codeCopyExtension.js";
 
 /** Attributes an author may not set. Presentation only — this is not the
  *  XSS boundary, which stays with DOMPurify. */
 const FORBIDDEN = ["class", "style"];
+
+/** Attribute by which app markup injected into the markdown SOURCE declares
+ *  itself. Its value must equal the nonce of the parse currently running; a
+ *  bare or stale marker is treated as author text and stripped along with it. */
+export const APP_MARKUP_ATTR = "data-app-markup";
+
+// Empty means "trust nothing", which is the state every surface is in except
+// during the one synchronous `parse()` that `withTrustedAppMarkup` wraps. An
+// author token carrying an empty marker must never match, hence the guard in
+// `trustedMarker` rather than a plain comparison.
+let trustedNonce = "";
+
+/** A value author markup cannot guess. Delegates rather than reimplements:
+ *  the copy button already owns the CSPRNG-only helper, and a second
+ *  implementation of "make an unguessable value" is how one of them ends up
+ *  with a `Math.random` fallback. Returns "" when there is no CSPRNG, which
+ *  fails CLOSED — nothing is trusted. */
+export function createAppMarkupNonce(): string {
+  return createCodeCopyNonce();
+}
+
+/** Runs `parse` with `nonce` trusted. Synchronous by contract: marked's
+ *  renderers run inline, so the window closes before any other render can
+ *  start. An async marked extension would break that and is why the wiki
+ *  pipeline asserts its result is a string. */
+export function withTrustedAppMarkup<T>(nonce: string, parse: () => T): T {
+  // Restores rather than clears: an inner render finishing must not revoke the
+  // trust an outer one is still relying on.
+  const outer = trustedNonce;
+  trustedNonce = nonce;
+  try {
+    return parse();
+  } finally {
+    trustedNonce = outer;
+  }
+}
+
+/** The exact attribute text app markup must carry to keep its attributes,
+ *  or "" when nothing is trusted. */
+function trustedMarker(): string {
+  if (trustedNonce === "") return "";
+  return `${APP_MARKUP_ATTR}="${trustedNonce}"`;
+}
 
 const isAsciiLetter = (char: string): boolean => (char >= "a" && char <= "z") || (char >= "A" && char <= "Z");
 
@@ -175,8 +229,23 @@ function endsAttributeName(char: string | undefined): boolean {
   return isHtmlWhitespace(char) || char === "=" || char === "/" || char === ">";
 }
 
-/** Removes the forbidden attributes from ONE tag's source text. */
+/** Cuts the proof out of the tag, taking the whitespace that separated it from
+ *  the previous attribute. Trimming a trailing `\s+>` instead would be wrong:
+ *  the first such run in `<span data-page="a >b" data-app-markup="…">` is inside
+ *  a quoted VALUE, and collapsing it would rewrite the author's text. */
+function removeMarkerAt(tag: string, at: number, length: number): string {
+  let start = at;
+  while (start > 0 && isHtmlWhitespace(tag[start - 1] ?? "")) start -= 1;
+  return tag.slice(0, start) + tag.slice(at + length);
+}
+
+/** Removes the forbidden attributes from ONE tag's source text — unless the
+ *  tag proves it is app markup, in which case only the proof is removed so it
+ *  cannot leak into the document and be copied back in by an author. */
 function stripFromTag(tag: string): string {
+  const marker = trustedMarker();
+  const at = marker === "" ? -1 : tag.indexOf(marker);
+  if (at !== -1) return removeMarkerAt(tag, at, marker.length);
   const out: string[] = [];
   let index = 0;
   while (index < tag.length) {

@@ -97,6 +97,20 @@ describe("every production marked configuration registers the raw-HTML policy", 
     assert.deepEqual(unprotected, [], `these render author markdown without the class/style policy: ${unprotected.join(", ")}`);
   });
 
+  // `renderWikiLinks` is the one helper that injects app markup into the
+  // markdown SOURCE, where the policy cannot tell it from the author's. It
+  // broke every `[[wiki-link]]` in the app once; a second caller forgetting
+  // the trust attribute would break them again, silently.
+  it("every production caller of renderWikiLinks passes the app-markup proof", () => {
+    const bare = trackedSources()
+      // The file that DEFINES it is not a caller, and the re-export is a
+      // binding rather than a call — both would otherwise read as violations.
+      .filter((file) => !/(export|function)\s+(function\s+)?renderWikiLinks\b/.test(readCode(file)))
+      .filter((file) => /\brenderWikiLinks\s*\(/.test(readCode(file)))
+      .filter((file) => !readCode(file).includes("APP_MARKUP_ATTR"));
+    assert.deepEqual(bare, [], `these inject wiki-link markup the policy will strip: ${bare.join(", ")}`);
+  });
+
   it("no other production file overrides renderer.html, which would bypass the policy", () => {
     // Later `.use()` calls wrap earlier ones, so a second `html` renderer
     // registered after this one would take the author's raw HTML first and

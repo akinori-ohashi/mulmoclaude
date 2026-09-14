@@ -7,7 +7,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { Marked } from "marked";
-import { stripPresentationAttributes, rawHtmlPolicyExtension } from "@mulmoclaude/markdown-utils/markdown/rawHtmlPolicy";
+import { stripPresentationAttributes, rawHtmlPolicyExtension, withTrustedAppMarkup, APP_MARKUP_ATTR } from "@mulmoclaude/markdown-utils/markdown/rawHtmlPolicy";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>");
 (globalThis as { window?: unknown; document?: unknown }).window = dom.window;
@@ -334,5 +334,79 @@ describe("rawHtmlPolicyExtension through real marked + the real sanitiser", () =
     assert.match(html, /<details>/);
     assert.match(html, /<summary>More<\/summary>/);
     assert.match(html, /body text/);
+  });
+});
+
+// `renderWikiLinks` injects `<span class="wiki-link">` into the markdown
+// SOURCE, so it reaches the policy as an author raw-HTML token and lost its
+// class — which broke both the styling and `WikiPageBody`'s
+// `closest(".wiki-link")` click handler. Two CI e2e tests caught it after
+// fifteen review rounds did not, so the mechanism is pinned here where a
+// unit run will see it.
+describe("app markup injected into the source can prove itself with a nonce", () => {
+  const render = (source: string, nonce: string): string => {
+    const instance = new Marked();
+    instance.use(rawHtmlPolicyExtension);
+    return withTrustedAppMarkup(nonce, () => {
+      const html = instance.parse(source);
+      assert.equal(typeof html, "string", "the wiki pipeline relies on a synchronous parse");
+      return typeof html === "string" ? html : "";
+    });
+  };
+  const NONCE = "0f3a-test-nonce";
+  const marked_ = (nonce: string): string => `<span ${APP_MARKUP_ATTR}="${nonce}" class="wiki-link" data-page="P">P</span>`;
+
+  it("keeps the class when the marker matches the running parse", () => {
+    const html = render(marked_(NONCE), NONCE);
+    assert.match(html, /class="wiki-link"/);
+    assert.match(html, /data-page="P"/);
+  });
+
+  it("removes the proof from the output, so it cannot be read off and replayed", () => {
+    const html = render(marked_(NONCE), NONCE);
+    assert.doesNotMatch(html, new RegExp(APP_MARKUP_ATTR));
+    assert.doesNotMatch(html, new RegExp(NONCE));
+  });
+
+  it("an author forging the attribute gains nothing — the value is what matters", () => {
+    const html = render(`<span ${APP_MARKUP_ATTR}="guessed" class="absolute inset-0 bg-white">x</span>`, NONCE);
+    assert.doesNotMatch(html, /class=/);
+  });
+
+  it("a bare marker with no value is author text like any other", () => {
+    const html = render(`<span ${APP_MARKUP_ATTR} class="absolute">x</span>`, NONCE);
+    assert.doesNotMatch(html, /class=/);
+  });
+
+  it("trusts nothing outside the parse it was granted for", () => {
+    const instance = new Marked();
+    instance.use(rawHtmlPolicyExtension);
+    const html = instance.parse(marked_(NONCE));
+    assert.equal(typeof html, "string");
+    assert.doesNotMatch(String(html), /class="wiki-link"/);
+  });
+
+  it("closes the window even when the parse throws", () => {
+    assert.throws(() =>
+      withTrustedAppMarkup(NONCE, () => {
+        throw new Error("boom");
+      }),
+    );
+    const instance = new Marked();
+    instance.use(rawHtmlPolicyExtension);
+    assert.doesNotMatch(String(instance.parse(marked_(NONCE))), /class="wiki-link"/);
+  });
+
+  it("cutting the proof out does not disturb a quoted value that contains `>`", () => {
+    // `<span data-page="a >b" data-app-markup="…">` — trimming a trailing
+    // `\s+>` would hit the run INSIDE the value and rewrite the author's text.
+    const html = render(`<span data-page="a >b" ${APP_MARKUP_ATTR}="${NONCE}" class="wiki-link">x</span>`, NONCE);
+    assert.match(html, /data-page="a >b"/);
+    assert.match(html, /class="wiki-link"/);
+  });
+
+  it("an empty nonce trusts nothing — no CSPRNG must fail closed", () => {
+    const html = render(`<span ${APP_MARKUP_ATTR}="" class="absolute">x</span>`, "");
+    assert.doesNotMatch(html, /class=/);
   });
 });

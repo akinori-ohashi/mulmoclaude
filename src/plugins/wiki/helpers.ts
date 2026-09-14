@@ -6,6 +6,7 @@
 import { marked } from "marked";
 import { renderWikiLinks, WIKI_ACTION } from "@mulmoclaude/core/wiki";
 import { rewriteMarkdownImageRefs } from "@mulmoclaude/markdown-utils/image/rewriteMarkdownImageRefs";
+import { APP_MARKUP_ATTR, createAppMarkupNonce, withTrustedAppMarkup } from "@mulmoclaude/markdown-utils/markdown/rawHtmlPolicy";
 import { findTaskLines, makeTasksInteractive, toggleTaskAt } from "@mulmoclaude/markdown-utils/markdown/taskList";
 import { splitFrontmatter } from "@mulmoclaude/markdown-utils/markdown/frontmatter";
 
@@ -23,7 +24,16 @@ export { renderWikiLinks } from "@mulmoclaude/core/wiki";
 export function renderWikiPageHtml(body: string, baseDir: string): string {
   if (!body) return "";
   const withImages = rewriteMarkdownImageRefs(body, baseDir);
-  const rendered = marked.parse(renderWikiLinks(withImages));
+  // `renderWikiLinks` injects its spans into the markdown SOURCE, so they
+  // reach the raw-HTML policy as author markup and lose `class="wiki-link"` —
+  // which is both the styling hook and `WikiPageBody`'s click target (#3151).
+  // A fresh nonce per render is what the author cannot forge; a constant in
+  // the source would be one they read off GitHub.
+  const nonce = createAppMarkupNonce();
+  // No CSPRNG means no unforgeable marker, so claim nothing rather than emit a
+  // marker an author could copy: the links lose their class, which fails closed.
+  const linked = renderWikiLinks(withImages, nonce === "" ? "" : `${APP_MARKUP_ATTR}="${nonce}"`);
+  const rendered = withTrustedAppMarkup(nonce, () => marked.parse(linked));
   // An async marked extension would hand back a Promise; this renderer is
   // synchronous, so it falls back to the same empty result as an empty body.
   return typeof rendered === "string" ? makeTasksInteractive(rendered) : "";
