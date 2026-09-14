@@ -83,7 +83,7 @@ export function addressList(addrs: AddressObject | AddressObject[] | undefined):
     .filter((s) => s.length > 0);
 }
 
-function renderEnvelopeAddress(arr: ReadonlyArray<{ name?: string | null; address?: string | null }> | null | undefined): string {
+function renderEnvelopeAddress(arr: ReadonlyArray<{ name?: string | null | undefined; address?: string | null | undefined }> | null | undefined): string {
   if (!arr || arr.length === 0) return "";
   return arr
     .map((v) => (v.name ? `${v.name} <${v.address ?? ""}>` : (v.address ?? "")))
@@ -91,12 +91,20 @@ function renderEnvelopeAddress(arr: ReadonlyArray<{ name?: string | null; addres
     .join(", ");
 }
 
+// An unparseable header date must not throw out of a list call, so an
+// invalid value degrades to null the same way a missing one does.
+export function envelopeDateIso(value: Date | string | undefined): string | null {
+  if (!value) return null;
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
 function envelopeToSummary(msg: FetchMessageObject): ListedMessage {
   return {
     uid: Number(msg.uid),
     subject: msg.envelope?.subject ?? "(no subject)",
     from: renderEnvelopeAddress(msg.envelope?.from),
-    date: msg.envelope?.date ? msg.envelope.date.toISOString() : null,
+    date: envelopeDateIso(msg.envelope?.date),
     unread: !msg.flags?.has("\\Seen"),
     snippet: "",
   };
