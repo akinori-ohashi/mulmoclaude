@@ -36,7 +36,7 @@ Your browser opens to `http://localhost:3001`. That's it.
 
 **Pages you can visit directly**: `/wiki` (browse + lint), `/feeds` (data feeds), `/collections` (data apps — Discover tab to import community collections, Contribute to share your own), `/automations` (recurring tasks), `/files` (drop files onto a folder row to save them straight into it), `/skills`, `/roles`. Each page has its own chat composer that spawns a fresh chat already aware of the page context.
 
-**Choosing the model**: chats run on Claude Fable, Opus, Sonnet or Haiku, resolved in that order of precedence — the per-chat override wins, then the role's own pinned model, then the setting. The override is the model chip in the sidebar's role header, which doubles as the display: its closed state names the model in effect, so picking one is never silent and neither is inheriting one.
+**Choosing the model**: chats run on Claude Fable, Opus, Sonnet or Haiku, resolved in that order of precedence — the per-chat override wins, then the role's own pinned model, then the setting. The override is the model chip in the sidebar's role header, which doubles as a display: once a turn has run it names the model that turn actually used, marked `(inherited)` when nothing overrode it. Before the first turn of a new chat there is no reported model yet, so it reads `unknown` until one comes back.
 
 **Editing what Claude wrote**: a markdown document in the canvas opens a source editor — beside the rendered document on wide panes, below it otherwise — with an optional live preview, optional auto save, and a bookmark rail for navigating long documents. Every fenced code block in a rendered document carries a copy button.
 
