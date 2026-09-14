@@ -13,7 +13,8 @@
 // The thumbnail comes from the same renderer `renderShapeScript` uses; a host
 // without Chromium posts without a picture rather than failing. The script
 // itself is a Storage object too (receptron/mulmoserver#266): the document
-// carries its id, never the text.
+// carries its id, never the text. With `id` the plugin rewrites the user's own
+// post instead: the read and the `updateDoc` are this host's too.
 import {
   executePublishShapeScript,
   PUBLISH_DESCRIPTION,
@@ -26,7 +27,7 @@ import {
   type ShapePostDoc,
 } from "@mulmoclaude/shapescript-plugin";
 import { renderShapeThumbnail, PUBLISH_TOOL_TIMEOUT_MS } from "@mulmoclaude/shapescript-plugin/render";
-import { doc, serverTimestamp, setDoc, type Firestore } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc, type Firestore } from "firebase/firestore";
 import { deleteObject, ref as storageRef, uploadBytes, type FirebaseStorage } from "firebase/storage";
 import { currentDisplayName, currentFirestoreSession, currentStorage } from "../../remoteHost/session.js";
 import { log } from "../../system/logger/index.js";
@@ -40,6 +41,12 @@ const THUMBNAIL_TYPE = "image/png";
  *  the server's. Exported for the test that pins it. */
 export function postDocumentOf(post: ShapePostDoc): Record<string, unknown> {
   return { ...post, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+}
+
+/** The update as written: the post's fields plus a server `updatedAt`, and NO `createdAt` —
+ *  the rules freeze it, and an update that omits a field leaves it as it was. */
+export function postUpdateOf(post: ShapePostDoc): Record<string, unknown> {
+  return { ...post, updatedAt: serverTimestamp() };
 }
 
 /** Where a post's picture lives in Storage — `shapes/{uid}/{shapeId}/{objectId}`,
@@ -67,6 +74,11 @@ export function galleryWriterFrom(session: { firestore: Firestore; storage: Fire
     uid: session.uid,
     authorName: session.authorName,
     createPost: (shapeId, post) => setDoc(doc(session.firestore, SHAPES, shapeId), postDocumentOf(post)),
+    readPost: async (shapeId) => {
+      const snapshot = await getDoc(doc(session.firestore, SHAPES, shapeId));
+      return snapshot.exists() ? snapshot.data() : null;
+    },
+    updatePost: (shapeId, post) => updateDoc(doc(session.firestore, SHAPES, shapeId), postUpdateOf(post)),
     uploadThumbnail: (shapeId, png) => upload(shapeId, png, THUMBNAIL_TYPE),
     uploadScript: (shapeId, script) => upload(shapeId, script, SHAPE_SCRIPT_CONTENT_TYPE),
     deleteObject: (shapeId, objectId) => deleteObject(storageRef(session.storage, shapeObjectPath(session.uid, shapeId, objectId))),

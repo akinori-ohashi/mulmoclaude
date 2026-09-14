@@ -10,6 +10,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+#### `@mulmoclaude/shapescript-plugin@4.0.0` — `publishShapeScript` updates a published model by `id`
+
+A new optional `id` argument — the tail of a post's gallery URL, or the id an earlier call
+returned — rewrites that post in place under the same URL instead of publishing a second copy.
+Only the account that published it can: the tool reads the post first and refuses one whose
+`uid` is not the session's, naming the reason, where the gallery's rules would only say
+"permission denied". With `id` every other argument is optional — a field given replaces the
+post's, one omitted keeps it — so `{ id, script }` swaps the model and `{ id, title }` renames
+it. A new `script` / `path` uploads a new script object and thumbnail and removes the replaced
+ones once the document carries the new ids; a refused rewrite takes the new ones back out and
+leaves the post as it was. `title` and the source stay required for a NEW post, checked by the
+tool since JSON Schema cannot say "required unless `id`" (`PUBLISH_SCHEMA.required` is now `[]`).
+
+Major because `ShapeGalleryWriter` gains two required members, `readPost(id)` and
+`updatePost(id, doc)`; a host built against 3.x fails every update with `readPost is not a
+function`. MulmoClaude's host adapter supplies both (a `getDoc` and an `updateDoc` with a
+server `updatedAt` and no `createdAt`, which the rules freeze); MulmoTerminal's
+`server/infra/shapescript-publish-tool.ts` needs the same two lines before it takes 4.0.0.
+
 #### `@mulmoclaude/shapescript-plugin@3.1.0` — `publishShapeScript` records which AI model wrote the script
 
 An optional `aiModel` argument — the model id the agent is running as, e.g. `claude-opus-5` —
@@ -49,7 +68,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@3.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.6.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.2.1`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@4.0.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 

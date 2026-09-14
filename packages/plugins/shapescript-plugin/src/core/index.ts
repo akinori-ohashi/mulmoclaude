@@ -31,7 +31,9 @@ export {
 export type { ExportUsdzResult } from "../export/tool";
 export {
   executePublishShapeScript,
+  existingShapePost,
   shapePostFrom,
+  shapePostUpdated,
   shapePostUrl,
   normalizeKeywords as normalizeShapeKeywords,
   PUBLISH_TOOL_NAME,
