@@ -10,6 +10,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+#### `@mulmoclaude/shapescript-plugin@4.0.0` — `publishShapeScript` updates a published model by `id`
+
+A new optional `id` argument — the tail of a post's gallery URL, or the id an earlier call
+returned — rewrites that post in place under the same URL instead of publishing a second copy.
+Only the account that published it can update it. The tool reads the post first and refuses one
+whose `uid` is not the session's, naming the reason, where the gallery's rules would only say
+"permission denied". With `id` every other argument is optional — a field given replaces the
+post's (an explicit `""` clears `description` / `prompt` / `aiModel`), one omitted keeps it — so
+`{ id, script }` swaps the model and `{ id, title }` renames it. The write is a field-level
+patch of exactly what the call changes, never the whole document from the read, and it is
+conditional: it applies only while the post still carries the owner and object ids the read
+saw, so two edits racing on one post cannot put back or orphan each other's script object —
+the loser is refused with `POST_CHANGED_MESSAGE` and its uploads are taken back out. A new
+`script` / `path` uploads a new script object and thumbnail and removes the replaced ones once
+the document carries the new ids; a refused rewrite takes the new ones back out and leaves the
+post as it was. `title` and the source stay required for a NEW post, checked by the
+tool since JSON Schema cannot say "required unless `id`" (`PUBLISH_SCHEMA.required` is now `[]`).
+
+Major because `ShapeGalleryWriter` gains two required members, `readPost(id)` and
+`updatePost(id, patch, expect)`; a host built against 3.x fails every update with `readPost is
+not a function`. MulmoClaude's host adapter supplies both (a `getDoc`, and a `runTransaction`
+that re-reads the post, refuses it unless it still matches `expect`, and applies the patch
+field-level with a server `updatedAt` and no `createdAt`, which the rules freeze — never a
+`setDoc`); MulmoTerminal's
+`server/infra/shapescript-publish-tool.ts` needs the same two lines before it takes 4.0.0.
+
 #### `@mulmoclaude/shapescript-plugin@3.1.0` — `publishShapeScript` records which AI model wrote the script
 
 An optional `aiModel` argument — the model id the agent is running as, e.g. `claude-opus-5` —
@@ -74,7 +100,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.3.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@3.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.3.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@4.0.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 

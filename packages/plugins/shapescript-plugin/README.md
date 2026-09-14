@@ -72,7 +72,8 @@ browser is installed, so the post still lands, without a picture:
 import { executePublishShapeScript, PUBLISH_TOOL_NAME, PUBLISH_DESCRIPTION, PUBLISH_SCHEMA, PUBLISH_PROMPT } from "@mulmoclaude/shapescript-plugin";
 import { renderShapeThumbnail } from "@mulmoclaude/shapescript-plugin/render";
 
-// gallery: { uid, authorName, createPost(id, doc), uploadThumbnail(id, png), deleteObject(id, objectId) }
+// gallery: { uid, authorName, createPost(id, doc), readPost(id), updatePost(id, patch, expect),
+//            uploadThumbnail(id, png), uploadScript(id, script), deleteObject(id, objectId) }
 //          — every member required; null when not signed in
 const { message, url } = await executePublishShapeScript({ files: shapeFiles, gallery, renderThumbnail: renderShapeThumbnail }, args);
 ```
@@ -81,6 +82,19 @@ const { message, url } = await executePublishShapeScript({ files: shapeFiles, ga
 clock. `deleteObject` is what takes an uploaded thumbnail back out when `createPost` is refused, so
 no object is left that nothing references. With `gallery: null` the tool throws
 `NOT_CONNECTED_MESSAGE`, which tells the user to connect Remote Host.
+
+With `id` — the tail of a post's gallery URL — the tool rewrites that post in place instead of
+creating one: `readPost` fetches it, the tool refuses it unless its `uid` is the writer's (only
+the publisher may update a post; the gallery's rules say the same, but without a reason), and
+`updatePost` merges a PATCH — only the fields the caller gave, plus new object ids — with a server
+`updatedAt` and no `createdAt`, which the rules freeze. It must be a field-level update (Firestore
+`updateDoc`), never a whole-document write, so a field not given keeps what the document holds
+now rather than what the read saw; and it must be CONDITIONAL on `expect` (owner and object ids
+as read), refusing with `POST_CHANGED_MESSAGE` when the post changed meanwhile — a
+`runTransaction` that re-reads, compares and updates — so two racing edits cannot orphan each
+other's objects. Every other argument is optional then: a field given replaces
+the post's (an explicit `""` clears `description` / `prompt` / `aiModel`), one omitted keeps it. A new `script` / `path` uploads a new script object and thumbnail and removes
+the replaced ones once the document points at the new ids; without one the model stays as it is.
 
 ## ShapeScript language
 

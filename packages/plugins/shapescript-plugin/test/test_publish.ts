@@ -9,10 +9,12 @@ import assert from "node:assert/strict";
 import type { FileOps } from "gui-chat-protocol";
 import {
   executePublishShapeScript,
+  existingShapePost,
   normalizeShapeKeywords,
   shapePostFrom,
   shapePostUrl,
   NOT_CONNECTED_MESSAGE,
+  POST_CHANGED_MESSAGE,
   PUBLISH_SCHEMA,
   PUBLISH_TOOL_NAME,
   requireScriptBytes,
@@ -22,6 +24,7 @@ import {
   type PublishShapeScriptContext,
   type ShapeGalleryWriter,
   type ShapePostDoc,
+  type ShapePostPatch,
 } from "../src/core/index";
 
 const CUBE = "cube { size 1 }";
@@ -55,6 +58,7 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
   const uploads: Array<{ id: string; bytes: number }> = [];
   const scripts: Array<{ id: string; script: string }> = [];
   const deleted: Array<{ id: string; objectId: string }> = [];
+  const patches: ShapePostPatch[] = [];
   const writer: ShapeGalleryWriter = {
     uid: "u-alice",
     authorName: "Alice",
@@ -64,6 +68,20 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
       (async (id, doc) => {
         posts.set(id, doc);
       }),
+    readPost: async (id) => {
+      const stored = posts.get(id);
+      return stored ? { ...stored, createdAt: "t0", updatedAt: "t0" } : null;
+    },
+    // Field-level, as Firestore's updateDoc is (a field absent from the patch is untouched),
+    // and conditional, as the host's transaction is: refused unless the post still matches.
+    updatePost: async (id, patch, expect) => {
+      const stored = posts.get(id);
+      if (!stored || stored.uid !== expect.uid || stored.scriptId !== expect.scriptId || stored.thumbnailId !== expect.thumbnailId) {
+        throw new Error(POST_CHANGED_MESSAGE);
+      }
+      patches.push(patch);
+      posts.set(id, { ...stored, ...patch });
+    },
     uploadThumbnail: async (id, png) => {
       uploads.push({ id, bytes: png.byteLength });
       return `obj-${uploads.length}`;
@@ -76,7 +94,7 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
       deleted.push({ id, objectId });
     },
   };
-  return { writer, posts, uploads, scripts, deleted };
+  return { writer, posts, uploads, scripts, deleted, patches };
 }
 
 const noThumbnail = async (): Promise<Uint8Array | null> => null;
@@ -89,8 +107,9 @@ function contextFor(gallery: ShapeGalleryWriter | null, renderThumbnail = noThum
 describe("publishShapeScript tool", () => {
   it("exposes its name and takes a title plus script XOR path", () => {
     assert.equal(PUBLISH_TOOL_NAME, "publishShapeScript");
-    assert.deepEqual(Object.keys(PUBLISH_SCHEMA.properties), ["title", "script", "path", "description", "keywords", "prompt", "aiModel", "published"]);
-    assert.deepEqual(PUBLISH_SCHEMA.required, ["title"]);
+    assert.deepEqual(Object.keys(PUBLISH_SCHEMA.properties), ["id", "title", "script", "path", "description", "keywords", "prompt", "aiModel", "published"]);
+    // A new post needs a title and a source, an update (`id`) neither; the tool checks, the schema cannot.
+    assert.deepEqual(PUBLISH_SCHEMA.required, []);
   });
 
   // mulmoserver's rules pin the key set with hasOnly: this list IS the contract.
@@ -251,5 +270,152 @@ describe("publishShapeScript tool", () => {
       { id, objectId: "script-1" },
       { id, objectId: "obj-1" },
     ]);
+  });
+
+  // A post already in the gallery is rewritten in place — by its publisher only.
+  describe("with `id` — updating a published post", () => {
+    const CUBE_2 = "cube { size 2 }";
+    async function seeded() {
+      const gallery = fakeGallery();
+      const context = contextFor(gallery.writer, onePixel);
+      const first = await executePublishShapeScript(context, { title: "Lamp", script: CUBE, description: "v1", keywords: ["lamp"], aiModel: "claude-opus-5" });
+      return { ...gallery, context, id: first.id };
+    }
+
+    it("coerces a stored document, filling keys a post from before they existed lacks", () => {
+      const post = existingShapePost({
+        uid: "u",
+        authorName: "A",
+        title: "Old",
+        scriptId: "s",
+        source: "photos",
+        photoIds: ["p1", 2],
+        forkedFrom: "f",
+        published: true,
+        createdAt: "t",
+      });
+      assert.deepEqual(Object.keys(post), [...SHAPE_POST_KEYS]);
+      assert.equal(post.description, "");
+      assert.deepEqual(post.keywords, []);
+      assert.equal(post.aiModel, "");
+      assert.equal(post.source, "photos");
+      assert.deepEqual(post.photoIds, ["p1"]);
+      assert.equal(post.forkedFrom, "f");
+    });
+
+    it("replaces the script and thumbnail, keeps every field not given, and answers the same URL", async () => {
+      const { context, posts, scripts, uploads, deleted, id } = await seeded();
+      const result = await executePublishShapeScript(context, { id, script: CUBE_2 });
+      assert.equal(result.id, id);
+      assert.equal(result.url, shapePostUrl(id));
+      assert.match(result.message, /^Updated: "Lamp" is at https:/);
+      assert.equal(posts.size, 1);
+      const doc = posts.get(id)!;
+      assert.deepEqual(
+        scripts.map((entry) => entry.script),
+        [CUBE, CUBE_2],
+      );
+      assert.equal(doc.scriptId, "script-2");
+      assert.equal(doc.thumbnailId, "obj-2");
+      assert.equal(uploads.length, 2);
+      assert.equal(doc.title, "Lamp");
+      assert.equal(doc.description, "v1");
+      assert.deepEqual(doc.keywords, ["lamp"]);
+      assert.equal(doc.aiModel, "claude-opus-5");
+      assert.equal(doc.uid, "u-alice");
+      // The replaced objects are gone, and only they.
+      assert.deepEqual(deleted, [
+        { id, objectId: "script-1" },
+        { id, objectId: "obj-1" },
+      ]);
+    });
+
+    // Codex on #3158: a whole-document rewrite from a read taken a moment ago would put back
+    // whatever another client changed in between — a replaced (and deleted) script object
+    // included. So the patch carries only what this call changes.
+    it("sends only the fields given and the new object ids, never the whole snapshot", async () => {
+      const { context, patches, id } = await seeded();
+      await executePublishShapeScript(context, { id, script: CUBE_2 });
+      assert.deepEqual(patches.at(-1), { scriptId: "script-2", thumbnailId: "obj-2" });
+      await executePublishShapeScript(context, { id, title: "Desk lamp", keywords: ["Desk", "lamp"] });
+      assert.deepEqual(patches.at(-1), { title: "Desk lamp", keywords: ["desk", "lamp"] });
+    });
+
+    it("clears an optional text field with an explicit empty string, and keeps it when omitted", async () => {
+      const { context, posts, patches, id } = await seeded();
+      await executePublishShapeScript(context, { id, description: "", aiModel: "" });
+      assert.deepEqual(patches.at(-1), { description: "", aiModel: "" });
+      assert.equal(posts.get(id)!.description, "");
+      assert.equal(posts.get(id)!.aiModel, "");
+      await executePublishShapeScript(context, { id, title: "Lamp 2" });
+      assert.equal(posts.get(id)!.description, "");
+      // An empty title is not a clear: the gallery requires one.
+      await assert.rejects(executePublishShapeScript(context, { id, title: "" }), /`title` is required/);
+    });
+
+    it("updates the metadata alone — no source given keeps the script and thumbnail", async () => {
+      const { context, posts, scripts, deleted, id } = await seeded();
+      const result = await executePublishShapeScript(context, { id, title: "Desk lamp", keywords: ["lamp", "desk"], published: false });
+      const doc = posts.get(id)!;
+      assert.equal(scripts.length, 1);
+      assert.deepEqual(deleted, []);
+      assert.equal(doc.scriptId, "script-1");
+      assert.equal(doc.thumbnailId, "obj-1");
+      assert.equal(doc.title, "Desk lamp");
+      assert.deepEqual(doc.keywords, ["lamp", "desk"]);
+      assert.equal(doc.published, false);
+      assert.equal(doc.description, "v1");
+      assert.match(result.message, /^Updated as a draft/);
+    });
+
+    it("refuses an id that is not a post, and one published by another account, before anything is uploaded", async () => {
+      const { context, writer, posts, scripts, id } = await seeded();
+      await assert.rejects(executePublishShapeScript(context, { id: "no-such-post", script: CUBE_2 }), /No gallery post has the id "no-such-post"/);
+      writer.uid = "u-bob";
+      await assert.rejects(executePublishShapeScript(context, { id, script: CUBE_2 }), /published by another account; only its publisher/);
+      assert.equal(scripts.length, 1);
+      assert.equal(posts.get(id)!.scriptId, "script-1");
+    });
+
+    it("refuses a broken script or an over-limit field before anything is uploaded", async () => {
+      const { context, scripts, uploads, id } = await seeded();
+      await assert.rejects(executePublishShapeScript(context, { id, script: "loft { square }" }), /cross-sections/);
+      await assert.rejects(executePublishShapeScript(context, { id, title: "x".repeat(121) }), /`title` is too long/);
+      assert.equal(scripts.length, 1);
+      assert.equal(uploads.length, 1);
+    });
+
+    it("takes the new objects back out when the rewrite is refused, and leaves the old post intact", async () => {
+      const { context, writer, posts, deleted, id } = await seeded();
+      writer.updatePost = async () => {
+        throw new Error("permission-denied");
+      };
+      await assert.rejects(executePublishShapeScript(context, { id, script: CUBE_2 }), /permission-denied/);
+      assert.deepEqual(deleted, [
+        { id, objectId: "script-2" },
+        { id, objectId: "obj-2" },
+      ]);
+      assert.equal(posts.get(id)!.scriptId, "script-1");
+    });
+
+    // CodeRabbit on #3158: two edits racing on one post. The write is conditional on the
+    // object ids the read saw, so the second to land is refused and takes its uploads back
+    // out — the first's objects stay referenced, nothing is orphaned.
+    it("refuses an update whose read is stale — another edit replaced the model — and takes its uploads back out", async () => {
+      const { context, writer, posts, deleted, id } = await seeded();
+      const slowRead = writer.readPost;
+      writer.readPost = async (postId) => {
+        const snapshot = await slowRead(postId);
+        // Another client's edit lands between this read and the write.
+        posts.set(id, { ...posts.get(id)!, scriptId: "script-other", thumbnailId: "obj-other" });
+        return snapshot;
+      };
+      await assert.rejects(executePublishShapeScript(context, { id, script: CUBE_2 }), new RegExp(POST_CHANGED_MESSAGE.slice(0, 40)));
+      assert.deepEqual(deleted, [
+        { id, objectId: "script-2" },
+        { id, objectId: "obj-2" },
+      ]);
+      assert.equal(posts.get(id)!.scriptId, "script-other");
+    });
   });
 });
