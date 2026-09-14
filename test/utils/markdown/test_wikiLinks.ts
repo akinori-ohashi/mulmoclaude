@@ -243,40 +243,54 @@ describe("wikiLink tokenizer — differential against the string walker it repla
     assert.match(renderWikiLinks(source), /class="wiki-link"/, "the walker did not — that is the bug being fixed");
   });
 
-  // Code is not the only place they diverge, and the honest claim says so.
-  // Inside a raw HTML block marked processes NO markdown at all — measured in
-  // this pipeline, `**bold**`, `[text](/x)` and `` `code` `` all come out
-  // literal there. `[[x]]` staying literal is therefore CONSISTENT with every
-  // other construct; the old walker was the anomaly, because a string rewrite
-  // cannot see that it is inside one.
-  const divergences: { name: string; source: string }[] = [
-    { name: "a raw HTML block", source: "<div>[[Home]]</div>" },
-    { name: "an attribute value", source: '<div data-x="[[Home]]">x</div>' },
-    { name: "a link destination", source: "[label]([[Home]])" },
-    // A markdown ESCAPE is honoured, as it is for every other construct.
-    { name: "an escaped opener", source: "\\[[Home]]" },
-    // An autolink's URL is a URL. The walker injected a span into it and
-    // produced broken markup; marked percent-encodes the brackets instead.
-    { name: "an autolink URL", source: "<https://x.test/[[Home]]>" },
-    // A comment's contents are not markdown.
-    { name: "an HTML comment", source: "<!-- [[Home]] -->" },
+  // THE RULE, not a list of exceptions.
+  //
+  // Three review rounds each produced one more context where the extension and
+  // the old walker differ — code, then raw HTML / attributes / link
+  // destinations, then escapes / autolinks / comments, then link titles and
+  // reference-definition titles. Markdown has no last inline context, so a list
+  // of FORBIDDEN ones can always be extended by one more round. This states
+  // what is PERMITTED instead: the extension fires exactly where marked runs
+  // its inline lexer over text, and nowhere else.
+  //
+  // Expressed as a closed set. A context that starts or stops linking — however
+  // it is spelled, whether or not anyone listed it — changes this set and turns
+  // the test red. That is the point: it fails closed on the context nobody
+  // thought of, which the pin-list could not.
+  const LINKS_HERE = ["prose [[T]] here", "- item [[T]]", "**[[T]]**", "> quote [[T]]", "# head [[T]]", "| c |\n|---|\n| [[T]] |", "[[T]](/x)", "[[T]][[T]]"];
+  // Everything else is NOT an inline-text context, and each is one instance of
+  // the same rule rather than a separate rule of its own.
+  const STAYS_LITERAL = [
+    "`[[T]]`",
+    "```\n[[T]]\n```",
+    "    [[T]]",
+    "<div>[[T]]</div>",
+    '<div data-x="[[T]]">y</div>',
+    "[label]([[T]])",
+    '[label](/x "[[T]]")',
+    '[a]: /x "[[T]]"\n\n[a]',
+    "<https://x.test/[[T]]>",
+    "<!-- [[T]] -->",
+    "\\[[T]]",
+    "<?php [[T]] ?>",
   ];
-  divergences.forEach(({ name, source }) => {
-    it(`does NOT link inside ${name} — deliberate, and pinned so it cannot change silently`, () => {
-      assert.doesNotMatch(render(source), /class="wiki-link"/);
-    });
+
+  it("links in every inline-text context, and only there", () => {
+    const linked = (source: string): boolean => /class="wiki-link"/.test(render(source.replaceAll("[[T]]", "[[Home]]")));
+    const unexpectedlyInert = LINKS_HERE.filter((source) => !linked(source));
+    const unexpectedlyLinked = STAYS_LITERAL.filter((source) => linked(source));
+    assert.deepEqual(unexpectedlyInert, [], "these are inline text and must link");
+    assert.deepEqual(unexpectedlyLinked, [], "these are not inline text and must not link");
   });
 
-  // Agreeing on "no link" is not the same as agreeing on the OUTPUT. In two of
-  // the contexts above the old walker also emitted broken markup — it rewrote
-  // the source without knowing where it was, so its `<span>` came back with the
-  // opening tag escaped and the closing tag not. Pinned because "same link
-  // count" would otherwise read as "same behaviour".
-  it("emits clean markup where the old walker emitted broken markup", () => {
-    ["\\[[Home]]", "<!-- [[Home]] -->"].forEach((source) => {
-      const rendered = render(source);
-      assert.doesNotMatch(rendered, /&lt;span/, "an escaped opening tag means the walker's corruption came back");
-      assert.doesNotMatch(rendered, /class="wiki-link"/);
+  it("never corrupts what it does not link — the old walker's actual failure", () => {
+    // Not linking is only half of it. The walker rewrote bytes without knowing
+    // where it was, so its span came back with the opening tag escaped and the
+    // closing tag not. Whatever the context, the extension must leave the
+    // source text intact rather than half-rewritten.
+    STAYS_LITERAL.forEach((source) => {
+      const rendered = render(source.replaceAll("[[T]]", "[[Home]]"));
+      assert.doesNotMatch(rendered, /&lt;span/, `half-escaped span leaked into: ${source}`);
     });
   });
 
