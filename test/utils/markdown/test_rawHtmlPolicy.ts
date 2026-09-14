@@ -144,6 +144,15 @@ describe("the WHOLE contract, differentially against a real parser", () => {
     // U+2028 are NOT separators, so `<div\u00a0class=x>` has no class
     // attribute at all and the scanner must leave it alone — it was
     // rewriting these to `<div>` (codex round 6).
+    // An attribute name that merely STARTS with a forbidden one. HTML names
+    // run through characters the scanner's regex does not accept, so
+    // `classé` is ONE attribute and stripping its prefix produced
+    // `<divé=x>` (codex round 8).
+    "<div class\u00e9=x>y</div>",
+    "<div style\u00e9=x>y</div>",
+    "<div class\u0000=x>y</div>",
+    "<div classX=x>y</div>",
+    "<div class-foo=x>y</div>",
     "<div\u00a0class=x>y</div>",
     "<div\u000bclass=x>y</div>",
     "<div\u2028class=x>y</div>",

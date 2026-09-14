@@ -30,7 +30,10 @@ const REPO_ROOT = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "..
  *  the launcher's `files` list and is byte-identical to `src/`, so scanning
  *  the filesystem would report it as a second, unprotected surface. */
 function trackedSources(): string[] {
-  const out = execFileSync("git", ["ls-files", "src", "packages"], { cwd: REPO_ROOT, encoding: "utf8" });
+  // The WHOLE repo, not a pathspec. Limiting this to `src packages` hid
+  // `server/api/routes/pdf.ts`, which renders author markdown in a process
+  // where the SPA's `setupMarked()` never runs (codex round 8).
+  const out = execFileSync("git", ["ls-files"], { cwd: REPO_ROOT, encoding: "utf8" });
   return out
     .split("\n")
     .filter((file) => /\.(ts|vue)$/.test(file))
@@ -48,21 +51,42 @@ function readCode(relative: string): string {
     .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
 }
 
-/** Files that configure a marked instance of their own and therefore need the
- *  policy. A file that merely calls the already-configured global does not. */
-const CONFIGURES_MARKED = /new Marked\(|marked\.use\(/;
+/** Any RUNTIME import of marked, under any alias. Matching `marked.use(`
+ *  instead missed `import { marked as md }`, `const md = marked`, a wrapper
+ *  helper, or a computed `["html"]` key — all of which Codex named as
+ *  mutations that would pass (round 8). Every one of them still has to
+ *  import the module, so that is what this looks for. A `import type {…}`
+ *  cannot render anything and is excluded by the negative lookahead. */
+function importsMarkedAtRuntime(code: string): boolean {
+  return code
+    .split("\n")
+    .filter((line) => line.includes('from "marked"'))
+    .some((line) => !line.trimStart().startsWith("import type"));
+}
 const REGISTERS_POLICY = /marked\.use\(rawHtmlPolicyExtension\)|instance\.use\(rawHtmlPolicyExtension\)/;
 
 /** Exempt surfaces, each with the reason it cannot host author markdown.
  *  Empty on purpose: nothing currently qualifies. An entry here is a claim
  *  someone has to defend. */
-const EXEMPT: Record<string, string> = {};
+const EXEMPT: Record<string, string> = {
+  // These parse with the GLOBAL `marked`, which `src/utils/markdown/setup.ts`
+  // configures before the app mounts. They inherit the policy; registering it
+  // again would be noise.
+  "src/utils/markdown/renderMarkdown.ts": "renders through the global marked configured by setup.ts",
+  "src/plugins/textResponse/View.vue": "renders through the global marked configured by setup.ts",
+  "src/plugins/textResponse/Preview.vue": "renders through the global marked configured by setup.ts",
+  "src/plugins/wiki/helpers.ts": "renders through the global marked configured by setup.ts",
+  "packages/markdown-utils/src/image/rewriteMarkdownImageRefs.ts": "walks tokens to rewrite image refs; never renders author HTML",
+  // Imports `Renderer` to BUILD an extension. It defines no `html` renderer —
+  // the separate override guard below is what keeps that true.
+  "src/utils/markdown/workspaceLinkify.ts": "imports Renderer to construct an extension; does not parse",
+};
 
 describe("every production marked configuration registers the raw-HTML policy", () => {
-  const configuring = trackedSources().filter((file) => CONFIGURES_MARKED.test(readCode(file)));
+  const configuring = trackedSources().filter((file) => importsMarkedAtRuntime(readCode(file)));
 
-  it("finds the configurations at all — a discovery that finds nothing proves nothing", () => {
-    assert.ok(configuring.length >= 2, `expected to discover the host and plugin setups, found ${configuring.length}`);
+  it("finds the surfaces at all — a discovery that finds nothing proves nothing", () => {
+    assert.ok(configuring.length >= 3, `expected the host, plugin and server-pdf surfaces at minimum, found ${configuring.length}`);
   });
 
   it("every discovered configuration registers the policy or is exempt with a reason", () => {

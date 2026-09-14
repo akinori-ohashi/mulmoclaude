@@ -169,6 +169,12 @@ function assignmentLength(tag: string, from: number): number {
   return valueEnd(tag, index) - from;
 }
 
+/** True when `char` ends an attribute name rather than continuing it. */
+function endsAttributeName(char: string | undefined): boolean {
+  if (char === undefined) return true;
+  return isHtmlWhitespace(char) || char === "=" || char === "/" || char === ">";
+}
+
 /** Removes the forbidden attributes from ONE tag's source text. */
 function stripFromTag(tag: string): string {
   const out: string[] = [];
@@ -192,7 +198,12 @@ function stripFromTag(tag: string): string {
     const name = rawName ?? "";
     const nameEnd = index + whole.length;
     const span = whole.length + assignmentLength(tag, nameEnd);
-    if (FORBIDDEN.includes(name.toLowerCase())) index += span;
+    // The matched name must END here, or it is a longer name that merely
+    // STARTS with a forbidden one. HTML attribute names run through
+    // characters this regex does not accept — non-ASCII, NUL — so `classé`
+    // is one attribute and not `class`, and stripping its prefix produced
+    // `<divé=x>` out of `<div classé=x>` (codex round 8).
+    if (FORBIDDEN.includes(name.toLowerCase()) && endsAttributeName(tag[nameEnd])) index += span;
     else {
       out.push(tag.slice(index, index + span));
       index += span;

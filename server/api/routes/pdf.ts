@@ -2,6 +2,7 @@ import { realpathSync } from "fs";
 import path from "path";
 import { Router, Request, Response } from "express";
 import { marked } from "marked";
+import { rawHtmlPolicyExtension } from "@mulmoclaude/markdown-utils/markdown/rawHtmlPolicy";
 import { renderMarpDeck } from "@mulmoclaude/markdown-plugin";
 import { listMarpThemes } from "../../workspace/marp-themes.js";
 import puppeteer from "puppeteer";
@@ -16,6 +17,11 @@ import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { transformResolvableUrlsInHtml } from "@mulmoclaude/markdown-utils/image/htmlSrcAttrs";
 
 const router = Router();
+
+// This process never runs the SPA's `setupMarked()`, so the policy has to be
+// registered here too: `presentDocument` renders any `.md` on disk, and author
+// `style` positions content in the PDF exactly as it would on screen (#3151).
+marked.use(rawHtmlPolicyExtension);
 
 const MARKDOWN_CSS = `
   body {
