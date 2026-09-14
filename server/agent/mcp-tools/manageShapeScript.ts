@@ -79,9 +79,17 @@ export function postUpdateOf(patch: ShapePostPatch, already = false): Record<str
 }
 
 /** Whether the stored document is still the one the plugin merged against: same owner, same
- *  object ids. Object ids are minted per upload, so a match means no edit landed in between. */
+ *  object ids, same published state. Object ids are minted per upload, so a match means no edit
+ *  replaced the model in between; the published state is what the patch's grant was decided
+ *  from, so a toggle in between refuses the write instead of licensing a draft. */
 export function postStillMatches(data: Record<string, unknown> | undefined, expect: ShapePostExpect): data is Record<string, unknown> {
-  return data !== undefined && data.uid === expect.uid && data.scriptId === expect.scriptId && data.thumbnailId === expect.thumbnailId;
+  return (
+    data !== undefined &&
+    data.uid === expect.uid &&
+    data.scriptId === expect.scriptId &&
+    data.thumbnailId === expect.thumbnailId &&
+    (data.published !== false) === expect.published
+  );
 }
 
 /** A read the rules refused — another account's draft. The gallery shows the same "not here"

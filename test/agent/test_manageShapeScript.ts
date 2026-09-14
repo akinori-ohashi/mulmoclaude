@@ -74,11 +74,16 @@ describe("manageShapeScript host adapter", () => {
   });
 
   it("applies an update only while the post still carries the owner and object ids the plugin read", () => {
-    const expect = { uid: "u-alice", scriptId: "script-1", thumbnailId: "obj-1" };
+    const expect = { uid: "u-alice", scriptId: "script-1", thumbnailId: "obj-1", published: true };
     assert.equal(postStillMatches({ uid: "u-alice", scriptId: "script-1", thumbnailId: "obj-1", title: "Lamp" }, expect), true);
+    assert.equal(postStillMatches({ uid: "u-alice", scriptId: "script-1", thumbnailId: "obj-1", published: true }, expect), true);
     assert.equal(postStillMatches({ uid: "u-alice", scriptId: "script-2", thumbnailId: "obj-1" }, expect), false);
     assert.equal(postStillMatches({ uid: "u-alice", scriptId: "script-1", thumbnailId: "obj-2" }, expect), false);
     assert.equal(postStillMatches({ uid: "u-bob", scriptId: "script-1", thumbnailId: "obj-1" }, expect), false);
+    // The published state is part of the read the grant was decided from: a toggle in between
+    // is a change. A document without the key reads as published, as the plugin reads it.
+    assert.equal(postStillMatches({ uid: "u-alice", scriptId: "script-1", thumbnailId: "obj-1", published: false }, expect), false);
+    assert.equal(postStillMatches({ uid: "u-alice", scriptId: "script-1", thumbnailId: "obj-1" }, { ...expect, published: false }), false);
     assert.equal(postStillMatches(undefined, expect), false);
   });
 

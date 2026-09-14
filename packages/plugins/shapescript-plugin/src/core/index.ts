@@ -59,6 +59,7 @@ export {
   SHAPE_OBJECT_CACHE_CONTROL,
   requireScriptBytes,
   licenseFor,
+  expectOf,
   NOT_CONNECTED_MESSAGE,
   POST_CHANGED_MESSAGE,
   LICENSE_REQUIRED_MESSAGE,

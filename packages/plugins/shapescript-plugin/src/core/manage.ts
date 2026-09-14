@@ -240,7 +240,7 @@ export interface ShapeGalleryWriter {
    *  as a server stamp beside it — unless the document turns out to be licensed already, in
    *  which case both are dropped, since the rules let a grant be made once and never moved.
    *  CONDITIONAL: the write applies only while the document still matches `expect` — the
-   *  owner and the object ids the plugin read — and is refused (throw, with
+   *  owner, the object ids and the published state the plugin read — and is refused (throw, with
    *  `POST_CHANGED_MESSAGE` or a cause of the host's own) when it no longer does: a
    *  transaction, so a concurrent edit that replaced the script cannot lose its objects. */
   updatePost: (id: string, patch: ShapePostPatch, expect: ShapePostExpect) => Promise<void>;
@@ -299,12 +299,23 @@ export const SHAPE_OBJECT_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 /** What `updatePost` must still find on the document for the write to apply: the read the
  *  plugin merged against. Object ids are minted per upload and never reused, so an equal
- *  pair means no other edit replaced the model in between. */
+ *  pair means no other edit replaced the model in between. `published` is pinned too: whether
+ *  the patch carries a grant was decided from it (CodeRabbit on #3180), so a publish or
+ *  unpublish that landed meanwhile must refuse the write rather than license a draft. */
 export interface ShapePostExpect {
   uid: string;
   scriptId: string;
   thumbnailId: string;
+  published: boolean;
 }
+
+/** The precondition for an update or delete of `existing`, as the plugin read it. */
+export const expectOf = (existing: ShapePostDoc): ShapePostExpect => ({
+  uid: existing.uid,
+  scriptId: existing.scriptId,
+  thumbnailId: existing.thumbnailId,
+  published: existing.published,
+});
 
 /** The refusal a host raises from `updatePost` when the post no longer matches `expect`. */
 export const POST_CHANGED_MESSAGE =
@@ -621,7 +632,7 @@ async function updateExistingPost(
   const objects = script === null ? undefined : await uploadObjects(context, gallery, id, script);
   const { doc, patch } = shapePostPatch(existing, args, objects);
   try {
-    await gallery.updatePost(id, patch, { uid: existing.uid, scriptId: existing.scriptId, thumbnailId: existing.thumbnailId });
+    await gallery.updatePost(id, patch, expectOf(existing));
   } catch (error) {
     if (objects) await discardObjects(context, gallery, id, [objects.scriptId, objects.thumbnailId]);
     throw error;
@@ -641,7 +652,7 @@ async function deleteOwnPost(context: ManageShapeScriptContext, gallery: ShapeGa
   const existing = await requireOwnPost(gallery, id, "delete");
   // The objects to remove are the DELETED document's, not the read's: `expect` pins the model,
   // not the reference photos, which the web editor may have swapped in between (CodeRabbit).
-  const gone = existingShapePost(await gallery.deletePost(id, { uid: existing.uid, scriptId: existing.scriptId, thumbnailId: existing.thumbnailId }));
+  const gone = existingShapePost(await gallery.deletePost(id, expectOf(existing)));
   await discardObjects(context, gallery, id, [gone.scriptId, gone.thumbnailId, ...gone.photoIds]);
   const url = shapePostUrl(id, gallery.siteUrl);
   return { action: "delete", message: `Deleted: "${existing.title}" (${url}) is no longer in the gallery.`, id, url };

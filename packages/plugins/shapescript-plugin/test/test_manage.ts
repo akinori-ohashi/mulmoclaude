@@ -101,7 +101,13 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
     // and conditional, as the host's transaction is: refused unless the post still matches.
     updatePost: async (id, patch, expect) => {
       const stored = posts.get(id);
-      if (!stored || stored.uid !== expect.uid || stored.scriptId !== expect.scriptId || stored.thumbnailId !== expect.thumbnailId) {
+      if (
+        !stored ||
+        stored.uid !== expect.uid ||
+        stored.scriptId !== expect.scriptId ||
+        stored.thumbnailId !== expect.thumbnailId ||
+        stored.published !== expect.published
+      ) {
         throw new Error(POST_CHANGED_MESSAGE);
       }
       patches.push(patch);
@@ -110,7 +116,13 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
     // Conditional, as the host's transaction is: refused unless the post still matches.
     deletePost: async (id, expect) => {
       const stored = posts.get(id);
-      if (!stored || stored.uid !== expect.uid || stored.scriptId !== expect.scriptId || stored.thumbnailId !== expect.thumbnailId) {
+      if (
+        !stored ||
+        stored.uid !== expect.uid ||
+        stored.scriptId !== expect.scriptId ||
+        stored.thumbnailId !== expect.thumbnailId ||
+        stored.published !== expect.published
+      ) {
         throw new Error(POST_CHANGED_MESSAGE);
       }
       posts.delete(id);
@@ -593,6 +605,23 @@ describe("manageShapeScript tool", () => {
         { id, objectId: "obj-2" },
       ]);
       assert.equal(posts.get(id)!.scriptId, "script-other");
+    });
+
+    // CodeRabbit on #3180: whether the patch carries a grant was decided from the read's
+    // `published`. An unpublish landing in between would otherwise have the grant written onto
+    // a draft, which records none — so the published state is part of the precondition.
+    it("refuses a granting update when the post was unpublished meanwhile, so no draft is licensed", async () => {
+      const { context, writer, posts, patches, id } = await seeded();
+      posts.set(id, { ...posts.get(id)!, license: null });
+      const slowRead = writer.readPost;
+      writer.readPost = async (postId) => {
+        const snapshot = await slowRead(postId);
+        posts.set(id, { ...posts.get(id)!, published: false });
+        return snapshot;
+      };
+      await assert.rejects(update(context, { id, title: "Lamp 2", acceptLicense: true }), new RegExp(POST_CHANGED_MESSAGE.slice(0, 40)));
+      assert.deepEqual(patches, []);
+      assert.equal(posts.get(id)!.license, null);
     });
   });
 

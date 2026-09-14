@@ -126,7 +126,7 @@ same, but without a reason), and `updatePost` merges a PATCH — only the fields
 plus new object ids — with a server `updatedAt` and no `createdAt`, which the rules freeze. It must
 be a field-level update (Firestore `updateDoc`), never a whole-document write, so a field not given
 keeps what the document holds now rather than what the read saw; and it must be CONDITIONAL on
-`expect` (owner and object ids as read), refusing with `POST_CHANGED_MESSAGE` when the post changed
+`expect` (owner, object ids and published state as read), refusing with `POST_CHANGED_MESSAGE` when the post changed
 meanwhile — a `runTransaction` that re-reads, compares and updates — so two racing edits cannot
 orphan each other's objects. A field given replaces the post's (an explicit `""` clears
 `description` / `prompt` / `aiModel`), one omitted keeps it. A new `script` / `path` uploads a new
