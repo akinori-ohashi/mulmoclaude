@@ -25,6 +25,7 @@ import {
   SHAPE_SCRIPT_CONTENT_TYPE,
   type ShapeGalleryWriter,
   type ShapePostDoc,
+  type ShapePostPatch,
 } from "@mulmoclaude/shapescript-plugin";
 import { renderShapeThumbnail, PUBLISH_TOOL_TIMEOUT_MS } from "@mulmoclaude/shapescript-plugin/render";
 import { doc, getDoc, serverTimestamp, setDoc, updateDoc, type Firestore } from "firebase/firestore";
@@ -43,10 +44,11 @@ export function postDocumentOf(post: ShapePostDoc): Record<string, unknown> {
   return { ...post, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
 }
 
-/** The update as written: the post's fields plus a server `updatedAt`, and NO `createdAt` —
- *  the rules freeze it, and an update that omits a field leaves it as it was. */
-export function postUpdateOf(post: ShapePostDoc): Record<string, unknown> {
-  return { ...post, updatedAt: serverTimestamp() };
+/** The update as written: only the fields the plugin gave plus a server `updatedAt`, and NO
+ *  `createdAt` — the rules freeze it. Field-level (`updateDoc`), so a field not given keeps
+ *  what the document holds now, not what a read a moment ago saw. */
+export function postUpdateOf(patch: ShapePostPatch): Record<string, unknown> {
+  return { ...patch, updatedAt: serverTimestamp() };
 }
 
 /** Where a post's picture lives in Storage — `shapes/{uid}/{shapeId}/{objectId}`,
@@ -78,7 +80,7 @@ export function galleryWriterFrom(session: { firestore: Firestore; storage: Fire
       const snapshot = await getDoc(doc(session.firestore, SHAPES, shapeId));
       return snapshot.exists() ? snapshot.data() : null;
     },
-    updatePost: (shapeId, post) => updateDoc(doc(session.firestore, SHAPES, shapeId), postUpdateOf(post)),
+    updatePost: (shapeId, patch) => updateDoc(doc(session.firestore, SHAPES, shapeId), postUpdateOf(patch)),
     uploadThumbnail: (shapeId, png) => upload(shapeId, png, THUMBNAIL_TYPE),
     uploadScript: (shapeId, script) => upload(shapeId, script, SHAPE_SCRIPT_CONTENT_TYPE),
     deleteObject: (shapeId, objectId) => deleteObject(storageRef(session.storage, shapeObjectPath(session.uid, shapeId, objectId))),

@@ -161,9 +161,10 @@ export interface ShapeGalleryWriter {
   /** The data of `shapes/{id}` as stored, or null when there is no such post (or the rules
    *  hide it — another account's draft reads as absent). The plugin coerces it. */
   readPost: (id: string) => Promise<Record<string, unknown> | null>;
-  /** Rewrite `shapes/{id}` with `doc` and a server `updatedAt`, leaving `createdAt` as it is
-   *  (the rules freeze it: send the post's fields, not the stamps). */
-  updatePost: (id: string, doc: ShapePostDoc) => Promise<void>;
+  /** Merge `patch` into `shapes/{id}` with a server `updatedAt` — a field-level update
+   *  (Firestore `updateDoc`), never a whole-document write: a field absent from the patch
+   *  must keep what the document holds now. `createdAt` is not sent; the rules freeze it. */
+  updatePost: (id: string, patch: ShapePostPatch) => Promise<void>;
   /** Store a PNG under the post and return the object id the document carries. */
   uploadThumbnail: (id: string, png: Uint8Array) => Promise<string>;
   /** Store the ShapeScript source under the post as `SHAPE_SCRIPT_CONTENT_TYPE` and return
@@ -342,23 +343,43 @@ async function requireOwnPost(gallery: ShapeGalleryWriter, id: string): Promise<
   return existing;
 }
 
-/** The document an update writes: each field the caller gave replaces the post's, each
- *  omitted keeps it. `uid`, `source`, `photoIds` and `forkedFrom` are never the caller's. */
-export function shapePostUpdated(existing: ShapePostDoc, args: Record<string, unknown>, objects: { scriptId: string; thumbnailId: string }): ShapePostDoc {
-  const merged = shapePostFrom(
-    { uid: existing.uid, authorName: existing.authorName },
-    {
-      title: optionalString(args.title) ?? existing.title,
-      scriptId: objects.scriptId,
-      thumbnailId: objects.thumbnailId,
-      description: optionalString(args.description) ?? existing.description,
-      prompt: optionalString(args.prompt) ?? existing.prompt,
-      keywords: args.keywords === undefined ? existing.keywords : args.keywords,
-      aiModel: optionalString(args.aiModel) ?? existing.aiModel,
-      published: typeof args.published === "boolean" ? args.published : existing.published,
-    },
-  );
-  return { ...merged, source: existing.source, photoIds: existing.photoIds, forkedFrom: existing.forkedFrom };
+/** The fields an update may send. PARTIAL on purpose: a field the caller did not give is not
+ *  sent at all, so the document keeps whatever it holds NOW — not what a read a moment ago
+ *  saw. Two clients editing one post cannot then put back each other's replaced objects. */
+export type ShapePostPatch = Partial<
+  Pick<ShapePostDoc, "title" | "description" | "prompt" | "keywords" | "aiModel" | "published" | "scriptId" | "thumbnailId">
+>;
+
+const givenString = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+
+/** The text fields the caller GAVE — an explicit "" included, which clears one. */
+function givenFields(args: Record<string, unknown>): ShapePostPatch {
+  return {
+    ...(givenString(args.title) === undefined ? {} : { title: args.title as string }),
+    ...(givenString(args.description) === undefined ? {} : { description: args.description as string }),
+    ...(givenString(args.prompt) === undefined ? {} : { prompt: args.prompt as string }),
+    ...(givenString(args.aiModel) === undefined ? {} : { aiModel: args.aiModel as string }),
+    ...(args.keywords === undefined ? {} : { keywords: normalizeKeywords(args.keywords) }),
+    ...(typeof args.published === "boolean" ? { published: args.published } : {}),
+  };
+}
+
+/** The update for the user's own post: `doc` is the post as it will read, `patch` what is
+ *  sent — only the fields the caller gave (an explicit "" clears one), plus the new object
+ *  ids when the source changed. Every value has passed the same limits as a new post, so a
+ *  refusal is named here before anything is uploaded. `uid`, `authorName`, `source`,
+ *  `photoIds` and `forkedFrom` are never the caller's. */
+export function shapePostPatch(
+  existing: ShapePostDoc,
+  args: Record<string, unknown>,
+  objects?: { scriptId: string; thumbnailId: string },
+): { doc: ShapePostDoc; patch: ShapePostPatch } {
+  const given = givenFields(args);
+  const checked = shapePostFrom({ uid: existing.uid, authorName: existing.authorName }, { ...existing, ...given, ...objects });
+  const doc: ShapePostDoc = { ...checked, source: existing.source, photoIds: existing.photoIds, forkedFrom: existing.forkedFrom };
+  const patch: ShapePostPatch = { ...objects };
+  for (const key of Object.keys(given) as Array<keyof ShapePostPatch>) Object.assign(patch, { [key]: doc[key] });
+  return { doc, patch };
 }
 
 const hasSource = (args: Record<string, unknown>): boolean => optionalString(args.script) !== undefined || optionalString(args.path) !== undefined;
@@ -425,17 +446,17 @@ async function updateExistingPost(
 ): Promise<PublishShapeResult> {
   const existing = await requireOwnPost(gallery, id);
   const script = hasSource(args) ? await checkedScript(context, args) : null;
-  // Limits are named before any upload: the merge with the old object ids is a dry run.
-  shapePostUpdated(existing, args, existing);
-  const objects = script === null ? { scriptId: existing.scriptId, thumbnailId: existing.thumbnailId } : await uploadObjects(context, gallery, id, script);
-  const doc = shapePostUpdated(existing, args, objects);
+  // Limits are named before any upload: a first merge, without new objects, is the dry run.
+  shapePostPatch(existing, args);
+  const objects = script === null ? undefined : await uploadObjects(context, gallery, id, script);
+  const { doc, patch } = shapePostPatch(existing, args, objects);
   try {
-    await gallery.updatePost(id, doc);
+    await gallery.updatePost(id, patch);
   } catch (error) {
-    if (script !== null) await discardObjects(context, gallery, id, [objects.scriptId, objects.thumbnailId]);
+    if (objects) await discardObjects(context, gallery, id, [objects.scriptId, objects.thumbnailId]);
     throw error;
   }
-  if (script !== null) await discardObjects(context, gallery, id, [existing.scriptId, existing.thumbnailId]);
+  if (objects) await discardObjects(context, gallery, id, [existing.scriptId, existing.thumbnailId]);
   return resultOf(doc, id, gallery, doc.published ? "Updated" : "Updated as a draft (only the user can see it, under My models)");
 }
 

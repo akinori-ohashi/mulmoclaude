@@ -23,6 +23,7 @@ import {
   type PublishShapeScriptContext,
   type ShapeGalleryWriter,
   type ShapePostDoc,
+  type ShapePostPatch,
 } from "../src/core/index";
 
 const CUBE = "cube { size 1 }";
@@ -56,6 +57,7 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
   const uploads: Array<{ id: string; bytes: number }> = [];
   const scripts: Array<{ id: string; script: string }> = [];
   const deleted: Array<{ id: string; objectId: string }> = [];
+  const patches: ShapePostPatch[] = [];
   const writer: ShapeGalleryWriter = {
     uid: "u-alice",
     authorName: "Alice",
@@ -69,8 +71,10 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
       const stored = posts.get(id);
       return stored ? { ...stored, createdAt: "t0", updatedAt: "t0" } : null;
     },
-    updatePost: async (id, doc) => {
-      posts.set(id, doc);
+    // Field-level, as Firestore's updateDoc is: a field absent from the patch is untouched.
+    updatePost: async (id, patch) => {
+      patches.push(patch);
+      posts.set(id, { ...posts.get(id)!, ...patch });
     },
     uploadThumbnail: async (id, png) => {
       uploads.push({ id, bytes: png.byteLength });
@@ -84,7 +88,7 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
       deleted.push({ id, objectId });
     },
   };
-  return { writer, posts, uploads, scripts, deleted };
+  return { writer, posts, uploads, scripts, deleted, patches };
 }
 
 const noThumbnail = async (): Promise<Uint8Array | null> => null;
@@ -318,6 +322,29 @@ describe("publishShapeScript tool", () => {
         { id, objectId: "script-1" },
         { id, objectId: "obj-1" },
       ]);
+    });
+
+    // Codex on #3158: a whole-document rewrite from a read taken a moment ago would put back
+    // whatever another client changed in between — a replaced (and deleted) script object
+    // included. So the patch carries only what this call changes.
+    it("sends only the fields given and the new object ids, never the whole snapshot", async () => {
+      const { context, patches, id } = await seeded();
+      await executePublishShapeScript(context, { id, script: CUBE_2 });
+      assert.deepEqual(patches.at(-1), { scriptId: "script-2", thumbnailId: "obj-2" });
+      await executePublishShapeScript(context, { id, title: "Desk lamp", keywords: ["Desk", "lamp"] });
+      assert.deepEqual(patches.at(-1), { title: "Desk lamp", keywords: ["desk", "lamp"] });
+    });
+
+    it("clears an optional text field with an explicit empty string, and keeps it when omitted", async () => {
+      const { context, posts, patches, id } = await seeded();
+      await executePublishShapeScript(context, { id, description: "", aiModel: "" });
+      assert.deepEqual(patches.at(-1), { description: "", aiModel: "" });
+      assert.equal(posts.get(id)!.description, "");
+      assert.equal(posts.get(id)!.aiModel, "");
+      await executePublishShapeScript(context, { id, title: "Lamp 2" });
+      assert.equal(posts.get(id)!.description, "");
+      // An empty title is not a clear: the gallery requires one.
+      await assert.rejects(executePublishShapeScript(context, { id, title: "" }), /`title` is required/);
     });
 
     it("updates the metadata alone — no source given keeps the script and thumbnail", async () => {

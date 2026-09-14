@@ -24,9 +24,9 @@ describe("publishShapeScript host adapter", () => {
     }
   });
 
-  it("rewrites a post with a server-stamped updatedAt and never sends createdAt, which the rules freeze", () => {
-    const update = postUpdateOf(post);
-    assert.deepEqual(Object.keys(update), [...SHAPE_POST_KEYS, "updatedAt"]);
+  it("updates only the fields the plugin gave, with a server-stamped updatedAt and never createdAt, which the rules freeze", () => {
+    const update = postUpdateOf({ title: "Lamp 2", scriptId: "script-2" });
+    assert.deepEqual(Object.keys(update), ["title", "scriptId", "updatedAt"]);
     assert.equal((update.updatedAt as { _methodName?: string })._methodName, "serverTimestamp");
     assert.equal(Object.hasOwn(update, "createdAt"), false);
   });

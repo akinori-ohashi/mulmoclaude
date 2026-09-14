@@ -33,7 +33,7 @@ export {
   executePublishShapeScript,
   existingShapePost,
   shapePostFrom,
-  shapePostUpdated,
+  shapePostPatch,
   shapePostUrl,
   normalizeKeywords as normalizeShapeKeywords,
   PUBLISH_TOOL_NAME,
@@ -48,7 +48,7 @@ export {
   requireScriptBytes,
   NOT_CONNECTED_MESSAGE,
 } from "./publish";
-export type { PublishShapeScriptContext, PublishShapeResult, ShapeGalleryWriter, ShapePostDoc } from "./publish";
+export type { PublishShapeScriptContext, PublishShapeResult, ShapeGalleryWriter, ShapePostDoc, ShapePostPatch } from "./publish";
 export { samples } from "./samples";
 
 // Re-export ShapeScript utilities
