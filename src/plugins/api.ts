@@ -59,6 +59,12 @@ export interface HostContext {
   /** Snapshot of every registered plugin's tool name. Used by
    *  manageRoles to populate the role-editor's plugin picker. */
   readonly getAllPluginNames: () => readonly string[];
+  /** Model aliases the host accepts (`CHAT_MODELS`). Same reason as
+   *  `getAllPluginNames`: manageRoles has a picker to populate and cannot
+   *  read `src/config/*` itself. Plain strings on purpose — the host's
+   *  `RoleSchema` is what validates an alias, so the plugin never needs the
+   *  narrowed union (#3104). */
+  readonly chatModels: readonly string[];
 }
 
 let installedContext: HostContext | null = null;
@@ -121,4 +127,9 @@ export function pluginPageRoute(name: string): string {
 /** Snapshot of every registered plugin's tool name. */
 export function pluginAllPluginNames(): readonly string[] {
   return requireContext().getAllPluginNames();
+}
+
+/** Model aliases the host accepts, for the role editor's picker (#3104). */
+export function pluginChatModels(): readonly string[] {
+  return requireContext().chatModels;
 }

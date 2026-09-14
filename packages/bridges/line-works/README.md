@@ -46,25 +46,31 @@ Send the bot a direct message in LINE Works — you'll get a reply.
 
 ## Environment variables
 
-| Variable                       | Required | Default | Description |
-|--------------------------------|----------|---------|-------------|
-| `LINEWORKS_CLIENT_ID`          | yes      | —       | App Client ID |
-| `LINEWORKS_CLIENT_SECRET`      | yes      | —       | App Client Secret |
-| `LINEWORKS_SERVICE_ACCOUNT`    | yes      | —       | Service account ID |
-| `LINEWORKS_BOT_ID`             | yes      | —       | Numeric Bot ID |
-| `LINEWORKS_BOT_SECRET`         | yes      | —       | Per-bot secret (used to verify `X-WORKS-Signature` on webhooks) |
-| `LINEWORKS_PRIVATE_KEY`        | either   | —       | PEM string (use `\n` for newlines when putting on a single env line) |
-| `LINEWORKS_PRIVATE_KEY_FILE`   | either   | —       | Path to PEM file (alternative to inline env) |
-| `LINEWORKS_WEBHOOK_PORT`       | no       | `3013`  | HTTP port |
-| `LINEWORKS_ALLOWED_USERS`      | no       | (all)   | CSV of sender `userId`s allowed |
-| `MULMOCLAUDE_AUTH_TOKEN`       | no       | auto    | MulmoClaude bearer token override |
-| `MULMOCLAUDE_API_URL`          | no       | `http://localhost:3001` | MulmoClaude server URL |
+| Variable                     | Required | Default                                              | Description                                                          |
+| ---------------------------- | -------- | ---------------------------------------------------- | -------------------------------------------------------------------- |
+| `LINEWORKS_CLIENT_ID`        | yes      | —                                                    | App Client ID                                                        |
+| `LINEWORKS_CLIENT_SECRET`    | yes      | —                                                    | App Client Secret                                                    |
+| `LINEWORKS_SERVICE_ACCOUNT`  | yes      | —                                                    | Service account ID                                                   |
+| `LINEWORKS_BOT_ID`           | yes      | —                                                    | Numeric Bot ID                                                       |
+| `LINEWORKS_BOT_SECRET`       | yes      | —                                                    | Per-bot secret (used to verify `X-WORKS-Signature` on webhooks)      |
+| `LINEWORKS_PRIVATE_KEY`      | either   | —                                                    | PEM string (use `\n` for newlines when putting on a single env line) |
+| `LINEWORKS_PRIVATE_KEY_FILE` | either   | —                                                    | Path to PEM file (alternative to inline env)                         |
+| `LINEWORKS_WEBHOOK_PORT`     | no       | `3013`                                               | HTTP port (`0` asks the OS for a free port)                          |
+| `LINEWORKS_ALLOWED_USERS`    | no       | (all)                                                | CSV of sender `userId`s allowed                                      |
+| `MULMOCLAUDE_AUTH_TOKEN`     | no       | auto                                                 | MulmoClaude bearer token override                                    |
+| `MULMOCLAUDE_API_URL`        | no       | auto (`.server-port`; waits if nothing is published) | MulmoClaude server URL                                               |
+
+An unusable value (a typo, a number outside 0-65535) stops the bridge with a message naming
+the variable, rather than silently starting on the default. A port already in use is reported
+the same way (#3084).
 
 ### Auth token persistence across server restarts
 
-The MulmoClaude server regenerates a fresh bearer token on every startup and writes it to `~/mulmoclaude/.session-token`. The bridge reads that file once at launch and keeps the token in memory — so if the server restarts while the bridge is running, the bridge keeps using the **old** token and every API call returns **401**, silently.
+The MulmoClaude server regenerates a fresh bearer token on every startup and writes it to `<workspace>/.session-token` (`$MULMOCLAUDE_WORKSPACE_PATH`, or `~/mulmoclaude` when unset), alongside the port it bound in `.server-port`.
 
-**Fix**: set `MULMOCLAUDE_AUTH_TOKEN` to the same long random value on **both** the server and the bridge. The server uses it verbatim instead of regenerating, so the token survives restarts and the bridge stays authenticated.
+**The bridge follows a restart on its own.** When the connection fails it re-reads both files, and if the server came back as a different generation — new token, new port, or both — it rebuilds its socket against it (#3078). You do not have to restart the bridge.
+
+Pinning the token is still useful when the bridge runs **on a different machine** from the server, where it cannot read the workspace at all: set `MULMOCLAUDE_AUTH_TOKEN` to the same long random value on both sides. The server then uses it verbatim instead of regenerating.
 
 ```bash
 # Server (one-time setup — same value across restarts)
@@ -87,12 +93,12 @@ Recommended: at least 32 characters of random data (the server logs a warning at
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `token: 400 invalid_grant` | Private key doesn't match the service account | Re-download the PEM for the exact service account ID |
-| `token: 401 invalid_client` | Client ID / secret wrong | Regenerate in Developer Console |
-| Webhook never arrives | Callback URL not HTTPS or event types unchecked | Set HTTPS URL; enable `Message` event type |
-| `send failed: 403` | Scope missing | Add `bot` + `bot.message` to the app and reauthorize |
+| Symptom                     | Cause                                           | Fix                                                  |
+| --------------------------- | ----------------------------------------------- | ---------------------------------------------------- |
+| `token: 400 invalid_grant`  | Private key doesn't match the service account   | Re-download the PEM for the exact service account ID |
+| `token: 401 invalid_client` | Client ID / secret wrong                        | Regenerate in Developer Console                      |
+| Webhook never arrives       | Callback URL not HTTPS or event types unchecked | Set HTTPS URL; enable `Message` event type           |
+| `send failed: 403`          | Scope missing                                   | Add `bot` + `bot.message` to the app and reauthorize |
 
 ## Security notes
 
@@ -123,7 +129,7 @@ Part of the [`@mulmobridge/*`](https://www.npmjs.com/~mulmobridge) package famil
 - [`@mulmobridge/google-chat`](https://www.npmjs.com/package/@mulmobridge/google-chat) — Google Chat via MulmoBridge relay
 - [`@mulmobridge/irc`](https://www.npmjs.com/package/@mulmobridge/irc) — IRC (Libera, Freenode, custom)
 - [`@mulmobridge/line`](https://www.npmjs.com/package/@mulmobridge/line) — LINE Messaging API via MulmoBridge relay
-- [`@mulmobridge/line-works`](https://www.npmjs.com/package/@mulmobridge/line-works) — LINE Works (enterprise LINE)  ← **this package**
+- [`@mulmobridge/line-works`](https://www.npmjs.com/package/@mulmobridge/line-works) — LINE Works (enterprise LINE) ← **this package**
 - [`@mulmobridge/mastodon`](https://www.npmjs.com/package/@mulmobridge/mastodon) — Mastodon DMs + mentions
 - [`@mulmobridge/matrix`](https://www.npmjs.com/package/@mulmobridge/matrix) — Matrix / Element
 - [`@mulmobridge/mattermost`](https://www.npmjs.com/package/@mulmobridge/mattermost) — Mattermost

@@ -1,297 +1,837 @@
-// @mulmobridge/* drift check (§2 of publish-mulmoclaude skill).
+// Workspace publish-drift check (§2 of the publish-mulmoclaude skill).
 //
-// Problem: a local `packages/<name>/src/` file adds a new runtime
-// export without a version bump. The tarball a real user installs
-// from the registry ships the OLD dist/, so consumers crash with:
+// Problem: a local `packages/<x>/src/` file adds a new runtime export without a
+// version bump. The tarball a real user installs from the registry ships the OLD
+// dist, so consumers crash with:
 //   does not provide an export named X
-// at runtime — invisible to lint, typecheck, or local dev.
+// at runtime — invisible to lint, typecheck, or local dev, because in a yarn
+// workspace `node_modules/<name>` is a symlink into `packages/<x>/` and the local
+// dist is always freshly built.
 //
-// Detection strategy: count value-export LINES in src/index.ts and
-// in the currently-published dist (fetched from the npm registry),
-// flag when src > published.
+// Three things about the shape of this check were measured, not assumed (#3116):
 //
-// Why the registry and not `node_modules/.../dist`: in a yarn-
-// workspace repo, `node_modules/@mulmobridge/<name>` is a symlink
-// into `packages/<name>/`. `yarn build:packages` then rebuilds that
-// symlinked dist from the current src, making `src == dist` in CI
-// regardless of whether the published version lags behind — the
-// whole point of the check. Compare against the registry payload
-// instead so the drift picks up exactly what a fresh
-// `npm install mulmoclaude` would see at runtime.
+//  1. WHICH PACKAGES. It used to read the launcher's `dependencies` and keep the
+//     `@mulmobridge/*` ones, which is four packages: chat-service, client,
+//     protocol, web-push. That missed `@mulmoclaude/common` (declared by 32 other
+//     workspaces), `@mulmobridge/webhook-runtime` (9), `@mulmoclaude/core` (8),
+//     `@mulmoclaude/markdown-utils` (2) and `@receptron/task-scheduler` (1) — and
+//     #3109 shipped new exports in two of those with no version bump, past a green
+//     gate. The set is now every publishable workspace that another workspace
+//     declares, whatever its scope and wherever it sits in the tree.
 //
-// "Value export LINES" = every `^export …` line except ones that
-// are entirely type-only (`export type …`, `export interface …`,
-// `export { type … }`). Counting lines (not individual specifiers)
-// matches the original skill heuristic and has caught every real
-// drift we've seen.
+//  2. WHAT TO COMPARE. It used to compare the local `src/index.ts` against the
+//     published `dist`. That only holds when dist mirrors src one-to-one, i.e. a
+//     tsc build. For a vite-bundled package it is nonsense: `x-plugin`'s src has 6
+//     export lines and its dist has 1, so the old metric called it DRIFTED when it
+//     was identical to what npm serves; `core` came out 229 against 30. The
+//     comparison is now local BUILT dist against published dist — same relative
+//     path on both sides, so the build system cannot skew it. The smoke workflow
+//     runs `yarn build:packages && yarn build` first, so CI's dist is current; a
+//     missing local dist is reported as `skipped`, never as clean.
+//
+//  3. WHAT TO COUNT. Lines cannot see a bundle's exports. `x-plugin`'s whole
+//     public surface is one line — `export { extractTweetId, formatTweet,
+//     readUrlArg, readXPost, searchX, tweetBody };` — so a seventh name added there
+//     keeps the count at 1 and the old metric passes. The unit is now the set of
+//     exported NAMES, per `exports` subpath.
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MULMOBRIDGE_SCOPE = "@mulmobridge/";
-const DEFAULT_INSTALLED_ROOT = "node_modules";
 const REGISTRY_BASE = "https://registry.npmjs.org";
 const UNPKG_BASE = "https://unpkg.com";
 const REGISTRY_TIMEOUT_MS = 15_000;
 
-// Returns how many `^export …` lines in `source` declare at least
-// one runtime (value) export. Type-only lines are filtered.
+/** Walk `text`, calling `onChar(char, depth)` for every character that sits
+ *  outside a string literal, with `depth` counting open brackets, braces and
+ *  parens. One scanner for both the `;` split and the declarator check: they were
+ *  written separately and only one of them knew about strings, which is how
+ *  `export const a = "x;export const b = 1"` invented the name `b`. */
+function scanOutsideStrings(text, onChar) {
+  let depth = 0;
+  let quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (quote !== null) {
+      if (char === "\\") i += 1;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "(" || char === "[" || char === "{") depth += 1;
+    else if (char === ")" || char === "]" || char === "}") depth = depth > 0 ? depth - 1 : 0;
+    if (onChar(char, depth, i) === false) return;
+  }
+}
+
+/** True when `text` holds a `,` outside every bracket, brace, paren and string —
+ *  i.e. a second declarator rather than a comma inside an initialiser. */
+export function hasTopLevelComma(text) {
+  let found = false;
+  scanOutsideStrings(text, (char, depth) => {
+    if (char === "," && depth === 0) {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+/** Split on `;` outside strings, so a semicolon inside a string literal cannot
+ *  manufacture a second statement. */
+export function splitStatementsOnSemicolon(line) {
+  const cuts = [];
+  scanOutsideStrings(line, (char, _depth, index) => {
+    if (char === ";") cuts.push(index);
+    return true;
+  });
+  const pieces = [];
+  let start = 0;
+  for (const cut of cuts) {
+    pieces.push(line.slice(start, cut));
+    start = cut + 1;
+  }
+  pieces.push(line.slice(start));
+  return pieces;
+}
+
+/** The relative specifiers of every `export * from "…"` in a source. A barrel's
+ *  public surface lives in those files, so comparing only the barrel line says
+ *  nothing: an export added to the target changes what consumers can import while
+ *  the barrel itself is byte-identical on both sides. */
+export function starTargets(source) {
+  const out = [];
+  for (const statement of exportStatements(source)) {
+    const rest = statement.slice("export".length).trim();
+    if (!rest.startsWith("*")) continue;
+    if (/^\*\s+as\s+/.test(rest)) continue; // a namespace export, not a barrel
+    const spec = /from\s*["']([^"']+)["']/.exec(rest);
+    out.push(spec === null ? null : spec[1]);
+  }
+  return out;
+}
+
+/** Statements that begin with `export`, with newlines inside a brace group
+ *  flattened so a wrapped list is one statement, and `;`-separated statements on
+ *  one line split apart. Parsing per LINE instead of per statement silently
+ *  returned zero names for both shapes, which reads as "nothing exported" and so
+ *  as "no drift" — the exact failure this gate exists to prevent. */
+/** Net brace balance of one line, ignoring braces inside a string literal on that
+ *  line. Bounded to the line on purpose: tracking quotes across a whole file lets
+ *  ONE apostrophe in a comment mark everything after it as string content, which
+ *  measured out as 275 of `@mulmoclaude/core`'s exports silently disappearing. */
+const braceBalance = (line) => {
+  let balance = 0;
+  scanOutsideStrings(line, (char) => {
+    if (char === "{") balance += 1;
+    else if (char === "}") balance -= 1;
+    return true;
+  });
+  return balance;
+};
+
+/** Statements that begin with `export` at column 0, each joined with the lines that
+ *  continue it while its own brace group is still open, and `;`-separated statements
+ *  on one line split apart.
+ *
+ *  The join starts at the `export` line rather than tracking depth from the top of
+ *  the file, because a global counter is wrong the moment one brace hides in a
+ *  string or a regex: `@mulmoclaude/core`'s `./plugin-vue` entry has exactly one
+ *  column-0 export line, listing ten names, and a whole-file counter had swallowed
+ *  it into the previous line — 0 names on BOTH sides, which reads as a match. */
+export function exportStatements(source) {
+  const lines = source.split("\n");
+  const statements = [];
+  for (let index = 0; index < lines.length; index++) {
+    // Column 0 only. An indented `export` is not a module-level export in a built
+    // file — it is text inside a template literal, a comment, or a namespace — and
+    // counting it would invent names the package does not have.
+    if (!lines[index].startsWith("export")) continue;
+    let statement = lines[index].replace(/\r$/, "");
+    let balance = braceBalance(statement);
+    while (balance > 0 && index + 1 < lines.length) {
+      index += 1;
+      statement += ` ${lines[index].replace(/\r$/, "")}`;
+      balance += braceBalance(lines[index]);
+    }
+    for (const piece of splitStatementsOnSemicolon(statement)) {
+      const chunk = piece.trim();
+      // `export` must be a complete token — `exported = 1` is not an export — but
+      // anything else that IS one is kept even when it looks unparseable
+      // (`export/*c*/{a}`), because the parser marks what it cannot model opaque.
+      // Dropping it here instead would be a silent miss, which reads as "clean".
+      if (chunk.startsWith("export") && !/^export[\w$]/.test(chunk)) statements.push(chunk);
+    }
+  }
+  return statements;
+}
+
+// Names a module exports, or `opaque: true` when a statement re-exports a whole
+// module (`export * from "./chunk.js"`) or cannot be parsed at all. Opaque falls
+// back to line counting — weaker, but it FAILS CLOSED: an export shape nobody
+// anticipated shows up as a coarser comparison, never as an empty name set that
+// would pass as clean.
+export function parseExportedNames(source) {
+  const names = new Set();
+  let opaque = false;
+  // Barrels are counted, not lumped into `opaque`: a caller that can READ the
+  // re-exported file (collectEntryNames) resolves them exactly, and one that
+  // cannot must treat them as opaque. Sharing one flag made the resolved case
+  // permanently coarse.
+  let stars = 0;
+  const IDENT = /^[A-Za-z_$][\w$]*/;
+  const DECLARERS = new Set(["function", "function*", "class", "const", "let", "var"]);
+  const NO_NAME_FORMS = new Set(["type", "interface"]);
+  const firstWord = (text) => {
+    const cut = text.search(/[^\w$*]/);
+    return cut === -1 ? text : text.slice(0, cut === 0 ? 1 : cut);
+  };
+  // One brace specifier. Three outcomes, because "no name" and "I cannot model
+  // this" must not look alike: `{ kind: "name" }`, `{ kind: "type" }` (skip, the
+  // set is still exact), `{ kind: "unmodelled" }` (the whole entry goes opaque).
+  //
+  // `default` counts as a name: a default-import consumer breaks the same way when
+  // the published tarball lacks it, which is the failure this gate exists for.
+  const specifierKind = (raw) => {
+    const spec = raw.trim();
+    if (spec === "") return { kind: "type" };
+    if (spec.startsWith("type ")) return { kind: "type" };
+    // An arbitrary module namespace name (`a as "string name"`, ES2022) is a real
+    // export this parser cannot name, and a truncated guess would be worse than a
+    // coarse comparison.
+    if (spec.includes('"') || spec.includes("'")) return { kind: "unmodelled" };
+    const parts = spec.split(/\s+/);
+    const picked = parts.length >= 3 && parts[parts.length - 2] === "as" ? parts[parts.length - 1] : parts[0];
+    const match = IDENT.exec(picked);
+    // The identifier must be the WHOLE token. `café` matched `caf` under an
+    // ASCII-only pattern and reported a name the package does not export.
+    if (match === null || match[0] !== picked) return { kind: "unmodelled" };
+    return { kind: "name", name: match[0] };
+  };
+
+  // The rule is INVERTED on purpose: these four shapes are what this parser claims
+  // to understand, and every other `export` statement is opaque. Three separate
+  // findings in one review were each "it silently drops <one more shape>" — a
+  // language always has one more way to say a thing than a ban-list will name, and
+  // a dropped statement reads as "nothing exported", i.e. as "no drift". This
+  // direction rejects some perfectly safe code into the coarser line-count
+  // comparison, which is the trade worth making for a release gate.
+  for (const statement of exportStatements(source)) {
+    let rest = statement.slice("export".length).trim();
+    if (rest.startsWith("*")) {
+      // `export * as ns from "./x.js"` exports one name — the namespace object —
+      // and is NOT a barrel: following the target would credit this entry with
+      // names consumers cannot import directly.
+      const named = /^\*\s+as\s+([A-Za-z_$][\w$]*)\b/.exec(rest);
+      if (named !== null) names.add(named[1]);
+      else stars += 1;
+      continue;
+    }
+    if (rest.startsWith("{")) {
+      const close = rest.indexOf("}");
+      const body = close === -1 ? null : rest.slice(1, close);
+      // A brace that never closes, or one carrying a comment (whose text could hide
+      // or invent a name once newlines are flattened), is not a shape this models.
+      if (body === null || body.includes("//") || body.includes("/*")) {
+        opaque = true;
+        continue;
+      }
+      for (const piece of body.split(",")) {
+        const spec = specifierKind(piece);
+        if (spec.kind === "name") names.add(spec.name);
+        else if (spec.kind === "unmodelled") opaque = true;
+      }
+      continue;
+    }
+    // Strip modifiers one word at a time — cheaper and safer than one regex with
+    // nested optional groups, which eslint's ReDoS rules reject outright.
+    let head = firstWord(rest);
+    while (head === "declare" || head === "async") {
+      rest = rest.slice(head.length).trim();
+      head = firstWord(rest);
+    }
+    if (head === "default") {
+      names.add("default");
+      continue;
+    }
+    if (NO_NAME_FORMS.has(head)) continue;
+    if (!DECLARERS.has(head)) {
+      // `export <something we do not model>` — fail closed rather than drop it.
+      opaque = true;
+      continue;
+    }
+    const declared = rest.slice(head.length).trim();
+    // One declarator per statement is what this models. `export const a = 1, b = 2`
+    // used to yield `a` alone while claiming to be exact; a comma at depth 0 (not
+    // inside brackets, braces, parens or a string) means more than one name.
+    if (hasTopLevelComma(declared)) {
+      opaque = true;
+      continue;
+    }
+    const match = IDENT.exec(declared);
+    // The identifier must END where a declaration's name legitimately can — the
+    // boundary is a permit-list for the same reason the statement shapes are. An
+    // ASCII-only pattern truncated `café` to `caf` and reported a name the package
+    // does not export; anything but one of these characters means "not a shape this
+    // models", so the entry goes opaque rather than carrying a guess.
+    const after = match === null ? "" : declared.slice(match[0].length);
+    if (match === null || !(after === "" || /^[\s=(;:,<{)]/.test(after))) opaque = true;
+    else names.add(match[0]);
+  }
+  return { names, opaque, stars };
+}
+
+// Kept from the line-counting era: it is the fallback for an opaque entry, and
+// the only metric available when a `export * from` hides the real surface.
 //
-// Matches only when `export` is at column 0 (no leading whitespace)
-// to mirror the skill's `grep -E '^export'` exactly — indented
-// `export` tokens inside namespaces or conditional blocks aren't
-// module-level re-exports and shouldn't count.
+// "Value export LINES" = every `^export …` line except ones that are entirely
+// type-only (`export type …`, `export interface …`, `export { type … }`).
 export function countValueExportLines(source) {
   const lines = source.split(/\r?\n/);
   let count = 0;
   for (const line of lines) {
     if (!line.startsWith("export")) continue;
-    // `export type Foo = …` / `export interface Foo { … }`
     if (/^export\s+(?:type|interface)\b/.test(line)) continue;
-    // `export { type Foo, type Bar }` — brace starts with `type`.
-    // Matches the skill's heuristic even when the brace also has
-    // runtime bindings (rare in practice).
     if (/^export\s*\{\s*type\b/.test(line)) continue;
     count += 1;
   }
   return count;
 }
 
-// Read the local workspace package.json for `<packageBaseName>` to
-// surface its version string. Returns `null` if the file can't be
-// read — not every @mulmobridge/* dep has a local workspace twin.
-async function readLocalVersion(root, packageBaseName) {
-  const pkgPath = path.join(root, "packages", packageBaseName, "package.json");
+/** The runtime target of one `exports` value, descending through condition objects
+ *  (`{ node: { import: "./a.js" } }`) in the order a bundler would. Returns null
+ *  when no string target can be resolved — a types-only or unrecognised condition
+ *  block is reported as unresolved, never replaced with a guess: falling back to
+ *  `main` per subpath made a `{ types: "./x.d.ts" }` entry compare `dist/index.js`,
+ *  which is a different file's export surface. */
+export function resolveConditionTarget(value, depth = 0) {
+  if (typeof value === "string") return value.replace(/^\.\/+/, "");
+  if (depth >= 8 || value === null || typeof value !== "object") return null;
+  for (const condition of ["import", "module", "default", "require", "node", "browser"]) {
+    if (!(condition in value)) continue;
+    const resolved = resolveConditionTarget(value[condition], depth + 1);
+    if (resolved !== null) return resolved;
+  }
+  return null;
+}
+
+/** Every `exports` subpath mapped to its runtime target, or to null when the
+ *  target cannot be resolved. A package with no `exports` map at all falls back to
+ *  `module` / `main` / `dist/index.js` for `.` — that fallback is for the WHOLE
+ *  package, never for an individual subpath. */
+export function entryTargets(pkg) {
+  const out = new Map();
+  const exp = pkg?.exports;
+  if (exp !== null && typeof exp === "object") {
+    for (const [subpath, value] of Object.entries(exp)) out.set(subpath, resolveConditionTarget(value));
+    return out;
+  }
+  if (typeof exp === "string") {
+    out.set(".", exp.replace(/^\.\/+/, ""));
+    return out;
+  }
+  const target = pkg?.module ?? pkg?.main ?? "dist/index.js";
+  out.set(".", String(target).replace(/^\.\/+/, ""));
+  return out;
+}
+
+/** The `require` conditions that resolve to a file the chosen (ESM) target does not
+ *  cover. This gate reads `export` statements, so a CommonJS branch is outside what
+ *  it can measure — and 48 of the scanned subpaths publish one. Naming them keeps a
+ *  partial verdict from being read as a whole one. */
+/** Every `require` target anywhere inside a condition block, not just at its top
+ *  level: `{ node: { import, require } }` resolves to the ESM file, so a top-level
+ *  lookup reports nothing while the CJS branch stays uncompared. */
+const requireTargetsWithin = (value, depth = 0) => {
+  if (depth >= 8 || value === null || typeof value !== "object" || Array.isArray(value)) return [];
+  const out = [];
+  for (const [condition, nested] of Object.entries(value)) {
+    if (condition === "require") {
+      const resolved = resolveConditionTarget(nested);
+      if (resolved !== null) out.push(resolved);
+      continue;
+    }
+    out.push(...requireTargetsWithin(nested, depth + 1));
+  }
+  return out;
+};
+
+/** The `exports` subpath keys a published manifest declares, or null when the
+ *  manifest could not be READ. Null means "cannot say", never "no subpaths" — the
+ *  caller must not read it as a difference.
+ *
+ *  A manifest that reads fine but has no `exports` map is a different answer, and a
+ *  determinate one: such a package serves `.` through `main` and no named subpath at
+ *  all, so `import "pkg/new"` fails. Returning null for that case let a `main` →
+ *  `exports` migration add subpaths at an unchanged version and still report clean. */
+export function publishedSubpathKeys(manifestSource) {
+  if (typeof manifestSource !== "string") return null;
+  let parsed;
   try {
-    const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
-    return typeof pkg.version === "string" ? pkg.version : null;
+    parsed = JSON.parse(manifestSource);
+  } catch {
+    return null;
+  }
+  const exp = parsed?.exports;
+  if (typeof exp === "string") return new Set(["."]);
+  if (exp === null || typeof exp !== "object" || Array.isArray(exp)) return new Set(["."]);
+  return new Set(Object.keys(exp));
+}
+
+export function unmeasuredRequireBranches(pkg) {
+  const exp = pkg?.exports;
+  if (exp === null || typeof exp !== "object" || Array.isArray(exp)) return [];
+  const out = [];
+  for (const [subpath, value] of Object.entries(exp)) {
+    const compared = resolveConditionTarget(value);
+    for (const required of new Set(requireTargetsWithin(value))) {
+      if (required !== compared) out.push(`${subpath} → ${required}`);
+    }
+  }
+  return out;
+}
+
+async function readManifest(file) {
+  try {
+    return JSON.parse(await readFile(file, "utf8"));
   } catch {
     return null;
   }
 }
 
-// Default published-source fetcher: queries the npm registry for
-// the package's `latest` dist-tag version, then pulls the `main` /
-// `module` entry from unpkg. Returns `null` on any network / 404
-// failure so the caller can skip rather than crash.
-async function defaultFetchPublishedSource({ packageBaseName, timeoutMs = REGISTRY_TIMEOUT_MS } = {}) {
-  const fullName = MULMOBRIDGE_SCOPE + packageBaseName;
+// Every publishable workspace, by name, with the directory it lives in. Walks
+// the root manifest's `workspaces` globs rather than assuming `packages/<name>`:
+// the bridges sit under `packages/bridges/<name>` and the plugins under
+// `packages/plugins/<name>`, and `@receptron/task-scheduler` lives in
+// `packages/scheduler` — a name-to-path guess is wrong for most of the tree.
+async function readWorkspaces(root) {
+  const rootPkg = await readManifest(path.join(root, "package.json"));
+  const patterns = Array.isArray(rootPkg?.workspaces) ? rootPkg.workspaces : (rootPkg?.workspaces?.packages ?? []);
+  const { glob } = await import("node:fs/promises");
+  const found = new Map();
+  for (const pattern of patterns) {
+    for await (const dir of glob(pattern, { cwd: root })) {
+      const pkg = await readManifest(path.join(root, dir, "package.json"));
+      if (pkg === null || typeof pkg.name !== "string") continue;
+      if (pkg.private === true) continue;
+      found.set(pkg.name, { name: pkg.name, dir, pkg });
+    }
+  }
+  return found;
+}
+
+/** The scan set: publishable workspaces that at least one other workspace
+ *  declares, in any dependency field. A package nothing imports cannot break a
+ *  consumer by lacking an export; one the launcher alone imports can, because the
+ *  launcher's own published `server/` and `src/` call into it. */
+export async function discoverWorkspaceLibraries({ root = process.cwd() } = {}) {
+  const workspaces = await readWorkspaces(root);
+  const consumers = new Map();
+  for (const { name, pkg } of workspaces.values()) {
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      for (const dep of Object.keys(pkg[field] ?? {})) {
+        if (!workspaces.has(dep) || dep === name) continue;
+        const seen = consumers.get(dep) ?? new Set();
+        seen.add(name);
+        consumers.set(dep, seen);
+      }
+    }
+  }
+  return [...workspaces.values()]
+    .filter((entry) => (consumers.get(entry.name)?.size ?? 0) > 0)
+    .map((entry) => ({ ...entry, consumers: [...(consumers.get(entry.name) ?? [])].sort() }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The registry's `latest` version for a package, or null with a reason. */
+export async function defaultFetchPublishedVersion({ name, timeoutMs = REGISTRY_TIMEOUT_MS } = {}) {
   const controller = new AbortController();
   const killer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const metaRes = await fetch(`${REGISTRY_BASE}/${encodeURIComponent(fullName)}/latest`, {
-      signal: controller.signal,
-    });
-    if (!metaRes.ok) return { version: null, source: null, reason: `registry ${metaRes.status}` };
-    const meta = await metaRes.json();
+    const res = await fetch(`${REGISTRY_BASE}/${encodeURIComponent(name)}/latest`, { signal: controller.signal });
+    if (!res.ok) return { version: null, reason: `registry ${res.status}` };
+    const meta = await res.json();
     const version = typeof meta.version === "string" ? meta.version : null;
-    if (!version) return { version: null, source: null, reason: "registry meta missing version" };
-    // Prefer the package's declared `main` / `module` entry rather
-    // than assuming `dist/index.js` — a future refactor of the
-    // @mulmobridge/* packages could move the entry file.
-    const entry = typeof meta.module === "string" ? meta.module : typeof meta.main === "string" ? meta.main : "dist/index.js";
-    const distRes = await fetch(`${UNPKG_BASE}/${fullName}@${version}/${entry.replace(/^\.?\/+/, "")}`, {
-      signal: controller.signal,
-    });
-    if (!distRes.ok) return { version, source: null, reason: `unpkg ${distRes.status}` };
-    const source = await distRes.text();
-    return { version, source, reason: null };
+    return version === null ? { version: null, reason: "registry meta missing version" } : { version, reason: null };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { version: null, source: null, reason: `network: ${message}` };
+    return { version: null, reason: `network: ${err instanceof Error ? err.message : String(err)}` };
   } finally {
     clearTimeout(killer);
   }
 }
 
-// Read installed-dist source (the pre-registry behaviour). Kept as
-// a fallback so offline / registry-unreachable callers still get a
-// signal, and the existing fixture-based tests keep working.
-async function readInstalledDistSource({ root, packageBaseName, installedRoot, distRelative }) {
-  const distPath = path.join(root, installedRoot, MULMOBRIDGE_SCOPE + packageBaseName, distRelative);
+/** One published file, by the same relative path the local dist uses. */
+export async function defaultFetchPublishedEntry({ name, version, entryPath, timeoutMs = REGISTRY_TIMEOUT_MS } = {}) {
+  const controller = new AbortController();
+  const killer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await readFile(distPath, "utf8");
-  } catch {
-    return null;
+    const res = await fetch(`${UNPKG_BASE}/${name}@${version}/${entryPath}`, { signal: controller.signal });
+    if (!res.ok) return { source: null, reason: `unpkg ${res.status}` };
+    return { source: await res.text(), reason: null };
+  } catch (err) {
+    return { source: null, reason: `network: ${err instanceof Error ? err.message : String(err)}` };
+  } finally {
+    clearTimeout(killer);
   }
 }
 
-// Inspect one package: compare local src value-export count with
-// the currently-published dist (fetched from the registry). Returns
-// `{ status: "ok"|"drifted"|"skipped", ... }`.
-//
-// Options:
-//   fetchPublishedSource: override for the registry fetcher; must
-//     resolve to `{ version, source, reason }` shape. Tests pass a
-//     fake; real runs use defaultFetchPublishedSource.
-//   installedRoot / distRelative: legacy local-dist fallback, used
-//     when `fetchPublishedSource` returns no source (offline CI,
-//     package not on registry, etc.). Also kept so the existing
-//     fixture tests can exercise the local-dist path without hitting
-//     the network.
-export async function checkPackageDrift({
-  root = process.cwd(),
-  packageBaseName,
-  srcRelative = "src/index.ts",
-  distRelative = "dist/index.js",
-  installedRoot = DEFAULT_INSTALLED_ROOT,
-  fetchPublishedSource = defaultFetchPublishedSource,
-} = {}) {
-  if (!packageBaseName) {
-    throw new Error("checkPackageDrift: packageBaseName is required");
+/**
+ * Every runtime name an entry exposes, following `export * from "…"` into the
+ * files it re-exports. A barrel's own line is identical on both sides while the
+ * target gains an export, so comparing only the barrel reports clean on exactly
+ * the change this gate exists to catch — the largest hole the cross-review of
+ * #3116 found, live today in `@mulmoclaude/markdown-utils`.
+ *
+ * `read(path)` resolves a path relative to the package root to source text, or
+ * null. Depth and a visited set bound it; anything unresolvable keeps the entry
+ * opaque rather than pretending the surface is smaller than it is.
+ */
+export async function collectEntryNames({ entryPath, read, depth = 0, seen = new Set() }) {
+  const names = new Set();
+  if (depth > 4 || seen.has(entryPath)) return { names, opaque: true, transportFailed: false };
+  seen.add(entryPath);
+  const first = await read(entryPath);
+  if (first.source === null) {
+    // A transport failure says nothing about the package — the caller turns it into
+    // a skip. A genuine 404 inside a barrel walk is a real difference, but the
+    // caller decides that too, so both are reported rather than judged here.
+    return { names, opaque: true, transportFailed: first.retryable === true };
   }
-  const srcPath = path.join(root, "packages", packageBaseName, srcRelative);
-  const localVersion = await readLocalVersion(root, packageBaseName);
-
-  let srcSource;
-  try {
-    srcSource = await readFile(srcPath, "utf8");
-  } catch {
-    return { packageBaseName, localVersion, status: "skipped", reason: `local src not found at ${srcRelative}` };
-  }
-
-  const published = await fetchPublishedSource({ packageBaseName });
-  let distSource = published.source;
-  const publishedVersion = published.version;
-  let fallbackReason = null;
-  if (distSource === null) {
-    distSource = await readInstalledDistSource({ root, packageBaseName, installedRoot, distRelative });
-    if (distSource !== null) {
-      fallbackReason = `registry unreachable (${published.reason ?? "unknown"}) — compared against local ${installedRoot}/.../${distRelative}`;
+  const { names: directNames, opaque: directOpaque } = parseExportedNames(first.source);
+  for (const name of directNames) names.add(name);
+  let opaque = directOpaque;
+  let transportFailed = false;
+  // How many barrels each name arrives through. ESM does NOT expose a name that two
+  // `export *` targets both provide — it is ambiguous, and `import { x }` is a
+  // SyntaxError — so unioning them would report a name consumers cannot import, and
+  // would call it clean when a build stops the collision and makes it importable.
+  const viaStars = new Map();
+  for (const target of starTargets(first.source)) {
+    if (target === null || !target.startsWith(".")) {
+      // `export * from "some-package"` re-exports a dependency's surface, which is
+      // not in this tarball at all. Not resolvable here; stay opaque.
+      opaque = true;
+      continue;
     }
+    const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(entryPath), target));
+    const nested = await collectEntryNames({ entryPath: resolved, read, depth: depth + 1, seen });
+    for (const name of nested.names) viaStars.set(name, (viaStars.get(name) ?? 0) + 1);
+    if (nested.opaque) opaque = true;
+    if (nested.transportFailed) transportFailed = true;
   }
-
-  if (distSource === null) {
-    return {
-      packageBaseName,
-      localVersion,
-      status: "skipped",
-      reason: `no dist to compare — registry: ${published.reason ?? "unknown"}, local dist not found either`,
-    };
+  // An explicit re-export in the barrel itself wins over any collision below it.
+  for (const [name, sources] of viaStars) {
+    if (sources === 1 || directNames.has(name)) names.add(name);
   }
-
-  const localCount = countValueExportLines(srcSource);
-  const distCount = countValueExportLines(distSource);
-  const drifted = localCount > distCount;
-
-  // A bumped version is the developer's acknowledgement that the new
-  // exports land under a new release. The registry still ships the
-  // old dist, but consumers of the NEW version will get the new
-  // exports once it's published — so from the drift-check's POV this
-  // is "pending publish", not "broken". Downgrading to non-failing
-  // also unblocks PRs that add exports + bump version + await the
-  // cascade publish to land after merge.
-  const isBumped = drifted && isLocalVersionAhead(localVersion, publishedVersion);
-
-  const status = drifted ? (isBumped ? "pending-publish" : "drifted") : "ok";
-  return {
-    packageBaseName,
-    localVersion,
-    publishedVersion,
-    status,
-    localCount,
-    distCount,
-    ...(fallbackReason ? { fallbackReason } : {}),
-  };
+  return { names, opaque, transportFailed };
 }
 
-// Compare two semver-ish version strings and return true when
-// `local` is strictly ahead of `published`. Ignores pre-release /
-// build suffixes — we only bump majors / minors / patches in this
-// monorepo, and a prerelease drift is still "intentional" anyway.
-// Returns false on any malformed input so the drift check errs on
-// the strict side (caller's old behaviour preserved).
+// Compare two module sources and say which runtime names the local one adds.
+// An opaque entry on either side falls back to line counting, and says so.
+export function compareEntry(localSource, publishedSource) {
+  const local = parseExportedNames(localSource);
+  const published = parseExportedNames(publishedSource);
+  const added = [...local.names].filter((name) => !published.names.has(name)).sort();
+  // Without a reader this comparator cannot follow a barrel, so one makes the
+  // entry opaque here even though `collectEntryNames` would resolve it.
+  if (local.opaque || published.opaque || local.stars > 0 || published.stars > 0) {
+    // The names this parser DID extract are still exact, so they are compared as
+    // usual; the line count is an ADDITIONAL signal for the part it could not
+    // name. Replacing the comparison with the line count alone let
+    // `export * from "./x.js";export { newThing };` read as clean against
+    // `export * from "./x.js";` — one line on both sides, and the added name
+    // discarded.
+    const localLines = countValueExportLines(localSource);
+    const distLines = countValueExportLines(publishedSource);
+    return { added, localCount: localLines, distCount: distLines, opaque: true, drifted: added.length > 0 || localLines > distLines };
+  }
+  return { added, localCount: local.names.size, distCount: published.names.size, opaque: false, drifted: added.length > 0 };
+}
+
+/**
+ * Compare two semver-ish version strings and return true when `local` is
+ * strictly ahead of `published`. Ignores pre-release / build suffixes — this
+ * monorepo only bumps majors / minors / patches, and a prerelease drift is
+ * intentional anyway. Returns false on malformed input so the check errs strict.
+ */
 export function isLocalVersionAhead(local, published) {
-  if (typeof local !== "string" || typeof published !== "string") return false;
-  const parse = (str) => {
-    const [cleaned] = str.split(/[-+]/);
-    const parts = cleaned.split(".").map((part) => Number.parseInt(part, 10));
-    if (parts.length < 3) return null;
-    if (parts.some((part) => !Number.isFinite(part))) return null;
-    return parts.slice(0, 3);
+  const parse = (value) => {
+    if (typeof value !== "string") return null;
+    const match = /^(\d+)\.(\d+)\.(\d+)/.exec(value.trim());
+    return match === null ? null : [Number(match[1]), Number(match[2]), Number(match[3])];
   };
-  const localParts = parse(local);
-  const publishedParts = parse(published);
-  if (!localParts || !publishedParts) return false;
-  for (let idx = 0; idx < 3; idx++) {
-    if (localParts[idx] > publishedParts[idx]) return true;
-    if (localParts[idx] < publishedParts[idx]) return false;
+  const a = parse(local);
+  const b = parse(published);
+  if (a === null || b === null) return false;
+  for (let i = 0; i < 3; i++) {
+    if (a[i] > b[i]) return true;
+    if (a[i] < b[i]) return false;
   }
   return false;
 }
 
-// Auto-detect which @mulmobridge/* packages to check by reading the
-// launcher's package.json. Only packages that ALSO exist as a local
-// workspace (`packages/<name>/`) are returned — published-only deps
-// can't drift against themselves.
-export async function detectMulmobridgeDeps({ root = process.cwd() } = {}) {
-  const pkgPath = path.join(root, "packages", "mulmoclaude", "package.json");
-  const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
-  const deps = Object.keys(pkg.dependencies ?? {});
-  const bridges = deps.filter((name) => name.startsWith(MULMOBRIDGE_SCOPE)).map((name) => name.slice(MULMOBRIDGE_SCOPE.length));
-  const out = [];
-  for (const name of bridges) {
-    const localVersion = await readLocalVersion(root, name);
-    if (localVersion !== null) out.push(name);
+/**
+ * Inspect one workspace: for every `exports` subpath, compare the local built
+ * dist against the published one. Returns
+ * `{ status: "ok" | "drifted" | "pending-publish" | "skipped", ... }`.
+ *
+ * A local version ahead of the registry is `pending-publish` on its own, whether or
+ * not the export surface changed: every consumer range is `^<local>`, so publishing
+ * against a version npm does not serve fails with ETARGET. PR mode notes it — that is
+ * what unblocks a PR which adds exports, bumps, and waits for the cascade — and
+ * `--release` blocks it.
+ */
+export async function checkPackageDrift({
+  root = process.cwd(),
+  name,
+  dir,
+  pkg,
+  fetchPublishedVersion = defaultFetchPublishedVersion,
+  fetchPublishedEntry = defaultFetchPublishedEntry,
+} = {}) {
+  if (typeof name !== "string" || name === "") throw new Error("checkPackageDrift: `name` is required");
+  const manifest = pkg ?? (await readManifest(path.join(root, dir ?? "", "package.json")));
+  if (manifest === null) return { packageBaseName: name, localVersion: null, status: "skipped", reason: `no manifest under ${dir}` };
+  const localVersion = typeof manifest.version === "string" ? manifest.version : null;
+
+  const published = await fetchPublishedVersion({ name });
+  if (published.version === null) {
+    return {
+      packageBaseName: name,
+      localVersion,
+      publishedVersion: null,
+      status: "skipped",
+      reason: `no published version — ${published.reason ?? "unknown"}`,
+    };
   }
-  return out;
+
+  const entries = entryTargets(manifest);
+  // The gate reads the LOCAL `exports` map to decide what to compare, so a subpath
+  // added at an unchanged version was invisible whenever it pointed at a file the
+  // published tarball already had: both sides read the same file, the names matched,
+  // and `import "pkg/new"` still failed after a plain install because the PUBLISHED
+  // package.json has no such key. Comparing the keys themselves is the only way to
+  // see it.
+  const localHasExportsMap = manifest.exports !== null && typeof manifest.exports === "object" && !Array.isArray(manifest.exports);
+  const publishedManifest = localHasExportsMap ? await fetchPublishedEntry({ name, version: published.version, entryPath: "package.json" }) : null;
+  const publishedSubpaths = publishedSubpathKeys(publishedManifest?.source);
+  const added = [];
+  const opaqueEntries = [];
+  const skipped = [];
+  let localCount = 0;
+  let distCount = 0;
+  let compared = 0;
+
+  for (const [subpath, entryPath] of entries) {
+    if (entryPath === null) {
+      // No string target behind this subpath's condition block. Say so; do not
+      // substitute another file and compare that instead.
+      skipped.push(`${subpath} (no runtime target resolved from its exports conditions)`);
+      continue;
+    }
+    if (/\.cjs$/.test(entryPath)) {
+      // A CommonJS entry has no `export` statements at all, so this metric reads
+      // zero names on BOTH sides and calls that a match — clean without having
+      // compared anything. Say so instead. A dual package still gets compared
+      // through its ESM condition, which `resolveConditionTarget` prefers.
+      skipped.push(`${subpath} (${entryPath} is CommonJS — this gate measures ESM export names)`);
+      continue;
+    }
+    if (!/\.(?:js|mjs)$/.test(entryPath)) {
+      // A `./style.css` or `./package.json` entry carries no export surface this
+      // metric can speak about, and counting it as a successful comparison is
+      // worse than useless: eight of the scanned packages export a stylesheet, so
+      // a package whose JS dist was never built would have had its `.` entry
+      // skipped, its CSS entry "compared", and the whole package reported `ok`.
+      skipped.push(`${subpath} (${entryPath} is not a JS module — no export surface to compare)`);
+      continue;
+    }
+    if (publishedSubpaths !== null && !publishedSubpaths.has(subpath) && !subpath.includes("*")) {
+      // Reported before the file comparison: the file may well be there and match,
+      // which is exactly what hid this case.
+      added.push(`${subpath}:SUBPATH not declared by the published package.json`);
+      compared += 1;
+      continue;
+    }
+    if (subpath.includes("*") || entryPath.includes("*")) {
+      // A wildcard subpath (`"./*": "./dist/*.js"`) names a family, not a file.
+      // Enumerating it would mean walking the published tarball; say so rather
+      // than reporting the unresolvable path as a missing build.
+      skipped.push(`${subpath} (wildcard subpath — not enumerable)`);
+      continue;
+    }
+    let localSource;
+    try {
+      localSource = await readFile(path.join(root, dir ?? "", entryPath), "utf8");
+    } catch {
+      // The dist file the manifest promises is not there. Reported, never silent:
+      // a missing local build is the one state that could make drift look clean.
+      skipped.push(`${subpath} (local ${entryPath} missing — build first)`);
+      continue;
+    }
+    const remote = await fetchPublishedEntry({ name, version: published.version, entryPath });
+    if (remote.source === null) {
+      // A 404 on a CONCRETE target means the published package does not serve this
+      // path at all — `import "pkg/new"` fails after a plain install. That is the
+      // drift, not a gap in the check, so it counts rather than being skipped.
+      // Transport failures (5xx, 429, timeouts) stay skipped: they say nothing
+      // about the package.
+      if ((remote.reason ?? "").includes("404")) {
+        added.push(`${subpath}:ENTIRE SUBPATH absent from the published package (${entryPath})`);
+        compared += 1;
+        localCount += parseExportedNames(localSource).names.size;
+        continue;
+      }
+      skipped.push(`${subpath} (published ${entryPath}: ${remote.reason ?? "unavailable"})`);
+      continue;
+    }
+    // Follow `export *` on BOTH sides, by the same relative paths, so a barrel
+    // whose target gained an export is compared on its real surface rather than on
+    // one identical line.
+    const localNames = await collectEntryNames({
+      entryPath,
+      read: async (rel) => ({ source: await readFile(path.join(root, dir ?? "", rel), "utf8").catch(() => null), retryable: false }),
+    });
+    const publishedNames = await collectEntryNames({
+      entryPath,
+      read: async (rel) => {
+        const fetched = await fetchPublishedEntry({ name, version: published.version, entryPath: rel });
+        // Only a 404 means "the published package does not have this". Anything
+        // else — 5xx, 429, a timeout — is the network, and must not be read as a
+        // difference between the two trees.
+        return { source: fetched.source, retryable: fetched.source === null && !(fetched.reason ?? "").includes("404") };
+      },
+    });
+    if (localNames.transportFailed || publishedNames.transportFailed) {
+      skipped.push(`${subpath} (a file in its barrel walk was unreachable — network, not drift)`);
+      continue;
+    }
+    const addedNames = [...localNames.names].filter((exportName) => !publishedNames.names.has(exportName)).sort();
+    const entryOpaque = localNames.opaque || publishedNames.opaque;
+    compared += 1;
+    localCount += localNames.names.size;
+    distCount += publishedNames.names.size;
+    if (entryOpaque) opaqueEntries.push(subpath);
+    for (const exportName of addedNames) added.push(`${subpath}:${exportName}`);
+    if (entryOpaque) {
+      // The part that could not be named is still covered by the coarser signal.
+      const localLines = countValueExportLines(localSource);
+      const distLines = countValueExportLines(remote.source);
+      if (localLines > distLines) added.push(`${subpath}:+${localLines - distLines} unnamed export line(s)`);
+    }
+  }
+
+  const requireBranches = unmeasuredRequireBranches(manifest);
+  if (requireBranches.length > 0) {
+    const sample = requireBranches.slice(0, 3).join("; ");
+    const more = requireBranches.length > 3 ? `; +${requireBranches.length - 3} more` : "";
+    skipped.push(`${requireBranches.length} require branch(es) NOT compared — this gate reads ESM \`export\` statements (${sample}${more})`);
+  }
+
+  if (compared === 0) {
+    return {
+      packageBaseName: name,
+      localVersion,
+      publishedVersion: published.version,
+      status: "skipped",
+      reason: `no entry could be compared — ${skipped.join("; ") || "no exports"}`,
+    };
+  }
+
+  // A local version ahead of the registry is the release blocker on its own: every
+  // consumer range is `^<local>`, so publishing the launcher against a version npm
+  // does not serve fails with ETARGET — whether or not the export surface changed.
+  // It stays non-fatal on a PR (a mid-cascade bump is normal) and fatal under
+  // `--release`, which is what `failingStatuses` encodes.
+  const status = isLocalVersionAhead(localVersion, published.version) ? "pending-publish" : added.length > 0 ? "drifted" : "ok";
+  return {
+    packageBaseName: name,
+    localVersion,
+    publishedVersion: published.version,
+    status,
+    localCount,
+    distCount,
+    added,
+    entriesCompared: compared,
+    ...(skipped.length > 0 ? { partialReason: skipped.join("; ") } : {}),
+    ...(opaqueEntries.length > 0 ? { opaqueEntries } : {}),
+  };
 }
 
-// Run checkPackageDrift against every auto-detected (or explicit)
-// @mulmobridge/* workspace dep. Returns one result per package.
-export async function checkWorkspaceDrift({
-  root = process.cwd(),
-  packageBaseNames,
-  installedRoot = DEFAULT_INSTALLED_ROOT,
-  srcRelative,
-  distRelative,
-  fetchPublishedSource,
-} = {}) {
-  const names = packageBaseNames ?? (await detectMulmobridgeDeps({ root }));
+/** Run `checkPackageDrift` across the discovered scan set (or an explicit list). */
+export async function checkWorkspaceDrift({ root = process.cwd(), packageNames, ...rest } = {}) {
+  const discovered = await discoverWorkspaceLibraries({ root });
+  const targets = packageNames === undefined ? discovered : discovered.filter((entry) => packageNames.includes(entry.name));
   const results = [];
-  for (const name of names) {
-    results.push(
-      await checkPackageDrift({
-        root,
-        packageBaseName: name,
-        installedRoot,
-        srcRelative,
-        distRelative,
-        ...(fetchPublishedSource ? { fetchPublishedSource } : {}),
-      }),
-    );
+  for (const target of targets) {
+    results.push(await checkPackageDrift({ root, name: target.name, dir: target.dir, pkg: target.pkg, ...rest }));
   }
   return results;
 }
 
-function formatLine(result) {
-  const { packageBaseName, localVersion, publishedVersion, status, fallbackReason } = result;
+export function formatLine(result) {
+  const { packageBaseName, localVersion, publishedVersion, status } = result;
   const local = localVersion ? `v${localVersion}` : "(no local version)";
   const published = publishedVersion ? `→ published v${publishedVersion}` : "";
-  const fallback = fallbackReason ? ` [${fallbackReason}]` : "";
+  const partial = result.partialReason ? ` [partial: ${result.partialReason}]` : "";
+  const opaque = result.opaqueEntries ? ` [opaque: ${result.opaqueEntries.join(", ")}]` : "";
+  const counts = `local dist exports ${result.localCount} name(s), published ${result.distCount}`;
   if (status === "drifted") {
-    return `  ⚠ @mulmobridge/${packageBaseName} ${local} ${published}: src has ${result.localCount} value-export lines, published dist has ${result.distCount}${fallback}`;
+    return `  ⚠ ${packageBaseName} ${local} ${published}: ${counts} — adds ${result.added.join(", ")}${partial}${opaque}`;
+  }
+  if (status === "pending-publish") {
+    const what = result.added.length > 0 ? `adds ${result.added.join(", ")}, ` : "";
+    return `  ⧗ ${packageBaseName} ${local} ${published}: ${counts} — ${what}bumped but NOT published yet${partial}${opaque}`;
   }
   if (status === "skipped") {
-    return `  · @mulmobridge/${packageBaseName} ${local}: skipped — ${result.reason}`;
+    return `  · ${packageBaseName} ${local}: skipped — ${result.reason}`;
   }
-  return `  ✓ @mulmobridge/${packageBaseName} ${local} ${published}: ${result.localCount} value-export lines (src == published)${fallback}`;
+  return `  ✓ ${packageBaseName} ${local} ${published}: ${result.localCount} export name(s) match across ${result.entriesCompared} entry(ies)${partial}${opaque}`;
 }
+
+/**
+ * Which statuses fail the run.
+ *
+ * `pending-publish` is deliberately non-fatal on an ordinary PR — the version bump is the
+ * developer's acknowledgement, and blocking would stop a PR that adds exports and bumps
+ * correctly while the cascade publish is still pending.
+ *
+ * At RELEASE time the same state is the blocker itself: a package bumped but not published
+ * is a dependency range whose lower bound does not exist on the registry, so
+ * `npx mulmoclaude@<next>` fails with ETARGET. That happened on 1.16.0 and was caught by a
+ * hand-run loop rather than by this gate (#3099).
+ */
+/** `name@version`, as its own function so the list can be built without nesting one
+ *  template literal inside another. */
+const nameAndVersion = (result) => `${result.packageBaseName}@${result.localVersion}`;
+
+export const failingStatuses = (release) => (release ? ["drifted", "pending-publish"] : ["drifted"]);
 
 // CLI: exits 1 if any package drifted, 0 otherwise. "skipped"
 // results don't fail the check but are printed so the operator can
-// decide if they should retry after `yarn install`.
-export async function main() {
+// decide if they should retry after a build.
+export async function main({ release = false } = {}) {
   const results = await checkWorkspaceDrift();
   for (const result of results) console.log(formatLine(result));
-  const drifted = results.filter((result) => result.status === "drifted");
-  if (drifted.length === 0) {
-    console.log("[mulmoclaude:drift] OK — no workspace drift detected.");
+  const fails = failingStatuses(release);
+  const blocking = results.filter((result) => fails.includes(result.status));
+  if (blocking.length === 0) {
+    console.log(`[mulmoclaude:drift] OK — no workspace drift across ${results.length} package(s)${release ? ", and nothing is waiting to be published" : ""}.`);
     return 0;
   }
+  const pending = blocking.filter((result) => result.status === "pending-publish");
+  const named = pending.map(nameAndVersion).join(", ");
   console.error("");
-  console.error(`[mulmoclaude:drift] ${drifted.length} package(s) drifted — bump + republish before publishing mulmoclaude.`);
+  console.error(`[mulmoclaude:drift] ${blocking.length} package(s) block publishing — bump + republish before publishing mulmoclaude.`);
+  if (pending.length > 0) {
+    console.error(`  ${pending.length} of them are bumped but NOT published: ${named}`);
+    console.error("  That is fine on an ordinary PR and fatal here — the declared range's lower bound is not on the registry.");
+  }
   console.error("See .claude/skills/publish-mulmoclaude/SKILL.md §2 for the cascade-publish flow.");
   return 1;
 }
@@ -299,6 +839,6 @@ export async function main() {
 // CLI entry point — same direct-run guard as deps.mjs so this file
 // can be both imported and executed.
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  const code = await main();
+  const code = await main({ release: process.argv.includes("--release") });
   process.exit(code);
 }

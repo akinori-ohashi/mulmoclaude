@@ -9,6 +9,13 @@ const es: Messages = {
   editSource: "Editar el código ShapeScript",
   scriptEditorLabel: "Código ShapeScript",
   applyChanges: "Aplicar cambios",
+  saveError: "Error al guardar:",
+  downloadUsdz: "Descargar USDZ",
+  exportError: "Error al exportar:",
+  copyScript: "Copiar",
+  copied: "Copiado",
+  sceneWarnings: "No renderizado:",
+  printOutput: "Salida:",
 };
 
 export default es;

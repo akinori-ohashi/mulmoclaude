@@ -156,6 +156,9 @@ const zhMessages = {
     customViewHint: "如需移动端优化的视图，请让 Claude 创建 {keyword}（而不是普通的 custom view）。",
     qrHint: "也可以用手机相机扫描此二维码打开。",
   },
+  sessionModelChip: {
+    tooltip: "此会话正在使用的模型:{model}",
+  },
   sidebarHeader: {
     newMessages: "新消息",
     home: "前往最新对话",
@@ -340,7 +343,13 @@ const zhMessages = {
       saveError: "保存失败",
     },
     modelTab: {
-      description: "控制 Claude Code 每个回合使用的推理强度。留空则使用 Claude 的默认值。",
+      description: "设置 Claude Code 每个回合使用的模型和推理强度。留空则沿用 Claude 自身的解析结果。",
+      modelLabel: "模型",
+      modelUnset: "(未设置 — 沿用 ~/.claude/settings.json)",
+      modelHelperText:
+        "未设置时模型来自 ~/.claude/settings.json。VS Code、Cursor 的 Claude Code 扩展也会把 /model 的选择写入该文件,因此在那里切换会连带改变 MulmoClaude。别名会自动跟随各系列的最新一代。",
+      modelConfigured: "模型:{model}",
+      modelNotConfigured: "未设置(共享)",
       effortLabel: "推理强度",
       effortUnset: "(未设置 — 使用 Claude 的默认值)",
       helperText: "更高的等级会带来更多思考时间,但也会增加延迟和 token 消耗。",
@@ -970,6 +979,9 @@ const zhMessages = {
     fieldIcon: "图标",
     fieldPrompt: "提示词",
     fieldPlugins: "插件",
+    fieldModel: "模型",
+    modelUnset: "(未设置 — 沿用全局设置)",
+    modelHelp: "以此角色开始的会话将使用该模型。适合让常驻的例行角色避开顶级模型的每周上限。内置角色始终沿用全局设置。",
     fieldStarterQueries: "启动提问",
     onePerLine: "(每行一个)",
     helpLink: "?",
@@ -1000,6 +1012,10 @@ const zhMessages = {
   },
   pluginUiImage: {
     promptLabel: "{label}:",
+  },
+  markdownCodeCopy: {
+    copyLabel: "复制代码",
+    copiedLabel: "已复制",
   },
   markdownMermaid: {
     loadFailed: "⚠ Mermaid 加载失败: {error}",

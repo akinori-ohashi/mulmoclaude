@@ -6,16 +6,19 @@
 //
 // Optional:
 //   DISCORD_ALLOWED_CHANNELS — CSV of channel IDs (empty = allow all)
-//   MULMOCLAUDE_API_URL      — default http://localhost:3001
+//   MULMOCLAUDE_API_URL      — default: the port in <workspace>/.server-port.
+//                              With none published the client waits (#3078)
 //   MULMOCLAUDE_AUTH_TOKEN   — bearer token (or read from workspace)
 
 import "dotenv/config";
 import { Client, GatewayIntentBits, Partials, type Message } from "discord.js";
-import { createBridgeClient } from "@mulmobridge/client";
+import { createBridgeClient, installProcessGuards } from "@mulmobridge/client";
 import { parseCsvSet } from "@mulmoclaude/common";
 import { collectAttachments, resolveMessageText, type DiscordAttachmentLike } from "./attachments.js";
 
 const TRANSPORT_ID = "discord";
+
+installProcessGuards({ name: TRANSPORT_ID });
 const MAX_DISCORD_LENGTH = 2000;
 
 const token = process.env.DISCORD_BOT_TOKEN;

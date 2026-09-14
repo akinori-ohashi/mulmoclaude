@@ -175,6 +175,9 @@ const enMessages = {
     customViewHint: "For a mobile-friendly view, ask Claude to build a {keyword} (not a regular custom view).",
     qrHint: "Or scan this QR code with your phone's camera.",
   },
+  sessionModelChip: {
+    tooltip: "Model this session is running on: {model}",
+  },
   sidebarHeader: {
     newMessages: "New messages",
     home: "Go to latest chat",
@@ -368,7 +371,13 @@ const enMessages = {
       saveError: "Failed to save",
     },
     modelTab: {
-      description: "Control the reasoning effort the selected agent uses for each turn. Leave unset to use that agent's default.",
+      description: "Choose the model and reasoning effort the selected agent uses for each turn. Leave either unset to use the agent's own resolution.",
+      modelLabel: "Model",
+      modelUnset: "(unset — follow ~/.claude/settings.json)",
+      modelHelperText:
+        "Unset means the model comes from ~/.claude/settings.json, which other Claude Code clients (VS Code, Cursor) also write their /model pick to — so a switch made there changes MulmoClaude too. Aliases follow the latest generation of each family.",
+      modelConfigured: "Model: {model}",
+      modelNotConfigured: "Not set (shared)",
       effortLabel: "Reasoning effort",
       effortUnset: "(unset — use the agent default)",
       helperText: "Higher levels allow more thinking time but increase latency and token usage.",
@@ -1017,6 +1026,10 @@ const enMessages = {
     fieldIcon: "Icon",
     fieldPrompt: "Prompt",
     fieldPlugins: "Plugins",
+    fieldModel: "Model",
+    modelUnset: "(unset — follow the app-wide setting)",
+    modelHelp:
+      "Sessions started with this role run on this model. Useful for keeping a routine role off your top model's weekly limit. Built-in roles always follow the app-wide setting.",
     fieldStarterQueries: "Starter queries",
     onePerLine: "(one per line)",
     helpLink: "?",
@@ -1047,6 +1060,10 @@ const enMessages = {
   },
   pluginUiImage: {
     promptLabel: "{label}:",
+  },
+  markdownCodeCopy: {
+    copyLabel: "Copy code",
+    copiedLabel: "Copied",
   },
   markdownMermaid: {
     loadFailed: "⚠ Mermaid failed to load: {error}",

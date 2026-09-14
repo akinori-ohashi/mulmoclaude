@@ -1,6 +1,6 @@
 {
   "name": "@mulmoclaude/shapescript-plugin",
-  "version": "1.0.0",
+  "version": "3.1.0",
   "description": "presentShapeScript — interactive 3D visualizations authored in the ShapeScript language (parser + Three.js renderer). Core (tool definition + execute) on `.`, Vue View/Preview on `./vue`.",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,13 +13,20 @@
       "require": "./dist/index.cjs",
       "default": "./dist/index.js"
     },
+    "./render": {
+      "types": "./dist/render/index.d.ts",
+      "import": "./dist/render.js",
+      "require": "./dist/render.cjs",
+      "default": "./dist/render.js"
+    },
     "./vue": {
       "types": "./dist/vue/index.d.ts",
       "import": "./dist/vue.js",
       "require": "./dist/vue.cjs",
       "default": "./dist/vue.js"
     },
-    "./style.css": "./dist/style.css"
+    "./style.css": "./dist/style.css",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
@@ -35,30 +42,34 @@
     "test": "tsx --test test/test_*.ts"
   },
   "dependencies": {
-    "three": "^0.185.1",
+    "three": "^0.186.0",
     "three-bvh-csg": "^0.0.18",
-    "three-mesh-bvh": "0.9.13"
+    "three-mesh-bvh": "0.9.15"
   },
   "peerDependencies": {
+    "@mulmoclaude/core": "^4.9.3",
     "gui-chat-protocol": "^2.0.0",
+    "puppeteer": "^25.0.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@mulmoclaude/core": "^4.9.3",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^26.4.1",
-    "@types/three": "^0.185.1",
-    "@typescript-eslint/eslint-plugin": "^8.69.0",
-    "@typescript-eslint/parser": "^8.69.0",
+    "@types/node": "^26.5.1",
+    "@types/three": "^0.186.0",
+    "@typescript-eslint/eslint-plugin": "^8.70.0",
+    "@typescript-eslint/parser": "^8.70.0",
     "@vitejs/plugin-vue": "^6.0.8",
-    "eslint": "^10.9.1",
-    "eslint-plugin-vue": "^10.10.0",
+    "eslint": "^10.10.0",
+    "eslint-plugin-vue": "^10.11.0",
     "globals": "^17.12.0",
     "gui-chat-protocol": "^2.0.0",
+    "puppeteer": "^25.10.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.13",
     "typescript": "~6.0.2",
-    "vite": "^8.2.2",
+    "vite": "^8.3.0",
     "vue": "^3.5.42",
     "vue-eslint-parser": "^10.4.0",
     "vue-tsc": "^3.3.11"
@@ -82,5 +93,10 @@
   ],
   "bugs": {
     "url": "https://github.com/receptron/mulmoclaude/issues"
+  },
+  "peerDependenciesMeta": {
+    "puppeteer": {
+      "optional": true
+    }
   }
 }

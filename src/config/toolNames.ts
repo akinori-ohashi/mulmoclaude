@@ -61,6 +61,17 @@ const HOST_TOOL_NAMES = {
   readXPost: "readXPost",
   searchX: "searchX",
   notify: "notify",
+  // The ShapeScript renderer: a pure MCP tool (no View — it saves a PNG and
+  // returns its path), so it is listed here rather than in a plugin META.
+  // Grant it wherever `presentShapeScript` is granted.
+  renderShapeScript: "renderShapeScript",
+  // The USDZ exporter: likewise a pure MCP tool (saves a .usdz, returns its
+  // path). Grant it wherever `presentShapeScript` is granted.
+  exportShapeScriptUsdz: "exportShapeScriptUsdz",
+  // The gallery publisher: a pure MCP tool too (posts to server.mulmocast.com
+  // over the remote-host session, returns the URL). Grant it wherever
+  // `presentShapeScript` is granted.
+  publishShapeScript: "publishShapeScript",
   // Generic host primitives — always active for every role (not gated
   // by `availablePlugins`). See `McpTool.alwaysActive`.
   spawnBackgroundChat: "spawnBackgroundChat",

@@ -2,7 +2,9 @@
 
 export { createBridgeClient, requireBearerToken, type MessageAck, type PushEvent, type BridgeClientOptions, type BridgeClient } from "./client.js";
 
-export { readBridgeToken, TOKEN_FILE_PATH } from "./token.js";
+export { readBridgeToken, tokenFilePath, TOKEN_FILE_PATH } from "./token.js";
+
+export { resolveApiUrl, resolvePublishedApiUrl } from "./apiUrl.js";
 
 export { readBridgeEnvOptions } from "./options.js";
 
@@ -24,3 +26,13 @@ export {
   buildDataUrl,
   type ParsedDataUrl,
 } from "./mime.js";
+
+export { installProcessGuards, SHUTDOWN_GRACE_MS, type ProcessGuardOptions, type ShutdownTask } from "./processGuards.js";
+
+export {
+  createInProcessBridgeClient,
+  type InProcessBridgeClientOptions,
+  type InProcessRelayFn,
+  type InProcessRelayResult,
+  type RegisterInProcessPush,
+} from "./inProcess.js";

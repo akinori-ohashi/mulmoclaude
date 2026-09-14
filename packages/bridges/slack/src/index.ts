@@ -16,19 +16,22 @@
 //                                "1" = on with default ":eyes:"
 //                                any other emoji shortcode (no colons) = on with that emoji
 //                                Requires the `reactions:write` bot scope.
-//   MULMOCLAUDE_API_URL        — default http://localhost:3001
+//   MULMOCLAUDE_API_URL        — default: the port in <workspace>/.server-port.
+//                                With none published the client waits (#3078)
 //   MULMOCLAUDE_AUTH_TOKEN     — bearer token (or read from workspace)
 
 import "dotenv/config";
 import { SocketModeClient } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
-import { createBridgeClient, formatAckReply } from "@mulmobridge/client";
+import { createBridgeClient, formatAckReply, installProcessGuards } from "@mulmobridge/client";
 import { parseCsvSet } from "@mulmoclaude/common";
 import { buildExternalChatId, effectiveThreadTs, parseExternalChatId, parseGranularity } from "./sessionId.js";
 import { parseAckReaction } from "./ackReaction.js";
 import { redactUser } from "./redactUser.js";
 
 const TRANSPORT_ID = "slack";
+
+installProcessGuards({ name: TRANSPORT_ID });
 
 const botToken = process.env.SLACK_BOT_TOKEN;
 const appToken = process.env.SLACK_APP_TOKEN;

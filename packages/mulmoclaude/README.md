@@ -5,7 +5,7 @@ GUI front-end for Claude Code and OpenAI Codex — chat with rich visual output,
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js 20+, plus one authenticated agent CLI
+# Prerequisites: Node.js 22.19+, plus one authenticated agent CLI
 # Codex (default):
 npm install -g @openai/codex
 codex login
@@ -37,6 +37,7 @@ Your browser opens to `http://localhost:3001`. That's it.
 | "Add this to my calendar"       | Event in your Google Calendar (sign in, no setup)     |
 | "Put that on my task list"      | Task in Google Tasks, with notes and a due date       |
 | "Subscribe to this RSS feed"    | Data feed on `/feeds`, fetched on a schedule          |
+| "Model a chess piece in 3D"     | Interactive ShapeScript scene, exportable to USDZ     |
 
 **Pages you can visit directly**: `/wiki` (browse + lint), `/feeds` (data feeds), `/collections` (data apps — Discover tab to import community collections, Contribute to share your own), `/automations` (recurring tasks), `/files` (drop files onto a folder row to save them straight into it), `/skills`, `/roles`. Each page has its own chat composer that spawns a fresh chat already aware of the page context.
 
@@ -126,9 +127,11 @@ Full bridge list and platform-specific setup: <https://github.com/receptron/mulm
 
 ### Auth token persistence across server restarts
 
-The server regenerates a fresh bearer token on every startup and writes it to `~/mulmoclaude/.session-token`. A bridge that started before the restart keeps the OLD token in memory, so every subsequent API call returns 401 silently.
+The server regenerates a fresh bearer token on every startup and writes it to `<workspace>/.session-token` (`$MULMOCLAUDE_WORKSPACE_PATH`, or `~/mulmoclaude` when unset), alongside the port it bound in `.server-port`.
 
-Fix: set `MULMOCLAUDE_AUTH_TOKEN` to the same long random value on both the server and the bridge. The server uses it verbatim instead of regenerating, so the token survives restarts.
+**A bridge follows a restart on its own.** When the connection fails it re-reads both files, and rebuilds its socket if the server came back with a new token, a new port, or both (#3078). Restarting the bridge is not required.
+
+Pinning the token is still useful when the bridge runs on a **different machine** from the server, where it cannot read the workspace at all: set `MULMOCLAUDE_AUTH_TOKEN` to the same long random value on both sides. The server then uses it verbatim instead of regenerating.
 
 ```bash
 # Server (one-time setup — pin a strong random value)

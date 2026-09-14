@@ -34,6 +34,14 @@ export interface SessionMeta {
    *  per user message so a one-shot session (1) can be told apart from
    *  a long-running conversation. */
   userQueryCount?: number | undefined;
+  /** The model the CLI reported for this session in its `system`/`init`
+   *  frame — a concrete id like `claude-haiku-4-5-20251001`, or one carrying
+   *  a context suffix (`claude-opus-5[1m]`) when the shared
+   *  `~/.claude/settings.json` supplied it. Stored raw: it is an observation,
+   *  not a setting, and the UI formats it for display (#2554). Rewritten each
+   *  turn, so a session whose model changed mid-conversation reports the
+   *  latest rather than the first. */
+  resolvedModel?: string | undefined;
   [key: string]: unknown;
 }
 
@@ -63,6 +71,7 @@ function isSessionMeta(value: unknown): value is SessionMeta {
     isOptionalString(value.firstUserMessage) &&
     isOptionalString(value.claudeSessionId) &&
     (value.agentSession === undefined || isAgentSessionRef(value.agentSession)) &&
+    isOptionalString(value.resolvedModel) &&
     isOptionalBoolean(value.hasUnread) &&
     isOptionalBoolean(value.isBookmarked) &&
     (value.origin === undefined || isSessionOrigin(value.origin)) &&
@@ -167,6 +176,13 @@ export async function updateIsBookmarked(sessionId: string, isBookmarked: boolea
   const meta = await readSessionMeta(sessionId, rootOverride);
   if (!meta) return;
   await writeSessionMeta(sessionId, { ...meta, isBookmarked }, rootOverride);
+}
+
+export async function updateResolvedModel(sessionId: string, resolvedModel: string, rootOverride?: string): Promise<void> {
+  const meta = await readSessionMeta(sessionId, rootOverride);
+  if (!meta) return;
+  if (meta.resolvedModel === resolvedModel) return;
+  await writeSessionMeta(sessionId, { ...meta, resolvedModel }, rootOverride);
 }
 
 export async function incrementUserQueryCount(sessionId: string, rootOverride?: string): Promise<void> {

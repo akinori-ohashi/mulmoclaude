@@ -115,6 +115,25 @@ describe("parseSseEvent — rejections", () => {
     assert.equal(parseSseEvent({ type: EVENT_TYPES.generationStarted, kind: "unknownKind", filePath: "a", key: "" }), null);
   });
 
+  // #2554: this parser is a whitelist with `default: return null`, so an event
+  // type the server starts broadcasting is DROPPED here until a case exists —
+  // silently, with the server-side write still succeeding. That is exactly how
+  // the live model chip failed its first end-to-end run: the value reached
+  // session meta on disk and never reached the screen.
+  it("narrows a session_meta delta carrying the resolved model", () => {
+    assert.deepEqual(parseSseEvent({ type: EVENT_TYPES.sessionMeta, resolvedModel: "claude-haiku-4-5-20251001" }), {
+      type: EVENT_TYPES.sessionMeta,
+      resolvedModel: "claude-haiku-4-5-20251001",
+    });
+  });
+
+  it("drops a session_meta event with nothing usable in it", () => {
+    assert.equal(parseSseEvent({ type: EVENT_TYPES.sessionMeta }), null);
+    assert.equal(parseSseEvent({ type: EVENT_TYPES.sessionMeta, resolvedModel: "" }), null);
+    assert.equal(parseSseEvent({ type: EVENT_TYPES.sessionMeta, resolvedModel: 42 }), null);
+    assert.equal(parseSseEvent({ type: EVENT_TYPES.sessionMeta, resolvedModel: null }), null);
+  });
+
   it("drops a malformed attachment list rather than half of it", () => {
     const parsed = parseSseEvent({ type: EVENT_TYPES.text, message: "hi", attachments: ["ok", { filename: "no-path.png" }] });
     assert.deepEqual(parsed, { type: EVENT_TYPES.text, message: "hi", source: undefined, attachments: undefined });

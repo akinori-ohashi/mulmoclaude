@@ -161,6 +161,9 @@ const koMessages = {
     customViewHint: "모바일에 최적화된 뷰가 필요하다면, 일반 custom view가 아닌 {keyword} 를(을) 만들어 달라고 Claude에게 요청하세요.",
     qrHint: "휴대폰 카메라로 이 QR 코드를 스캔해도 열 수 있습니다.",
   },
+  sessionModelChip: {
+    tooltip: "이 세션이 사용 중인 모델: {model}",
+  },
   sidebarHeader: {
     newMessages: "새 메시지",
     home: "최신 채팅으로 이동",
@@ -350,7 +353,13 @@ const koMessages = {
       saveError: "저장에 실패했습니다",
     },
     modelTab: {
-      description: "Claude Code가 각 턴에 사용하는 추론 effort를 제어합니다. 설정하지 않으면 Claude의 기본값이 사용됩니다.",
+      description: "Claude Code가 각 턴에 사용하는 모델과 추론 effort를 설정합니다. 설정하지 않으면 Claude 쪽 해석을 따릅니다.",
+      modelLabel: "모델",
+      modelUnset: "(미설정 — ~/.claude/settings.json 따르기)",
+      modelHelperText:
+        "미설정이면 모델은 ~/.claude/settings.json에서 결정됩니다. VS Code나 Cursor의 Claude Code 확장도 /model 선택을 이 파일에 저장하므로, 그쪽에서 바꾸면 MulmoClaude의 모델도 함께 바뀝니다. 별칭은 각 패밀리의 최신 세대를 따라갑니다.",
+      modelConfigured: "모델: {model}",
+      modelNotConfigured: "미설정 (공유)",
       effortLabel: "추론 effort",
       effortUnset: "(미설정 — Claude 기본값 사용)",
       helperText: "레벨이 높을수록 사고 시간이 늘어나지만 지연 시간과 토큰 사용량도 증가합니다.",
@@ -984,6 +993,10 @@ const koMessages = {
     fieldIcon: "아이콘",
     fieldPrompt: "프롬프트",
     fieldPlugins: "플러그인",
+    fieldModel: "모델",
+    modelUnset: "(미설정 — 전체 설정 따르기)",
+    modelHelp:
+      "이 역할로 시작한 세션은 이 모델로 동작합니다. 상주하는 루틴 역할을 최상위 모델의 주간 한도에서 빼두는 데 쓸 수 있습니다. 내장 역할은 항상 전체 설정을 따릅니다.",
     fieldStarterQueries: "시작 질문",
     onePerLine: "(한 줄에 하나)",
     helpLink: "?",
@@ -1014,6 +1027,10 @@ const koMessages = {
   },
   pluginUiImage: {
     promptLabel: "{label}:",
+  },
+  markdownCodeCopy: {
+    copyLabel: "코드 복사",
+    copiedLabel: "복사됨",
   },
   markdownMermaid: {
     loadFailed: "⚠ Mermaid 로드 실패: {error}",

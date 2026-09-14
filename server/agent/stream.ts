@@ -10,6 +10,21 @@ export const AGENT_SESSION_EVENT_TYPE = "agent_session" as const;
 // the assistant's reply. `handleAgentEvent` decides what it actually is.
 export const INJECTED_TEXT = "injected_text";
 
+// The model the CLI actually resolved for this session, reported by its own
+// `system`/`init` frame before the first token. Kept OFF the wire protocol:
+// like INJECTED_TEXT this constant never appears on the wire, and
+// `handleAgentEvent` consumes it out of band. The VALUE does reach clients —
+// re-wrapped as the existing `session_meta` event — which is why no protocol
+// addition was needed.
+//
+// This is the ONLY honest answer to "which model is this session on" (#2554).
+// Reading the setting cannot answer it: with `chatModel` unset MulmoClaude
+// passes no `--model` at all and the CLI resolves from
+// `~/.claude/settings.json` — the file other Claude Code clients write their
+// `/model` pick to. The init frame reports what that resolved to, suffix and
+// all (`claude-opus-5[1m]`), which is precisely what the user could not see.
+export const SESSION_MODEL = "session_model";
+
 export type AgentEvent =
   | { type: typeof EVENT_TYPES.status; message: string }
   | { type: typeof EVENT_TYPES.text; message: string }
@@ -33,7 +48,8 @@ export type AgentEvent =
       isError?: boolean;
     }
   | { type: typeof AGENT_SESSION_EVENT_TYPE; backendId: "claude-code" | "codex"; token: string }
-  | { type: typeof EVENT_TYPES.claudeSessionId; id: string };
+  | { type: typeof EVENT_TYPES.claudeSessionId; id: string }
+  | { type: typeof SESSION_MODEL; model: string };
 
 export interface ClaudeContentBlock {
   type: string;
@@ -69,6 +85,10 @@ export interface RawStreamEvent {
   message?: ClaudeMessage;
   result?: string;
   session_id?: string;
+  /** Discriminates the `system` frames (`init`, `hook_started`, …). */
+  subtype?: string;
+  /** Present on `system`/`init`: the model id this session resolved to. */
+  model?: string;
   /** Present when type === "stream_event". Carries partial text
    *  deltas for real-time streaming. */
   event?: StreamEventDelta | { type: string };
@@ -141,6 +161,32 @@ function filterAssistantBlocks(blockEvents: AgentEvent[], deltaStreamed: boolean
 //     full-text copy. Prevents text loss when `assistant` arrives
 //     without preceding `stream_event` deltas (short replies, CLI
 //     version without `--include-partial-messages`, etc.).
+/** The turn's closing `result` frame: the final text (only when nothing
+ *  already emitted it) plus the CLI session id. Split out to keep `parse`
+ *  under the cognitive-complexity ceiling. */
+function resultEvents(event: RawStreamEvent, textEmitted: boolean): AgentEvent[] {
+  const events: AgentEvent[] = [];
+  if (!textEmitted && event.result) {
+    events.push({ type: EVENT_TYPES.text, message: event.result });
+  }
+  if (event.session_id) {
+    events.push({ type: EVENT_TYPES.claudeSessionId, id: event.session_id });
+  }
+  return events;
+}
+
+/** The `system`/`init` frame's model, or null when this is not that frame.
+ *  Split out so `parse` stays under the cognitive-complexity ceiling. An
+ *  empty array (init frame, no usable model) is distinct from null. */
+function initModelEvents(event: RawStreamEvent): AgentEvent[] | null {
+  if (event.type !== "system" || event.subtype !== "init") return null;
+  // Trimmed before the emptiness check: a whitespace-only model would pass a
+  // bare truthiness test, get written to session meta, and then render as
+  // nothing — junk on disk behind a blank chip (Codex round 1).
+  const model = typeof event.model === "string" ? event.model.trim() : "";
+  return model ? [{ type: SESSION_MODEL, model }] : [];
+}
+
 export function createStreamParser(): {
   parse: (event: RawStreamEvent) => AgentEvent[];
 } {
@@ -158,20 +204,15 @@ export function createStreamParser(): {
     if (event.type === "stream_event") return [];
 
     if (event.type === "result") {
-      const events: AgentEvent[] = [];
-      if (!textEmitted && event.result) {
-        events.push({ type: EVENT_TYPES.text, message: event.result });
-      }
-      if (event.session_id) {
-        events.push({
-          type: EVENT_TYPES.claudeSessionId,
-          id: event.session_id,
-        });
-      }
+      const events = resultEvents(event, textEmitted);
       textStreamedFromDeltas = false;
       textEmitted = false;
       return events;
     }
+
+    // `system`/`init` arrives once per spawn, before any content.
+    const initEvents = initModelEvents(event);
+    if (initEvents) return initEvents;
 
     if (event.type !== "assistant" && event.type !== "user") {
       return [];

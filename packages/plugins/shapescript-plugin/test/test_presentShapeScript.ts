@@ -27,7 +27,7 @@ describe("presentShapeScript tool", () => {
     const script = "cube { size 1 }";
     const result = await executePresentShapeScript(context, { title: "Cube", script });
     assert.equal(result.title, "Cube");
-    assert.notEqual(result.data, undefined);
+    assert.ok(result.data);
     assert.equal(result.data.script, script);
   });
 
@@ -35,19 +35,21 @@ describe("presentShapeScript tool", () => {
     const scripts = ["cube { size 1 }", "difference {\n  sphere { size 2 }\n  sphere { size 1.7 }\n}", "for i in 1 to 4 {\n  cube { position (i * 2) 0 0 }\n}"];
     for (const script of scripts) {
       const result = await executePresentShapeScript(context, { title: "T", script });
-      assert.notEqual(result.data, undefined, `no data for: ${script}`);
+      assert.ok(result.data, `no data for: ${script}`);
       assert.equal(result.data.script, script);
     }
   });
 
   it("rejects an empty script", async () => {
-    await assert.rejects(() => executePresentShapeScript(context, { title: "Empty", script: "   " }), /ShapeScript code is required/);
+    const result = await executePresentShapeScript(context, { title: "Empty", script: "   " });
+    assert.equal(result.data, undefined);
+    assert.match(result.message ?? "", /ShapeScript code is required/);
   });
 });
 
 describe("ShapeScript pipeline", () => {
   it("parses primitives with properties", () => {
-    const nodes = parseShapeScript("cube { position 1 2 3 size 0.5 color (1 0 0) }");
+    const nodes = parseShapeScript("cube {\n position 1 2 3\n size 0.5\n color (1 0 0)\n}");
     assert.equal(nodes.length, 1);
     const node = nodes[0];
     assert.equal(node?.type, "shape");
@@ -55,7 +57,7 @@ describe("ShapeScript pipeline", () => {
   });
 
   it("unrolls a for loop into one node per iteration", () => {
-    const group = astToThreeJS(parseShapeScript("for i in 1 to 4 {\n  cube { position (i * 2) 0 0 size 1 }\n}"));
+    const group = astToThreeJS(parseShapeScript("for i in 1 to 4 {\n cube {\n  position (i * 2) 0 0\n  size 1\n }\n}"));
     const meshes: string[] = [];
     group.traverse((object) => {
       if (object.type === "Mesh") meshes.push(object.type);
@@ -200,7 +202,7 @@ describe("ShapeScript robustness", () => {
       return original.apply(this, args);
     };
     try {
-      const script = `detail ${MAX_DETAIL}\nextrude {\n  path {\n    for i in 1 to 60000 {\n      point i 1\n    }\n  }\n}`;
+      const script = `detail ${MAX_DETAIL}\nextrude {\n  path {\n    for i in 1 to 60000 {\n      point i sqrt(i)\n    }\n  }\n}`;
       assert.throws(() => astToThreeJS(parseShapeScript(script)), ShapeScriptLimitError);
     } finally {
       THREE.BufferGeometry.prototype.setAttribute = original;
@@ -234,8 +236,8 @@ describe("ShapeScript robustness", () => {
   });
 
   it("frees a refused loft/hull group and leaves no scope frame behind", () => {
-    // `loft` and `hull` render their children as a plain group, which is
-    // abandoned like any other when a later child trips the budget.
+    // Builder operands are collected in a temporary group, which must be
+    // disposed when a later child trips the budget.
     const disposed: string[] = [];
     const original = THREE.BufferGeometry.prototype.dispose;
     THREE.BufferGeometry.prototype.dispose = function patched(this: THREE.BufferGeometry) {
@@ -273,10 +275,10 @@ describe("ShapeScript robustness", () => {
     // Each factor is capped but their PRODUCT is not: a loop of high-detail
     // spheres satisfies `maxNodes`, `maxLoopIterations` and `MAX_DETAIL` while
     // allocating far more than any renderer survives.
-    const script = `detail ${MAX_DETAIL}\nfor i in 1 to 200 {\n  sphere { position i 0 0 size 1 }\n}`;
+    const script = `detail ${MAX_DETAIL}\nfor i in 1 to 200 {\n  sphere {\n   position i 0 0\n   size 1\n  }\n}`;
     assert.throws(() => astToThreeJS(parseShapeScript(script)), ShapeScriptLimitError);
     // …and the same script is fine once it fits the budget.
-    assert.doesNotThrow(() => astToThreeJS(parseShapeScript("detail 8\nfor i in 1 to 20 {\n  sphere { position i 0 0 size 1 }\n}")));
+    assert.doesNotThrow(() => astToThreeJS(parseShapeScript("detail 8\nfor i in 1 to 20 {\n sphere {\n  position i 0 0\n  size 1\n }\n}")));
     assert.ok(DEFAULT_MAX_VERTICES > 0);
   });
 

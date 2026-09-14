@@ -157,6 +157,9 @@ const deMessages = {
     customViewHint: "Für eine mobiltaugliche Ansicht bitte Claude, statt einer normalen Custom View eine {keyword} zu bauen.",
     qrHint: "Oder scanne diesen QR-Code mit der Handykamera.",
   },
+  sessionModelChip: {
+    tooltip: "Modell dieser Sitzung: {model}",
+  },
   sidebarHeader: {
     newMessages: "Neue Nachrichten",
     home: "Zum neuesten Chat",
@@ -352,7 +355,14 @@ const deMessages = {
       saveError: "Speichern fehlgeschlagen",
     },
     modelTab: {
-      description: "Steuert den Reasoning-Effort, den Claude Code pro Zug verwendet. Ohne Einstellung wird der Standard von Claude verwendet.",
+      description:
+        "Wählt das Modell und den Reasoning-Effort, die Claude Code pro Zug verwendet. Ohne Einstellung bleibt die Auflösung durch Claude selbst bestehen.",
+      modelLabel: "Modell",
+      modelUnset: "(nicht gesetzt — ~/.claude/settings.json folgen)",
+      modelHelperText:
+        "Ohne Einstellung stammt das Modell aus ~/.claude/settings.json — dieselbe Datei, in die andere Claude-Code-Clients (VS Code, Cursor) ihre /model-Auswahl schreiben; eine Umstellung dort ändert also auch MulmoClaude. Aliase folgen der jeweils neuesten Generation einer Familie.",
+      modelConfigured: "Modell: {model}",
+      modelNotConfigured: "Nicht gesetzt (geteilt)",
       effortLabel: "Reasoning-Effort",
       effortUnset: "(nicht gesetzt — Standard von Claude verwenden)",
       helperText: "Höhere Stufen erlauben mehr Denkzeit, erhöhen aber Latenz und Token-Verbrauch.",
@@ -1002,6 +1012,10 @@ const deMessages = {
     fieldIcon: "Symbol",
     fieldPrompt: "Prompt",
     fieldPlugins: "Plugins",
+    fieldModel: "Modell",
+    modelUnset: "(nicht gesetzt — der globalen Einstellung folgen)",
+    modelHelp:
+      "Sitzungen mit dieser Rolle laufen auf diesem Modell. Nützlich, um eine Routine-Rolle aus dem Wochenlimit des Top-Modells herauszuhalten. Eingebaute Rollen folgen immer der globalen Einstellung.",
     fieldStarterQueries: "Einstiegsfragen",
     onePerLine: "(eine pro Zeile)",
     helpLink: "?",
@@ -1032,6 +1046,10 @@ const deMessages = {
   },
   pluginUiImage: {
     promptLabel: "{label}:",
+  },
+  markdownCodeCopy: {
+    copyLabel: "Code kopieren",
+    copiedLabel: "Kopiert",
   },
   markdownMermaid: {
     loadFailed: "⚠ Mermaid konnte nicht geladen werden: {error}",

@@ -4,6 +4,14 @@
 import { readFileSync } from "node:fs";
 import path2 from "node:path";
 
+// packages/common/dist/envCoerce.js
+var PORT_RANGE = Object.freeze({ min: 0, max: 65535 });
+
+// packages/common/dist/index.js
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // server/utils/time.ts
 var ONE_SECOND_MS = 1e3;
 var ONE_MINUTE_MS = 6e4;
@@ -40,7 +48,7 @@ function readPort() {
   const raw = readSidecar(PORT_FILE);
   if (!raw) return null;
   const port = Number.parseInt(raw, 10);
-  return Number.isInteger(port) && port > 0 && port < 65536 ? port : null;
+  return Number.isInteger(port) && port > PORT_RANGE.min && port <= PORT_RANGE.max ? port : null;
 }
 function buildAuthPost(pathname, body) {
   const token = readToken();
@@ -81,11 +89,6 @@ async function serverLog(namespace, message, options = {}) {
   };
   const req = buildAuthPost("/api/hooks/log", body);
   await safePost(req, LOG_TIMEOUT_MS);
-}
-
-// packages/common/dist/index.js
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // server/workspace/hooks/shared/stdin.ts
@@ -217,7 +220,11 @@ function mirrorSkillDelete(workspaceRoot2, slug) {
   return { dest };
 }
 
-// packages/core/dist/dist-D8zokgGo.js
+// packages/core/dist/dist-BzoA9pDR.js
+Object.freeze({
+  min: 0,
+  max: 65535
+});
 function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

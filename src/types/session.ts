@@ -100,6 +100,7 @@ export interface SessionEntry {
   type?: string;
   source?: string;
   roleId?: string;
+  resolvedModel?: string;
   message?: string;
   result?: ToolResultComplete;
 }
@@ -171,6 +172,11 @@ export const isToolResultEntry = (entry: SessionEntry): entry is ToolResultEntry
 export interface ActiveSession {
   id: string;
   roleId: string;
+  /** The model the CLI reported for this session in its `system`/`init`
+   *  frame (#2554). An observation, not a setting — with `chatModel` unset it
+   *  is the only way to learn what the shared `~/.claude/settings.json`
+   *  supplied. Undefined until the session's first turn reports it. */
+  resolvedModel?: string;
   toolResults: ToolResultComplete[];
   /** UUID → epoch ms. Recorded when each result is added to the
    *  session — either from a real-time pubsub event or from

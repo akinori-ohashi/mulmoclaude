@@ -18,12 +18,13 @@
 import "dotenv/config";
 import crypto from "crypto";
 import express, { type Request, type Response } from "express";
-import { configureTrustProxy, createWebhookRateLimit } from "@mulmobridge/webhook-runtime";
-import { createBridgeClient } from "@mulmobridge/client";
+import { configureTrustProxy, createWebhookRateLimit, listenWebhook } from "@mulmobridge/webhook-runtime";
+import { createBridgeClient, installProcessGuards } from "@mulmobridge/client";
 import { isRecord, splitJwtSegments } from "@mulmoclaude/common";
 
 const TRANSPORT_ID = "google-chat";
-const PORT = Number(process.env.GOOGLE_CHAT_BRIDGE_PORT) || 3005;
+
+installProcessGuards({ name: TRANSPORT_ID });
 
 const projectNumber = process.env.GOOGLE_CHAT_PROJECT_NUMBER;
 if (!projectNumber) {
@@ -268,8 +269,8 @@ app.post("/", webhookRateLimit, async (req: Request, res: Response) => {
   }
 });
 
-app.listen(PORT, () => {
+listenWebhook(app, { envVar: "GOOGLE_CHAT_BRIDGE_PORT", fallback: 3005 }, (port) => {
   console.log("MulmoClaude Google Chat bridge");
-  console.log(`Webhook listening on http://localhost:${PORT}/`);
+  console.log(`Webhook listening on http://localhost:${port}/`);
   console.log("Configure your Google Chat app endpoint to: <public-url>/");
 });

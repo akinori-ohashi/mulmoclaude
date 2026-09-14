@@ -34,8 +34,11 @@ function asFlag(value: string | undefined): boolean {
 // Env vars also switched on by a CLI flag on this process's argv.
 // The npx launcher injects the env var into the spawned server, so
 // its path doesn't rely on this; this covers a direct
-// `tsx server/index.ts` / `yarn dev --<flag>` run. Computed once at
-// module load — same lifetime as the env snapshot below. (#1089.)
+// `tsx server/index.ts` / `yarn server --<flag>` run. `yarn dev` reaches the same
+// switches through env instead: `scripts/dev.mjs` translates its flags before the
+// chain starts, because a compound script hands trailing args to its LAST command
+// only and they were silently dropped there until #3113. Computed once at module
+// load — same lifetime as the env snapshot below. (#1089.)
 const argvEnabledEnv = new Set<string>(CLI_FLAGS.filter(({ flag }) => process.argv.includes(flag)).map(({ env: envName }) => envName));
 
 function flagOf(envName: string): boolean {
@@ -69,6 +72,11 @@ export const env = Object.freeze({
   port: asInt(process.env.PORT, DEFAULT_PORT, PORT_RANGE),
   nodeEnv: process.env.NODE_ENV ?? "development",
   isProduction: process.env.NODE_ENV === "production",
+  // Start even when another instance is already serving this workspace
+  // (#3079). Off by default: the two would overwrite each other's
+  // `.session-token`, and the damage that follows is silent. See
+  // `server/utils/instance-guard.mjs`.
+  allowMultipleInstances: flagOf("MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES"),
 
   // Conversation backend. The valued CLI flag mirrors the env var;
   // schema validation happens in the backend resolver.

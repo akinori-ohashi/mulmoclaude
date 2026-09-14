@@ -38,13 +38,14 @@ async function runDepsStage({ root, auditFn }) {
   return failed(`${missing.length} missing dependency(ies)`, { missing });
 }
 
-// §2 wrapper — checkWorkspaceDrift returns one result per auto-
-// detected bridge. Status is one of "ok" | "drifted" | "pending-
-// publish" | "skipped". "pending-publish" is OK-with-a-note: the
-// developer bumped the local package version above the registry's,
-// so the new exports are intentional and will ship on the next
-// cascade publish. Only "drifted" (= new exports, version NOT
-// bumped) fails the stage.
+// §2 wrapper — checkWorkspaceDrift returns one result per scanned
+// workspace. Status is one of "ok" | "drifted" | "pending-publish"
+// | "skipped". "pending-publish" is OK-with-a-note and means the
+// local version is ahead of the registry, whether or not the export
+// surface changed: the bump is the developer's acknowledgement and
+// the cascade publish has not landed. Only "drifted" (= a new
+// export with the version NOT bumped) fails this stage; the release
+// gate fails on "pending-publish" too.
 async function runDriftStage({ root, driftFn }) {
   const results = await driftFn({ root });
   const drifted = results.filter((row) => row.status === "drifted");

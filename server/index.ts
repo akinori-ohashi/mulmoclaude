@@ -54,6 +54,10 @@ import "./plugins/markdown-builtin.js";
 // Side-effect: registers the built-in "html" dispatch handler so the
 // presentHtml View's useRuntime().dispatch({ kind }) resolves (phase 2).
 import "./plugins/html-builtin.js";
+// Side-effect: registers the built-in "shapescript" dispatch handler so the
+// presentShapeScript View's useRuntime().dispatch({ kind }) resolves — the
+// source editor's load / save against artifacts/shapes/.
+import "./plugins/shapescript-builtin.js";
 import { loadRuntimePlugins } from "./plugins/runtime-loader.js";
 import { evaluateDevPluginGate, loadDevPlugins, parseDevPluginsEnv } from "./plugins/dev-loader.js";
 import { watchDevPlugins } from "./plugins/dev-watcher.js";
@@ -126,11 +130,12 @@ import schedulerTasksRoutes from "./api/routes/schedulerTasks.js";
 import { loadSchedulerOverrides, UTC_HH_MM_RE } from "./utils/files/scheduler-overrides-io.js";
 import type { IPubSub } from "./events/pub-sub/index.js";
 import { connectRelay } from "./events/relay-client.js";
+import { startConfiguredBridges } from "./bridges/registry.js";
 import { requireSameOrigin } from "./api/csrfGuard.js";
 import { bearerAuth } from "./api/auth/bearerAuth.js";
 import { isViewDataPath } from "./api/auth/viewToken.js";
 import { deleteTokenFile, generateAndWriteToken, getCurrentToken } from "./api/auth/token.js";
-import { boundPortOf, publishServerPort, setBoundPort } from "./workspace/serverPort.js";
+import { boundPortOf, deleteServerPort, publishServerPort, setBoundPort } from "./workspace/serverPort.js";
 import { log } from "./system/logger/index.js";
 import { logBackgroundError } from "./utils/logBackgroundError.js";
 import { isNonEmptyString } from "./utils/types.js";
@@ -148,6 +153,7 @@ import { resolveHtmlFileRequestPath } from "@mulmoclaude/core/files";
 import { HTML_FILE_MOUNT } from "@mulmoclaude/html-plugin";
 import { ONE_SECOND_MS, ONE_MINUTE_MS, ONE_HOUR_MS, STARTUP_FAILURE_FORCE_EXIT_MS, FATAL_LOG_FLUSH_MS } from "./utils/time.js";
 import { isPortFree, findAvailablePort, MAX_PORT_PROBES } from "./utils/port.mjs";
+import { findLiveInstancePort, instanceGuardMessage, shouldStopForRunningInstance } from "./utils/instance-guard.mjs";
 import { SCHEDULE_TYPES, MISSED_RUN_POLICIES } from "@receptron/task-scheduler";
 
 const HTML_TOKEN_PLACEHOLDER = "__MULMOCLAUDE_AUTH_TOKEN__";
@@ -196,6 +202,28 @@ if (process.env.MULMOCLAUDE_FAKE_AGENT === "1") {
   setActiveBackend(fakeEchoBackend);
   log.info("agent", "MULMOCLAUDE_FAKE_AGENT=1 — active backend = fake-echo");
 }
+
+// Stop before anything else when this workspace already has a server (#3079).
+//
+// Ahead of `initWorkspace()` so a refused launch writes NOTHING into a workspace
+// the running instance owns — re-syncing its preset skills under it would fire
+// that instance's own file watchers for a start that never happened. Ahead of
+// `deleteServerPort()` for a harder reason: that call removes the very file this
+// reads, and the #3082 ordering note covers only the explicit-`PORT` exit, so
+// until this guard existed a silent walk forward went on to delete the LIVE
+// instance's published port. And ahead of `resolvePort()` because the question
+// is about the workspace, not the port.
+//
+// Top-level await: this module is an entry point nothing imports, and the work
+// is one file read plus one loopback probe.
+async function refuseSecondInstance(): Promise<void> {
+  const allowMultiple = env.allowMultipleInstances;
+  const livePort = allowMultiple ? null : await findLiveInstancePort(WORKSPACE_PATHS.serverPort);
+  if (livePort === null || !shouldStopForRunningInstance({ livePort, allowMultiple })) return;
+  log.error("server", instanceGuardMessage(livePort));
+  process.exit(1);
+}
+await refuseSecondInstance();
 
 initWorkspace();
 warnIfCspExtended();
@@ -780,14 +808,12 @@ const chatService = createChatService({
 });
 app.use(chatService.router);
 
-// Notifications router. The route file needs the pub-sub publisher
-// (only created inside `startRuntimeServices` after `app.listen`) and
-// the chat-service push handle (available at module scope). We mount
-// the router now so it sits behind the same bearer middleware as
-// every other /api route, and back-fill the pub-sub dep once
-// `startRuntimeServices` has it. Calls that arrive before fill-in
-// (impossible in practice — the HTTP server isn't listening yet)
-// would no-op on publish but still queue the bridge push.
+// Notifier router — mounted here so it sits behind the same bearer
+// middleware as every other /api route. It takes no dependencies: the
+// four actions it exposes (list / listHistory / clear / cancel) call
+// the engine directly, and the engine is opened for writes by
+// `initNotifier` further down. Publishing is deliberately not one of
+// those actions; the route file says why.
 app.use(notifierRoutes);
 app.use(createJournalRouter());
 app.use(createTranslationRouter());
@@ -876,11 +902,15 @@ async function resolvePort(): Promise<number> {
   // warning for as long as it did not — a second `yarn dev` without `PORT` used
   // to render the FIRST instance's data with nothing failing (#2650).
   //
-  // Still worth saying out loud: two instances sharing a workspace overwrite each
-  // other's `.session-token`, so `PORT` remains the right way to run a second one.
+  // Reaching here means the occupant is NOT one of ours: `refuseSecondInstance`
+  // has already stopped the launch if this workspace had a live server (#3079).
+  // So the walk is what it says it is — stepping around a stale process or an
+  // unrelated program — and `PORT` alone is no longer the way to run a second
+  // instance, because a second one on this workspace is refused whatever port it
+  // asks for. `MULMOCLAUDE_WORKSPACE_PATH` is.
   log.info(
     "server",
-    `Port ${requested} busy → using ${fallback} instead. The dev client follows this port; set PORT to run a second instance against its own workspace.`,
+    `Port ${requested} busy → using ${fallback} instead. The dev client follows this port; set MULMOCLAUDE_WORKSPACE_PATH to run a second instance against its own workspace.`,
   );
   return fallback;
 }
@@ -1069,6 +1099,26 @@ function attachTransports(httpServer: ReturnType<typeof app.listen>, pubsub: IPu
       logger: log,
     });
   }
+
+  // --- In-process chat bridges (#3080) ---
+  // Same shape as the Relay client above: read the config, start what is
+  // switched on, never block startup on a failure. Deliberately not awaited —
+  // a bridge's poll loop never resolves, and the registry isolates its own
+  // errors, so the only thing an await would buy is a server that never boots.
+  void startConfiguredBridges({
+    host: { relay: chatService.relay, registerInProcessBridge: chatService.registerInProcessBridge },
+  })
+    .then((started) => {
+      if (started.running.length === 0) return;
+      log.info("bridges", "in-process bridges running", { transports: started.running });
+      // Registered only once something is running, so a server with no bridges
+      // does not carry a hook that closes nothing.
+      registerShutdownHook(() => started.closeAll());
+    })
+    // The registry resolves rather than rejects, so this is the belt to that
+    // braces: `process.on("unhandledRejection")` above EXITS, which would turn a
+    // bridge problem into a dead server — the exact isolation this route claims.
+    .catch((err: unknown) => log.error("bridges", "in-process bridge registry failed — the server continues without it", { error: String(err) }));
 
   // --- Session Store ---
   initSessionStore(pubsub);
@@ -1345,11 +1395,21 @@ async function startRuntimeServices(httpServer: ReturnType<typeof app.listen>, p
   maybeForceChatIndexBackfill();
 }
 
-// Graceful shutdown: best-effort cleanup of the auth token file so
-// other readers (Vite plugin, future bridges) don't latch onto a
-// dead token. Crashes that skip this are harmless — see
-// plans/done/feat-bearer-token-auth.md; the next startup overwrites and
-// the stale file's token no longer matches the live in-memory one.
+// Graceful shutdown: best-effort cleanup of BOTH startup sidecars, so
+// other readers (Vite plugin, bridges, the PostToolUse hooks) don't
+// latch onto a dead token or address a port this server has left.
+// The token half has done this since bearer auth landed; `.server-port`
+// was the pair's other half and was not cleaned up (#3082). Crashes that
+// skip this are harmless — see plans/done/feat-bearer-token-auth.md; the
+// next startup overwrites both, and every reader already treats a missing
+// sidecar as "the server has not said yet".
+//
+// "Best-effort" is load-bearing for the port half in a way it never was for the
+// token: a crash leaves a `.server-port` naming a port this server has left, and
+// a bridge that follows it presents its bearer token to whatever took that port
+// (#3082). That residue is accepted and reasoned about in
+// `docs/bridge-protocol.md`; it is not covered by this cleanup, which only
+// closes the graceful path.
 const shutdownHooks: (() => void)[] = [stopWhisperSidecar];
 function registerShutdownHook(hook: () => void): void {
   shutdownHooks.push(hook);
@@ -1367,6 +1427,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
     }
   }
   await deleteTokenFile();
+  await deleteServerPort();
   process.exit(0);
 }
 process.on("SIGINT", () => {
@@ -1378,6 +1439,25 @@ process.on("SIGTERM", () => {
 
 (async () => {
   const port = await resolvePort();
+
+  // Drop any port a previous run left behind, before the new token exists
+  // (#3082).
+  //
+  // The two sidecars are written token-first, port-last, so a reader whose
+  // reads both land in that gap sees the NEW token beside the OLD port — a
+  // fresh credential addressed at a port this server has not bound and the
+  // previous one has left. Clearing here removes the old value from that gap
+  // entirely: what a reader can see is the new token with NO port, which every
+  // reader already handles ("the server has not said yet").
+  //
+  // It does not manufacture a correct pair — a client with no published port
+  // falls back to its default, exactly as it does on a machine where no server
+  // has ever run. The gain is that a SPECIFIC dead port stops being offered.
+  //
+  // After `resolvePort()`, never before: an explicit `PORT` that is busy exits
+  // the process there, and deleting first would take the file published by the
+  // live instance holding that port down with us.
+  await deleteServerPort();
 
   // Generate the bearer token before `app.listen` so the first
   // request cannot race an uninitialised `getCurrentToken()`. The

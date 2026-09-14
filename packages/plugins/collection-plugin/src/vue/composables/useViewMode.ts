@@ -6,15 +6,15 @@
 // a stale mode whose enabling field vanished back to `table`.
 //
 // A thin reactive shell over `../collectionViewMode`: the pure mode-collapse
-// (`resolveActiveViewMode`) and the built-in narrowing (`builtInViewOrTable`) live
-// there. The localStorage WRITE stays in the parent's combined persist watch
+// (`resolveActiveViewMode`) lives there. The localStorage WRITE stays in the
+// parent's combined persist watch
 // (which also emits `viewStateChange` and writes sort + flag filters) — same
 // pattern as `useTableSort` / `useFlagFilters`; this owns the ref + the
 // read-on-init / `resetForSlug` restore.
 
 import { computed, ref, type ComputedRef, type Ref } from "vue";
 import type { CollectionCustomView as CustomViewSpec } from "@mulmoclaude/core/collection";
-import { builtInViewOrTable, readCollectionViewMode, resolveActiveViewMode, type BuiltInViewMode, type CollectionViewMode } from "../collectionViewMode";
+import { readCollectionViewMode, resolveActiveViewMode, type CollectionViewMode } from "../collectionViewMode";
 
 interface UseViewModeParams {
   activeSlug: Readonly<Ref<string | undefined>>;
@@ -37,8 +37,6 @@ export interface UseViewMode {
   kanbanActive: ComputedRef<boolean>;
   setView: (next: CollectionViewMode) => void;
   setCustomView: (viewId: string) => void;
-  /** Narrow a mode to a built-in one (the embedded card's `viewState`). */
-  builtInViewOrTable: (mode: CollectionViewMode) => BuiltInViewMode;
   /** Restore the given collection's stored mode (else `table`) — the
    *  switch-collection reset; a mode belongs to a schema, never carried across. */
   resetForSlug: (slug: string | undefined) => void;
@@ -95,7 +93,6 @@ export function useViewMode({ activeSlug, props, hasCalendar, hasKanban, customV
     kanbanActive,
     setView,
     setCustomView,
-    builtInViewOrTable,
     resetForSlug,
   };
 }

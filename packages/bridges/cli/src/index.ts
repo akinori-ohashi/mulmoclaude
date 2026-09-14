@@ -7,10 +7,10 @@ const TRANSPORT_ID = "cli";
 const CHAT_ID = "terminal";
 
 async function main(): Promise<void> {
-  const apiUrl = process.env.MULMOCLAUDE_API_URL ?? "http://localhost:3001";
   console.log("MulmoClaude CLI bridge");
-  console.log(`Connecting to ${apiUrl}`);
   console.log("Type /help for commands, Ctrl+C to exit.\n");
+  // The address itself is printed by `createBridgeClient` now, for every
+  // bridge rather than this one (#3085).
 
   const client = createBridgeClient({ transportId: TRANSPORT_ID });
 

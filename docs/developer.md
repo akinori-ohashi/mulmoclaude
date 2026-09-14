@@ -56,7 +56,7 @@ The `.github/workflows/pr_triage.yaml` workflow runs on every PR and enforces th
 
 All env vars are **optional unless flagged "required"**. The server reads them at process start (or per-agent-invocation where noted); set them in `.env` (loaded via `dotenv`) or your shell.
 
-> **CLI flag equivalents**: the launch-time boolean toggles also accept a `--flag` form on both `yarn dev` and `npx mulmoclaude` (handy on Windows PowerShell / IDE run configs): `DISABLE_SANDBOX` → `--disable-sandbox`, `DISABLE_MACOS_REMINDER_NOTIFICATIONS` → `--disable-macos-reminders`, `PERSIST_TOOL_CALLS` → `--persist-tool-calls`, `JOURNAL_FORCE_RUN_ON_STARTUP` → `--journal-force-run`, `CHAT_INDEX_FORCE_RUN_ON_STARTUP` → `--chat-index-force-run`. Registry: `server/utils/cli-flags.mjs`. Secret-bearing vars have no flag form (argv leaks via `ps`).
+> **CLI flag equivalents**: the launch-time boolean toggles also accept a `--flag` form on `yarn dev`, `yarn server` and `npx mulmoclaude` alike (handy on Windows PowerShell / IDE run configs). On `yarn dev` that works because `scripts/dev.mjs` translates the flags to env before the chain starts — a compound `a && b && c` script hands trailing args to its LAST command only, so they were silently dropped there until #3113. An unrecognised flag is now refused rather than ignored. Toggles: `DISABLE_SANDBOX` → `--disable-sandbox`, `DISABLE_MACOS_REMINDER_NOTIFICATIONS` → `--disable-macos-reminders`, `PERSIST_TOOL_CALLS` → `--persist-tool-calls`, `JOURNAL_FORCE_RUN_ON_STARTUP` → `--journal-force-run`, `CHAT_INDEX_FORCE_RUN_ON_STARTUP` → `--chat-index-force-run`, `MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES` → `--allow-multiple-instances`. Registry: `server/utils/cli-flags.mjs`. Secret-bearing vars have no flag form (argv leaks via `ps`).
 
 ### API keys
 
@@ -72,16 +72,16 @@ All env vars are **optional unless flagged "required"**. The server reads them a
 
 | Variable                               | Default                        | Effect                                                                                                                                                                                                                                                                                            |
 | -------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                                 | `3001`                         | Express listen port (`server/system/env.ts` — `env.port`) **and the port `yarn dev`'s Vite proxy targets** (#2650), so setting it moves both halves together and a second instance stays separate. Resolved the same way the server resolves it — shell first, then `.env` (`scripts/lib/devServerPort.ts`). Left unset, a busy port walks forward so a stale `yarn dev` doesn't crash the launch; the proxy cannot follow that walk (it resolved its target before the server bound), so the server warns and tells you to set `PORT`. Set **explicitly** and a busy port exits instead, matching `npx mulmoclaude --port`. See [Running two instances](#running-two-instances). |
+| `PORT`                                 | `3001`                         | Express listen port (`server/system/env.ts` — `env.port`) **and the port `yarn dev`'s Vite proxy targets** (#2650), so setting it moves both halves together and a second instance stays separate. Resolved the same way the server resolves it — shell first, then `.env` (`scripts/lib/devServerPort.ts`). Left unset, a busy port walks forward so a stale `yarn dev` doesn't crash the launch, and the proxy follows: it reads `<workspace>/.server-port` at startup and re-aims itself from the next request when that file changes (#2995). The server reports the walk at info level for exactly that reason. That walk only happens when no MulmoClaude is already serving this workspace — one that is stops the launch outright (#3079, see `MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES`). Set **explicitly** and a busy port exits instead, matching `npx mulmoclaude --port`. See [Running two instances](#running-two-instances). |
 | `MULMOCLAUDE_WORKSPACE_PATH`           | `<homedir>/mulmoclaude`        | Absolute path to the workspace (`server/workspace/paths.ts` — `workspacePath`). **Evaluated once at module load**, so it is a start-time choice: there is no API, UI, or CLI flag that switches workspaces on a running server. A path that does not exist yet is created on boot, `git init` included. Under a test runner with an un-overridden `HOME` the default becomes `<tmpdir>/mulmoclaude-test` instead. Point it elsewhere to run a second, fully isolated instance — see [Running two instances](#running-two-instances). |
+| `MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES` | unset                          | Set to `1` to start even when another server is already running against this workspace (`--allow-multiple-instances` is the equivalent flag) (`server/utils/instance-guard.mjs`). Off by default because the two overwrite each other's `.session-token` and plugin views then stop rendering on one of them, with nothing erroring (#3079). A second instance pointed at its own `MULMOCLAUDE_WORKSPACE_PATH` needs no flag — the check is per workspace, not per port. |
 | `MULMOCLAUDE_CLIENT_DIR`               | `<serverDir>/../client`        | Absolute path to the built client Express serves when `NODE_ENV=production` (`server/index.ts`, `server/utils/clientDir.ts`). The default is the layout `packages/mulmoclaude/bin/prepare-dist.js` produces when packaging the tarball; set it when the bundle lives elsewhere — e.g. running from a source clone, where it points at `<repo-root>/dist/client`. Empty string falls back to the default. |
 | `NODE_ENV`                             | unset / `production`           | When `production`, Express serves the built client from `dist/client` and falls back to `index.html` for SPA history-mode routing. Auto-set by tooling — you rarely set this manually.                                                                                                            |
 | `DISABLE_SANDBOX`                      | unset                          | Set to `1` to bypass the Docker sandbox even when Docker is available. The agent runs `claude` directly on the host. Useful for debugging without container rebuild overhead (`server/system/docker.ts:49`, `server/index.ts:147`).                                                               |
 | `SANDBOX_SSH_AGENT_FORWARD`            | unset                          | Set to `1` to forward the host's `$SSH_AUTH_SOCK` into the sandbox. Private keys stay on the host; the agent signs on the container's behalf. Full contract: [docs/sandbox-credentials.md](sandbox-credentials.md).                                                                               |
 | `SANDBOX_MOUNT_CONFIGS`                | unset                          | CSV of allowlisted config mounts (currently `gh`, `gitconfig`). Each entry resolves to a fixed host→container path pair defined in `server/agent/sandboxMounts.ts`; unknown names are logged and ignored.                                                                                         |
 | `SESSIONS_LIST_WINDOW_DAYS`            | `90`                           | Caps how far back the sidebar looks when listing chat sessions (`server/api/routes/sessions.ts`). Set to `0` to disable the cutoff entirely. Introduced in PR #203 to keep `GET /api/sessions` cheap on long-lived workspaces; anything older is still on disk, just hidden from the list.        |
-| `MACOS_REMINDER_NOTIFICATIONS`         | `1` (Darwin) / unset elsewhere | Set to `0` to disable the macOS Reminders sink. The sink mirrors notifications into the system Reminders app via `osascript`. Title and body are passed via argv (not via `osascript` attribute) so notification text containing `osascript`-meta characters can't escape into the script (#789). |
-| `DISABLE_MACOS_REMINDER_NOTIFICATIONS` | unset                          | Alternate kill-switch for the same sink — set to `1` to silence it without changing the primary flag. Auto-enabled in `node:test` runs to keep test output clean.                                                                                                                                 |
+| `DISABLE_MACOS_REMINDER_NOTIFICATIONS` | unset                          | The macOS Reminders sink is **on by default on darwin** and off everywhere else; there is no enabling variable. Set this to `1` (or pass `--disable-macos-reminders`) to silence it — `env.ts` reads it through `flagOf`, and nothing reads an enabling spelling. Auto-disabled under `node:test` so a suite cannot write to the real Reminders.app. There is also a Settings toggle (`macosRemindersEnabled`, #2617) — this variable and the flag WIN over it, and the UI says so, because an icon launch (#2613) passes neither and the toggle is then the only way off. The sink mirrors notifications via `osascript`, passing title and body as argv rather than as an `osascript` attribute, so text containing `osascript`-meta characters cannot escape into the script (#789). |
 | `MULMOCLAUDE_DEV_LAN`                  | unset                          | Set to `1` to bind the Vite dev server to every interface instead of `127.0.0.1`, so another device on the network can load the page. The backend stays loopback-only either way: with LAN enabled, a non-loopback caller receives an **empty** auth token and the proxied backend paths (`/api`, `/artifacts`, `/htmlfile`, `/ws`) are refused, so the page loads but cannot reach the API. Only enable it on a network you trust. Dev server only — `vite build` output is unaffected. |
 | `MULMOCLAUDE_DEV_WATCH_PACKAGES`       | unset                          | Windows-only escape hatch. `yarn dev` stops watching `packages/*/dist` on win32 because every sandboxed agent spawn bind-mounts the workspace packages into the container and Docker Desktop bumps their mtimes, which full-reloads the page mid-turn (#2632). Set to `1` while iterating on a workspace package to get its rebuild HMR back — at the cost of the reload storms. No effect on macOS/Linux, where those mounts never happen and the dists stay watched. |
 | `MULMOCLAUDE_DEV_WAIT_MS`              | `60000`                        | How long `yarn dev` waits for the backend to start listening before it starts Vite anyway (#2975). The client half blocks on `scripts/wait-for-backend.ts` until the API port accepts a connection, which is also the moment the session token exists on disk (`server/index.ts` writes it before `app.listen`) — so the first page load gets neither a body-less 502 from the proxy nor an empty auth token baked into `index.html`. On timeout it logs why and starts Vite regardless, so a backend that never boots cannot hold the dev server hostage. Raise it on a slow machine (a cold `tsx` boot behind a Windows virus scanner is the case this exists for); it replaced a flat 2-second sleep that Windows routinely lost. |
@@ -164,7 +164,7 @@ You never set these by hand; the server constructs them when spawning Claude ins
 
 | Script                            | What it does                                                                                                                                                                                            |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `yarn dev`                        | Server (`:3001`) + Vite client (`:5173`) concurrently. The default.                                                                                                                                     |
+| `yarn dev`                        | Server (`:3001` by default, see `PORT`) + Vite client (`:5173`) concurrently. The default.                                                                                                                                     |
 | `yarn dev:debug`                  | Same as `dev` but spawns the server with `--debug` (Node inspector ready).                                                                                                                              |
 | `yarn dev:full-build`             | Same as `dev` but rebuilds every workspace package unconditionally first. Use when a plugin's `dist/` is stale or half-written — `dev`'s mtime gate treats a partial `dist/` as fresh and skips it.      |
 | `yarn dev:client`                 | Vite client only — useful when you've already started the server elsewhere.                                                                                                                             |
@@ -211,8 +211,8 @@ You never set these by hand; the server constructs them when spawning Claude ins
 
 Three independent Node processes cooperate at runtime:
 
-1. **Express server** (`server/index.ts`) — listens on `localhost:3001`. Hosts every `/api/*` endpoint, the SSE stream for `POST /api/agent`, the pub-sub bus, and the cron-like [task manager](task-manager.md). Spawns the Claude CLI per agent invocation.
-2. **Vite dev client** — listens on `localhost:5173`, proxies `/api/*` to the backend port (`PORT`, default `3001`). Production builds skip Vite and let Express serve the static `dist/client`.
+1. **Express server** (`server/index.ts`) — listens on `127.0.0.1` at the port it resolves: `PORT` when set — and it exits rather than moving if that one is busy — otherwise `3001`, walking forward when *that* is busy. The bound port is published to `<workspace>/.server-port`, which is how everything outside the process finds it (#2650, #2981). IPv4 loopback only — `localhost` resolves to `::1` first on a dual-stack host, where nothing answers. Hosts every `/api/*` endpoint, the SSE stream for `POST /api/agent`, the pub-sub bus, and the cron-like [task manager](task-manager.md). Spawns the Claude CLI per agent invocation.
+2. **Vite dev client** — listens on `localhost:5173`, proxies `/api/*` to the port the backend published, re-aiming itself when that file changes after startup (#2995). Following is gated on `MULMOCLAUDE_DEV_FOLLOW_PORT=1`, which only `yarn dev` sets: `yarn dev:client` starts no backend, so a `.server-port` it found would be a leftover, and it targets what `PORT` implies instead. Production builds skip Vite and let Express serve the static `dist/client`.
 3. **MCP stdio bridge** (`server/agent/mcp-server.ts`) — spawned by the Claude CLI subprocess via `--mcp-config`. No HTTP listener: speaks JSON-RPC over stdin/stdout, forwards Claude's tool calls back to the Express server (`MCP_HOST:PORT/api/*`).
 
 ### Running two instances
@@ -225,9 +225,17 @@ MULMOCLAUDE_WORKSPACE_PATH=~/mulmoclaude-scratch PORT=3100 yarn dev
 
 Vite's own port needs no flag: `strictPort` is off, so the second client takes 5174 when 5173 is busy and proxies to `:3100`.
 
-**`yarn dev` twice with no `PORT` is the case that still bites.** The server walks forward when its port is busy (3001 → 3002), but Vite resolved its proxy target before that walk happened, in another process — so the second client talks to the *first* server and nothing errors. The server warns when it walks for exactly this reason; set `PORT` rather than relying on the walk.
+**`yarn dev` twice needs BOTH env vars, not just `PORT`.** The proxy no longer resolves its target once: it follows `<workspace>/.server-port` and re-aims from the next request (#2995), so the old failure — the second client silently talking to the *first* server — is gone. What remained was the workspace, and that is now refused rather than documented around: two stacks sharing one overwrite each other's `.server-port` AND `.session-token`, and neither file can describe two servers. So a launch that would share this workspace with a server already running against it stops (#3079):
 
-The workspace is a separate axis: without `MULMOCLAUDE_WORKSPACE_PATH` both instances share `~/mulmoclaude`, so they would run on different ports over the same chats, artifacts and scheduler state.
+```
+MulmoClaude is already running against this workspace at http://localhost:3001
+```
+
+That covers `yarn dev` twice AND `PORT=3100 yarn dev` alone, which this section used to offer as the way out. It was never a good one: the two instances overwrite each other's `.session-token`, after which a stateless plugin dispatch authenticates against the wrong server while the session-scoped `/api/internal/tool-result` push is dropped — so plugin views silently stop rendering on one of them. Give the second instance its own `MULMOCLAUDE_WORKSPACE_PATH`, as above, and no flag is needed.
+
+To share one workspace between two servers anyway, `yarn dev --allow-multiple-instances` (or `MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1`) restores the old walk-forward behaviour, with the token-stomping it implies.
+
+The check is asked of `<workspace>/.server-port` rather than of the port, so it is silent about a port held by something that is not MulmoClaude — a busy 3001 with no instance of ours behind it still walks forward as before.
 
 Serving a prebuilt client from Express instead of running Vite is still available, and is what `e2e-live/fixtures/isolated-dev-server.ts` uses (plus `HOME`) to give each live test its own stack — which is why live tests exercise the production serving path rather than the Vite one:
 
@@ -300,14 +308,14 @@ Every HTTP call to `/api/*` requires `Authorization: Bearer <token>`. Layered on
 | Vue page load / reload / new tab | Vite plugin (dev) / Express handler (prod) reads the file and substitutes `<meta name="mulmoclaude-auth" content="…">` into index.html |
 | Vue bootstrap (`src/main.ts`)    | Reads the meta tag, calls `setAuthToken()` so every `apiFetch` attaches the header                                                     |
 | HMR                              | No file I/O — token stays in Vue memory, SPA never reloads                                                                             |
-| `SIGINT` / `SIGTERM`             | Best-effort `unlink` of `.session-token`                                                                                               |
-| Crash / `kill -9`                | File may linger — harmless, next startup generates a new token and the stale value no longer matches                                   |
+| `SIGINT` / `SIGTERM`             | Best-effort `unlink` of BOTH `.session-token` and `.server-port` (#3082)                                                               |
+| Crash / `kill -9`                | Both may linger. The token is harmless — the next startup generates a new one and the stale value stops matching. The PORT is not: it names a port this server has left, and a bridge that follows it presents its token to whatever took it. See [`bridge-protocol.md`](bridge-protocol.md) |
 
 **Dev-mode escape hatch**: setting `MULMOCLAUDE_AUTH_TOKEN=…` before `yarn dev:client` makes the Vite plugin use that value instead of reading the file. Used by `e2e/playwright.config.ts` to inject a predictable token in E2E; also handy for debugging without a running server. Production (Express serving built HTML) never reads env — the in-memory token from `generateAndWriteToken()` is the sole source.
 
-**Server-side pinning (#316)**: setting `MULMOCLAUDE_AUTH_TOKEN=…` before `yarn dev` (or any process that starts Express) makes `generateAndWriteToken()` use that value verbatim instead of generating a fresh random token. The same var is already honoured by the Vite dev plugin and the CLI bridge, so pinning it once in a shared shell / `.env` / docker-compose file keeps the token consistent across a server restart — long-running bridges no longer need a relaunch every time the dev server bounces. A warning logs if the override is shorter than 32 chars; no other validation. Use random-per-startup (the default) for casual dev and the env override only when the restart pain outweighs the leak surface (CI, docker, multi-bridge setups).
+**Server-side pinning (#316)**: setting `MULMOCLAUDE_AUTH_TOKEN=…` before `yarn dev` (or any process that starts Express) makes `generateAndWriteToken()` use that value verbatim instead of generating a fresh random token. The same var is honoured by the Vite dev plugin and by `@mulmobridge/client`, so pinning it once in a shared shell / `.env` / docker-compose file keeps one token across restarts. **A bridge on this host does not need that.** Since #3078 the shared client re-reads `.session-token` and `.server-port` after a failed connection and rebuilds its socket, so a long-running bridge follows a restart on its own — pinned or not. Pin it for a client that cannot read the workspace AT ALL: another machine, or a container without it mounted, where there is no file to re-read. A warning logs if the override is shorter than 32 chars; no other validation. Use random-per-startup (the default) everywhere else — a pinned token is one that outlives the run that issued it.
 
-**Current scope** (#272 Phase 1+2): Vue client, Express middleware, and the CLI bridge (`yarn cli`). The bridge reads the same `.session-token` file (or `MULMOCLAUDE_AUTH_TOKEN` env var) on startup and attaches the header to its `fetch` calls.
+**Current scope**: Vue client, Express middleware, and every bridge through `@mulmobridge/client`. A bridge presents the token in the socket.io handshake (`auth`), not as a `fetch` header, and it resolves it from `MULMOCLAUDE_AUTH_TOKEN` or `<workspace>/.session-token` — re-reading that pair after a failed connection rather than once at startup (#3078).
 
 **Files**
 
@@ -320,102 +328,115 @@ Every HTTP call to `/api/*` requires `Authorization: Bearer <token>`. Layered on
 
 ---
 
-## Notifications (PoC scaffold)
+## Notifications (the notifier)
 
-A one-shot, delayed **push fan-out** that lands on every open Web tab _and_ every connected bridge simultaneously. Scaffolding for the in-app notification center (#144) and external-channel notifications (#142) — the endpoint and fan-out are stable, the UI / persistence layers land in those issues.
+One engine, one bell. A plugin or a host module publishes an entry; it is persisted, fanned out
+over pub-sub, and rendered in the bell popup until something clears it.
 
-### Trigger
+Engine: `packages/core/src/notifier/` — `engine.ts` (the API), `store.ts` (file I/O),
+`types.ts` (the value contract, and the best thing to read first), `validate.ts` (publish-input
+limits, kept pure so any future caller can share them).
 
-```bash
-curl -X POST http://localhost:3001/api/notifications/test \
-  -H "Authorization: Bearer $(cat ~/mulmoclaude/.session-token)" \
-  -H "Content-Type: application/json" \
-  -d '{"message":"hello from curl","delaySeconds":5}'
-# → 202 { "firesAt": "2026-04-16T15:37:42.123Z", "delaySeconds": 5 }
-```
+### The entry contract
 
-Body fields (all optional):
+A `NotifierEntry` carries an engine-assigned `id`, a `pluginPkg` namespace, a `severity`
+(`info` / `nudge` / `urgent` — badge colour, worst-wins), a `title`, an optional `body`, an
+optional `navigateTarget`, and opaque `pluginData` the engine never inspects.
 
-| Field          | Default                | Effect                                                                                                                                 |
-| -------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `message`      | `"Test notification"`  | Title delivered to both targets.                                                                                                       |
-| `body`         | _(none)_               | Optional second-line body in the bell panel.                                                                                           |
-| `delaySeconds` | `60`, capped at `3600` | Timer length. Non-numeric / NaN falls back to the default; negative clamps to `0`; fractional floors.                                  |
-| `transportId`  | `"cli"`                | Bridge target for `chatService.pushToBridge`.                                                                                          |
-| `chatId`       | `"notifications"`      | Bridge chat slot.                                                                                                                      |
-| `kind`         | `"push"`               | One of `todo` / `scheduler` / `agent` / `journal` / `push` / `bridge`. Drives the bell-panel icon — see `NOTIFICATION_ICONS`.          |
-| `action`       | `{ type: "none" }`     | Permalink target — see [Notification permalinks](#notification-permalinks-762) below. Without this the click in the bell does nothing. |
+`lifecycle` is the field that changes behaviour, and it says **who closes the entry**:
 
-### Fan-out at fire time
+| `lifecycle` | Who clears it | `navigateTarget` |
+| ----------- | ------------- | ---------------- |
+| `fyi` (default) | the user, by dismissing the row | optional — and the legacy wrapper always sets one when the old typed action had a destination |
+| `action` | the plugin, when the underlying state changes (the tax got paid, the digest got read) | required |
 
-```text
-setTimeout elapses
-  ├─ pubsub.publish(PUBSUB_CHANNELS.notifications, { message, firedAt })  → Web
-  └─ chatService.pushToBridge(transportId, chatId, message)               → Bridge (offline-queued)
-```
+The engine enforces exactly two rules at publish time, and they both follow from that: an
+`action` entry MUST have a non-empty `navigateTarget` (without one the row's click does nothing,
+so it is a degraded `fyi`), and it MUST NOT be `info` severity (a low-priority obligation is
+incoherent). Everything downstream — fan-out, persistence, history — is lifecycle-blind.
 
-Web subscribers listen on `PUBSUB_CHANNELS.notifications` (`src/config/pubsubChannels.ts`). The `useNotifications` composable wraps the subscription; `NotificationToast.vue` renders the latest inbound item as a top-right toast that auto-dismisses after 5 s. Bridges receive via the Phase B push socket (`yarn cli` prints `[push] notifications: hello …`).
+`validate.ts` caps the rest, and the engine re-reads every entry on every list call, so the caps
+protect every reader rather than just the writer: `title` 200 chars and non-empty, `body` 4000,
+`navigateTarget` 1000, `pluginData` 16 KiB of JSON. A `navigateTarget` must also be a same-origin
+relative path beginning with a single `/` — a scheme (`javascript:`, `https://…`) or a
+scheme-relative `//host/…` is rejected, because the bell renders it as a link.
 
-### Observing the PoC end-to-end
+### Publishing
 
-1. `yarn dev` (server + Vite)
-2. In a second terminal: `yarn cli`
-3. In a third terminal: fire the curl above with `delaySeconds: 5`
-4. After 5 s: a toast slides in top-right of the open browser tab ("hello from curl"), and the CLI terminal prints `[push] notifications: hello from curl`
+**There is no generic publish endpoint, deliberately.** `server/api/routes/notifier.ts` states
+the reason: bearer auth proves "the caller is on this machine and knows the token", not "the
+caller is plugin X", so an HTTP publish would let any token holder publish under any plugin's
+namespace. Publishers are in-process:
 
-### Scope caveats
+- **A plugin** calls `runtime.notifier.publish`, which `makeScopedNotifier`
+  (`server/plugins/runtime.ts`) binds to the calling plugin's own `pluginPkg` — a plugin
+  literally cannot publish under another's namespace.
+- **Most host code** calls `publishNotification()` in `server/events/notifications.ts`, the
+  legacy wrapper below — `server/agent/mcp-tools/notify.ts`, `server/plugins/diagnostics.ts`,
+  `server/agent/mcpFailureMonitor.ts`, `server/system/shadowedEnv.ts` and
+  `server/workspace/billing-migration.ts` among them. Do not trust that list to stay complete —
+  and do not expect a grep to give you a clean count either, because two of the callers
+  (`mcp-tools/notify.ts`, `mcpFailureMonitor.ts`) take it as an injected `publish` dependency so
+  tests can mock it, and at least one file names it only in a comment:
 
-- **Single toast**, no stack / notification-center bell / bell badge — those land with the real notification center (#144). The toast is intentionally a thin wrapper to confirm the pipeline delivers.
-- **No persistence**: `setTimeout` is in-memory; a server restart before the delay elapses drops the push.
-- **One bridge per call**: `pushToBridge` targets a single `transportId`. Fan-out to every connected bridge is deferred until a caller needs it.
-- **One-shot only**: no repeat / snooze / dedup. Production triggers should go through the notification center once #144 lands.
+  ```bash
+  grep -rn publishNotification server/ --exclude-dir=build | grep -v events/notifications.ts
+  ```
 
-Full motivation + file plan: `plans/done/feat-notification-push-scaffold.md`. Implementation: `server/events/notifications.ts` (scheduler) + `server/api/routes/notifications.ts` (HTTP wrapper) + `src/composables/useNotifications.ts` + `src/components/NotificationToast.vue`.
+  Read those hits rather than counting them.
+- **A few call `engine.publish` directly**, with every namespace-bearing field fixed at the call
+  site rather than taken from a request: `server/api/routes/collectionAgentActions.ts` publishes
+  an action-failure notice as `pluginPkg: "host"`.
 
-### Notification permalinks (#762)
+`server/events/notifications.ts` is a legacy wrapper kept so those older call sites did not have
+to change: it maps the old `kind` to a `pluginPkg`, the old `priority` to a `severity`, and
+flattens a typed `NotificationAction` to a relative URL through `legacyActionToNavigateTarget()`.
+Its bridge fan-out is gone — the only callers that ever set `transportId` were the PoC test route
+and `scheduleTestNotification`, both deleted with it.
 
-Clicking a bell entry calls `router.push` with whatever its `action.target` resolves to. Targets are typed per feature page so the dispatcher and the page components agree on identifier semantics:
+### What the UI talks to
 
-| `target.view` | Identifier(s)                        | Resolves to URL                                       |
-| ------------- | ------------------------------------ | ----------------------------------------------------- |
-| `chat`        | `sessionId` (required)               | `/chat/:sessionId`                                    |
-| `calendar`    | _none_                               | `/calendar`                                           |
-| `automations` | `taskId?`                            | `/automations` or `/automations/:taskId`              |
-| `sources`     | `slug?`                              | `/sources` or `/sources/:slug`                        |
-| `files`       | `path?`                              | `/files/<segments>` (catch-all)                       |
-| `wiki`        | `slug?`, `anchor?`                   | `/wiki/pages/:slug` (`#:anchor` if set)               |
+`POST /api/notifier` (`API_ROUTES.notifier.dispatch`) takes `{ action }` — `list`, `listHistory`,
+`clear`, `cancel`. `clear` and `cancel` are host-scoped on purpose: the bell belongs to the host,
+sees every plugin's entries, and must be able to dismiss any of them. The per-plugin variants
+(`updateForPlugin`, `getForPlugin`, `clearForPlugin`) exist only on the in-process API, and
+`pluginPkg` is what they enforce with: each compares it against the entry and no-ops on a
+mismatch, so one plugin cannot reach another's entries.
 
-Pure dispatcher: `src/utils/notification/dispatch.ts`. App.vue feeds the result straight into `router.push(target)`.
+`src/composables/useNotifications.ts` seeds both lists from that endpoint and then follows
+`PUBSUB_CHANNELS.notifier`. Events are a discriminated union — `published`, `updated`, `cleared`,
+`cancelled` — and the composable rebuilds each payload field by field, because pub-sub JSON is
+untrusted. `src/components/NotificationBell.vue` renders the active list plus a read-only
+History section — five entries at first, the rest behind "Show more", so a cap's worth of
+repetitive terminations cannot swamp the panel.
 
-#### Manual testing
+Activating an active row does what its lifecycle implies: a `fyi` row navigates if it has a
+target and then clears itself, an `action` row navigates only (the plugin owns the clear), and
+an `action` row with no target does neither — so it is not rendered as a button at all, rather
+than advertising an activation that does nothing. Mouse handling is two-tier (body click versus
+row padding) and history rows expand before they offer their own navigate control; the component
+is the place to read that. Whenever a row does navigate, `notificationId=<id>` is spliced into
+the target — `?` or `&` depending on what it already carries, and before any `#fragment` rather
+than after it — so the landing page knows which entry to clear.
 
-`scripts/dev/fire-sample-notifications.sh` POSTs eight representative notifications — one per target variant — through the test endpoint. Useful for confirming every permalink lands on the right page after a UI change.
+### Persistence
 
-```bash
-# Server + Vite
-yarn dev
+`<workspace>/data/notifier/` (`WORKSPACE_DIRS.notifier`) holds two files, addressed as
+`WORKSPACE_PATHS.notifierActive` and `WORKSPACE_PATHS.notifierHistory`. `active.json` is a
+snapshot of entries that have not been cleared or cancelled — not an event log. `history.json`
+holds terminated entries newest-first, capped at `HISTORY_CAP` (50) with FIFO eviction; each
+records `terminalType` (`cleared` / `cancelled`) and `terminalAt`.
 
-# In another terminal
-./scripts/dev/fire-sample-notifications.sh
-# (optional flags) --host http://127.0.0.1:3001  --delay 0.5
-```
+### Coverage
 
-The script reads the bearer token from `MULMOCLAUDE_AUTH_TOKEN` first, then falls back to `~/mulmoclaude/.session-token`. **Stale-token gotcha**: a long-running server's in-memory token can drift from the on-disk file if a different server process overwrote it. If every call returns `401`, restart `yarn dev` so memory + file resync, or pin a token across restarts:
+- **Unit**: `packages/core/test/notifier/test_engine.ts` and `test/server/notifier/test_engine.ts`.
+- **E2E**: `e2e/tests/notifications.spec.ts` — four suites over the bell (navigation, dismiss,
+  history more/less, history body expansion). Run via `yarn test:e2e notifications`.
 
-```bash
-MULMOCLAUDE_AUTH_TOKEN=$(openssl rand -hex 32) yarn dev
-# In another terminal — must use the same value
-MULMOCLAUDE_AUTH_TOKEN=<same value> ./scripts/dev/fire-sample-notifications.sh
-```
-
-After firing, open the bell in the Web UI and click each entry; every click should land on the URL noted in the script's `→` output line. The `automations` and `sources` rows additionally scroll + flash the matching item via `scrollIntoViewByTestId` (`src/utils/dom/`).
-
-#### Automated coverage
-
-- **Unit**: `test/utils/notification/test_dispatch.ts` — every target variant + edge cases (missing sessionId, file path splitting, wiki anchor hash).
-- **E2E**: `e2e/tests/notifications.spec.ts` — boots the app with a mocked pub-sub socket that delivers one canned payload per scenario, clicks bell + item, asserts the resulting URL. Run via `yarn test:e2e notifications`.
-
-Plan doc: `plans/done/feat-notification-permalinks.md`. Implementation lives in `src/types/notification.ts` (typed targets), `src/utils/notification/dispatch.ts` (dispatcher), `src/router/pageRoutes.ts` (route names), and per-page mount-time scroll handlers (`SourcesView.vue`, `TasksTab.vue`).
+Historical plan docs: `plans/done/feat-notification-push-scaffold.md` and
+`plans/done/feat-notification-permalinks.md`. Both describe the PoC that preceded this engine —
+the typed `action.target` dispatcher they specify no longer exists, and `navigateTarget` (a plain
+relative URL) took its place.
 
 ---
 
@@ -597,6 +618,8 @@ When a user reports "this failed with no UI feedback" and you can't reproduce it
 `test/` mirrors `server/` and `src/` 1:1; e.g. `server/workspace/journal/dailyPass.ts` → `test/journal/test_dailyPass.ts`. The pattern: extract pure helpers from route handlers / Vue composables, then unit-test them without an HTTP harness. The test glob in `package.json` walks 1–3 directory levels — keep new tests at the right depth or extend the glob.
 
 E2E tests live in `e2e/tests/*.spec.ts`. **No backend runs**; `await mockAllApis(page)` from `e2e/fixtures/api.ts` intercepts every `/api/*` call. Per-test mocks registered AFTER `mockAllApis` win because Playwright walks routes last-registered-first.
+
+Assert "the shell rendered" with `page.getByTestId("app-title")`, never `page.getByText("MulmoClaude")`. The app name also appears in the empty-chat role suggestion chips (`src/config/roles.ts`), so the text locator resolves to five elements whenever those render and Playwright's strict mode fails the assertion — a spec then goes red for a reason unrelated to what it tests, and only on the runs where the chat happened to come up empty.
 
 When to add E2E coverage is documented in [CLAUDE.md](../CLAUDE.md#when-to-add-e2e-coverage).
 

@@ -9,6 +9,13 @@ const ptBR: Messages = {
   editSource: "Editar o código ShapeScript",
   scriptEditorLabel: "Código ShapeScript",
   applyChanges: "Aplicar alterações",
+  saveError: "Falha ao salvar:",
+  downloadUsdz: "Baixar USDZ",
+  exportError: "Falha na exportação:",
+  copyScript: "Copiar",
+  copied: "Copiado",
+  sceneWarnings: "Não renderizado:",
+  printOutput: "Saída:",
 };
 
 export default ptBR;

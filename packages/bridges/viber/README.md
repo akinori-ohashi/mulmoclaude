@@ -43,20 +43,26 @@ Send a message to your Public Account from the Viber app — you'll get a reply.
 
 ## Environment variables
 
-| Variable               | Required | Default         | Description |
-|------------------------|----------|-----------------|-------------|
-| `VIBER_AUTH_TOKEN`     | yes      | —               | Public Account auth token from the admin panel |
-| `VIBER_SENDER_NAME`    | no       | `MulmoClaude`   | Display name used on outbound messages |
-| `VIBER_WEBHOOK_PORT`   | no       | `3012`          | HTTP port |
-| `VIBER_ALLOWED_USERS`  | no       | (all)           | CSV of Viber user IDs allowed (empty = everyone who messages the bot) |
-| `MULMOCLAUDE_AUTH_TOKEN` | no     | auto            | MulmoClaude bearer token override |
-| `MULMOCLAUDE_API_URL`  | no       | `http://localhost:3001` | MulmoClaude server URL |
+| Variable                 | Required | Default                                              | Description                                                           |
+| ------------------------ | -------- | ---------------------------------------------------- | --------------------------------------------------------------------- |
+| `VIBER_AUTH_TOKEN`       | yes      | —                                                    | Public Account auth token from the admin panel                        |
+| `VIBER_SENDER_NAME`      | no       | `MulmoClaude`                                        | Display name used on outbound messages                                |
+| `VIBER_WEBHOOK_PORT`     | no       | `3012`                                               | HTTP port (`0` asks the OS for a free port)                           |
+| `VIBER_ALLOWED_USERS`    | no       | (all)                                                | CSV of Viber user IDs allowed (empty = everyone who messages the bot) |
+| `MULMOCLAUDE_AUTH_TOKEN` | no       | auto                                                 | MulmoClaude bearer token override                                     |
+| `MULMOCLAUDE_API_URL`    | no       | auto (`.server-port`; waits if nothing is published) | MulmoClaude server URL                                                |
+
+An unusable value (a typo, a number outside 0-65535) stops the bridge with a message naming
+the variable, rather than silently starting on the default. A port already in use is reported
+the same way (#3084).
 
 ### Auth token persistence across server restarts
 
-The MulmoClaude server regenerates a fresh bearer token on every startup and writes it to `~/mulmoclaude/.session-token`. The bridge reads that file once at launch and keeps the token in memory — so if the server restarts while the bridge is running, the bridge keeps using the **old** token and every API call returns **401**, silently.
+The MulmoClaude server regenerates a fresh bearer token on every startup and writes it to `<workspace>/.session-token` (`$MULMOCLAUDE_WORKSPACE_PATH`, or `~/mulmoclaude` when unset), alongside the port it bound in `.server-port`.
 
-**Fix**: set `MULMOCLAUDE_AUTH_TOKEN` to the same long random value on **both** the server and the bridge. The server uses it verbatim instead of regenerating, so the token survives restarts and the bridge stays authenticated.
+**The bridge follows a restart on its own.** When the connection fails it re-reads both files, and if the server came back as a different generation — new token, new port, or both — it rebuilds its socket against it (#3078). You do not have to restart the bridge.
+
+Pinning the token is still useful when the bridge runs **on a different machine** from the server, where it cannot read the workspace at all: set `MULMOCLAUDE_AUTH_TOKEN` to the same long random value on both sides. The server then uses it verbatim instead of regenerating.
 
 ```bash
 # Server (one-time setup — same value across restarts)
@@ -79,11 +85,11 @@ Recommended: at least 32 characters of random data (the server logs a warning at
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| Webhook registration returns `{"status":10,"status_message":"No URL parameter supplied."}` | Typo in set_webhook call | Re-check JSON body |
-| Invalid signature on all events | Rotation mismatch between `VIBER_AUTH_TOKEN` and the token used to register the webhook | Re-register the webhook using the current token |
-| `send non-zero status: {"status":6,…}` | Receiver hasn't messaged your bot first | Viber requires the user to start the conversation before you can push to them |
+| Symptom                                                                                    | Cause                                                                                   | Fix                                                                           |
+| ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Webhook registration returns `{"status":10,"status_message":"No URL parameter supplied."}` | Typo in set_webhook call                                                                | Re-check JSON body                                                            |
+| Invalid signature on all events                                                            | Rotation mismatch between `VIBER_AUTH_TOKEN` and the token used to register the webhook | Re-register the webhook using the current token                               |
+| `send non-zero status: {"status":6,…}`                                                     | Receiver hasn't messaged your bot first                                                 | Viber requires the user to start the conversation before you can push to them |
 
 ## Security notes
 
@@ -125,7 +131,7 @@ Part of the [`@mulmobridge/*`](https://www.npmjs.com/~mulmobridge) package famil
 - [`@mulmobridge/teams`](https://www.npmjs.com/package/@mulmobridge/teams) — Microsoft Teams via Bot Framework
 - [`@mulmobridge/telegram`](https://www.npmjs.com/package/@mulmobridge/telegram) — Telegram bot
 - [`@mulmobridge/twilio-sms`](https://www.npmjs.com/package/@mulmobridge/twilio-sms) — SMS via Twilio Programmable Messaging
-- [`@mulmobridge/viber`](https://www.npmjs.com/package/@mulmobridge/viber) — Viber Public Account bots  ← **this package**
+- [`@mulmobridge/viber`](https://www.npmjs.com/package/@mulmobridge/viber) — Viber Public Account bots ← **this package**
 - [`@mulmobridge/webhook`](https://www.npmjs.com/package/@mulmobridge/webhook) — generic HTTP webhook bridge
 - [`@mulmobridge/whatsapp`](https://www.npmjs.com/package/@mulmobridge/whatsapp) — WhatsApp Cloud API via MulmoBridge relay
 - [`@mulmobridge/xmpp`](https://www.npmjs.com/package/@mulmobridge/xmpp) — XMPP / Jabber

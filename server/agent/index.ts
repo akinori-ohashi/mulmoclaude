@@ -5,6 +5,7 @@ import { isDockerAvailable } from "../system/docker.js";
 import { refreshCredentials } from "../system/credentials.js";
 import { loadMcpConfig, loadSettings } from "../system/config.js";
 import type { Role } from "../../src/config/roles.js";
+import { resolveChatModel } from "../../src/config/chatModelSource.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { loadMemorySnapshot } from "../workspace/memory/snapshot.js";
 import { beginBrokerSpawn } from "./brokerReadiness.js";
@@ -274,7 +275,15 @@ function logSpawn(args: {
   log.info("agent", "spawning agent", spawnLog);
 }
 
-function buildAgentInput(
+/** Exported for `test/agent/test_buildAgentInput.ts`, which exists because the
+ *  interesting part of this function is a WIRING decision, not a computation:
+ *  `resolveChatModel` is pure and tested, `buildCliArgs` turning
+ *  `AgentInput.chatModel` into `--model` is tested, and neither notices if this
+ *  call site stops consulting `role.model`. Reverting the line below to
+ *  `settings.chatModel` left all 10,169 tests green (Codex round 2, #3104), so
+ *  the per-role feature could be disconnected in silence. The test drives this
+ *  function to close that. */
+export function buildAgentInput(
   input: RunAgentInput,
   deps: AgentRunDeps,
   args: {
@@ -315,6 +324,7 @@ function buildAgentInput(
     spawnId: hasMcp ? spawnId : undefined,
     extraAllowedTools: [...settings.extraAllowedTools, ...userServerAllowedTools],
     effortLevel: settings.effortLevel,
+    chatModel: resolveChatModel(role.model, settings.chatModel).model,
     abortSignal,
     userTimezone,
     useDocker,

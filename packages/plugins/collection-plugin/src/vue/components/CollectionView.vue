@@ -362,7 +362,7 @@ import CollectionCustomView from "./CollectionCustomView.vue";
 import CollectionRemoteViewPreview from "./CollectionRemoteViewPreview.vue";
 import CollectionTable from "./CollectionTable.vue";
 import { useCollectionRendering } from "../useCollectionRendering";
-import { writeCollectionViewMode, writeCollectionSort, writeCollectionFlagFilters, type CollectionViewMode, type BuiltInViewMode } from "../collectionViewMode";
+import { writeCollectionViewMode, writeCollectionSort, writeCollectionFlagFilters, type CollectionViewMode } from "../collectionViewMode";
 import type { CollectionConfirmOptions, CollectionPushResult } from "../uiContext";
 import { useCollectionUi } from "../scopedUi";
 import { pushProblems } from "../calendarPushResult";
@@ -443,9 +443,10 @@ const emit = defineEmits<{
    *  item survives a re-render. */
   select: [id: string | null];
   /** Embedded mode only: the view mode / calendar anchor / kanban group
-   *  changed. The card persists these alongside `selected` so the calendar
-   *  and kanban stick. (The table sort is shared via localStorage instead.) */
-  viewStateChange: [state: { view: BuiltInViewMode; anchorField: string; groupField: string }];
+   *  changed. The card persists these alongside `selected` so the calendar,
+   *  kanban and custom views stick. (The table sort is shared via localStorage
+   *  instead.) */
+  viewStateChange: [state: { view: CollectionViewMode; anchorField: string; groupField: string }];
 }>();
 
 const { t, locale } = useCollectionI18n();
@@ -986,7 +987,6 @@ const {
   kanbanActive,
   setView,
   setCustomView,
-  builtInViewOrTable,
   resetForSlug: resetViewModeForSlug,
 } = useViewMode({ activeSlug, props, hasCalendar, hasKanban, customViews });
 
@@ -1618,10 +1618,7 @@ watch([activeView, calendarAnchorField, kanbanGroupField, sortState, flagFilters
   // stale "calendar"/"kanban" that has fallen back to "table" (its enabling
   // field gone) must not be saved as an impossible mode.
   if (embedded.value) {
-    // Embedded cards persist only the built-in view in v1 — a custom view
-    // collapses to "table" for the card's restore state (custom views are a
-    // standalone-page feature; widening the card viewState is a follow-up).
-    emit("viewStateChange", { view: builtInViewOrTable(activeView.value), anchorField: calendarAnchorField.value, groupField: kanbanGroupField.value });
+    emit("viewStateChange", { view: activeView.value, anchorField: calendarAnchorField.value, groupField: kanbanGroupField.value });
   }
   // Don't write during the load window: until the collection resolves,
   // `hasCalendar`/`hasKanban` are false so `activeView` reads "table",

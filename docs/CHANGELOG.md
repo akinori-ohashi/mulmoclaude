@@ -10,7 +10,1092 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
-#### `@mulmoclaude/shapescript-plugin@1.0.0` — `presentShapeScript`: 3D visualizations from ShapeScript
+#### `@mulmoclaude/shapescript-plugin@3.1.0` — `publishShapeScript` records which AI model wrote the script
+
+An optional `aiModel` argument — the model id the agent is running as, e.g. `claude-opus-5` —
+lands on the post as its `aiModel` field (up to 80 characters), which the gallery's model page
+shows as "Made with …". The tool's prompt asks the agent to pass it when it knows it. The gallery's
+rules accept the key from receptron/mulmoserver#268 on; a host on this plugin against older rules
+has its post refused, so deploy that first.
+
+### Changed
+
+#### `@mulmoclaude/shapescript-plugin@3.0.0` — `publishShapeScript` uploads the script as a Storage object
+
+The gallery moved a post's ShapeScript source out of its Firestore document into a Storage
+object beside the thumbnail (receptron/mulmoserver#266): the document carries `scriptId`, never
+the text, and the rules there refuse a `script` field. The tool now uploads the script as
+`text/plain` through a new `ShapeGalleryWriter.uploadScript` — required, hence the major: a
+writer built against 2.x fails every publish with `uploadScript is not a function` — then the
+thumbnail, then the document with its id, and takes both objects back out if the document is
+refused. A host's transport budget for the tool is `PUBLISH_TOOL_TIMEOUT_MS` (on `./render`),
+the render's plus a minute for the uploads. The cap moves from 900,000 bytes to
+the Storage rule's 10 MiB, still measured in UTF-8 bytes. Both hosts stamp every object they
+upload `Cache-Control: public, max-age=31536000, immutable`, as the gallery's own editor does.
+
+**A host on the previous plugin cannot publish once the gallery's new rules are deployed** — the
+write is refused, not lost — so update the plugin before, or with, that deploy.
+
+### Fixed
+
+#### `@mulmoclaude/collection-plugin@4.7.0` — a Canvas card could not keep a custom collection view (#3061)
+
+Picking a custom view on a `presentCollection` card held until the card next mounted —
+reselecting the session put it back on the table. The card's restore state
+(`viewState.view`, kept on the tool result) was narrowed to the three built-in modes on the
+way out, so `custom:<id>` was written as `"table"`. The reading half had accepted a custom
+mode all along; only the writing half dropped it.
+
+It was a degree worse than "not saved". `loading` is a dependency of the persist watch, so
+the card wrote `view: "table"` of its own accord once the collection resolved — and a card's
+`initialView` outranks the slug's stored preference, so a custom view chosen on the standalone
+`/collections/:slug` page was overwritten by the card too.
+
+`viewState.view` is now the full `CollectionViewMode`, and both restore paths — the slug's
+localStorage preference and the card's own state — share one guard, `isCollectionViewMode`,
+instead of each deciding separately what a mode may be. A `custom:<id>` the schema no longer
+declares still collapses to the table at render time (`resolveActiveViewMode`), so a stale
+value is safe to carry. `builtInViewOrTable` had no caller left and is gone.
+
+Fixed in #3141; the app carries it from that merge on. The minor rather than a patch is the
+emit: `CollectionView`'s `viewStateChange` payload widens from `BuiltInViewMode` to
+`CollectionViewMode`, and that component is exported. Nothing outside the plugin listens to it
+today — a host that mounts `CollectionView` standalone never sees the event at all, it is
+emitted only in embedded mode — so no consumer has to change.
+
+#### `@mulmoclaude/shapescript-plugin@2.7.1` — `publishShapeScript` allows a script of 900k bytes
+
+The tool refused a generated model of 234,796 characters with "the gallery allows 100000". The
+gallery's cap is now 900,000 UTF-8 bytes (receptron/mulmoserver#264) — bytes because Firestore's
+1 MiB document cap is in bytes and a script with Japanese comments is up to three bytes per
+character —
+and the plugin's mirrored limit, the one that lets the tool say why before a write that would fail
+as a bare permission error, moves with it and measures the same way.
+
+### Package releases
+
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.3.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@3.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+
+#### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
+
+コード変更は無く、**npm に公開される manifest のフィールド**（`dependencies` /
+`peerDependencies`）だけが tag からずれていた 13 本。どれも patch。
+
+| 種類                  | パッケージ                                                                                                                               | 中身                                                                                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **peer 移動 + range** | `accounting-plugin@3.0.1` `html-plugin@4.0.1` `markdown-plugin@4.1.1` `mulmoscript-plugin@4.8.1` `spotify-plugin@2.0.1` `x-plugin@1.0.4` | #3117 で `@mulmoclaude/common` を `dependencies` から `peer` + `dev` へ移した分。npm 上の 6 本は今も `dependencies` 版なので、**この publish で初めて利用者に届く** |
+| range のみ            | `chart-plugin@3.0.1` `collection-plugin@4.6.1` `google-plugin@3.0.1` `shapescript-plugin@2.7.1`                                          | `@mulmoclaude/core` のレンジ（`^4.1.0` → `^4.9.2` など）                                                                                                            |
+| range のみ            | `markdown-utils@2.2.1`                                                                                                                   | `common` `^1.2.0` → `^1.3.0`、`dompurify` `marked`                                                                                                                  |
+| range のみ            | `email-plugin@2.0.1`                                                                                                                     | `mailparser` `nodemailer` `zod`                                                                                                                                     |
+| range のみ            | `relay@1.0.6`                                                                                                                            | `client` `^1.0.2` → `^1.2.0`、`common` `^1.2.0` → `^1.3.0`                                                                                                          |
+
+**上げていないもの**: `devDependencies` しか動いていない package（npm は publish しない）と、
+`src/` が動いていて別途上げた bridge 25 本（別 PR）。launcher 自身の `version` は
+`chore(release)` では触らない規則どおり据え置きで、**レンジだけ**を sweep した。
+
+`markdown-utils` に伴い `@mulmoclaude/core` と `markdown-plugin` のレンジも上げた
+（最終的な値は下の 2.3.0 の項を参照）。core は 4.9.3 が**まだ未公開**なので、追加の
+bump は要らない（未公開の 4.9.3 が新しいレンジごと出る）。
+
+#### `@mulmoclaude/markdown-utils@2.3.0` — コードブロックのコピーボタン (#3125)
+
+`codeCopyExtension`（marked の `code` renderer。fence にコピーボタンごと描画する）と
+`codeCopyClipboard`（document ごとに 1 つの委譲クリックリスナ）を追加。**新規 export が
+あるので minor** — 上の表は manifest だけが動いた patch の一覧なので、こちらは別項。
+
+レンジは `@mulmoclaude/core` / `markdown-plugin` / launcher の 3 箇所すべてを `^2.3.0` に
+sweep 済み。
+
+#### `@mulmobridge/*` — 25 ブリッジが #3084 の常駐プロセス堅牢化を受け取る
+
+`installProcessGuards` を入れた 24 ブリッジを **minor**、出力の責務が `createBridgeClient` に
+移った `@mulmobridge/cli` を **patch** で上げる。どれも利用者から見える挙動が変わる:
+
+- **SIGINT / SIGTERM** で `[<transport>] SIGTERM — shutting down` を出して exit 0。従来は
+  SIGTERM で**無言で即死**していた（Windows には catchable な SIGTERM が無いので対象外）
+- **unhandledRejection / uncaughtException** をログに出してから終了する
+- 受信型 9 ブリッジ（`google-chat` / `line` / `line-works` / `messenger` / `teams` /
+  `twilio-sms` / `viber` / `webhook` / `whatsapp`）は `listenWebhook` 経由になり、**ポートを
+  打ち間違えると警告して exit(1)**、bind 失敗時に「listening」と嘘をつかない
+
+上げる 25 本:
+
+| bump  | パッケージ                                                                                                                                                                                                                                                       |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| minor | `bluesky` `chatwork` `email` `google-chat` `irc` `line` `line-works` `matrix` `mattermost` `messenger` `nostr` `rocketchat` `signal` `slack` `teams` `telegram` `twilio-sms` `viber` `webhook` `whatsapp` `xmpp` `zulip` を 1.1.0、`discord` `mastodon` を 1.2.0 |
+| patch | `cli` を 1.0.2                                                                                                                                                                                                                                                   |
+
+ブリッジは他のどの workspace からも宣言されていない（利用者が直接 install する末端バイナリ）ので、
+range の sweep は発生しない。依存する `@mulmoclaude/common@1.3.0` と
+`@mulmobridge/webhook-runtime@1.2.0` は公開済み、`@mulmobridge/client@1.2.0` は**未公開**なので、
+**client を先に publish する**こと。
+
+### Added
+
+#### `@mulmoclaude/shapescript-plugin@2.8.0` — Copy button in the `presentShapeScript` view
+
+The view's header gains a **Copy** button, between Grid and Download USDZ, that puts the
+ShapeScript source on the clipboard and reads "Copied" for a moment. It copies the text as shown
+in the source editor — unapplied edits included — since that is what the user is looking at. The
+feedback timer is cleared on unmount, and a clipboard write still pending at unmount is ignored.
+Localised across all 8 locales.
+
+#### 設定しておけばサーバと一緒にブリッジも起動する (#3080)
+
+`yarn telegram` はサーバを立て直すたびに手で立て直しになる。`config/bridges.json` で
+有効にしておけば、**サーバのプロセス内で**ブリッジが起動するようにした。まず `telegram`
+1 本で、残り 24 本は後続 PR。
+
+```jsonc
+// <workspace>/config/bridges.json — オン/オフだけ。認証情報は .env のまま
+{ "bridges": { "telegram": { "enabled": true } } }
+```
+
+**新しいコアは足していない。** `packages/chat-service/src/relay.ts` は自身を
+「HTTP (router) と socket.io の両 transport が呼ぶ共有コア」と書いていて実際そうなので、
+プロセス内経路はその `RelayFn` の **3 つ目の呼び出し元**になるだけ。副産物として
+**ポートもトークンも要らない** — HTTP を 1 往復しないので、#3078（ブリッジがサーバの
+ポート／トークンを見失う）がこの経路では構造的に起きない。
+
+- `createInProcessBridgeClient`（`@mulmobridge/client`）が既存の `BridgeClient` を満たす。
+  実装すべき面が小さいことは測ってある: 25 本が使うのは `send`（25）/ `onPush`（25）/
+  `onTextChunk`（2）/ `close`（1）だけで、`socket` エスケープハッチの利用は **0 本**。
+  その `socket` は null ではなく **throw** する — 誰も触っていない以上、最初に触る人は
+  成り立たない前提で書いているので、無関係な TypeError で気づくより良い
+- `chatService.registerInProcessBridge` が server → bridge の push を配る。プロセス内
+  ブリッジは常に live なので queue には積まない
+- **起動失敗はサーバを止めない**（Relay の既存挙動に合わせた）。トークン欠落・未変換の
+  transport・壊れた設定エントリ・**読めない設定ファイル**（EACCES 等、`loadJsonFile` が
+  ENOENT 以外を rethrow する経路）はそれぞれログに出て、他のブリッジとサーバは動き続ける。
+  **push ハンドラの同期 throw も封じ込める** — `pushToBridge` はルートハンドラやスケジューラの
+  スタック上で走るので、ブリッジのバグがそこへ抜けるとサーバが落ちる
+- ブリッジ本体は `packages/bridges/telegram/src/start.ts` に移した。`env` を読まず
+  `process.exit` も呼ばず、**throw する**。CLI 側はそれを受けて今までどおりのメッセージと
+  exit code を出す。**CLI の挙動は変えていない**: 起動失敗 5 経路を変更前後で実行して
+  出力と exit code が 1 バイト差も無いことを確認した
+
+公開面が変わった 3 本を上げた: `@mulmobridge/client@1.3.0`（`createInProcessBridgeClient`）、
+`@mulmobridge/telegram@1.2.0`（`./start` subpath）、`@mulmobridge/chat-service@1.2.0`
+（`registerInProcessBridge`）。前 2 つは **#3116 で直したドリフトゲートが自分の PR で捕まえた**。
+3 つ目はゲートには見えない — module の export 名ではなく**返り値オブジェクトのメソッド**が
+増えたケースで、これは今のゲートの測り方の外側にある。
+
+bridge パッケージは launcher の **`optionalDependencies`** に置いた。`server/` は launcher
+経由で配布されるので、そこから動的 import するパッケージは launcher が宣言していなければ
+npm ユーザーに届かない（smoke の `deps` ステージが指摘した）。`deps.mjs` 自身が
+「optionalDependencies satisfies a dynamic import with try/catch」と書いている形に合わせている。
+
+使い方は [`docs/in-process-bridges.md`](in-process-bridges.md)、詰まったときの診断は
+`error-recovery.md` に追加した節にある。
+
+#### `@mulmoclaude/shapescript-plugin@2.7.0` — `publishShapeScript` posts a model to the gallery
+
+A new tool, `publishShapeScript`, posts a ShapeScript model to the public gallery on mulmoserver
+(server.mulmocast.com/shapes) under the user's own Google account and answers the model's URL. It
+takes the same source as `presentShapeScript` (inline `script` or `path`), a title, an optional
+description, keywords and the prompt the model was made from, and `published: false` for a draft.
+The post is a Firestore write over the remote-host session — the server already signs into
+mulmoserver's Firebase as the user for the phone remote — so no new endpoint or credential exists;
+with Remote Host disconnected the tool says how to connect it. A thumbnail is rendered with the
+same headless Chromium `renderShapeScript` uses and attached when the host has one; without it the
+post lands without a picture, and a refused write takes an uploaded thumbnail back out. The post
+document's shape, its key set and the keyword normalisation are the plugin's and pinned by test,
+since mulmoserver's rules refuse any other shape. The tool's prompt tells the agent to publish only when
+asked: a post is public under the user's name.
+
+#### Settings → Model でチャットのモデルを選べる (#2923)
+
+MulmoClaude は `claude` を `--model` なしで spawn していたため、モデルは常に
+`~/.claude/settings.json` から解決されていた。このファイルは VS Code / Cursor の Claude Code
+拡張が `/model` の選択を保存する先でもあるので、**そちらで切り替えると MulmoClaude のモデルも
+一緒に変わり**、画面には何も出なかった。意図しない価格帯のモデルで動き続ける、あるいは調査主体の
+ロールが最上位モデルの週次枠を食い潰す、という形で表面化する。
+
+`AppSettings.chatModel` を設定すると、その値だけが `--model <alias>` として渡る。受け付けるのは
+ファミリーエイリアス `opus` / `sonnet` / `haiku` のみで、`claude-opus-4-8` のような固定 ID は
+400 で弾く — 保存した選択が新しい世代へ自動追随してほしいため。**未設定は現状どおりフラグ省略**
+（共有ファイルに追従）なので、既定の挙動は変わらない。既存の `effortLevel` (#1323) と同じ経路・
+同じ null センチネル方式に載っている。
+
+`config/settings.json` の `chatModel` が live な値で、`bug-report-faq.md` の
+「MulmoClaude is answering with a different model than I expected」がそこを指す。
+
+### Changed
+
+#### Node 22 が下限になって解けた依存 — `matrix-js-sdk@42` / `google-auth-library@11`
+
+`engines` が `>=22.19` になったので取り込めるようになった 2 本。上げなかったものと、その理由も
+残しておく（どれも「上げる利得が無い」であって「危なくて上げられない」ではない）。
+
+- **`matrix-js-sdk` 41.9.0 → 42.3.0** — 実コードの変わる唯一の更新。42 の破壊的変更は
+  Matrix v1.18 OAuth2 API 対応と `getContentUri` 削除だが、`packages/bridges/matrix/src/index.ts`
+  は `accessToken` 認証で、どちらの経路にも乗っていない。使用 API 面
+  (`createClient` / `RoomEvent.Timeline` / `MatrixEvent.getType|getSender|getContent` /
+  `Room.roomId` / `startClient` / `sendTextMessage`) を 42.3.0 の実物に対し strict で型チェックし、
+  通ることを確認済み。**このブリッジにはテストが無い** (`"test": "echo no tests yet"`) ので、
+  実挙動の担保は型のみ。
+- **`google-auth-library` 10.9.1 → 11.0.2** — v11 系列の `build/` は 10.9.1 と**全バイト同一**
+  (92 ファイル、ハッシュ一致)。major の中身は `engines` を `>=18` から `>=22` に上げたことだけで、
+  API 差分は無い。上げる意味は将来側で、10.x は 10.9.1 で打ち止め、以後の修正は 11.x に乗る。
+  **代償として `packages/core/node_modules` に 1.8MB のネスト**が生まれる — `@google/genai`
+  (`^10.3.0`) と `google-gax` (`^10.1.0`) が 10.x に上限を掛けているため。`GoogleGenAI` は
+  `apiKey` だけで生成され core の `OAuth2Client` は外に出ないので、2 つのコピーが `instanceof` や
+  モジュール状態で干渉することはない。`@google/genai` が `^11` に移れば重複は自然に解消する。
+
+上げなかったもの:
+
+- **`undici` 8** — この repo は undici を import しておらず root の `resolutions` ピン専用。
+  advisory は 0 件でピンの目的は 7.29.x で達成済みな一方、8 を強制すると `discord.js` /
+  `@discordjs/rest` (`^6.27.0`)、`@slack/socket-mode` (`^7.0.0`)、`jsdom` (`^7.25.0`) を宣言範囲を
+  越えて引っ張り、`miniflare` の exact ピン `7.29.0` まで上書きする。8 の破壊的変更
+  ("remove legacy handler wrappers" / "enable h2 by default") はまさにそれらが触る内部。
+- **`which` 7** — 7.0.0 の中身はサポート Node 範囲を狭めたことそのもので機能差分が無く、
+  範囲 `^22.22.2 || ^24.15.0 || >=26.0.0` が Node 23.x / 24.0–24.14 / 25.x を除外するため、
+  下限をどこに置いても宣言上の穴が残る。用途は `server/system/optionalDeps.ts` の PATH 探索 1 箇所。
+- **`mermaid` 12** — 既定レイアウトが同梱 ELK、テーマ/look が redux-color/neo に変わり、既存の図が
+  引き直されて色が変わる。目視確認の要る独立した作業。
+
+#### Node.js の下限を 20.12 → 22.19 に引き上げ
+
+`google-auth-library@11` と `matrix-js-sdk@42` が Node >= 22 を要求するようになり、20.x のままでは
+取り込めない。取り込む 2 本の要求は `>=22` なので **`>=22.19` は厳密な必要値ではなく判断**で、根拠は
+(1) `node:sqlite` (>= 22.5) を内包し sqlite storage が「条件付きで動く機能」から「常にある機能」に
+なる、(2) `mermaid@12` (>= 22.12.0) の道を開けておき engines をもう一度動かさずに済む、
+(3) `which@7` が `^22.22.2` を要求するようにエコシステムの要求はもっと上にある、
+(4) 22.19.0 自体が約 1 年前 (2025-08-28) のリリースで、22.x を常識的に追っていれば既に満たす線。
+
+- `engines.node` を root と `packages/mulmoclaude` の両方で `>=22.19` に。
+- 起動をハードにブロックする launcher の `REQUIRED_NODE` も同じ値へ。両者のズレは
+  `test/utils/launcher/test_preflight.ts` の drift テストが落として教える。
+- `which@7` は**上げない**。7.0.0 の変更内容はサポート Node 範囲を狭めたことそのもので機能差分が無く、
+  範囲 `^22.22.2 || ^24.15.0 || >=26.0.0` が Node 23.x / 24.0–24.14 / 25.x を除外するため、
+  下限をどこに置いても宣言上の穴が残る。用途は `server/system/optionalDeps.ts` の PATH 探索 1 箇所。
+- 副作用として **`node:sqlite` (Node >= 22.5) が下限に含まれた**。lazy import と degradation は
+  「そのモジュール抜きでビルドされた Node」向けの防御として残すが、`sqliteStore.ts` /
+  `backendAvailability.ts` / `docs/shared-utils.md` / `assets/helps/error-recovery.md` の
+  「app の floor は 20.12」という記述はすべて事実と合わなくなったので直した。
+
+#### `@mulmoclaude/core@4.9.2`
+
+`assets/helps/error-recovery.md` の sqlite セクションが上の下限変更で事実と食い違うため。export も
+挙動も変わらない（エージェントはツール失敗時にこのファイルを読むので、記述は npm 経由で届く必要がある）。
+宣言 range を **17 / 9 ファイル** sweep — launcher の `dependencies` と 8 プラグインの
+`devDependencies` + `peerDependencies`。launcher 自身の `version` は不変。
+
+### Fixed
+
+#### `yarn dev --<flag>` did nothing at all, for every flag (#3113)
+
+All six toggles in the CLI-flag registry were silent no-ops on `yarn dev`, while
+`docs/developer.md` and the bundled `helps/sandbox.md` said they worked — since #1089.
+`dev` was a compound `a && b && c` script in package.json, and yarn appends a script's
+trailing args to its LAST command only, so the flag landed on `concurrently`, which
+drops what it does not recognise. Both halves measured rather than reasoned:
+
+```
+$ yarn chain --allow-multiple-instances     # "node show.js A && node show.js B"
+A argv=[]
+B argv=["--allow-multiple-instances"]
+
+$ concurrently -n a -k "node -e '…print argv…'" --allow-multiple-instances
+[a] child argv= []
+```
+
+`yarn dev` now runs through `scripts/dev.mjs`, which translates the flags to env
+before the first step, so every step of the chain inherits them. The step commands
+are the same strings package.json held, run by the same shell, so the no-flag path
+is unchanged. `dev:debug` and `dev:full-build` go the same way.
+
+An unrecognised flag is now **refused** with the list of valid ones, rather than
+ignored — ignoring it is the same bug one typo removed.
+
+#### The publish-drift gate was scanning 4 packages and counting the wrong thing (#3116)
+
+`scripts/mulmoclaude/drift.mjs` exists to refuse one specific state: a new runtime export shipped
+at an unchanged version, so npm keeps serving a tarball without it and consumers crash at runtime
+with "does not provide an export named …". It did catch that for `@mulmobridge/client` in #3110.
+It could not have caught it for the other two packages in the same change, and three separate
+reasons were measured rather than guessed:
+
+**Which packages.** It read the launcher's `dependencies` and kept the `@mulmobridge/*` ones —
+four packages: `chat-service`, `client`, `protocol`, `web-push`. That leaves out
+`@mulmoclaude/common` (declared by 32 other workspaces), `@mulmobridge/webhook-runtime` (9),
+`@mulmoclaude/core` (8), `@mulmoclaude/markdown-utils` (2) and `@receptron/task-scheduler` (1).
+#3109 added `asInt` / `PORT_RANGE` to common and `listenWebhook` to webhook-runtime at unchanged
+versions, and the gate passed. The set is now every publishable workspace another workspace
+declares — 20 today — discovered from the `workspaces` globs, so a bridge under
+`packages/bridges/<name>` or a package whose directory does not match its name
+(`@receptron/task-scheduler` lives in `packages/scheduler`) is no longer unreachable.
+
+**What to compare.** It compared the local `src/index.ts` against the published `dist`, which only
+holds when dist mirrors src one-to-one — a tsc build. For a vite-bundled package it is nonsense:
+`@mulmoclaude/x-plugin`'s src has 6 export lines and its dist has 1, so the old metric called it
+**drifted** while it was byte-identical to what npm serves, and `@mulmoclaude/core` came out 229
+against 30. The comparison is now local **built** dist against published dist, the same relative
+path on both sides, so the build system cannot skew it. The smoke workflow already runs
+`yarn build:packages && yarn build` first; a missing local dist is reported as `skipped`, never as
+clean.
+
+**What to count.** Lines cannot see a bundle's surface. `x-plugin`'s entire public API is one line —
+`export { extractTweetId, formatTweet, readUrlArg, readXPost, searchX, tweetBody };` — so a seventh
+name added there leaves the count at 1 and the gate passes. The unit is now the set of exported
+**names**, per `exports` subpath, which is also what lets the gate say WHICH export is new instead of
+"the count went up by one". An `export * from` barrel is followed into the files it re-exports, on
+both sides, so a bundle that puts its whole surface behind one barrel is still compared by name; the
+line-count fallback is left for the case where a re-exported file cannot be read at all. A wildcard
+subpath (`"./*": "./dist/*.js"`) is skipped with a reason, and so is a CommonJS entry — `exports.x =`
+has no `export` statement to read, and zero names on both sides is not a match.
+
+Measured on this tree: 20 packages, 16 `ok`, 4 `pending-publish` (`common`, `webhook-runtime`,
+`client`, `core` — the four genuinely awaiting publish), 0 `drifted`. The three false positives the old
+metric produced are gone, and `client`'s report now names `resolvePublishedApiUrl` — a third
+unpublished export that #3115's review had to find by hand.
+
+The workflow trigger moved with it. `mulmoclaude_smoke.yaml` only ran for
+`packages/{mulmoclaude,protocol,client,chat-service}`, so a PR touching `@mulmoclaude/common` never
+started the job at all: widening the scan set does nothing while the trigger stays narrow.
+
+Fourteen more holes came out of the cross-review, each reproduced before it was fixed, and they share a
+shape: **a wrong or empty answer that reads as clean**. The parser now enumerates what it CAN model —
+a brace list without comments, `default`, a declaration, `type`/`interface` — and marks every other
+`export` statement opaque, because three consecutive findings were each "it silently drops one more
+shape" and a ban-list has no last case. Concretely:
+
+- **A published subpath that 404s is drift, not a skip.** Adding `{ "./new": "./dist/new.js" }` at an
+  unchanged version is a consumer-visible addition — `import "pkg/new"` fails after a plain install —
+  and the old code skipped that entry, so the package reported `ok` as long as `.` compared cleanly.
+  Transport failures (5xx, 429, timeouts) still skip: they say nothing about the package.
+- **A non-JS `exports` target no longer counts as a comparison.** Eight of the twenty scanned
+  packages export a `./style.css`, so an unbuilt package had its JS entry skipped, its stylesheet
+  "compared", and the whole package reported `ok`.
+- **The parser never guesses a name it cannot read exactly.** `export { a as "string name" }` (ES2022
+  arbitrary module namespace names) reported `a`, and `export { café }` reported `caf` under an
+  ASCII-only pattern — a name the package does not export is worse than a coarse comparison.
+- **An opaque entry still compares the names it could read.** The fallback used to replace the name
+  comparison with a line count, so `export * from "./x.js";export { newThing };` was clean against
+  `export * from "./x.js";` — one line on each side, the added name discarded.
+- **A subpath whose `exports` conditions resolve to no file is reported, not substituted.** A nested
+  `{ node: { import: … } }` block was dropped entirely, and a types-only entry fell back to the
+  package's `main` — comparing a different file's export surface.
+- **A CommonJS entry was "compared" as zero names against zero names.** A `require`-only subpath has
+  no `export` statement at all, so the metric read an empty set on each side and called it a match.
+  It is skipped with a reason now; a dual package is still compared through its `import` condition,
+  which `resolveConditionTarget` prefers.
+- **A `;` inside a string literal invented a statement.** Splitting a minified line on every `;`
+  turned `export const a = "x;export const b = 1"` into two statements and registered `b` — a name
+  the module does not have — as a local-only export, i.e. drift. One string-aware scanner now backs
+  the `;` split, the `,` check and the bracket tracking.
+- **An unreachable file inside the barrel walk read as a missing export.** Only the entry fetch told
+  a 404 from a 5xx, so a registry hiccup on a re-exported chunk reported the local tree as
+  **drifted** — a red gate no code change can fix. Absence still degrades to the coarse comparison;
+  a transport failure skips.
+- **The `require` branch was invisible, so a partial verdict read as a whole one.** `exports`
+  conditions resolve to ONE target and `import` wins, and 48 of the scanned subpaths publish a
+  distinct `.cjs` — an unmentioned surface. Each verdict line now names them
+  (`31 require branch(es) NOT compared`). They are reported rather than parsed on purpose: a CJS
+  reader's failure mode is an EMPTY name set, which is "0 names on both sides is a match" — the bug
+  this whole round removed. Measured before deciding: an 8-line reader over the real tree read 0
+  names for 10 of 48 subpaths, because rollup comma-chains its `exports.x =` assignments. The gate
+  is ESM-only by design, and now says so where the verdict is read. The version bump a real ESM
+  drift forces republishes both formats anyway, since one build emits both from one entry.
+
+- **A bump with no API change was not a release blocker, and it is.** `pending-publish` was only
+  assigned when the export set had grown, so a patch release reported `ok` and `--release` let it
+  through — while every consumer already declares `^<local>`, a version npm does not serve, which is
+  the ETARGET failure release mode exists to stop. It was live: `@mulmoclaude/core@4.9.1` printed a
+  clean line. The status now follows the version alone, non-fatal on a PR and fatal under
+  `--release`, which is why the count above reads 4 rather than 3.
+- **A new `exports` subpath pointing at an already-published file read as clean.** The gate
+  enumerates the LOCAL map, so `{"./new": "./dist/index.js"}` at an unchanged version compared the
+  same file twice, matched, and reported `ok` — while `import "pkg/new"` still fails after a plain
+  install, because the PUBLISHED `package.json` has no such key. The published manifest's subpath
+  keys are now compared too; an unreadable manifest says nothing rather than inventing a finding.
+- **"Readable but no `exports` map" was answering "cannot say".** The first version of that check
+  returned the same "unknown" for a manifest it could not read and for one that simply has no
+  `exports` map — so a package migrating from `main` to `exports` could add subpaths at an unchanged
+  version and still report clean. The second case is determinate: such a package serves `.` through
+  `main` and no named subpath at all. Only an unreadable manifest declines to judge now.
+- **Two barrels providing the same name were unioned.** ESM does not expose such a name — it is
+  ambiguous, and `import { x }` from that barrel is an error — so the union both reported a name
+  consumers cannot import and called it clean when a build removed the collision and made it
+  importable. A name from more than one barrel is now left out unless the barrel re-exports it
+  explicitly.
+- **The `require` report missed nested conditions.** `{ node: { import, require } }` resolves to the
+  ESM file, so a top-level lookup said nothing while that CJS branch stayed uncompared.
+- **A whole-file brace counter swallowed a real export line, on two real entries.** Statements were
+  joined by counting braces from the top of the file, which is wrong the moment one brace sits
+  inside a string: `@mulmoclaude/core`'s `./plugin-vue` dist has exactly ONE column-0 export line,
+  listing ten names, and it was being merged into the line above — **0 names on both sides, which
+  reads as a match**. The join is anchored at the `export` line now. The fix is visible in the
+  totals: `core` went 676 → 686 names and `shapescript-plugin` 47 → 62.
+
+`test/scripts/mulmoclaude/test_drift.ts` pins all of it: 83 cases, including the near-misses that
+must come back opaque rather than empty. Every guard above was mutation-checked — reverted one at a
+time, with the corresponding case going red each time (11 for 11).
+
+**The parser is checked against an external authority, not against itself.**
+`scripts/mulmoclaude/drift-groundtruth.mjs` imports every local dist entry in the scan set and
+compares `Object.keys(namespace)` — what Node actually exposes — against what the parser reports:
+**67 entries, 67 exact, nothing missed and nothing invented**. That is what found the `plugin-vue`
+hole, which no amount of reading the parser had. It is deliberately not in `yarn test` (importing
+built code runs side effects) — run it by hand after touching the parser.
+
+One limitation stays, measured rather than assumed: a line at column 0 beginning with `export`
+INSIDE a multi-line template literal is read as a statement, so its name is invented. Every guard
+that closes it — dropping such a line when an odd number of backticks precedes it — cost **6 real
+entries and several hundred real names** falling out of the name comparison, to close a case the
+67-entry measurement shows does not occur. The invented name is also identical on both sides unless
+the sample itself changes, so it can cost a false `drifted`, never a false `ok`.
+
+#### 保存中に変えた選択が、失敗時に取り残される (#2923)
+
+Settings → Model の select は `@change` で自動保存する。PUT が飛んでいる間に選択を変えると、その
+change は「保存中」ガードに弾かれて送られない。送り直しは成功パスにしか無かったため、**リクエスト
+が失敗するとその選択は画面に出たままサーバに届かない**状態で固定される。同じ項目を選び直しても
+change イベントは出ないので、ユーザーには復帰手段が無かった。`effortLevel` にも #1323 以来あった
+欠陥で、2 つの select で保存処理を共通化したことで両方に効くようになった。
+
+#### `@mulmoclaude/common@1.3.0`, `@mulmobridge/webhook-runtime@1.2.0`, `@mulmoclaude/core@4.9.1` — the versions catch up with #3084
+
+#3084 left shared packages carrying new exports at unchanged versions. That is the state
+`scripts/mulmoclaude/drift.mjs` exists to refuse: npm keeps serving the old tarball, so a consumer
+resolving `^1.2.0` gets a `@mulmoclaude/common` with no `asInt` and one resolving `^1.1.0` gets a
+`@mulmobridge/webhook-runtime` with no `listenWebhook` — a runtime "does not provide an export
+named …", invisible to lint, typecheck and local dev because a yarn-workspace symlink always points
+at the freshly built local dist.
+
+Every number below is one a command produces, next to the thing it counts — three rounds of this
+PR's review went to prose that miscounted its own sweep, so the counts now sit in the table instead
+of in sentences:
+
+| package                        | version           | bump  | what npm does not serve yet                                                                                                                                                                                                                                                      | ranges swept (declarations / files)                                                                                                            |
+| ------------------------------ | ----------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@mulmoclaude/common`          | 1.2.0 → **1.3.0** | minor | `asInt`, `PORT_RANGE`, type `IntRange`, moved from `server/utils/envCoerce.ts`; `PORT_RANGE` typed `Required<IntRange>` so a caller compares against its bounds without a non-null assertion                                                                                     | **34** / 33 — 33 `dependencies` + one plugin's `devDependencies`                                                                               |
+| `@mulmobridge/webhook-runtime` | 1.1.0 → **1.2.0** | minor | `listenWebhook` — the single bind path for the nine webhook bridges: resolves the port, refuses an unusable value with the env var named, explains `EADDRINUSE` / `EACCES`, reports the port actually bound                                                                      | **9** / 9 — all `dependencies`                                                                                                                 |
+| `@mulmoclaude/core`            | 4.9.0 → **4.9.1** | patch | no export and no behaviour change: the new `assets/helps/error-recovery.md` sections (which reach npm users only through a core publish, since the agent reads that file before asking the user anything on a tool failure) and #3106's comment-only edits under `src/notifier/` | **17** / 9 — the launcher's `dependencies` plus eight plugins' `devDependencies` AND `peerDependencies`; the same 17 the `4.9.0` release swept |
+| `@mulmobridge/client`          | already 1.2.0     | —     | **two** things, not one: `installProcessGuards` + `SHUTDOWN_GRACE_MS` (from #3110, which bumped it — nothing to do here) **and `resolvePublishedApiUrl`**, another PR's unpublished work (`18b8c5ea3`) that rides along in 1.2.0                                                 | —                                                                                                                                              |
+
+Why sweep at all, when these are `1.x` lines? **Not** to unpin anyone: `^1.2.0` does admit 1.3.0
+(`semver.satisfies("1.3.0", "^1.2.0")` is `true`), and `docs/package-releases.md` says so — a caret
+floats across minors at or above 1.0. The `0.x` case in CLAUDE.md's rationale is the one where a stale
+range pins a consumer (`^0.23.0` excludes 0.24.0), and none of these three are on a `0.x` line. What a
+stale range costs here is the **floor**: `^1.2.0` permits a resolver to land on 1.2.x — an existing
+lockfile, `npm ci`, `--prefer-offline`, another constraint in the tree — and that copy has no `asInt`, so
+the failure arrives at runtime. `^1.3.0` turns it into an install-time resolution error. The sweep is
+also a hard gate for the launcher specifically: `check:launcher-sync` requires its declared lower bound
+to equal the workspace version. This is the same reading the `2026-07-25` entry in this file already
+took ("a caret on a `1.x` package floats, so the published `^1.2.x` ranges already resolved core
+1.3.0 … the bump only makes each declared floor match what the source actually requires").
+
+**The launcher's OWN `version` is untouched** (still 1.16.0); that field belongs to
+`/publish-mulmoclaude`.
+
+The drift gate caught one of the four and could not have caught the others: it scans the
+`@mulmobridge/*` packages the launcher depends on, so `@mulmobridge/client` failed the check while
+`@mulmobridge/webhook-runtime` (not a launcher dependency) and `@mulmoclaude/common` (wrong scope)
+passed. `yarn audit:releases --code-only` names them, and widening the gate is #3116.
+
+Publish order is bottom-up, and which edges are STRICT matters, because a strict edge published
+backwards ships code calling an export npm does not serve yet:
+
+| edge                                            | strict? | what forces it                                                                                                                                                   |
+| ----------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `common@1.3.0` → `webhook-runtime@1.2.0`        | **yes** | `webhook-runtime/src/port.ts` imports `asInt` and `PORT_RANGE`; published `common@1.2.0` has neither                                                             |
+| `webhook-runtime@1.2.0` → the 9 webhook bridges | **yes** | all nine call `listenWebhook`                                                                                                                                    |
+| `client@1.2.0` → all 24 resident bridges        | **yes** | all 24 call `installProcessGuards`                                                                                                                               |
+| `common` → `client@1.2.0`                       | no      | `client` takes only `isRecord`, `scanEnvOptions` and `errorMessage` from common — all present in the published **`common@1.2.0`** (the two 1.2.0s are unrelated) |
+| anything → `core@4.9.1`                         | no      | it uses none of common's new exports; its range moves for consistency                                                                                            |
+
+One trap for anyone re-deriving this with `git diff <name>@<version>..HEAD`: the
+`@mulmobridge/client@1.1.0` **tag lags its own publish**. The published tarball exports
+`resolveApiUrl` — checked directly against
+`https://unpkg.com/@mulmobridge/client@1.1.0/dist/index.js` — and the tag does not, which is why
+`drift.mjs` measures one line of drift against the tarball while the tag diff shows two added export
+lines. The tarball is the authority for "what a consumer has"; a tag is only as good as the
+discipline that wrote it, which is why this repo requires one on every publish.
+
+#### `yarn dev` no longer starts a second server against a workspace that already has one (#3079)
+
+Only the icon launcher ever checked. `yarn dev`, `yarn server` and `npx mulmoclaude` walked
+forward off a busy port — 3001 → 3002 — and started a SECOND server, announcing it in one
+`log.info` line. Nobody meant to run two, and two over one workspace overwrite each other's
+`.session-token`: after that a stateless plugin dispatch authenticates cleanly against the wrong
+server while the session-scoped `/api/internal/tool-result` push lands where the session does not
+exist and is dropped, so plugin views simply stop rendering on one of them and nothing errors.
+
+All three paths now refuse that launch. The question is asked of `<workspace>/.server-port` rather
+than of the port, because the harm is a shared WORKSPACE: a second instance with its own
+`MULMOCLAUDE_WORKSPACE_PATH` needs no flag on any port, and one sharing this workspace is refused
+even on a port nobody wanted — which `PORT=3100 yarn dev`, previously the documented escape hatch,
+now is. A stale sidecar left by a killed instance does not stop anything: the port it names is
+probed, and only a MulmoClaude-shaped answer counts. A busy port held by some other program still
+walks forward exactly as before.
+
+`MULMOCLAUDE_ALLOW_MULTIPLE_INSTANCES=1` opts back in, with the token stomping that implies, and
+`--allow-multiple-instances` is the equivalent flag everywhere — including `yarn dev`, which drops
+trailing args until the fix above lands in the same release.
+
+#### A bridge that crashed said nothing about which bridge it was, and Ctrl-C dropped work in flight (#3084)
+
+Counting all 25 packages under `packages/bridges/`: none had an `unhandledRejection` handler, none
+had `uncaughtException`, and only `telegram` and `nostr` handled `SIGINT` / `SIGTERM`. A bridge is a
+process a user starts in a terminal and leaves running, so both gaps show up as the same report —
+"the bot just stopped answering". Node 15+ terminates on an unhandled rejection, so ONE missed
+`await` anywhere took the bot down leaving a stack trace that named no transport; and Ctrl-C killed
+the other 23 mid-flight, dropping a webhook that was being handled or updates already fetched.
+
+`installProcessGuards({ name, onShutdown })` in `@mulmobridge/client` — which all 25 already
+depend on — is now called once from each of the 24 resident bridges. A crash prints
+`[<transport>] unhandled rejection — exiting: <reason>` and then the stack, and still exits 1:
+installing a handler SUPPRESSES Node's own exit, so it re-exits explicitly. The aim is a legible
+message, not a survivable error. A signal prints `[<transport>] SIGINT — shutting down`, runs the
+bridge's shutdown work, and exits 0; a second signal skips the wait and exits 1, because someone
+pressing Ctrl-C twice means it. A shutdown task that hangs is capped at 5s.
+
+`telegram` and `nostr` were the two that already did this correctly, so their work was folded in
+rather than replaced: telegram's `AbortController` + socket close and nostr's debounced-cursor
+flush are now the `onShutdown` they pass, and telegram gains `SIGTERM`, which it did not handle.
+`cli` is deliberately out of scope — it is an interactive readline REPL, not a resident process,
+and Ctrl-C there belongs to readline.
+
+`@mulmobridge/client` goes to 1.2.0 with the new export, and all 28 declared ranges on it are swept
+to `^1.2.0`. That is not tidiness: `scripts/mulmoclaude/drift.mjs` (the `smoke` job's drift stage)
+counts value-export lines in `src/index.ts` against the published tarball's, and a new export at an
+unchanged version is exactly the failure it exists to catch — npm still ships the old dist, so a
+consumer would crash with "does not provide an export named installProcessGuards". A bumped version
+reads as `pending-publish` instead, which is the honest state until the cascade publish lands.
+
+No restart logic: a supervisor belongs to whatever started the bridge (#3080), and two would fight.
+Verified on a running bridge process — `SIGINT` and `SIGTERM` each print their line and exit 0, and
+a stray rejection prints the transport-named line where Node alone printed an anonymous stack.
+
+#### A webhook bridge read its port with `Number(env) || N`, and a busy port killed it unexplained (#3084)
+
+The nine bridges that receive events over an inbound webhook (`line`, `line-works`, `google-chat`,
+`messenger`, `teams`, `twilio-sms`, `viber`, `webhook`, `whatsapp`) each resolved their listen port
+as `Number(process.env.X) || <default>` and then called a bare `app.listen`. Three consequences, all
+silent: a typo (`302a` → `NaN` → falsy) started the bridge **on the default without a word**, so it
+answered somewhere other than where it was told to; `X=0` was impossible for the same falsy reason,
+even though that is the documented way to ask the OS for a free port and the server itself supports
+it; and a busy port arrived as an unhandled `EADDRINUSE` naming no env var — which is routine rather
+than rare, since the server's walk-forward band (3002-3021) covers the whole bridge band
+(3002-3013).
+
+The bind now goes through one `listenWebhook` in `@mulmobridge/webhook-runtime`, where six of the
+nine already got their Express setup — `teams`, `twilio-sms` and `webhook` hand-rolled theirs and
+declare the dependency as part of this change. Each bridge names its env var once, and the rule has
+a single home. An unusable value stops the bridge with the value, the range and the env var
+in the message, instead of quietly taking the default (issue decision D-3). `EADDRINUSE` and `EACCES`
+each say which env var to change. The coercion itself is the server's own `asInt` / `PORT_RANGE`,
+moved from `server/utils/envCoerce.ts` into `@mulmoclaude/common` so there is still exactly one copy —
+`server/utils/envCoerce.ts` stays as the door `vite.config.ts` reaches it through, and `DEFAULT_PORT`
+(the host's own 3001) stays behind. The move was verified against a verbatim copy of the pre-move
+function over 620k generated (value, fallback, range) triples: 0 differences.
+
+Two behaviours needed guarding rather than describing. `PORT=0` only helps if you can find out what
+you got, so the startup banner now names the port actually bound — and the banner is printed only
+when `server.address()` confirms a bind, because **Express 5 runs `app.listen`'s callback even when
+the bind failed** (verified on express@5.1: `address()` is `null`, `listening` is `false`, and the
+`error` event lands on the next tick). Without that check a collided bridge printed
+`Webhook listening on http://localhost:3002/webhook` and then the error — the same silence, one step
+later. `packages/webhook-runtime/test/test_port.ts` pins both, including a real `EADDRINUSE` against
+an occupied port.
+
+The matching operator-facing section — both messages, why "already in use" is usually the server, and
+the `=0` way out — is in `packages/core/assets/helps/error-recovery.md`, which the agent reads before
+asking the user anything on a tool failure. It reaches npm users with the next `@mulmoclaude/core`.
+
+Out of scope, deliberately: `email` (`EMAIL_IMAP_PORT`, `EMAIL_SMTP_PORT`) and `irc` (`IRC_PORT`) use
+the same expression, but those are outbound ports where `PORT_RANGE`'s `min: 0` has no meaning. The
+process-level gaps the issue's comment counts (no `unhandledRejection` handler in any of the 25
+bridges, `SIGINT` in only two) are a separate change.
+
+#### `@mulmoclaude/core@4.9.0` — the bundled help stopped telling the agent that the server is on 3001 (#3085)
+
+`assets/helps/*` still described a server pinned to `localhost:3001` after #3081 and #3092 had
+made every bridge follow the port the server actually bound. That is not merely a stale
+document: the agent reads `error-recovery.md` BEFORE asking the user a clarifying question on a
+tool failure, so a stale help means the agent gives stale advice.
+
+`telegram.md` had three. Two were the port number, and one was an instruction — "wait until you
+see `[server] listening port=3001`" told the reader to wait for the wrong thing, since `PORT`
+and the busy-default walk both change it. Its security note ("the bridge only talks to
+`localhost:3001`") stays true in substance — the bridge only ever reaches the IPv4 loopback —
+and now says that rather than a number. `custom-view.md`'s sample `dataUrl` is a value the HOST
+injects, so it reads as host-provided instead of naming a port a view never picks.
+
+`error-recovery.md` had no messaging-bridge section at all, which left the single most common
+report — "the bot does not reply and nothing errors" — with nothing to work from. The new
+section starts where the answer usually is: every bridge prints the address it resolved, so
+comparing that banner against `<workspace>/.server-port` separates "an old npm build that
+hardcodes 3001" from "the address is right, look further in" without needing a version number
+to be current. It also covers the two states that look like faults and are not — a bridge
+WAITING because the server has not published its port (a cold start builds the sandbox image
+between writing the token and binding), and a bridge that cannot see the workspace at all and
+therefore needs both `MULMOCLAUDE_API_URL` and `MULMOCLAUDE_AUTH_TOKEN`.
+
+The banner is now guarded rather than described. `test/bridges/test_bridgeFollowsRestart.ts`
+spawns a bridge as its own process and asserts the line appears on the child's **stderr**,
+naming the published port — and appears again, naming the new one, after the bridge follows a
+restart. Deleting the `console.error` from the built client turns that case red and leaves the
+other eleven green. Nothing else in the suite reads the line, so without it the help could go
+back to describing a diagnostic that no longer exists — which is the whole bug this entry is
+about. The help now also says to compare the LAST such line, since a bridge that has outlived a
+restart prints several.
+
+It opens by saying what NOT to advise: "restart the bridge" after a server restart has been
+wrong since #3078.
+
+The same claims live outside the bundle, where the agent never reads them but an operator does.
+`docs/message_apps/{telegram,line}/README{,.ja}.md` each told the reader to wait for `[server]
+listening port=3001`, the Telegram pair told them to restart the bridge when the token is
+rejected, and `docs/troubleshooting.md` framed `MULMOCLAUDE_AUTH_TOKEN` as what a long-running
+bridge needs — it is what a client that cannot read `<workspace>/.session-token` needs, which is
+a different set. The Telegram guides' quoted startup output also gained the `Connecting to …`
+line the shared client now prints, so what the guide shows is what the operator sees.
+
+`docs/developer.md` and `docs/migrating-from-claude-code.md` were the last of it, and both were
+stale about the server rather than about a bridge. The process map said Express "listens on
+`localhost:3001`" — wrong port and wrong host, since the bind is IPv4 loopback and the number is
+resolved. Its "running two instances" note still described the #2650 failure — a second client
+silently talking to the first server — which #2995 removed by having the proxy follow
+`.server-port` and re-aim itself; what actually remains is that two stacks sharing a workspace
+overwrite each other's sidecars. And `developer.md`'s Auth section sold `MULMOCLAUDE_AUTH_TOKEN`
+as the fix for "long-running bridges", which #3078 made false, while naming the CLI bridge as
+the whole bridge scope and claiming the token rides a `fetch` header — it rides the socket.io
+handshake, and there is no `Authorization` header anywhere in `packages/client/src`.
+
+`@mulmobridge/mock-server`'s README told operators to stop the mock before starting MulmoClaude
+"or the real server will fail to bind, or your bridge will keep talking to the mock". Neither
+happens now: the real server walks off the busy default and publishes what it bound, and the
+bridge reads that. The hazard the note was reaching for is real but is the TOKEN — leave
+`mock-test-token` exported and the bridge presents the mock's credential to MulmoClaude and is
+rejected, retrying forever with the wrong one. A pinned token is also the one case where a
+bridge still falls back to `localhost:3001` while no port has been published, which is exactly
+where the mock is listening. The note now says that instead.
+
+The version bump is not ceremony. `@mulmoclaude/core@2.0.1` exists because 2.0.0 shipped
+without 32 lines of this same file, and the note on it puts the reason better than a rule
+would: a section that never reaches npm is a section the agent never has. 4.8.0 is what npm
+serves today, so these edits reach nobody until core is published — which this PR does not do.
+
+### Fixed
+
+#### A phone-link session parked under a later Firebase app survives a host restart (#3089)
+
+Firebase Auth namespaces every persistence key with the app that wrote it
+(`firebase:<key>:<apiKey>:<appName>`), and `createRemoteHostSession` opens a fresh
+`remote-host-${appSeq}` app on each connect, counting from zero in every new process. So a
+session the browser parked while `remote-host-2` was live was invisible to the `remote-host-1`
+app a restarted host opens first: the SDK looked up its own key, missed, and settled with no
+user. The host answered 401, the browser dropped the parked session, and the user signed in
+through the Google popup again — and because the failed restore had already advanced the
+counter, the new session was saved under `remote-host-2` too, so it came back on the next
+restart. The same mismatch broke in-process reconnect, where the app name always moves on.
+
+Seeding now re-keys the blob to the app about to be opened, so a parked session no longer
+depends on the sequence number it happened to be saved under. Sessions already parked under a
+later name restore without a new sign-in.
+
+The re-key refuses to guess. A blob can carry two app names — `open` keeps the previous app
+alive until the fresh one has validated, and both share one store, so a token refresh in that
+window writes the old name back beside the new one. Collapsing both onto one target would pick
+a winner by JSON order, and the stale app is the one that writes last, so a restart could come
+back as the account the user had just signed out of. An ambiguous target is dropped instead:
+the restore finds no user and the client is asked to sign in once, which is what happened
+before re-keying existed.
+
+#### `@mulmoclaude/shapescript-plugin@2.6.0` — the object budget counts objects, and a custom shape can recurse (PR #3112)
+
+Building a tree failed with "ShapeScript produced more than 100000 objects" at about 10k
+cylinders. The 100k `maxNodes` ceiling was charged on every statement the converter visited — a
+`rotate`, a `color`, an `if`, a `group` — not on objects, and a tree branch is one cylinder wrapped
+in about ten of those. Measured, the refused tree was at ~0.5M vertices, a tenth of the vertex
+budget, and built in under 200ms. Only nodes that put an object in the scene are charged now:
+shapes, builders, meshes, paths, and a shape value placed by name (`define ico icosphere { … }`
+then `ico`), each once. The ceiling stays 100k and the two ceilings agree — 100k cylinders at
+`detail 8` is ~5M vertices, the vertex cap — while the loop-iteration and duration caps still stop
+a runaway loop of nothing.
+
+A recursive custom shape written the natural way, `branch { depth depth - 1 }`, overflowed the
+JavaScript stack: the call's option expressions were evaluated inside the body's scope after its
+`option` defaults were set, so `depth` named the default and never counted down. They are
+evaluated in the caller's scope now, and a shape that invokes itself with no way out stops at 256
+levels with a script error, the same ceiling the evaluator gives functions.
+
+#### `@mulmoclaude/shapescript-plugin@2.5.1` — `loft` takes path sections only, and lofts open paths (PR #3094)
+
+Two mismatches with the upstream app, both in `loft`. A `fill { path … }` as a section rendered
+here but is refused upstream ("A mesh value was not expected in this context"): the builder built
+every child into a mesh and read the outline back, so a filled face passed for the path it was
+made from, and a generated F-22 that previewed fine failed in the app. `loft` now refuses a mesh
+section with a message naming the fix, checked on the evaluated value so a `define`d `fill` is
+refused too, while `fill` on its own and inside `hull` stay legal. And a section whose last point
+did not repeat its first was dropped as an open stroke, so a two-section loft failed with "requires
+at least two cross-sections"; upstream closes such a section implicitly and so does this builder
+now. Sections keep their written order when open and closed ones mix.
+
+#### A bridge no longer has to be restarted every time the server is (#3078)
+
+`@mulmobridge/client` resolved the token and the port once, at construction, and a socket's URL
+is fixed when the socket is built. So a server restart left every bridge pinned to the
+generation it started against: rejected with `invalid token` if the port happened not to
+change, and addressing a port nobody was on if it did. The client printed "re-run the bridge"
+and stopped, which is where "I restart the server and then restart every bridge by hand" came
+from.
+
+The pair is now re-read after every failed connection, and the socket is rebuilt when the
+server comes back as a different generation. Handlers registered through `onPush`,
+`onTextChunk`, `onConnect` and `onDisconnect` are re-attached to the replacement, and `.socket`
+became a getter for the one in use now.
+
+An auth error is not a sufficient trigger, and that is why this needs a supervisor rather than
+a token refresh: `invalid token` only arrives when the bridge still REACHES the server. When
+the port moved, nothing answers, so the only evidence is a refused connection.
+
+Rebuilding happens only when the pair actually moved. A server that is simply down produces an
+unbroken stream of refusals, and tearing the socket down for each one would replace socket.io's
+reconnection with a worse copy of it. Mid-restart both sidecars are briefly absent; that is the
+absence of a generation rather than a new one, so it means "keep waiting" — the process must not
+exit there, which is a startup-only path.
+
+---
+
+## [1.16.0] - 2026-09-12
+
+**3D models became a first-class canvas view, and a MulmoScript deck can now live in a registered stories root instead of only the workspace.**
+
+### Changed
+
+#### `@mulmoclaude/shapescript-plugin@2.5.0` — one statement per line, no `tau`
+
+**Behaviour change** toward upstream. The upstream app reads a property's arguments to the end of
+the line, so `sphere { position 0 1 0 size 2 }` is a `position` with five arguments there and the
+script fails; this parser stopped at the next keyword and accepted it, which let a 15,000-line
+generated model render here and fail in the app. Two statements on one line are now a parse error
+naming the rule (a block may still open on its statement's line and close on its own, and `else`
+follows the closing brace), so the agent corrects the script at authoring time instead of the user
+discovering it upstream. `tau` is removed for the same reason — upstream has no such constant;
+write `2 * pi`. The bundled samples and the tool description follow the rule.
+
+Also fixed: a USDZ export of a model with coloured polygons (`mesh { polygon { color … } }`) came
+out white in Quick Look. Those faces carry vertex colours on a white material, which the exporter
+writes as `displayColor` and USD viewers ignore in favour of the material's `diffuseColor`; the
+export now splits such a mesh into one mesh per colour with that colour on a plain material.
+
+### Added
+
+#### `@mulmoclaude/shapescript-plugin@2.4.0` — `text`
+
+`text "Hello"` draws glyph outlines laid out as the upstream app lays them out: the left margin at
+x = 0, the first baseline at y = 0, one world unit per line, `size` scaling the line height (in
+one or two dimensions), `wrapwidth` and `linespacing` as options, several lines in a block, and
+values interpolated (`text "Bob has " apples " apples"`, `extrude text i`). `fill` and `extrude`
+turn the outlines into faces and solids — with their counters, since the builders now read a flat
+profile's holes rather than refusing them — and a text is a value with `.bounds`, so upstream's
+centring recipe (`translate -t.bounds.width/2 -t.bounds.height/2`) works. The face is a bundled
+Helvetiker (a Helvetica look-alike, licensed for redistribution) scaled to Helvetica's cap height;
+`font` is accepted and skipped with a warning, and a character the face lacks draws as `?` with a
+warning naming it. Text is capped at 2000 characters before the vertex budget applies.
+
+### Fixed
+
+#### The mulmoScript REST routes addressed a story by its path alone (#3077, PR #3083)
+
+The host's REST adapter pointed at a story with `filePath` and nothing else. `stories/deck.json`
+exists in EVERY registered root, so a host with more than one read and wrote the DEFAULT root's
+file of that name — silently, because that path is well-formed in both. Thirteen routes were
+affected: the beat image / audio / movie reads, movie and PDF status, character images, the three
+uploads, both beat generation ops behind the handler factory, and the two writes.
+
+A malformed root is now REFUSED with a 400 rather than folded into the default. Folding it is the
+defect #3015 fixed at the dispatch entry: the caller believes it named a root while the write
+lands in another. A repeated `?root=` produces an array, so that shape arrives by accident.
+
+The SSE generation routes (`generateMovie`, `generatePdf`) were bypassing the package's own
+`guardStoryGenerationRoot`, which refuses a named root on a host that cannot tell two roots'
+generations apart (#3020) — so rooted generation had been running unguarded.
+
+#### An unparsed story root no longer compiles (#3086, PR #3090)
+
+The same class of bug appeared four times across #3076 and #3077, and the guard against it was a
+textual sweep that a review spent five rounds on — because a textual rule has infinitely many
+blind spellings. `ParsedStoryRoot` is a branded string that only `parseSuppliedRoot` can mint (via
+a type guard, not `as`), and the host stops exporting the raw ops object: it is seen through a
+type that requires a parsed root on all 26 root-taking members, with no runtime wrapper. The root
+is REQUIRED rather than optional, so a call that omits it — directly, through an alias, or
+destructured — is a compile error.
+
+The package's own signatures are unchanged, so this breaks no published API and MulmoTerminal
+needs no edit.
+
+#### Shared `shortcuts.json` dropped keys the running build did not know (#3055, PR #3057)
+
+A shortcuts file written by a newer build lost its unrecognised keys the moment an older one saved
+over it. Unknown keys are now preserved through a read-modify-write.
+
+#### `@mulmoclaude/mulmoscript-plugin@4.8.0` — the View sends the root its card names (#3014, PR #3076)
+
+A deck under a registered stories root opened fine and then failed every write: saving and beat
+images both answered `File not found` (reported from receptron/mulmoterminal#1970). The host was
+already putting `root` on the card; the View never read it. `MulmoScriptData` declared only
+`{ script, filePath }`, so all **17 dispatch kinds** travelled without a root — and
+`stories/deck.json` exists in EVERY registered root, so each one addressed the DEFAULT root's
+file of that name. Both subscriptions hard-coded `root: () => undefined`.
+
+`MulmoScriptData` now declares `root?: string`, which is a type for a value the host was already
+sending, so this is additive and every pre-root card keeps its exact behaviour: absent means the
+default root.
+
+Sending the root is necessary but not sufficient, and three further defects had to be fixed for
+the pair to actually hold:
+
+- **`staleSince` widened to the pair.** An awaited dispatch is applied to whatever card is on
+  screen when it returns, so the root has to be re-checked on arrival, not only on departure.
+- **Media bytes carry the root too** (`fetchMediaBlob`, the host adapter, and both download
+  routes). An artifact ref is relativised against its own root's directory, so it does not carry
+  one.
+- **Awaited dispatches re-check the pair before applying a response.** Sending the root fixes
+  which file is addressed; it does not fix which card the answer belongs to.
+
+The agent's tool schema is deliberately unchanged: `root` is absent from it so a model cannot
+name a root, and only the host fills it in (#3015).
+
+#### Every bridge connected to port 3001 whether or not the server was on it (#3078, PR #3081)
+
+The shared `@mulmobridge/client` resolved its server address as `opts.apiUrl` → `MULMOCLAUDE_API_URL`
+→ `http://localhost:3001`. The server is not pinned to 3001: it honours `PORT`, walks an implicit busy
+default forward, and publishes what it actually bound to `<workspace>/.server-port` — the file the Vite
+proxy (#2650) and the readiness wait (#2981) were already taught to follow. All 25 bridges were left
+out of that fix.
+
+A single `PORT=3099` instance therefore left every bridge retrying against nothing, with the README's
+"no error, no reply" symptom. Worse, a second instance left them connected to the FIRST one holding
+3001 — and with the `MULMOCLAUDE_AUTH_TOKEN` the README recommends for that case, the misdirection
+authenticates cleanly and produces no error at all.
+
+`.server-port` is now consulted ahead of the default; an explicit `opts.apiUrl` / `MULMOCLAUDE_API_URL`
+still wins, so nothing that configures one changes. A published port becomes `http://127.0.0.1:<port>`
+rather than `localhost`, which resolves to `::1` first on a dual-stack host and does not fall back once
+something answers there.
+
+The bearer token was read from a hardcoded `<homedir>/mulmoclaude`, ignoring `MULMOCLAUDE_WORKSPACE_PATH`
+— a moved workspace got "no bearer token found" naming a directory the server never writes.
+`.session-token` and `.server-port` are a pair the server rewrites together, so both now resolve from
+one root.
+
+Re-reading the token after `invalid token` is deliberately not part of this: the port can change across
+a restart too, so following one means rebuilding the socket rather than refreshing auth. #3078 stays
+open for it.
+
+#### `@mulmoclaude/mulmoscript-plugin@4.7.0` — a failed deck save is on screen, not only in the console (PR #3071, closes #3070)
+
+The Canvas deck editor swallowed a failed save. `console.error` was the only trace, and the
+editor keeps showing the user's edit either way — deliberately, so a transient failure does not
+eat keystrokes — which made a silent refusal look exactly like a success until the next reload
+put the old value back. Reported from receptron/mulmoterminal#1970.
+
+The server's own message now appears as a red `role="alert"` banner under the tab row, using the
+existing `saveErrorSaveFailed` key, so all 8 locales are unchanged. Within one script only the
+next successful save clears it — never a keystroke, which would blank it for the debounce window
+and bring it back. The foreign-write reload deliberately does NOT clear it: there the user's edit
+is definitively lost and the banner is its only trace.
+
+Making that banner truthful turned up three async defects around it, all fixed here:
+
+- **Two saves could be in flight at once.** The 300ms debounce spaces the STARTS of two writes,
+  not their answers, and the failing kind is the slow kind — a timeout costs the whole budget. An
+  older answer arriving last put a red banner over a save that had landed, or committed the older
+  script over the newer one.
+- **A queued edit did not supersede an in-flight save.** The revision now advances when an edit is
+  QUEUED rather than when its save is dispatched; those are up to 300ms apart and a write outlives
+  the gap.
+- **A script switch left the previous script's save lifecycle running.** This View re-initializes
+  in place rather than remounting, so an answer still in flight could repopulate the banner or
+  commit the old script into the new result — and an edit still queued would be written out by its
+  own timer against the NEW `filePath`, putting one deck's beats into another deck.
+  `resetForScriptChange()` now advances the revision, drops the queued edit and its timer, and
+  clears the banner, beside the `beatSaveErrors` reset already in `initializeScript`.
+
+Also sweeps the `@mulmoclaude/core` peer and dev range to `^4.8.0` (PR #3056).
+
+### Added
+
+#### `@mulmoclaude/shapescript-plugin@2.3.0` — minkowski, inset, extrude along; Fillet and Spirals
+
+The last two upstream examples render, so all nine do. `minkowski { a b }` sums shapes (one hull
+for convex operands, merged per-face hulls for a non-convex one), `inset(mesh distance)` moves a
+mesh value's faces inward (each vertex to where its faces' offset planes meet, exact at corners),
+and together they round edges as upstream's Fillet does. `extrude { section along path }` sweeps
+a section along a path, mitred at corners and capped at the ends of an open path; an open path
+extrudes to a two-sided wall; `detail` reads as a value and `detail 0` inside a path draws its
+curve points as corners; a `detail` inside a path no longer leaks past it. A shape kept as a
+value keeps the one colour it was given (the filleted cone stays blue); a mesh whose vertices
+differ in colour gives an uncoloured `minkowski` result. **Behaviour change** toward
+upstream: `extrude` no longer closes an open path for you — repeat the first point to get a
+solid, otherwise the path extrudes to a wall; and a lone `position` value is X alone
+(`position 1` is `1 0 0`, as `translate 1` already was — it padded to `1 1 1`, which laid the
+Spirals out diagonally and hung Fillet's cylinder off a cube corner).
+
+#### `@mulmoclaude/shapescript-plugin@2.2.0` — shapes as values, meshes from polygons, Dodecahedron
+
+The last upstream example that needed language work. A shape is now a value
+(`define ico icosphere { detail 0 }`): it can be placed by name, and read through `polygons` /
+`triangles` (with `.center`, `.points`, `.bounds`), `bounds` and `volume`. The icosphere is built
+with Euclid's vertex and face order so face indices match upstream. `for` and `if` are expressions
+(`define scales for i in 1 to 3 { i / 3 }`), functions may build shapes and be called bare as
+statements (`face data`), `polygon { point x y z … }` makes a face with a colour, and
+`mesh { … }` assembles polygons into one vertex-coloured mesh. Line breaks are allowed inside
+parentheses and call arguments. A keyword a script `define`s as a value (`define hull (…)`) keeps
+reading as that value. Dodecahedron now renders; Fillet and Spirals remain refused by name.
+
+#### `@mulmoclaude/shapescript-plugin@2.1.0` — materials, ranges, functions and the upstream examples
+
+Phase 2 and the first phase-3 batch of `plans/feat-shapescript-upstream-parity.md`, driven by the
+upstream project's own example scripts, which are now test fixtures
+(`test/fixtures/upstream-examples/`): Ball, Chessboard, Cog, Earth, Spring and Train render, and
+Dodecahedron, Fillet and Spirals are refused with a message naming the missing feature.
+
+- **Materials**: hex (`#F00`, `#FF000080`) and named colours (`red`, `orange`, `gray`, …), `rgb()`
+  / `hsb()`, colour alpha by count (`color 1 0.5`, `color red 0.5`), scoped `opacity` that
+  multiplies through nesting, `metallicity` / `roughness` / `glow` on the PBR material,
+  `material { … }` bundles applied with `material NAME`, `smoothing 0` for flat shading, and
+  `name`. A material command inside a builder block colours the builder's result.
+- **Phase 2**: `background R G B` reaches both viewers; `texture`, a background image, `camera`
+  and `light` are accepted and skipped, and the tool result says so ("Not rendered: …") instead
+  of failing. `print` output is returned with the tool result and shown in the View; `assert`.
+- **Shapes and paths**: `icosphere`, `roundrect { radius }`, `arc { angle }` inside a path,
+  `extrude circle` / `fill roundrect { … }` without a wrapping block, per-shape `detail` /
+  `smoothing`, `size` on builders and groups (an extrude's `size` scales its profile and sets
+  its depth), custom blocks placed and coloured through their call's `position` / `orientation`
+  / `size` / `color` / `material`, lathe profiles drawn on the −X side, and `size 1 2` padded
+  to `1 2 1` as Euclid does (was `1 2 0`, which a cube refused).
+- **Expressions**: bare calls (`max 0 1`, `sqrt 9`, `sin pi / 2`), custom functions
+  (`define hyp(a b) { sqrt(a * a + b * b) }`), ranges as values with `step` and the `in`
+  operator, `split`, negative and named subscripts (`v[-1]`, `v["y"]`), and the `.width/.height/
+.depth`, `.roll/.yaw/.pitch`, `.hue/.saturation/.brightness` members.
+- Unsupported upstream commands (`import`, `text`, `mesh`, `minkowski`, `inset`, `svgpath`,
+  `along`, shapes as values) are refused by name instead of with a parse error on a brace.
+
+**Behaviour changes** toward upstream: `for` / `if` / `switch` bodies no longer reset transforms
+and materials at their closing brace (only symbols are scoped there, per upstream's scope rules
+— Chessboard depends on it); a bare `path` at scene level draws as a line rather than a
+filled face (`fill` it for the old result); `extrude` spans ±depth/2 around its profile plane
+as upstream does (it ran 0…depth, which offset the train's running board); and a lathe whose
+profile is drawn top-down is oriented outward (it was inside out, and booleans dropped it —
+the chess queens lost their bodies).
+
+### Changed
+
+#### `@mulmoclaude/shapescript-plugin@2.0.0` — upstream ShapeScript units and path semantics
+
+The plugin inherited unit conventions from present3D that upstream
+[ShapeScript](https://shapescript.info/mac/) does not use, so a script written against the
+upstream docs (which is what the agent has read) rendered wrong without any error. It now
+follows upstream:
+
+- `size` is the **diameter** of `sphere` / `cylinder` / `cone` / `circle` / `polygon` / `torus`
+  (was the radius, so every curved shape drew twice as large).
+- `orientation` (alias `rotation`) and `rotate` are **half-turns** as `roll yaw pitch`, applied
+  Z → Y → X, positive clockwise (were radians in XYZ order for the property, full turns for the
+  command). A lone value is a roll; `angle x y z` is accepted too.
+- Path `point` / `curve` coordinates are **absolute** in the path's frame, which `rotate` /
+  `translate` / `scale` move (were relative steps). `curve` is a quadratic Bézier **control
+  point** with implicit midpoints between consecutive controls (was an end point with an
+  optional 4-argument control offset, a syntax that no longer parses).
+- New `seed N` command, scoped to its block, and `rnd` uses upstream's generator with seed 0.
+- Call arguments are a value list, so upstream's `max(0 (j - 1))` parses alongside our
+  `max(0, j - 1)`; a script written the upstream way now opens in both. Ordinal members
+  `.first` … `.tenth`, `.last`, `.allButFirst`, `.allButLast` are accepted.
+
+**Breaking for saved `.shape` files** written against the old conventions — hence the major.
+The remaining gaps are tracked in `plans/feat-shapescript-upstream-parity.md`.
+
+### Added
+
+#### `@mulmoclaude/shapescript-plugin@1.4.0` — USDZ export, for the agent and for the user
+
+A ShapeScript model can now leave the chat as a **USDZ** file — Apple's AR format, which AR Quick
+Look opens on iPhone, iPad and Mac. Two ways in, one implementation:
+
+- New MCP tool **`exportShapeScriptUsdz`** takes the same `script` / `path` source as
+  `presentShapeScript`, writes `artifacts/shapes/<slug>-<epoch>-<token>.usdz` beside the model,
+  and returns the path. Granted wherever `presentShapeScript` is (the Artist role).
+- A **Download USDZ** button in the `presentShapeScript` view builds the same file in the browser
+  from the script on screen — no round trip, no file layer — and hands it to the browser to save.
+
+The exporter is three's own `USDZExporter`, which needs a canvas only for textures; the plugin's
+materials are plain colours, so the identical `shapeScriptToUsdz` runs in Node and in the browser.
+The tool reaches storage only through the generic gui-chat-protocol `files` capability — an
+`{ artifacts, byPath? }` pair, and only `read` / `write` / `exists` of each — so another host
+wires it with one call and no new file layer. Units are metres in USDZ: a `size 1` cube is a one-metre object in
+AR, and the tool description says so.
+
+### Changed
+
+#### `@mulmoclaude/shapescript-plugin@1.3.0` — the render TOOL moves in too
+
+`renderShapeScriptSheet` — the Puppeteer-driven rasteriser behind the `renderShapeScript` MCP tool
+— moves from this host's `server/utils/render/` into a new server-only `@mulmoclaude/shapescript-plugin/render`
+subpath. Nothing about the tool changes here; what changes is that MulmoTerminal can now serve the
+same tool from the same code instead of a copy. Copying it would have duplicated ~250 lines of
+non-obvious work (the intercepted fake origin, the two-file three.js serve, the timeout budget) in
+two repositories that are already known to drift apart.
+
+Two consequences worth noting. `three` is no longer a dependency of this host or the launcher: the
+render page is served three's own build files, and the plugin — which already depends on three for
+the geometry — resolves them from its own copy. And Puppeteer is now an OPTIONAL peer of the
+plugin rather than an assumed host dependency, so a host that does not want a browser download is
+not made to take one.
+
+**1.3.0** finishes the move: the tool's schema, defaults, four-view sheet and result sentence go
+with it as `executeRenderShapeScript`, leaving each host only what is genuinely its own — reading a
+`.shape` through its file layer, saving into its image store, and its logger. 1.2.0 shared the
+renderer but left the tool wrapper behind, and porting to MulmoTerminal made that immediately
+visible: the parts a MODEL sees would have been the duplicated ones.
+
+### Added
+
+#### `@mulmoclaude/shapescript-plugin@1.1.0` — ShapeScript models are files, and `renderShapeScript` lets the agent see them
+
+A ShapeScript model is now stored like a document instead of living only inside a chat
+message. A new `script` is saved to `artifacts/shapes/<slug>-<epoch-ms>.shape` and the tool
+result names it as `data.filePath`; `presentShapeScript` also accepts `path` instead of
+`script`, presenting a `.shape` that already exists — one it wrote earlier, or any other on
+disk — in place rather than copying it. The two arguments are mutually exclusive. The View's
+source editor writes edits back to that file and re-reads it when opened, so a model the agent
+rewrote is what the user sees, not a stale copy frozen into the conversation.
+
+Storage goes through the generic gui-chat-protocol `files.artifacts` / `files.byPath`
+capabilities and the plugin's own `loadShape` / `saveShape` dispatch — the same shape
+`@mulmoclaude/html-plugin` uses — so MulmoTerminal gets it by wiring the dispatch handler,
+with no ShapeScript-specific host method. A host that supplies no file capability keeps the
+previous behaviour rather than failing: the script travels in the result and nothing is
+written.
+
+The conversion budgets are raised: **100,000 nodes** (from 20,000), **5,000,000 vertices** (from
+2,000,000) and a **30-second** wall clock (from 10). The old ceilings disagreed with each other
+about how big a model may be — measured, a 150×150 grid of cubes was refused for object count at
+~540k vertices, barely a quarter of the vertex budget — and the wall clock is in practice the CSG
+budget alone, where 10 s left almost no room (100 boolean subtractions take 5.3 s, while 240k
+vertices of plain geometry convert in ~95 ms).
+
+New MCP tool **`renderShapeScript`** rasterises a model to a PNG under `artifacts/images/`
+and returns the path, so the agent can LOOK at what it built before showing it to the user —
+the same "saved image to \<path\>" contract `generateImage` uses. By default it renders four
+camera angles onto one labelled contact sheet, because a single projection is ambiguous about
+depth and occlusion: asked to judge one image, a model reliably gets "which of these is in
+front" wrong. `azimuth` / `elevation` aim the camera, `zoom` multiplies the automatic
+bounding-sphere framing (so one value means the same thing at any model scale), and
+`projection` switches to orthographic for judging proportions.
+
+Rendering drives Puppeteer's headless Chromium — the browser the PDF export already uses, and a
+production dependency, so an npm-installed host renders without installing anything. A host that
+skipped the browser download, or a sandbox that cannot spawn one, gets the install command
+instead of an image; `presentShapeScript` is unaffected, since it never needed a browser. The
+recovery is documented in `error-recovery.md`, so the agent reads it rather than retrying.
+
+#### `@mulmoclaude/shapescript-plugin@1.0.1` — `presentShapeScript`: 3D visualizations from ShapeScript
 
 The 3D tool is now an in-tree package instead of the npm-installed
 `@gui-chat-plugin/present3d`. The ShapeScript parser, evaluator and Three.js renderer
@@ -28,7 +1113,32 @@ now (the role prompt still told the model "ShapeScript only accepts literal numb
 2.0 parser has not been true of for some time), and an in-tree package builds and typechecks
 under the same gates as the rest of the repo.
 
-Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.7.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.6.0`, `@mulmoclaude/shapescript-plugin@1.0.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
+`presentShapeScript` now BUILDS the model before it answers. A script that cannot render —
+a syntax error, an undefined variable, a path that encloses no area, coordinates or colours
+that overflow to infinity, a scene past the complexity budgets — comes back as a structured
+diagnostic (`PARSE_ERROR` / `EVALUATION_ERROR` / `LIMIT_EXCEEDED`, with the line and column
+where it can be known) instead of opening an empty viewport. `rnd` / `rand()` draw from a
+seeded generator so the server's validation and the browser's render cannot disagree.
+
+### Fixed
+
+#### `@mulmoclaude/shapescript-plugin@1.1.1` — a stray `}` in a model hung the parser, and with it the whole host (PR #3058)
+
+`parseShapeScript("cube { size 1 }\n}")` never returned. `parseNode()` answers `null` at a
+`}` — that is how a BLOCK's loop stops, leaving the block itself to consume the brace. At the
+TOP level there is no block to close: nothing consumed the token, the position did not move,
+and the top-level loop spun on that same `}` forever.
+
+The parse is synchronous and runs in-process, so this was not one stuck request. It pinned the
+host: a 4394-character agent-written model with one extra `}` on its last line (41 to 40) left
+MulmoTerminal's server still LISTENing on its port at 100% CPU, accepting nothing, with every
+`/api/*` call and websocket timing out until it was restarted. MulmoClaude runs the same plugin
+the same way.
+
+An unmatched brace is now a `PARSE_ERROR` reported at its own line and column, like every other
+diagnostic `presentShapeScript` returns.
+
+Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`, `@mulmoclaude/collection-plugin@4.6.0`, `@mulmoclaude/common@1.2.0`, `@mulmoclaude/core@4.8.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.0`, `@mulmoclaude/html-plugin@4.0.0`, `@mulmoclaude/markdown-plugin@4.1.0`, `@mulmoclaude/markdown-utils@2.2.0`, `@mulmoclaude/mulmoscript-plugin@4.8.0`, `@mulmoclaude/shapescript-plugin@2.5.0`, `@mulmoclaude/spotify-plugin@2.0.0`, `@mulmoclaude/x-plugin@1.0.3`.
 
 ---
 
@@ -66,7 +1176,6 @@ core だけがそれを見て server ops が見ていない、という半分だ
 からで、絶対パスはそれ自体が `filePath` として一意なのでこの衝突は起きない。
 
 新規 export: `isAbsoluteStoryPath`, `STORY_SCRIPT_EXTENSIONS`, `STORY_TARGET_EXTENSIONS`。
-
 
 ### Fixed
 
@@ -172,7 +1281,7 @@ Ships `@mulmoclaude/accounting-plugin@3.0.0`, `@mulmoclaude/chart-plugin@3.0.0`,
 A `schema.icon` that is not a Material Symbols name — an emoji, most often — was handed to the
 icon font anyway. The font drew it at its own metrics, which pushed the glyph outside its box
 and over whatever sat next to it. Icons are now classified before anything renders them:
-`iconGlyph.ts` decides what a given string *is*, and the shared `IconGlyph` component is the one
+`iconGlyph.ts` decides what a given string _is_, and the shared `IconGlyph` component is the one
 path every surface goes through — the collections index, the collection header, the related
 menu, action buttons, feeds, the roles screen and the launcher's shortcut rail.
 

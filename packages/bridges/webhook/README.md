@@ -13,7 +13,8 @@ Generic HTTP-webhook bridge for [MulmoClaude](https://github.com/receptron/mulmo
 ## Quick start
 
 ```bash
-# Start the bridge (with MulmoClaude running on :3001)
+# Start the bridge (MulmoClaude must be running; the bridge finds its port
+# in the workspace, so you do not need to know it)
 npx @mulmobridge/webhook
 
 # In another terminal
@@ -29,7 +30,7 @@ curl -X POST http://localhost:3009/webhook \
 ```json
 {
   "chatId": "optional-conversation-id",
-  "text":  "what the user said"
+  "text": "what the user said"
 }
 ```
 
@@ -39,6 +40,7 @@ curl -X POST http://localhost:3009/webhook \
 ## Response
 
 **Success (200)**:
+
 ```json
 { "ok": true, "reply": "…AI reply…" }
 ```
@@ -49,20 +51,26 @@ curl -X POST http://localhost:3009/webhook \
 
 ## Environment variables
 
-| Variable            | Required | Default    | Description |
-|---------------------|----------|------------|-------------|
-| `WEBHOOK_PORT`      | no       | `3009`     | HTTP port |
-| `WEBHOOK_PATH`      | no       | `/webhook` | Endpoint path |
-| `WEBHOOK_SECRET`    | yes (prod) | —        | Shared secret. Every request must include `x-webhook-secret: <value>` header (constant-time compared). The bridge refuses to start without a secret unless `WEBHOOK_ALLOW_OPEN=1` is also set. |
-| `WEBHOOK_ALLOW_OPEN`| no       | —          | Set to `1` to run without `WEBHOOK_SECRET` (local testing only). Prints a loud warning and leaves the endpoint unauthenticated — every POST will drive an LLM call. Do **not** expose publicly. |
-| `MULMOCLAUDE_AUTH_TOKEN` | no  | auto       | MulmoClaude bearer token override |
-| `MULMOCLAUDE_API_URL` | no     | `http://localhost:3001` | MulmoClaude server URL |
+| Variable                 | Required   | Default                                              | Description                                                                                                                                                                                     |
+| ------------------------ | ---------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WEBHOOK_PORT`           | no         | `3009`                                               | HTTP port (`0` asks the OS for a free port)                                                                                                                                                     |
+| `WEBHOOK_PATH`           | no         | `/webhook`                                           | Endpoint path                                                                                                                                                                                   |
+| `WEBHOOK_SECRET`         | yes (prod) | —                                                    | Shared secret. Every request must include `x-webhook-secret: <value>` header (constant-time compared). The bridge refuses to start without a secret unless `WEBHOOK_ALLOW_OPEN=1` is also set.  |
+| `WEBHOOK_ALLOW_OPEN`     | no         | —                                                    | Set to `1` to run without `WEBHOOK_SECRET` (local testing only). Prints a loud warning and leaves the endpoint unauthenticated — every POST will drive an LLM call. Do **not** expose publicly. |
+| `MULMOCLAUDE_AUTH_TOKEN` | no         | auto                                                 | MulmoClaude bearer token override                                                                                                                                                               |
+| `MULMOCLAUDE_API_URL`    | no         | auto (`.server-port`; waits if nothing is published) | MulmoClaude server URL                                                                                                                                                                          |
+
+An unusable value (a typo, a number outside 0-65535) stops the bridge with a message naming
+the variable, rather than silently starting on the default. A port already in use is reported
+the same way (#3084).
 
 ### Auth token persistence across server restarts
 
-The MulmoClaude server regenerates a fresh bearer token on every startup and writes it to `~/mulmoclaude/.session-token`. The bridge reads that file once at launch and keeps the token in memory — so if the server restarts while the bridge is running, the bridge keeps using the **old** token and every API call returns **401**, silently.
+The MulmoClaude server regenerates a fresh bearer token on every startup and writes it to `<workspace>/.session-token` (`$MULMOCLAUDE_WORKSPACE_PATH`, or `~/mulmoclaude` when unset), alongside the port it bound in `.server-port`.
 
-**Fix**: set `MULMOCLAUDE_AUTH_TOKEN` to the same long random value on **both** the server and the bridge. The server uses it verbatim instead of regenerating, so the token survives restarts and the bridge stays authenticated.
+**The bridge follows a restart on its own.** When the connection fails it re-reads both files, and if the server came back as a different generation — new token, new port, or both — it rebuilds its socket against it (#3078). You do not have to restart the bridge.
+
+Pinning the token is still useful when the bridge runs **on a different machine** from the server, where it cannot read the workspace at all: set `MULMOCLAUDE_AUTH_TOKEN` to the same long random value on both sides. The server then uses it verbatim instead of regenerating.
 
 ```bash
 # Server (one-time setup — same value across restarts)
@@ -157,7 +165,7 @@ Part of the [`@mulmobridge/*`](https://www.npmjs.com/~mulmobridge) package famil
 - [`@mulmobridge/telegram`](https://www.npmjs.com/package/@mulmobridge/telegram) — Telegram bot
 - [`@mulmobridge/twilio-sms`](https://www.npmjs.com/package/@mulmobridge/twilio-sms) — SMS via Twilio Programmable Messaging
 - [`@mulmobridge/viber`](https://www.npmjs.com/package/@mulmobridge/viber) — Viber Public Account bots
-- [`@mulmobridge/webhook`](https://www.npmjs.com/package/@mulmobridge/webhook) — generic HTTP webhook bridge  ← **this package**
+- [`@mulmobridge/webhook`](https://www.npmjs.com/package/@mulmobridge/webhook) — generic HTTP webhook bridge ← **this package**
 - [`@mulmobridge/whatsapp`](https://www.npmjs.com/package/@mulmobridge/whatsapp) — WhatsApp Cloud API via MulmoBridge relay
 - [`@mulmobridge/xmpp`](https://www.npmjs.com/package/@mulmobridge/xmpp) — XMPP / Jabber
 - [`@mulmobridge/zulip`](https://www.npmjs.com/package/@mulmobridge/zulip) — Zulip

@@ -7,6 +7,7 @@ import {
   backfillOrigin,
   incrementUserQueryCount,
   readSessionMetaFull,
+  updateResolvedModel,
   readSessionMeta,
   setAgentSession,
   clearAgentSession,
@@ -20,7 +21,7 @@ import {
 import { getRole } from "../../workspace/roles.js";
 import { runAgent } from "../../agent/index.js";
 import { getActiveBackend } from "../../agent/backend/index.js";
-import { AGENT_SESSION_EVENT_TYPE, INJECTED_TEXT } from "../../agent/stream.js";
+import { AGENT_SESSION_EVENT_TYPE, INJECTED_TEXT, SESSION_MODEL } from "../../agent/stream.js";
 import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
 import {
@@ -705,6 +706,32 @@ const CLAUDE_CLI_SKILL_BODY_PREFIX = "Base directory for this skill: ";
 // broadcast + optional jsonl append + optional tool-trace side effect.
 type AgentStreamEvent = Awaited<ReturnType<typeof runAgent>> extends AsyncGenerator<infer E> ? E : never;
 
+/** Both destinations for the model the CLI reported, kept together and
+ *  injectable so the pair is pinned by a test rather than only by a live run.
+ *
+ *  SESSION_MODEL itself never goes on the wire — it is out-of-band like
+ *  `claudeSessionId`. Its VALUE reaches clients twice over, which is why no
+ *  protocol addition was needed (#2554):
+ *    on disk — session meta, so a reload still shows it;
+ *    live    — re-wrapped as the existing `session_meta` event, so the chip is
+ *              right during the FIRST turn rather than one turn later.
+ *
+ *  Losing either half fails silently in opposite directions: without the
+ *  persist the chip vanishes on reload, without the publish it never appears
+ *  until one. The live half was already broken once in review, with the disk
+ *  half working, so nothing on screen and the right value on disk. */
+export async function applyResolvedModel(
+  chatSessionId: string,
+  model: string,
+  deps: {
+    persist: (sessionId: string, resolvedModel: string) => Promise<void>;
+    publish: (sessionId: string, event: Record<string, unknown>) => void;
+  },
+): Promise<void> {
+  await deps.persist(chatSessionId, model);
+  deps.publish(chatSessionId, { type: EVENT_TYPES.sessionMeta, resolvedModel: model });
+}
+
 async function handleAgentEvent(event: AgentStreamEvent, ctx: EventContext): Promise<void> {
   if (event.type === AGENT_SESSION_EVENT_TYPE || event.type === EVENT_TYPES.claudeSessionId) {
     await flushTextAccumulator(ctx);
@@ -715,6 +742,10 @@ async function handleAgentEvent(event: AgentStreamEvent, ctx: EventContext): Pro
     const agentSession: AgentSessionRef =
       event.type === AGENT_SESSION_EVENT_TYPE ? { backendId: event.backendId, token: event.token } : { backendId: "claude-code", token: event.id };
     await setAgentSession(ctx.chatSessionId, agentSession);
+    return;
+  }
+  if (event.type === SESSION_MODEL) {
+    await applyResolvedModel(ctx.chatSessionId, event.model, { persist: updateResolvedModel, publish: pushSessionEvent });
     return;
   }
   if (event.type === INJECTED_TEXT) {

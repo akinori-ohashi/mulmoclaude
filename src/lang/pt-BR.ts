@@ -155,6 +155,9 @@ const ptBRMessages = {
     customViewHint: "Para uma visualização adaptada ao celular, peça ao Claude para criar uma {keyword} (não uma custom view comum).",
     qrHint: "Ou escaneie este código QR com a câmera do seu celular.",
   },
+  sessionModelChip: {
+    tooltip: "Modelo que esta sessão está usando: {model}",
+  },
   sidebarHeader: {
     newMessages: "Novas mensagens",
     home: "Ir para o chat mais recente",
@@ -348,7 +351,14 @@ const ptBRMessages = {
       saveError: "Falha ao salvar",
     },
     modelTab: {
-      description: "Controla o esforço de raciocínio que o Claude Code usa em cada turno. Deixe sem configurar para usar o padrão do Claude.",
+      description:
+        "Escolha o modelo e o esforço de raciocínio que o Claude Code usa em cada turno. Deixe qualquer um sem configurar para manter a resolução do próprio Claude.",
+      modelLabel: "Modelo",
+      modelUnset: "(sem configurar — seguir ~/.claude/settings.json)",
+      modelHelperText:
+        "Sem configurar, o modelo vem de ~/.claude/settings.json, o mesmo arquivo onde outros clientes do Claude Code (VS Code, Cursor) salvam a escolha do /model, então uma troca lá também muda o MulmoClaude. Os aliases acompanham a geração mais recente de cada família.",
+      modelConfigured: "Modelo: {model}",
+      modelNotConfigured: "Sem configurar (compartilhado)",
       effortLabel: "Esforço de raciocínio",
       effortUnset: "(sem configurar — usar padrão do Claude)",
       helperText: "Níveis mais altos permitem mais tempo de pensamento mas aumentam latência e uso de tokens.",
@@ -988,6 +998,10 @@ const ptBRMessages = {
     fieldIcon: "Ícone",
     fieldPrompt: "Prompt",
     fieldPlugins: "Plugins",
+    fieldModel: "Modelo",
+    modelUnset: "(sem configurar — seguir a configuração global)",
+    modelHelp:
+      "Sessões iniciadas com este papel usam este modelo. Útil para manter um papel de rotina fora do limite semanal do seu modelo principal. Papéis integrados sempre seguem a configuração global.",
     fieldStarterQueries: "Consultas iniciais",
     onePerLine: "(uma por linha)",
     helpLink: "?",
@@ -1018,6 +1032,10 @@ const ptBRMessages = {
   },
   pluginUiImage: {
     promptLabel: "{label}:",
+  },
+  markdownCodeCopy: {
+    copyLabel: "Copiar código",
+    copiedLabel: "Copiado",
   },
   markdownMermaid: {
     loadFailed: "⚠ Falha ao carregar o Mermaid: {error}",

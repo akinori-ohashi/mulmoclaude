@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ALL_TOOL_NAMES, TOOL_NAMES } from "./toolNames";
+import { CHAT_MODELS } from "./models";
 
 // `availablePlugins` accepts every literal listed in `TOOL_NAMES`.
 // Compile time: roles.ts static definitions below get typed as
@@ -43,6 +44,12 @@ export const RoleSchema = z.object({
   availablePlugins: availablePluginsSchema,
   queries: z.array(z.string()).optional(),
   isDebugRole: z.boolean().optional(),
+  // Model family this role's sessions run on (#3104). Absent means the role
+  // adds nothing and the app-wide setting decides — which is what every
+  // built-in role does, since they have no editable surface to set it from.
+  // A value outside CHAT_MODELS is dropped rather than failing the parse: one
+  // stale alias in a hand-edited file should cost that field, not the role.
+  model: z.enum(CHAT_MODELS).optional().catch(undefined),
 });
 
 export type Role = z.infer<typeof RoleSchema>;
@@ -195,6 +202,9 @@ export const ROLES: [Role, ...Role[]] = [
       TOOL_NAMES.editImages,
       TOOL_NAMES.openCanvas,
       TOOL_NAMES.presentShapeScript,
+      TOOL_NAMES.renderShapeScript,
+      TOOL_NAMES.exportShapeScriptUsdz,
+      TOOL_NAMES.publishShapeScript,
       TOOL_NAMES.presentHtml,
       TOOL_NAMES.presentSVG,
     ],

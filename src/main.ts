@@ -15,6 +15,7 @@ import { loadRuntimePlugins } from "./tools/runtimeLoader";
 import { startDevPluginReloadListener } from "./composables/useDevPluginReload";
 import { installHostContext, type EndpointRegistry } from "./plugins/api";
 import { API_ROUTES } from "./config/apiRoutes";
+import { CHAT_MODELS } from "./config/models";
 import { BUILTIN_ROLE_IDS } from "./config/roles";
 import { PAGE_ROUTES } from "./router";
 import { getAllPluginNames } from "./tools";
@@ -89,6 +90,7 @@ installHostContext({
   builtinRoleIds: BUILTIN_ROLE_IDS,
   pageRoutes: PAGE_ROUTES,
   getAllPluginNames,
+  chatModels: CHAT_MODELS,
 });
 
 // Runtime-loaded plugins (#1043 C-2). Fire-and-forget: kick off the
