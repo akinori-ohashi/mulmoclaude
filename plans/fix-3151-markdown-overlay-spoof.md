@@ -65,10 +65,16 @@ comes back every time someone finds one more spelling (`margin-top:-100px`, `tra
 
 ## Cost, measured
 
-Across the repo's 400 markdown files, exactly **one** author-raw-HTML token carries either
-attribute, and it is `plans/done/feat-1904-markdown-mermaid.md` quoting the mermaid placeholder
-as documentation. Renderer output is untouched, so syntax highlighting, the copy button, mermaid,
-math and wiki embeds all keep their classes.
+Lexing every markdown file in the repo and looking for an author-raw-HTML token carrying
+either attribute turns up only documentation quoting a payload: the mermaid placeholder in
+`plans/done/feat-1904-markdown-mermaid.md`, and the attack fragment in this plan. Nothing
+renders differently for it. Renderer output is untouched, so syntax highlighting, the copy
+button, mermaid, math and wiki embeds all keep their classes.
+
+The survey is stated without counts deliberately. Its first draft said "400 markdown files,
+exactly one token" and both halves were already wrong when the PR was reviewed — the real file
+count was more than double that, and this plan's own quoted payload had become the second hit.
+Re-run the sweep rather than trusting a number written here.
 
 ## Two more mechanisms, found in review
 
@@ -111,4 +117,4 @@ Changed:
 - integration: the two attack payloads through real `marked` + real `sanitizeMarkdownHtml`
 - **e2e in a real browser**: the claim is visual, so jsdom cannot settle it — assert the copied
   text equals the text the user can see, for both the `style` and the `class` variant
-- the existing 46 code-copy tests and the full suite stay green
+- the existing code-copy tests and the full suite stay green
