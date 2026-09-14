@@ -22,8 +22,9 @@ ONE tool with an `action`, the shape `manageCollection` has, and `publishShapeSc
 - `delete` — the user's own post removed: the document first, so it is gone from the gallery at
   once — conditional on the object ids the read saw, as an update is, so an edit that landed
   meanwhile is refused rather than deleted with its new objects left behind — then the script,
-  the thumbnail and any reference photos under it; an object that will not go is a warning,
-  since nothing links to it any more.
+  the thumbnail and any reference photos of the document AS DELETED (`deletePost` answers it),
+  so a photo the web editor swapped in meanwhile goes too; an object that will not go is a
+  warning, since nothing links to it any more.
 - `get` — one post's readable fields (title, description, keywords, prompt, aiModel, published,
   source, forkedFrom, authorName, the two server stamps as ISO strings, its URL — never the
   object ids) plus its ShapeScript source, downloaded from under the post's owner. Anyone's

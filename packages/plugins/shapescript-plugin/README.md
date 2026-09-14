@@ -110,9 +110,11 @@ script object and thumbnail and removes the replaced ones once the document poin
 
 `delete` is the same owner check, then `deletePost` — the document first, so the post is gone at
 once, and conditional on `expect` exactly as `updatePost` is (a transaction that re-reads, compares
-and deletes), so an update that landed meanwhile keeps its post and its new objects — then
-`deleteObject` for the script, the thumbnail and any reference photos; an object that will not go
-is a warning, since nothing links to it.
+and deletes), so an update that landed meanwhile keeps its post and its new objects. It answers the
+document as deleted, and that version's objects are what `deleteObject` then removes — the script,
+the thumbnail and any reference photos, a photo the web editor swapped in meanwhile included, since
+`expect` pins the model and not the photos; an object that will not go is a warning, since nothing
+links to it.
 
 `get` and `getList` are reads: `readPost` / `listPosts` answer documents as stored (the server
 stamps may stay whatever the SDK returns — a `Date`, or anything with `toDate()` — the tool turns

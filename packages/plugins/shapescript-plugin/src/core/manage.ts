@@ -220,9 +220,11 @@ export interface ShapeGalleryWriter {
   /** Remove `shapes/{id}`. CONDITIONAL like `updatePost`: only while the document still
    *  matches `expect`, refused (throw, `POST_CHANGED_MESSAGE`) when it no longer does — a
    *  transaction — so an update that landed after the plugin's read cannot have its new
-   *  objects orphaned by a delete that only knows the old ids. The objects under the post
-   *  are the plugin's to remove, through `deleteObject`, once the document is gone. */
-  deletePost: (id: string, expect: ShapePostExpect) => Promise<void>;
+   *  objects orphaned by a delete that only knows the old ids. Answers the document AS
+   *  DELETED — the data the transaction read — since the objects under the post are the
+   *  plugin's to remove, through `deleteObject`, and it must remove that version's (a
+   *  reference photo the web editor swapped in meanwhile is not in `expect`). */
+  deletePost: (id: string, expect: ShapePostExpect) => Promise<Record<string, unknown>>;
   /** The posts of `uid` — drafts included, which the rules show the owner — newest first
    *  (`createdAt` descending), at most `limit`. Each as `readPost` answers it, with its id. */
   listPosts: (uid: string, limit: number) => Promise<Array<{ id: string; data: Record<string, unknown> }>>;
@@ -581,8 +583,10 @@ async function updateExistingPost(
  *  that is a warning, not a failure. */
 async function deleteOwnPost(context: ManageShapeScriptContext, gallery: ShapeGalleryWriter, id: string): Promise<ManageShapeResult> {
   const existing = await requireOwnPost(gallery, id, "delete");
-  await gallery.deletePost(id, { uid: existing.uid, scriptId: existing.scriptId, thumbnailId: existing.thumbnailId });
-  await discardObjects(context, gallery, id, [existing.scriptId, existing.thumbnailId, ...existing.photoIds]);
+  // The objects to remove are the DELETED document's, not the read's: `expect` pins the model,
+  // not the reference photos, which the web editor may have swapped in between (CodeRabbit).
+  const gone = existingShapePost(await gallery.deletePost(id, { uid: existing.uid, scriptId: existing.scriptId, thumbnailId: existing.thumbnailId }));
+  await discardObjects(context, gallery, id, [gone.scriptId, gone.thumbnailId, ...gone.photoIds]);
   const url = shapePostUrl(id, gallery.siteUrl);
   return { action: "delete", message: `Deleted: "${existing.title}" (${url}) is no longer in the gallery.`, id, url };
 }

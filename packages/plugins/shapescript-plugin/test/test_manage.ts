@@ -104,6 +104,7 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
         throw new Error(POST_CHANGED_MESSAGE);
       }
       posts.delete(id);
+      return withStamps(id, stored);
     },
     listPosts: async (uid, limit) =>
       [...posts.entries()]
@@ -531,6 +532,25 @@ describe("manageShapeScript tool", () => {
       await assert.rejects(executeManageShapeScript(context, { action: "delete", id }), new RegExp(POST_CHANGED_MESSAGE.slice(0, 40)));
       assert.equal(posts.get(id)!.scriptId, "script-other");
       assert.deepEqual(deleted, []);
+    });
+
+    // CodeRabbit on #3161: `expect` pins the model, not the reference photos. A photo the web
+    // editor swapped in between the read and the delete is on the deleted document, and that
+    // is the version whose objects go.
+    it("removes the objects of the document as deleted — a reference photo swapped in meanwhile included", async () => {
+      const { context, writer, posts, deleted, id } = await seeded();
+      posts.set(id, { ...posts.get(id)!, photoIds: ["p-old"] });
+      const slowRead = writer.readPost;
+      writer.readPost = async (postId) => {
+        const snapshot = await slowRead(postId);
+        posts.set(id, { ...posts.get(id)!, photoIds: ["p-new"] });
+        return snapshot;
+      };
+      await executeManageShapeScript(context, { action: "delete", id });
+      assert.deepEqual(
+        deleted.map((entry) => entry.objectId),
+        ["script-1", "obj-1", "p-new"],
+      );
     });
 
     // The document goes first so the post is gone from the gallery even if an object will not:

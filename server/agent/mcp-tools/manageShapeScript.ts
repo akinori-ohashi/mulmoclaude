@@ -69,7 +69,7 @@ export function postUpdateOf(patch: ShapePostPatch): Record<string, unknown> {
 
 /** Whether the stored document is still the one the plugin merged against: same owner, same
  *  object ids. Object ids are minted per upload, so a match means no edit landed in between. */
-export function postStillMatches(data: Record<string, unknown> | undefined, expect: ShapePostExpect): boolean {
+export function postStillMatches(data: Record<string, unknown> | undefined, expect: ShapePostExpect): data is Record<string, unknown> {
   return data !== undefined && data.uid === expect.uid && data.scriptId === expect.scriptId && data.thumbnailId === expect.thumbnailId;
 }
 
@@ -123,12 +123,14 @@ export function galleryWriterFrom(session: { firestore: Firestore; storage: Fire
         transaction.update(post(shapeId), postUpdateOf(patch));
       }),
     // The same transaction shape: refused unless the post still carries the ids the plugin
-    // read, so a delete cannot orphan the objects of an update that landed in between.
+    // read, so a delete cannot orphan the objects of an update that landed in between. Answers
+    // the document as deleted, whose objects the plugin then removes.
     deletePost: (shapeId, expect) =>
       runTransaction(session.firestore, async (transaction) => {
-        const snapshot = await transaction.get(post(shapeId));
-        if (!postStillMatches(snapshot.data(), expect)) throw new Error(POST_CHANGED_MESSAGE);
+        const data = (await transaction.get(post(shapeId))).data();
+        if (!postStillMatches(data, expect)) throw new Error(POST_CHANGED_MESSAGE);
         transaction.delete(post(shapeId));
+        return data;
       }),
     // The gallery's own "My models" query: the rules admit it because `uid == me` holds
     // for every row, and the (uid, createdAt desc) composite index serves it.
