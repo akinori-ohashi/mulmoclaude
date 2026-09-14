@@ -227,11 +227,25 @@ export function inlineImages(html: string, options: InlineImagesOptions = {}): s
   });
 }
 
+// This document is `marked.parse` output with NO sanitiser — unlike every
+// view surface, which runs `sanitizeMarkdownHtml`. So a `<script>` in a
+// rendered `.md` reaches `page.setContent()` and Chromium executes it,
+// letting author markdown rewrite the PDF it is being exported into
+// (codex round 9). The renderer needs no script of its own here, so the
+// policy is: none may run.
+//
+// Marp's document is built separately and deliberately does NOT carry this
+// — it ships its own custom-elements polyfill, and it ESCAPES author raw
+// HTML rather than passing it through, so there is nothing to block there.
+// `test_pdfCsp.ts` pins both halves of that.
+const NO_SCRIPT_CSP = "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+
 function wrapHtml(body: string, css: string): string {
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${NO_SCRIPT_CSP}">
 <style>${css}</style>
 </head>
 <body>${body}</body>
