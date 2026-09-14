@@ -290,7 +290,26 @@ describe("the WHOLE contract, differentially against a real parser", () => {
     // right place — the bytes are just copied. It is only wrong when live markup
     // FOLLOWS, which is how `<!--->` kept an overlay's class through the whole
     // pipeline. So cross the declaration forms with a following tag.
-    const prefixes = ["<!--->", "<!-->", "<!---->", "<!--a-->", "<!--- -->", "<![CDATA[x]]>", "</\u00e9 <span class=q>>", "<!DOCTYPE html>"];
+    const prefixes = [
+      "<!--->",
+      "<!-->",
+      "<!---->",
+      "<!--a-->",
+      "<!--- -->",
+      "<![CDATA[x]]>",
+      "</\u00e9 <span class=q>>",
+      "<!DOCTYPE html>",
+      // `--!>` is the spec's incorrectly-closed-comment and ends the comment
+      // too; the neighbours are the shapes where it must NOT.
+      "<!--a--!>",
+      "<!--a--!b-->",
+      "<!--a--!-->",
+      "<!--a--!>b-->",
+      "<!--!>",
+      '<!DOCTYPE html SYSTEM "a>b">',
+      "<![CDATA[a>b]]>",
+      "<!-- <!-- nested -->",
+    ];
     const overlay = '<div class="absolute inset-0 bg-white" style="position:absolute">x</div>';
     const prefixed = prefixes.flatMap((prefix) => [`${prefix}${overlay}`, ...attrs.map((attr) => `${prefix}<div${attr}>y</div>`)]);
     const inputs = [...tags.flatMap((tag) => truncations.map((truncate) => truncate(tag))), ...prefixed];

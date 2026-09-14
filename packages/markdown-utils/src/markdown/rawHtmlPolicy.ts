@@ -157,11 +157,23 @@ function commentEnd(fragment: string, start: number): number {
   if (fragment.startsWith("<!--", start)) {
     if (fragment[start + 4] === ">") return start + 5;
     if (fragment[start + 4] === "-" && fragment[start + 5] === ">") return start + 6;
-    const close = fragment.indexOf("-->", start + 4);
-    return close === -1 ? fragment.length : close + 3;
+    return commentBodyEnd(fragment, start + 4);
   }
   const close = fragment.indexOf(">", start);
   return close === -1 ? fragment.length : close + 1;
+}
+
+/** Index just past whichever closes the comment first: `-->`, or `--!>` — the
+ *  spec's incorrectly-closed-comment, reached from comment-end-bang. Knowing
+ *  only `-->` made `<!--a--!>` read as unterminated, so the live markup after it
+ *  was swallowed and `<div class="absolute inset-0" style="position:absolute">`
+ *  kept both attributes. Same shape as the `<!--->` bypass, one variant along. */
+function commentBodyEnd(fragment: string, from: number): number {
+  const plain = fragment.indexOf("-->", from);
+  const bang = fragment.indexOf("--!>", from);
+  if (plain === -1 && bang === -1) return fragment.length;
+  if (bang === -1 || (plain !== -1 && plain <= bang)) return plain + 3;
+  return bang + 4;
 }
 
 /** Index just past the element's APPROPRIATE END TAG, searched from `from`.
@@ -439,10 +451,11 @@ export function stripPresentationAttributes(fragment: string): string {
     // Comments, doctype/CDATA and bogus end tags are copied verbatim; they
     // carry no attributes and their contents must not be treated as tags.
     // Where each one ENDS is the whole question, and both directions have been
-    // wrong: a comment runs to `-->` and not to the first `>`, or later text
-    // gets rewritten (round 3) — but `<!-->` and `<!--->` end right there, or
-    // the live markup after them is swallowed and keeps its class (round 21).
-    // `commentEnd` owns both rules.
+    // wrong. Too early: a comment runs to `-->`, not to the first `>`, or its
+    // later text gets rewritten (round 3). Too late: `<!-->`, `<!--->` and
+    // `--!>` all end a comment where a `-->` search does not find one, and the
+    // live markup after them was swallowed and kept its class (rounds 21-22).
+    // `commentEnd` owns every one of those rules.
     if (fragment.startsWith("<!", index) || isBogusEndTag(fragment, index)) {
       const end = commentEnd(fragment, index);
       out.push(fragment.slice(index, end));
