@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
-#### `@mulmoclaude/shapescript-plugin` — `manageShapeScript` asks for the gallery's CC BY 4.0 agreement
+#### `@mulmoclaude/shapescript-plugin@5.2.0` — `manageShapeScript` asks for the gallery's CC BY 4.0 agreement
 
 A public model in the gallery on mulmoserver is now licensed under CC BY 4.0
 (receptron/mulmoserver#269), and its editor asks the owner to agree before publishing. The tool

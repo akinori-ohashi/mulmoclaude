@@ -45,7 +45,7 @@
     "@mulmoclaude/markdown-plugin": "^4.2.0",
     "@mulmoclaude/markdown-utils": "^3.0.0",
     "@mulmoclaude/mulmoscript-plugin": "^4.8.2",
-    "@mulmoclaude/shapescript-plugin": "^5.1.1",
+    "@mulmoclaude/shapescript-plugin": "^5.2.0",
     "@mulmoclaude/spotify-plugin": "^2.0.1",
     "@mulmoclaude/x-plugin": "^1.0.4",
     "@receptron/task-scheduler": "^1.0.3",
