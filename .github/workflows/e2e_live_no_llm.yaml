@@ -19,7 +19,7 @@ on:
     paths:
       - ".github/workflows/e2e_live_no_llm.yaml"
       - "e2e-live/**"
-      - "server/agent/backend/**"
+      - "server/agent/**"
       - "server/index.ts"
 
 permissions:

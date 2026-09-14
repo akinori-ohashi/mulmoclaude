@@ -38,7 +38,11 @@ async function loadMermaid(): Promise<MermaidRuntime> {
     // instead of letting mermaid walk the document on DOMContentLoaded.
     // `securityLevel: "strict"` — mermaid sanitises its own labels and
     // will not execute user-authored HTML/JS in diagram text.
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "default" });
+    // `layout` / `look` / `theme` — mermaid 12 moved its defaults to ELK +
+    // redux-color + neo, which re-lays out and recolours every diagram that
+    // already exists. These three pin the pre-12 appearance; changing the
+    // look is a deliberate design decision, not a side effect of an upgrade.
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "default", layout: "dagre", look: "classic" });
     return mermaid;
   });
   // Share the in-flight promise with parallel callers, but drop the
