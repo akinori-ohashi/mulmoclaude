@@ -108,14 +108,30 @@ function opensTag(fragment: string, index: number): boolean {
  *  Returns the string length for an unterminated tag. */
 function tagEnd(fragment: string, start: number): number {
   let quote = "";
+  // A quote opens a VALUE only after `=`. In attribute-name position a
+  // quote is a parse error that the tokenizer keeps as part of the name,
+  // so treating every quote as a value delimiter swallowed the rest of
+  // the tag: `<div ">text class=x</div>` lost its literal text, because
+  // the `"` was read as opening a value that ran past the `>`
+  // (codex round 5).
+  let afterEquals = false;
   for (let index = start; index < fragment.length; index += 1) {
-    const char = fragment[index];
+    const char = fragment[index] ?? "";
     if (quote !== "") {
       if (char === quote) quote = "";
       continue;
     }
-    if (char === '"' || char === "'") quote = char;
-    else if (char === ">") return index + 1;
+    if (char === ">") return index + 1;
+    if (char === "=") {
+      afterEquals = true;
+      continue;
+    }
+    // Whitespace between `=` and the value does not end the wait for one.
+    if (/\s/.test(char)) continue;
+    if (afterEquals && (char === '"' || char === "'")) {
+      quote = char;
+    }
+    afterEquals = false;
   }
   return fragment.length;
 }

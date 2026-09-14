@@ -84,6 +84,79 @@ describe("stripPresentationAttributes — leaves alone", () => {
   });
 });
 
+describe("the WHOLE contract, differentially against a real parser", () => {
+  // Six of this PR's findings were bugs in the scanner, each a shape neither
+  // reviewer had imagined the round before. Enumerating more spellings was
+  // never going to end that, so this asserts the complete contract instead,
+  // with a real parser as the oracle:
+  //
+  //   parsing strip(F) gives the SAME document as parsing F,
+  //   except that no element has `class` or `style`.
+  //
+  // That is both halves at once — nothing forbidden survives, and nothing
+  // else changes — and it is what catches the next shape rather than the
+  // last one. It would have failed on the bogus-quote corruption, the
+  // raw-text cases, the comment boundary and the slash bypass alike.
+  const parse = (html: string): HTMLElement => new JSDOM(`<!doctype html><body>${html}</body>`).window.document.body;
+
+  /** The input's document with the forbidden attributes removed — i.e. what
+   *  the stripped output is required to be equal to. */
+  const expectedShape = (html: string): string => {
+    const body = parse(html);
+    body.querySelectorAll("*").forEach((element) => {
+      element.removeAttribute("class");
+      element.removeAttribute("style");
+    });
+    return body.innerHTML;
+  };
+
+  const corpus: string[] = [
+    // ordinary
+    '<div class="absolute">x</div>',
+    '<p><span class="a"><b style="b">x</b></span></p>',
+    '<a href="/y" class="c" style="s" id="k">x</a>',
+    // quoting oddities
+    '<div class="a>b" id="k">x</div>',
+    "<div a='x' class='y'>z</div>",
+    '<div ">text class=x</div><span class=y>z</span>',
+    "<div class=absolute>x</div>",
+    '<div class = "absolute">x</div>',
+    // separators the spec allows
+    '<div\nclass="absolute">x</div>',
+    '<div\tclass="absolute">x</div>',
+    '<div /class="absolute">x</div>',
+    "<div //class=absolute>x</div>",
+    // self-closing must survive
+    '<img src="a.png" class="c"/>',
+    "<br/>",
+    // raw text is characters, not markup
+    "<textarea><div class=foo></textarea>",
+    "<textarea>keep </textareax><div class=foo></textarea>",
+    "<plaintext><div class=x></plaintext><span class=y>",
+    // comments are verbatim
+    "<!-- <div class=x> <span class=y> -->",
+    "<!DOCTYPE html><div class=x>",
+    // prose that merely looks like markup
+    "a < b and c > d",
+    "3 <4 and 5< 6",
+    '<div classname="c" data-class="d" data-style="e">x</div>',
+  ];
+
+  corpus.forEach((html) => {
+    const label = html.replace(/\n/g, "\\n").replace(/\t/g, "\\t");
+    it(`same document minus class/style — ${label}`, () => {
+      assert.equal(parse(stripPresentationAttributes(html)).innerHTML, expectedShape(html));
+    });
+  });
+
+  it("the oracle is not vacuous — an unstripped document does NOT match its own expected shape", () => {
+    // If `expectedShape` silently returned its input, every case above would
+    // pass no matter what the scanner did.
+    const withAttrs = '<div class="absolute">x</div>';
+    assert.notEqual(parse(withAttrs).innerHTML, expectedShape(withAttrs));
+  });
+});
+
 describe("the RULE itself, differentially against a real parser", () => {
   // The boundary oracle below pins raw text. This one pins the actual
   // security property, and it exists because my hand-picked cases could
