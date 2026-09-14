@@ -63,10 +63,6 @@ function importsMarkedAtRuntime(code: string): boolean {
     .filter((line) => line.includes('from "marked"'))
     .some((line) => !line.trimStart().startsWith("import type"));
 }
-/** The file that DEFINES `renderWikiLinks` and the one that re-exports the
- *  binding are not callers; both would otherwise read as violations. */
-const DEFINES_OR_REEXPORTS = ["export function renderWikiLinks", "export { renderWikiLinks }"];
-
 const REGISTERS_POLICY = /marked\.use\(rawHtmlPolicyExtension\)|instance\.use\(rawHtmlPolicyExtension\)/;
 
 /** Exempt surfaces, each with the reason it does not need its own
@@ -101,18 +97,26 @@ describe("every production marked configuration registers the raw-HTML policy", 
     assert.deepEqual(unprotected, [], `these render author markdown without the class/style policy: ${unprotected.join(", ")}`);
   });
 
-  // `renderWikiLinks` is the one helper that injects app markup into the
-  // markdown SOURCE, where the policy cannot tell it from the author's. It
-  // broke every `[[wiki-link]]` in the app once; a second caller forgetting
-  // the trust attribute would break them again, silently.
-  it("every production caller of renderWikiLinks passes the app-markup proof", () => {
-    const bare = trackedSources()
-      // The file that DEFINES it is not a caller, and the re-export is a
-      // binding rather than a call — both would otherwise read as violations.
-      .filter((file) => !DEFINES_OR_REEXPORTS.some((spelling) => readCode(file).includes(spelling)))
-      .filter((file) => /\brenderWikiLinks\s*\(/.test(readCode(file)))
-      .filter((file) => !readCode(file).includes("APP_MARKUP_ATTR"));
-    assert.deepEqual(bare, [], `these inject wiki-link markup the policy will strip: ${bare.join(", ")}`);
+  // `wikiLinkExtension` is INERT outside the window `withWikiLinks` opens, so a
+  // new wiki render path that forgets it loses every link — silently, because
+  // nothing throws and `[[x]]` simply renders as text.
+  //
+  // This replaces a guard that checked every `renderWikiLinks` caller carried
+  // the app-markup proof. That guard did not fail when the proof was deleted —
+  // it passed VACUOUSLY, because its subject no longer had any callers. A guard
+  // whose discovery returns nothing asserts that an empty list is empty, which
+  // is the exact shape round 7 of #3153 rejected. Hence the count assertion.
+  it("every production file that renders wiki markdown opens the wiki-link window", () => {
+    const wikiRenderers = trackedSources().filter((file) => {
+      const code = readCode(file);
+      return /\bmarked(\.parse)?\s*\(/.test(code) && code.includes("renderWikiPageHtml");
+    });
+    assert.ok(wikiRenderers.length >= 1, "discovery found no wiki render path — this guard would pass vacuously");
+    // The CALL, not the mention: an `import { withWikiLinks }` line survives
+    // deleting the window, so a substring check passes while every link is
+    // inert. Verified by removing the window and watching this go red.
+    const missing = wikiRenderers.filter((file) => !/\bwithWikiLinks\s*\(/.test(readCode(file)));
+    assert.deepEqual(missing, [], `these render wiki markdown with the link extension inert: ${missing.join(", ")}`);
   });
 
   it("no other production file overrides renderer.html, which would bypass the policy", () => {

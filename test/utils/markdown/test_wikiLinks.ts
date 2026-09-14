@@ -222,7 +222,7 @@ describe("wikiLink tokenizer — differential against the string walker it repla
 
   const inputs = targets.flatMap((target) => contexts.map((wrap) => wrap(`[[${target}]]`)));
 
-  it("produces the same links as `renderWikiLinks` outside code, over generated inputs", () => {
+  it("produces the same links as `renderWikiLinks` in ordinary inline contexts, over generated inputs", () => {
     const divergences: string[] = [];
     inputs.forEach((source) => {
       const viaExtension = linkElement(render(source));
@@ -241,5 +241,31 @@ describe("wikiLink tokenizer — differential against the string walker it repla
     const source = "`[[Home]]`";
     assert.doesNotMatch(render(source), /class="wiki-link"/, "the extension leaves code alone");
     assert.match(renderWikiLinks(source), /class="wiki-link"/, "the walker did not — that is the bug being fixed");
+  });
+
+  // Code is not the only place they diverge, and the honest claim says so.
+  // Inside a raw HTML block marked processes NO markdown at all — measured in
+  // this pipeline, `**bold**`, `[text](/x)` and `` `code` `` all come out
+  // literal there. `[[x]]` staying literal is therefore CONSISTENT with every
+  // other construct; the old walker was the anomaly, because a string rewrite
+  // cannot see that it is inside one.
+  const divergences: { name: string; source: string }[] = [
+    { name: "a raw HTML block", source: "<div>[[Home]]</div>" },
+    { name: "an attribute value", source: '<div data-x="[[Home]]">x</div>' },
+    { name: "a link destination", source: "[label]([[Home]])" },
+  ];
+  divergences.forEach(({ name, source }) => {
+    it(`does NOT link inside ${name} — deliberate, and pinned so it cannot change silently`, () => {
+      assert.doesNotMatch(render(source), /class="wiki-link"/);
+    });
+  });
+
+  it("the raw-HTML divergence matches how marked treats every other construct there", () => {
+    // The justification, asserted rather than claimed: if marked ever started
+    // processing markdown inside raw HTML blocks, this test goes red and the
+    // divergence above would need revisiting.
+    assert.doesNotMatch(render("<div>**bold**</div>"), /<strong>/);
+    assert.doesNotMatch(render("<div>[text](/x)</div>"), /<a href/);
+    assert.doesNotMatch(render("<div>`code`</div>"), /<code>/);
   });
 });

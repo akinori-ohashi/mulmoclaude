@@ -57,9 +57,10 @@ export function setupMarked(): void {
   // app ships utility CSS, so both spell an overlay that hides what a code
   // block really says while the copy button takes the hidden text (#3151).
   // Only raw HTML goes through marked's `html` renderer, so markup from
-  // another RENDERER keeps its classes. Markup injected into the markdown
-  // SOURCE does not get that for free — it arrives here as author HTML — and
-  // must prove itself with `withTrustedAppMarkup`, as the wiki pipeline does.
+  // another RENDERER keeps its classes. Anything the app wants to emit with a
+  // class belongs in a renderer or an extension for that reason — writing it
+  // into the markdown SOURCE instead makes it author HTML, which is what wiki
+  // links used to do and why they needed a nonce to survive (#3164).
   marked.use(rawHtmlPolicyExtension);
   marked.use(markedHighlightExtension);
   // Reading the labels through a provider — rather than passing today's
