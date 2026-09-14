@@ -163,7 +163,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@5.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@5.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 
@@ -183,8 +183,8 @@ Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`,
 `chore(release)` では触らない規則どおり据え置きで、**レンジだけ**を sweep した。
 
 `markdown-utils` に伴い `@mulmoclaude/core` と `markdown-plugin` のレンジも上げた
-（最終的な値は下の 3.0.0 の項を参照）。core は 4.9.3 が**まだ未公開**なので、追加の
-bump は要らない（未公開の 4.9.3 が新しいレンジごと出る）。
+（最終的な値は下の 3.0.0 の項を参照）。その後 4.9.3 が公開されたので、core は
+4.9.4 を別途出す（下の項）。
 
 #### `@mulmoclaude/markdown-utils@3.0.0` — コピーボタン / 表示のなりすまし対策 / mermaid 12 (#3125, #3151, #3164, #3166)
 
@@ -214,6 +214,23 @@ mermaid `^12.0.0` を宣言している。
 
 レンジは `@mulmoclaude/core` / `markdown-plugin` / launcher の 3 箇所すべてを `^3.0.0` に
 sweep 済み。
+
+#### `@mulmoclaude/core@4.9.4` — npm の core が markdown-utils 2.x を掴んだままだった
+
+コード変更は無い。公開済みの `core@4.9.3` は
+`"@mulmoclaude/markdown-utils": "^2.2.1"` を宣言していて、caret は major をまたがない
+ので、**npm 経由の利用者は 3.0.0 を受け取れない**。core を出さない限り #3125 / #3151 /
+#3164 / #3166 が届かないので、manifest だけの patch を出す。
+
+- `@mulmoclaude/markdown-utils` `^2.2.1` → `^3.0.0`
+- あわせて `@duckdb/node-api` `js-yaml` `zod` `@types/node` のレンジも tag からずれていた分を反映
+
+`src/wiki/render.ts` の `extraAttrs` 引数も削除した。#3151 が「アプリが出した markup だと
+証明する」ために足したものだが、#3164 で `[[wiki-link]]` が marked 拡張になり、
+nonce 機構ごと不要になっていた。呼び出し側は 0 件（MulmoTerminal も 1 引数呼び出し）で、
+削除後のファイルは **4.9.3 が公開した内容とバイト一致**する。
+
+レンジは 8 プラグイン（peer + dev）と launcher の 17 箇所すべてを `^4.9.4` に sweep 済み。
 
 #### `@mulmobridge/*` — 25 ブリッジが #3084 の常駐プロセス堅牢化を受け取る
 

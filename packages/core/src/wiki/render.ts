@@ -29,16 +29,8 @@ export { escapeHtml };
  * visible text shows the display half (#1297). Both halves are
  * HTML-escaped before interpolation — `parseWikiLink` runs BEFORE
  * the host's `marked.parse`, so escaping has to happen here.
- *
- * `extraAttrs` is emitted verbatim into the opening tag. It exists
- * because running before `marked.parse` makes this output arrive at
- * the host's renderer as an AUTHOR raw-HTML token, indistinguishable
- * from one; a host that strips author presentation attributes needs a
- * way for this span to prove it is app markup. The caller owns the
- * value and must not build it from user input.
  */
-export function renderWikiLinks(content: string, extraAttrs = ""): string {
-  const attrs = extraAttrs === "" ? "" : ` ${extraAttrs}`;
+export function renderWikiLinks(content: string): string {
   const out: string[] = [];
   let i = 0;
   while (i < content.length) {
@@ -47,7 +39,7 @@ export function renderWikiLinks(content: string, extraAttrs = ""): string {
       if (closeStart !== -1) {
         const inner = content.slice(i + 2, closeStart);
         const { target, display } = parseWikiLink(inner);
-        out.push(`<span${attrs} class="wiki-link" data-page="${escapeHtml(target)}">${escapeHtml(display)}</span>`);
+        out.push(`<span class="wiki-link" data-page="${escapeHtml(target)}">${escapeHtml(display)}</span>`);
         i = closeStart + 2;
         continue;
       }
