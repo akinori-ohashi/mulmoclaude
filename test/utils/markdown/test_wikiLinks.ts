@@ -257,7 +257,21 @@ describe("wikiLink tokenizer — differential against the string walker it repla
   // it is spelled, whether or not anyone listed it — changes this set and turns
   // the test red. That is the point: it fails closed on the context nobody
   // thought of, which the pin-list could not.
-  const LINKS_HERE = ["prose [[T]] here", "- item [[T]]", "**[[T]]**", "> quote [[T]]", "# head [[T]]", "| c |\n|---|\n| [[T]] |", "[[T]](/x)", "[[T]][[T]]"];
+  // Inline HTML is in here because its text IS inline text: `<span>**bold**</span>`
+  // becomes `<strong>` while `<div>**bold**</div>` stays literal, so the HTML split
+  // is block-vs-inline rather than "raw HTML". Missed on the first attempt at this set.
+  const LINKS_HERE = [
+    "prose [[T]] here",
+    "- item [[T]]",
+    "**[[T]]**",
+    "> quote [[T]]",
+    "# head [[T]]",
+    "| c |\n|---|\n| [[T]] |",
+    "[[T]](/x)",
+    "[[T]][[T]]",
+    "<span>[[T]]</span>",
+    "<em>[[T]]</em>",
+  ];
   // Everything else is NOT an inline-text context, and each is one instance of
   // the same rule rather than a separate rule of its own.
   const STAYS_LITERAL = [
