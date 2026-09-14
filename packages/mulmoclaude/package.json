@@ -74,7 +74,7 @@
     "which": "^6",
     "ws": "^8.21.3",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
-    "zod": "^4.6.4"
+    "zod": "^4.6.5"
   },
   "optionalDependencies": {
     "@mulmobridge/telegram": "^1.2.0",
