@@ -163,7 +163,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@5.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@5.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 
@@ -214,6 +214,25 @@ mermaid `^12.0.0` を宣言している。
 
 レンジは `@mulmoclaude/core` / `markdown-plugin` / launcher の 3 箇所すべてを `^3.0.0` に
 sweep 済み。
+
+#### `@mulmoclaude/markdown-plugin@4.2.0` — コピーボタンとなりすまし対策をプラグイン側で配線する (#3125, #3151)
+
+`markdown-utils@3.0.0` が出した拡張を、markdown ビューの `marked` に登録する側の変更。
+新機能なので minor。
+
+- `View.vue` が `rawHtmlPolicyExtension` → `codeCopyExtension` → `mermaidExtension` の順に
+  登録する。mermaid を最も外側に残すのが要点で、`mermaid` fence はコピーボタンを拾わずに
+  プレースホルダへ届き、それ以外の fence が mermaid から下へ落ちてくる。
+- ボタンの文言は `setCodeCopyLabelProvider` でホストの i18n に繋ぐ。`useT` は `inject` 経由
+  なので setup スコープでしか配線できず、モジュール直下の `marked.use` の隣には置けない。
+- `installCodeCopyHandler(document)` はホストが既に同じ document にリスナを入れていれば no-op。
+  ガードがモジュール状態ではなく document 側にあるので、このパッケージが 2 つバンドルされても
+  効く。
+- i18n キー `codeCopyLabel` / `codeCopiedLabel` を 8 ロケールすべてに追加。
+- `style.css` にボタンのスタイルを追加。
+
+レンジは launcher の 1 箇所を `^4.2.0` に sweep 済み（このパッケージを宣言しているのは
+launcher だけ）。
 
 #### `@mulmoclaude/core@4.9.4` — npm の core が markdown-utils 2.x を掴んだままだった
 
