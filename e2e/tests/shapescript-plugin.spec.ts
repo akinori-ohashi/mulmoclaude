@@ -66,7 +66,14 @@ test.describe("shapescript plugin rendering", () => {
     await expect(page.locator('[data-testid="shapescript-view"]')).toBeVisible();
     await expect(page.locator('[data-testid="shapescript-viewport"]')).toBeVisible();
     await expect(page.locator('[data-testid="shapescript-parse-error"]')).toHaveCount(0);
-    await expect(page.getByTestId("shapescript-download-usdz")).toBeEnabled();
+    for (const format of ["usdz", "glb", "stl"]) await expect(page.getByTestId(`shapescript-download-${format}`)).toBeEnabled();
+    // Copy lives at the right end of the "Edit ShapeScript" bar and must not
+    // toggle the editor it sits on.
+    const source = page.locator('[data-testid="shapescript-view"] details.script-source');
+    await expect(source.locator("summary")).toContainText("Edit ShapeScript Source");
+    await expect(source).not.toHaveAttribute("open", "");
+    await page.getByTestId("shapescript-copy-script").click();
+    await expect(source).not.toHaveAttribute("open", "");
   });
 
   test("validates edited geometry and renders completed builders", async ({ page }) => {
@@ -77,11 +84,13 @@ test.describe("shapescript plugin rendering", () => {
     const editor = view.locator("textarea");
     const apply = view.locator("button.apply-btn");
     const download = page.getByTestId("shapescript-download-usdz");
+    const downloadStl = page.getByTestId("shapescript-download-stl");
     await expect(download).toBeEnabled();
     await editor.fill("cube { size missing }");
-    // A dirty editor cannot be exported: the USDZ is built from the APPLIED
-    // script, which is what the viewport shows, not from unsaved edits.
+    // A dirty editor cannot be exported: every format is built from the
+    // APPLIED script, which is what the viewport shows, not from unsaved edits.
     await expect(download).toBeDisabled();
+    await expect(downloadStl).toBeDisabled();
     await apply.click();
     await expect(page.getByTestId("shapescript-parse-error")).toContainText("Undefined variable: missing");
     // Failed edits remain unsaved and can be corrected in place.
@@ -96,6 +105,7 @@ test.describe("shapescript plugin rendering", () => {
       await expect(page.getByTestId("shapescript-parse-error")).toHaveCount(0);
       await expect(apply).toBeDisabled();
       await expect(download).toBeEnabled();
+      await expect(downloadStl).toBeEnabled();
       await expect(view.locator("canvas")).toBeVisible();
     }
   });

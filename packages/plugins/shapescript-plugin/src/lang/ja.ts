@@ -11,6 +11,8 @@ const ja: Messages = {
   applyChanges: "変更を適用",
   saveError: "保存に失敗しました:",
   downloadUsdz: "USDZ をダウンロード",
+  downloadGlb: "GLB をダウンロード",
+  downloadStl: "STL をダウンロード",
   exportError: "エクスポートに失敗しました:",
   copyScript: "コピー",
   copied: "コピーしました",

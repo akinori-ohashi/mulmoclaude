@@ -11,6 +11,8 @@ const fr: Messages = {
   applyChanges: "Appliquer les modifications",
   saveError: "Échec de l'enregistrement :",
   downloadUsdz: "Télécharger USDZ",
+  downloadGlb: "Télécharger GLB",
+  downloadStl: "Télécharger STL",
   exportError: "Échec de l'export :",
   copyScript: "Copier",
   copied: "Copié",
