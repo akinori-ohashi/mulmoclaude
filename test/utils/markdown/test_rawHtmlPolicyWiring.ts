@@ -58,9 +58,16 @@ function readCode(relative: string): string {
  *  import the module, so that is what this looks for. A `import type {…}`
  *  cannot render anything and is excluded by the negative lookahead. */
 function importsMarkedAtRuntime(code: string): boolean {
+  // Every runtime spelling, not just the one this repo happens to use today.
+  // `from "marked"` alone misses `require("marked")`, `await import("marked")`
+  // and a single-quoted import — codex named all three as a way to add an
+  // unprotected renderer without being discovered. Prettier would rewrite the
+  // quotes here, but a guard that depends on the formatter is a guard with a
+  // hole in it.
+  const RUNTIME_IMPORT = /from\s*["']marked["']|(?:require|import)\s*\(\s*["']marked["']\s*\)/;
   return code
     .split("\n")
-    .filter((line) => line.includes('from "marked"'))
+    .filter((line) => RUNTIME_IMPORT.test(line))
     .some((line) => !line.trimStart().startsWith("import type"));
 }
 const REGISTERS_POLICY = /marked\.use\(rawHtmlPolicyExtension\)|instance\.use\(rawHtmlPolicyExtension\)/;

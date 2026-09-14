@@ -222,7 +222,7 @@ describe("wikiLink tokenizer — differential against the string walker it repla
 
   const inputs = targets.flatMap((target) => contexts.map((wrap) => wrap(`[[${target}]]`)));
 
-  it("produces the same links as `renderWikiLinks` in ordinary inline contexts, over generated inputs", () => {
+  it("produces the same links as `renderWikiLinks` in the contexts this generator covers", () => {
     const divergences: string[] = [];
     inputs.forEach((source) => {
       const viaExtension = linkElement(render(source));
@@ -253,10 +253,30 @@ describe("wikiLink tokenizer — differential against the string walker it repla
     { name: "a raw HTML block", source: "<div>[[Home]]</div>" },
     { name: "an attribute value", source: '<div data-x="[[Home]]">x</div>' },
     { name: "a link destination", source: "[label]([[Home]])" },
+    // A markdown ESCAPE is honoured, as it is for every other construct.
+    { name: "an escaped opener", source: "\\[[Home]]" },
+    // An autolink's URL is a URL. The walker injected a span into it and
+    // produced broken markup; marked percent-encodes the brackets instead.
+    { name: "an autolink URL", source: "<https://x.test/[[Home]]>" },
+    // A comment's contents are not markdown.
+    { name: "an HTML comment", source: "<!-- [[Home]] -->" },
   ];
   divergences.forEach(({ name, source }) => {
     it(`does NOT link inside ${name} — deliberate, and pinned so it cannot change silently`, () => {
       assert.doesNotMatch(render(source), /class="wiki-link"/);
+    });
+  });
+
+  // Agreeing on "no link" is not the same as agreeing on the OUTPUT. In two of
+  // the contexts above the old walker also emitted broken markup — it rewrote
+  // the source without knowing where it was, so its `<span>` came back with the
+  // opening tag escaped and the closing tag not. Pinned because "same link
+  // count" would otherwise read as "same behaviour".
+  it("emits clean markup where the old walker emitted broken markup", () => {
+    ["\\[[Home]]", "<!-- [[Home]] -->"].forEach((source) => {
+      const rendered = render(source);
+      assert.doesNotMatch(rendered, /&lt;span/, "an escaped opening tag means the walker's corruption came back");
+      assert.doesNotMatch(rendered, /class="wiki-link"/);
     });
   });
 
