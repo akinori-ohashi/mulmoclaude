@@ -151,6 +151,28 @@ describe("shapeScriptToStl", () => {
     disposeObject3D(skinned);
   });
 
+  it("bakes an instanced mesh once per instance", async () => {
+    const instanced = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial(), 2);
+    instanced.setMatrixAt(0, new THREE.Matrix4());
+    instanced.setMatrixAt(1, new THREE.Matrix4().makeTranslation(3, 0, 0));
+    // The mesh itself is moved too: an instance is placed by BOTH matrices.
+    instanced.position.y = 1;
+    const bytes = await sceneToStl(instanced);
+    assert.equal(stlTriangles(bytes), 24);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const xs = new Set<number>();
+    const ys = new Set<number>();
+    for (let i = 0; i < 24; i++) {
+      for (let v = 0; v < 3; v++) {
+        xs.add(view.getFloat32(84 + i * 50 + 12 + v * 12, true));
+        ys.add(view.getFloat32(84 + i * 50 + 16 + v * 12, true));
+      }
+    }
+    assert.deepEqual([...xs].sort(), [-0.5, 0.5, 2.5, 3.5], `instance x: ${[...xs].join(", ")}`);
+    assert.deepEqual([...ys].sort(), [0.5, 1.5], `mesh y: ${[...ys].join(", ")}`);
+    disposeObject3D(instanced);
+  });
+
   it("rejects an invalid script rather than exporting nothing", async () => {
     await assert.rejects(shapeScriptToStl("cube {"), /RBRACE/);
   });

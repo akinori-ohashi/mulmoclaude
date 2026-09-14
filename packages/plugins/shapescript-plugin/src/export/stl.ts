@@ -21,12 +21,13 @@ export const STL_EXTENSION = ".stl";
  *  chain hides the subtree, as it does on screen — each with its vertices
  *  baked into world space. Baking goes through `getVertexPosition`, so a
  *  posed `SkinnedMesh` or a morph target handed in by a host exports as
- *  displayed rather than in bind pose (codex on #3171). The baked geometries
- *  are released before returning; the source is untouched. */
+ *  displayed rather than in bind pose (codex on #3171), and an `InstancedMesh`
+ *  is baked once per instance (CodeRabbit on #3171). The baked geometries are
+ *  released before returning; the source is untouched. */
 export async function sceneToStl(object: THREE.Object3D): Promise<Uint8Array<ArrayBuffer>> {
   object.updateMatrixWorld(true);
   const flat = new THREE.Group();
-  const baked = visibleMeshes(object).map(bakedWorldGeometry);
+  const baked = visibleMeshes(object).flatMap(bakedWorldGeometries);
   try {
     for (const geometry of baked) flat.add(new THREE.Mesh(geometry));
     flat.updateMatrixWorld(true);
@@ -37,11 +38,24 @@ export async function sceneToStl(object: THREE.Object3D): Promise<Uint8Array<Arr
   }
 }
 
-/** A mesh's triangles with every vertex in world space, as its own geometry.
- *  The index is copied rather than shared: disposing a geometry hands its
- *  index buffer back to the renderer too, and the source may still be on
- *  screen. */
-function bakedWorldGeometry(mesh: THREE.Mesh): THREE.BufferGeometry {
+/** A mesh's triangles in world space, one geometry per drawn copy: a plain
+ *  mesh is one, an `InstancedMesh` is one per instance, each placed by the
+ *  mesh's world matrix composed with that instance's own. */
+function bakedWorldGeometries(mesh: THREE.Mesh): THREE.BufferGeometry[] {
+  const instanced = mesh as THREE.InstancedMesh;
+  if (!instanced.isInstancedMesh) return [bakedWorldGeometry(mesh, mesh.matrixWorld)];
+  return Array.from({ length: instanced.count }, (_, i) => {
+    const matrix = new THREE.Matrix4();
+    instanced.getMatrixAt(i, matrix);
+    return bakedWorldGeometry(mesh, matrix.premultiply(mesh.matrixWorld));
+  });
+}
+
+/** A mesh's triangles with every vertex taken through `transform`, as its own
+ *  geometry. The index is copied rather than shared: disposing a geometry
+ *  hands its index buffer back to the renderer too, and the source may still
+ *  be on screen. */
+function bakedWorldGeometry(mesh: THREE.Mesh, transform: THREE.Matrix4): THREE.BufferGeometry {
   const source = mesh.geometry;
   const count = source.getAttribute("position").count;
   const positions = new Float32Array(count * 3);
@@ -49,7 +63,7 @@ function bakedWorldGeometry(mesh: THREE.Mesh): THREE.BufferGeometry {
   for (let i = 0; i < count; i++)
     mesh
       .getVertexPosition(i, vertex)
-      .applyMatrix4(mesh.matrixWorld)
+      .applyMatrix4(transform)
       .toArray(positions, i * 3);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
