@@ -18,20 +18,43 @@ export const STL_EXTENSION = ".stl";
  *  `STLExporter` writes every mesh it can traverse to, hidden or not, and reads
  *  each one's `matrixWorld` as it stands. So the tree is flattened first into
  *  the meshes that are actually shown — a `visible = false` anywhere up the
- *  chain hides the subtree, as it does on screen — each placed by its world
- *  matrix. Geometry is shared with the source, so there is nothing to dispose. */
+ *  chain hides the subtree, as it does on screen — each with its vertices
+ *  baked into world space. Baking goes through `getVertexPosition`, so a
+ *  posed `SkinnedMesh` or a morph target handed in by a host exports as
+ *  displayed rather than in bind pose (codex on #3171). The baked geometries
+ *  are released before returning; the source is untouched. */
 export async function sceneToStl(object: THREE.Object3D): Promise<Uint8Array<ArrayBuffer>> {
   object.updateMatrixWorld(true);
   const flat = new THREE.Group();
-  for (const mesh of visibleMeshes(object)) {
-    const placed = new THREE.Mesh(mesh.geometry, mesh.material);
-    placed.matrixAutoUpdate = false;
-    placed.matrix.copy(mesh.matrixWorld);
-    flat.add(placed);
+  const baked = visibleMeshes(object).map(bakedWorldGeometry);
+  try {
+    for (const geometry of baked) flat.add(new THREE.Mesh(geometry));
+    flat.updateMatrixWorld(true);
+    const view = new STLExporter().parse(flat, { binary: true }) as DataView;
+    return new Uint8Array(view.buffer as ArrayBuffer, view.byteOffset, view.byteLength);
+  } finally {
+    baked.forEach((geometry) => geometry.dispose());
   }
-  flat.updateMatrixWorld(true);
-  const view = new STLExporter().parse(flat, { binary: true }) as DataView;
-  return new Uint8Array(view.buffer as ArrayBuffer, view.byteOffset, view.byteLength);
+}
+
+/** A mesh's triangles with every vertex in world space, as its own geometry.
+ *  The index is copied rather than shared: disposing a geometry hands its
+ *  index buffer back to the renderer too, and the source may still be on
+ *  screen. */
+function bakedWorldGeometry(mesh: THREE.Mesh): THREE.BufferGeometry {
+  const source = mesh.geometry;
+  const count = source.getAttribute("position").count;
+  const positions = new Float32Array(count * 3);
+  const vertex = new THREE.Vector3();
+  for (let i = 0; i < count; i++)
+    mesh
+      .getVertexPosition(i, vertex)
+      .applyMatrix4(mesh.matrixWorld)
+      .toArray(positions, i * 3);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  if (source.index) geometry.setIndex(source.index.clone());
+  return geometry;
 }
 
 /** The meshes under `object` that are shown: none below a hidden node. */

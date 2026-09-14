@@ -115,13 +115,40 @@ describe("shapeScriptToStl", () => {
     disposeObject3D(group);
   });
 
-  it("shares geometry with the source instead of copying it", async () => {
+  it("leaves the source geometry alone and releases what it baked", async () => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
     let disposed = false;
     mesh.geometry.addEventListener("dispose", () => void (disposed = true));
-    await sceneToStl(mesh);
+    assert.equal(stlTriangles(await sceneToStl(mesh)), 12);
     assert.equal(disposed, false);
+    assert.equal(mesh.geometry.getAttribute("position").getX(0), 0.5, "source vertices untouched");
     disposeObject3D(mesh);
+  });
+
+  it("exports a skinned mesh as posed, not in bind pose", async () => {
+    // One bone, translated 2 along x after binding: every vertex must follow.
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const count = geometry.getAttribute("position").count;
+    geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(new Uint16Array(count * 4), 4));
+    geometry.setAttribute(
+      "skinWeight",
+      new THREE.Float32BufferAttribute(
+        new Float32Array(count * 4).map((_, i) => (i % 4 === 0 ? 1 : 0)),
+        4,
+      ),
+    );
+    const bone = new THREE.Bone();
+    const skinned = new THREE.SkinnedMesh(geometry, new THREE.MeshStandardMaterial());
+    skinned.add(bone);
+    skinned.bind(new THREE.Skeleton([bone]));
+    bone.position.x = 2;
+    const bytes = await sceneToStl(skinned);
+    assert.equal(stlTriangles(bytes), 12);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const xs = new Set<number>();
+    for (let i = 0; i < 12; i++) for (let v = 0; v < 3; v++) xs.add(view.getFloat32(84 + i * 50 + 12 + v * 12, true));
+    assert.deepEqual([...xs].sort(), [1.5, 2.5], `posed x: ${[...xs].join(", ")}`);
+    disposeObject3D(skinned);
   });
 
   it("rejects an invalid script rather than exporting nothing", async () => {

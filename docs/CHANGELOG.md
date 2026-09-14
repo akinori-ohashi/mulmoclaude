@@ -20,7 +20,7 @@ same rule while the editor holds unsaved edits:
   meshes (`mesh { polygon { color … } }`, a `minkowski` result) keep their colours as `COLOR_0`;
   no material splitting is needed as it is for USDZ.
 - **Download STL** — binary STL for slicers. Geometry only: hidden subtrees are pruned as they
-  are on screen, and every triangle is written in world space so a `position` / `orient` in the
+  are on screen, and every vertex is baked into world space (a posed skinned mesh included) so a `position` / `orient` in the
   script lands where the viewport shows it.
 
 The **Copy** button leaves the header for the right end of the **Edit ShapeScript Source** bar,
