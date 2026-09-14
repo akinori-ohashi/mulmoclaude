@@ -8,7 +8,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Firestore } from "firebase/firestore";
 import type { FirebaseStorage } from "firebase/storage";
-import { SHAPE_POST_KEYS, shapePostFrom } from "@mulmoclaude/shapescript-plugin";
+import { SHAPE_LICENSE, SHAPE_POST_KEYS, shapePostFrom, type ShapePostDoc } from "@mulmoclaude/shapescript-plugin";
 import {
   galleryWriterFrom,
   isHiddenByRules,
@@ -20,6 +20,10 @@ import {
 } from "../../server/agent/mcp-tools/manageShapeScript.js";
 
 const post = shapePostFrom({ uid: "u-alice", authorName: "Alice" }, { title: "Lamp", scriptId: "script-1", keywords: ["lamp"] });
+const licensed: ShapePostDoc = { ...post, license: SHAPE_LICENSE };
+
+const isServerStamp = (value: unknown): boolean =>
+  typeof value === "object" && value !== null && (value as { _methodName?: string })._methodName === "serverTimestamp";
 
 describe("manageShapeScript host adapter", () => {
   it("is offered with the shared contract, not a local copy of it", () => {
@@ -34,18 +38,39 @@ describe("manageShapeScript host adapter", () => {
     const document = postDocumentOf(post);
     assert.deepEqual(Object.keys(document), [...SHAPE_POST_KEYS, "createdAt", "updatedAt"]);
     // A FieldValue sentinel, not a client clock: the rules refuse `createdAt != request.time`.
-    for (const key of ["createdAt", "updatedAt"]) {
-      const value = document[key] as { _methodName?: string };
-      assert.equal(typeof value, "object");
-      assert.equal(value._methodName, "serverTimestamp");
-    }
+    for (const key of ["createdAt", "updatedAt"]) assert.ok(isServerStamp(document[key]), key);
+    // No grant, no stamp: the rules refuse `licenseAcceptedAt` beside a null license.
+    assert.equal(document.license, null);
+    assert.equal(Object.hasOwn(document, "licenseAcceptedAt"), false);
+  });
+
+  // The agreement's stamp is the server's too — the rules want `licenseAcceptedAt == request.time`
+  // on the write that grants — and it sits where the rules list it, between `license` and the times.
+  it("stamps the agreement beside a granted license, as the server's time", () => {
+    const document = postDocumentOf(licensed);
+    assert.deepEqual(Object.keys(document), [...SHAPE_POST_KEYS, "licenseAcceptedAt", "createdAt", "updatedAt"]);
+    assert.equal(document.license, SHAPE_LICENSE);
+    assert.ok(isServerStamp(document.licenseAcceptedAt));
   });
 
   it("updates only the fields the plugin gave, with a server-stamped updatedAt and never createdAt, which the rules freeze", () => {
     const update = postUpdateOf({ title: "Lamp 2", scriptId: "script-2" });
     assert.deepEqual(Object.keys(update), ["title", "scriptId", "updatedAt"]);
-    assert.equal((update.updatedAt as { _methodName?: string })._methodName, "serverTimestamp");
+    assert.ok(isServerStamp(update.updatedAt));
     assert.equal(Object.hasOwn(update, "createdAt"), false);
+    assert.equal(Object.hasOwn(update, "licenseAcceptedAt"), false);
+  });
+
+  // A `license` in the patch is the owner's first agreement: it goes with its server stamp. If
+  // the document is licensed already (another client agreed since the read), the rules refuse
+  // a grant restated — so both are dropped and the stored grant stands.
+  it("stamps a first agreement in an update, and drops it when the post is licensed already", () => {
+    const granting = postUpdateOf({ published: true, license: SHAPE_LICENSE });
+    assert.deepEqual(Object.keys(granting), ["published", "license", "licenseAcceptedAt", "updatedAt"]);
+    assert.equal(granting.license, SHAPE_LICENSE);
+    assert.ok(isServerStamp(granting.licenseAcceptedAt));
+    const already = postUpdateOf({ published: true, license: SHAPE_LICENSE }, true);
+    assert.deepEqual(Object.keys(already), ["published", "updatedAt"]);
   });
 
   it("applies an update only while the post still carries the owner and object ids the plugin read", () => {

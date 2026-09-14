@@ -10,6 +10,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+#### `@mulmoclaude/shapescript-plugin` — `manageShapeScript` asks for the gallery's CC BY 4.0 agreement
+
+A public model in the gallery on mulmoserver is now licensed under CC BY 4.0
+(receptron/mulmoserver#269), and its editor asks the owner to agree before publishing. The tool
+asks the same way: `publish` of a public post, an `update` that makes a draft public, or an edit
+of a public post that has no license yet, needs `acceptLicense: true` — the user's explicit
+agreement, which the tool's prompt tells the model to ask for and never to pass on its own — and
+is refused with `LICENSE_REQUIRED_MESSAGE`, before any upload, without it. A draft needs none.
+The post document carries `license` (`"CC-BY-4.0"` or `null`), the host stamps
+`licenseAcceptedAt` as a server time beside a grant, and `get` / `getList` answer both. Exported:
+`SHAPE_LICENSE`, `SHAPE_LICENSE_LABEL`, `SHAPE_LICENSE_URL`, `licenseFor`,
+`LICENSE_REQUIRED_MESSAGE`, and the `ShapeLicense` type.
+
 #### `@mulmoclaude/shapescript-plugin@5.1.0` — Download GLB and STL; Copy moves to the source bar
 
 The `presentShapeScript` view could save a model only as USDZ. Two more formats now sit beside
