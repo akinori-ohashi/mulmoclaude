@@ -35,6 +35,15 @@ const FORBIDDEN = ["class", "style"];
 
 const isAsciiLetter = (char: string): boolean => (char >= "a" && char <= "z") || (char >= "A" && char <= "Z");
 
+// HTML's whitespace is EXACTLY tab, LF, FF, CR and space. JavaScript's `\s`
+// is wider — NBSP, vertical tab, U+2028 and more — and using it here made
+// the scanner treat characters the tokenizer does not as attribute
+// separators: `<div\u00a0class=x>` has no `class` attribute to a parser, yet
+// it was being rewritten to `<div>` (codex round 6). Anywhere whitespace is
+// HTML SYNTAX, it has to be this set and not `\s`.
+const HTML_WHITESPACE = [" ", "\t", "\n", "\f", "\r"];
+const isHtmlWhitespace = (char: string): boolean => HTML_WHITESPACE.includes(char);
+
 // Elements whose content the HTML parser reads as TEXT, not markup. Inside
 // them a `<div class=x>` is characters a reader is meant to see, so
 // rewriting it corrupts the document rather than protecting anyone —
@@ -87,7 +96,7 @@ function rawTextEnd(fragment: string, from: number, name: string): number {
     const close = lowered.indexOf(needle, search);
     if (close === -1) return fragment.length;
     const after = fragment[close + needle.length] ?? ">";
-    if (after === ">" || after === "/" || /\s/.test(after)) {
+    if (after === ">" || after === "/" || isHtmlWhitespace(after)) {
       const closeEnd = fragment.indexOf(">", close);
       return closeEnd === -1 ? fragment.length : closeEnd + 1;
     }
@@ -127,7 +136,7 @@ function tagEnd(fragment: string, start: number): number {
       continue;
     }
     // Whitespace between `=` and the value does not end the wait for one.
-    if (/\s/.test(char)) continue;
+    if (isHtmlWhitespace(char)) continue;
     if (afterEquals && (char === '"' || char === "'")) {
       quote = char;
     }
@@ -145,7 +154,7 @@ function valueEnd(tag: string, start: number): number {
     return close === -1 ? tag.length : close + 1;
   }
   let index = start;
-  while (index < tag.length && !/[\s>]/.test(tag[index] ?? ">")) index += 1;
+  while (index < tag.length && !isHtmlWhitespace(tag[index] ?? ">") && tag[index] !== ">") index += 1;
   return index;
 }
 
@@ -153,10 +162,10 @@ function valueEnd(tag: string, start: number): number {
  *  including surrounding whitespace. Zero when the attribute is bare. */
 function assignmentLength(tag: string, from: number): number {
   let index = from;
-  while (index < tag.length && /\s/.test(tag[index] ?? "")) index += 1;
+  while (index < tag.length && isHtmlWhitespace(tag[index] ?? "")) index += 1;
   if (tag[index] !== "=") return 0;
   index += 1;
-  while (index < tag.length && /\s/.test(tag[index] ?? "")) index += 1;
+  while (index < tag.length && isHtmlWhitespace(tag[index] ?? "")) index += 1;
   return valueEnd(tag, index) - from;
 }
 
@@ -173,7 +182,7 @@ function stripFromTag(tag: string): string {
     // DOM. Matching only whitespace left that bypass open (codex round 4,
     // P1). A terminal `/>` is untouched: nothing follows it to match as a
     // name, so it falls through to the byte copy below.
-    const match = /^([\s/]+)([A-Za-z_:][-A-Za-z0-9_:.]*)/.exec(rest);
+    const match = /^([ \t\n\f\r/]+)([A-Za-z_:][-A-Za-z0-9_:.]*)/.exec(rest);
     if (match === null) {
       out.push(tag[index] ?? "");
       index += 1;

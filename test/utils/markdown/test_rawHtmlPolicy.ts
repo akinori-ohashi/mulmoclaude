@@ -140,6 +140,15 @@ describe("the WHOLE contract, differentially against a real parser", () => {
     "a < b and c > d",
     "3 <4 and 5< 6",
     '<div classname="c" data-class="d" data-style="e">x</div>',
+    // HTML whitespace is EXACTLY tab/LF/FF/CR/space. NBSP, vertical tab and
+    // U+2028 are NOT separators, so `<div\u00a0class=x>` has no class
+    // attribute at all and the scanner must leave it alone — it was
+    // rewriting these to `<div>` (codex round 6).
+    "<div\u00a0class=x>y</div>",
+    "<div\u000bclass=x>y</div>",
+    "<div\u2028class=x>y</div>",
+    "<div\u000cclass=x>y</div>",
+    "<div\rclass=x>y</div>",
   ];
 
   corpus.forEach((html) => {
