@@ -14,7 +14,7 @@ const LAUNCHER = "mulmoclaude";
 const INTERNAL = /^(@mulmoclaude\/|@mulmobridge\/|mulmoclaude$)/;
 const RANGE_SECTIONS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
 const PLAIN_CARET = /^\^\d+\.\d+\.\d+$/;
-const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 const DRY_RUN = process.argv.includes("--dry-run");
 
 const auditRows = () => {
