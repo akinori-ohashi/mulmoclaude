@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { renderMarpDeck } from "@mulmoclaude/markdown-plugin";
 import { MARP_HTML_ALLOWLIST } from "@mulmoclaude/markdown-utils/markdown/marpTheme";
 import { renderMarkdownHtml } from "../../server/api/routes/pdf.js";
+import { withScriptCsp } from "../../server/api/routes/share.js";
 
 const REPO_ROOT = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const PDF_ROUTE = readFileSync(path.join(REPO_ROOT, "server/api/routes/pdf.ts"), "utf8");
@@ -82,6 +83,34 @@ describe("author <style> cannot restyle the exported document", () => {
     const headStyles = [...(head[1] ?? "").matchAll(/<style\b([^>]*)>/g)].map((match) => match[1] ?? "");
     assert.equal(headStyles.length, 1, "the route emits exactly one stylesheet");
     assert.match(headStyles[0] ?? "", /nonce="/, "and it must be nonced");
+  });
+});
+
+describe("what the SHARE zip inherits, and what it adds", () => {
+  // share.ts used to claim it neutralised scripts "without stripping
+  // content or touching images/styles". This PR made that false, and the
+  // comment is now load-bearing documentation of an asymmetry — so the
+  // structural facts behind it are pinned rather than left as prose
+  // (codex round 12).
+  it("a shared PLAIN document carries BOTH policies — they are each enforced", async () => {
+    const shared = withScriptCsp(await renderMarkdownHtml({ markdown: "# T" }));
+    const policies = shared.match(/Content-Security-Policy/g) ?? [];
+    assert.equal(policies.length, 2, "the renderer's own policy plus share's extra one");
+  });
+
+  it("a shared MARP document carries share's policy alone — and that blocks Marp's own polyfill", async () => {
+    // The Marp document ships no CSP of its own, deliberately, because the
+    // in-app preview needs that polyfill. In a shared zip it is blocked.
+    // The slides are static markup and still render. This trade predates
+    // #3151; the test exists so nobody rediscovers it as a mystery.
+    const deck = ["---", "marp: true", "---", "", "# Slide"].join("\n");
+    const marpHtml = await renderMarkdownHtml({ markdown: deck, marp: true });
+    assert.doesNotMatch(marpHtml, /Content-Security-Policy/, "the Marp document has no policy of its own");
+    assert.match(marpHtml, /<script/i, "and it does ship a script");
+
+    const shared = withScriptCsp(marpHtml);
+    assert.equal((shared.match(/Content-Security-Policy/g) ?? []).length, 1);
+    assert.match(shared, /script-src 'none'/);
   });
 });
 
