@@ -368,3 +368,36 @@ describe("renderWikiPageHtml under the raw-HTML policy", () => {
     assert.doesNotMatch(html, /class="absolute inset-0"/);
   });
 });
+
+// The transplant attack (codex round 16, P1): the author never guesses the
+// nonce — `renderWikiLinks` rewrites `[[x]]` anywhere, author tags included, so
+// they make the APP splice a live marker into markup they wrote. Trusting a
+// marker found anywhere in the tag handed them `class="absolute"` back. These
+// run the whole real pipeline, because neither half is wrong on its own.
+describe("renderWikiPageHtml — an author cannot have the app vouch for their tag", () => {
+  const outerAttr = (html: string, attr: string): string | null => {
+    const rendered = new JSDOM(`<!doctype html><body>${html}</body>`).window.document;
+    return rendered.querySelector("div,span")?.getAttribute(attr) ?? null;
+  };
+  const attacks: [string, string][] = [
+    ["marker spliced into a quoted value", '<div class="absolute inset-0 bg-white" data-x="[[Home]]">x</div>'],
+    ["marker spliced bare inside the tag", '<div [[Home]] class="absolute inset-0">x</div>'],
+    ["marker right after the tag name", '<div[[Home]] class="absolute inset-0">x</div>'],
+    ["style rather than class", '<div style="position:absolute;inset:0" data-x="[[Home]]">x</div>'],
+    ["author opens a span of their own", '<span [[Home]] class="absolute inset-0">x</span>'],
+  ];
+  attacks.forEach(([name, source]) => {
+    it(`gives the author nothing — ${name}`, () => {
+      const html = renderWikiPageHtml(source, "data/wiki/pages");
+      assert.notEqual(outerAttr(html, "class"), "absolute inset-0 bg-white");
+      assert.notEqual(outerAttr(html, "class"), "absolute inset-0");
+      assert.equal(outerAttr(html, "style"), null);
+    });
+  });
+
+  it("still renders an ordinary wiki link on a page that also contains an attack", () => {
+    const html = renderWikiPageHtml('<div class="absolute" data-x="x">y</div>\n\nand [[Home]]', "data/wiki/pages");
+    assert.match(html, /class="wiki-link"/);
+    assert.doesNotMatch(html, /class="absolute"/);
+  });
+});

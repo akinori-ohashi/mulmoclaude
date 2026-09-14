@@ -36,6 +36,12 @@
 // markup therefore has to identify itself, and the only way it can do that
 // against an author who may write any static text is a nonce the author
 // cannot guess — the same defence the copy button uses.
+//
+// Guessing is not the only way to obtain it, which is why the proof is
+// POSITIONAL. `renderWikiLinks` rewrites `[[x]]` anywhere, author tags
+// included, so an author can make the app inject a live marker into markup
+// they wrote. Only a marker in FIRST attribute position is app markup, because
+// the injection always begins `<span `.
 
 import type { MarkedExtension, Tokens } from "marked";
 import { createCodeCopyNonce } from "./codeCopyExtension.js";
@@ -233,10 +239,43 @@ function endsAttributeName(char: string | undefined): boolean {
  *  the previous attribute. Trimming a trailing `\s+>` instead would be wrong:
  *  the first such run in `<span data-page="a >b" data-app-markup="…">` is inside
  *  a quoted VALUE, and collapsing it would rewrite the author's text. */
-function removeMarkerAt(tag: string, at: number, length: number): string {
-  let start = at;
+/** The marker is app plumbing, so it is removed wherever it appears and not
+ *  only where it is believed: a tag that fails the position check would
+ *  otherwise carry the live nonce out into the rendered document. Per-render,
+ *  so a leaked one is not replayable — but a value that exists to be secret
+ *  does not belong in output at all. */
+function isStripped(name: string): boolean {
+  const lowered = name.toLowerCase();
+  return FORBIDDEN.includes(lowered) || lowered === APP_MARKUP_ATTR;
+}
+
+/** Index of the proof when it is the tag's FIRST attribute, else -1.
+ *
+ *  Position is the whole defence. Trusting the marker merely because it appears
+ *  SOMEWHERE in the tag is forgeable without guessing it: `renderWikiLinks`
+ *  rewrites `[[x]]` anywhere, including inside an author's own tag, so
+ *  `<div class="absolute" data-x="[[Home]]">` makes the app splice a live
+ *  marker into the attacker's tag and the whole thing was then trusted —
+ *  measured through the real pipeline into jsdom, which still saw
+ *  `class="absolute"` (codex round 16, P1).
+ *
+ *  First position is unforgeable because the injection always begins `<span `,
+ *  so the only tag whose name is followed directly by the marker is the app's
+ *  own span. */
+function leadingMarkerAt(tag: string, marker: string): number {
+  const name = /^<([A-Za-z][A-Za-z0-9-]*)/.exec(tag);
+  if (name === null) return -1;
+  const afterName = 1 + (name[1] ?? "").length;
+  let index = afterName;
+  while (index < tag.length && isHtmlWhitespace(tag[index] ?? "")) index += 1;
+  if (index === afterName) return -1;
+  return tag.startsWith(marker, index) ? index : -1;
+}
+
+function removeMarkerAt(tag: string, markerAt: number, length: number): string {
+  let start = markerAt;
   while (start > 0 && isHtmlWhitespace(tag[start - 1] ?? "")) start -= 1;
-  return tag.slice(0, start) + tag.slice(at + length);
+  return tag.slice(0, start) + tag.slice(markerAt + length);
 }
 
 /** Removes the forbidden attributes from ONE tag's source text — unless the
@@ -244,8 +283,8 @@ function removeMarkerAt(tag: string, at: number, length: number): string {
  *  cannot leak into the document and be copied back in by an author. */
 function stripFromTag(tag: string): string {
   const marker = trustedMarker();
-  const at = marker === "" ? -1 : tag.indexOf(marker);
-  if (at !== -1) return removeMarkerAt(tag, at, marker.length);
+  const markerAt = marker === "" ? -1 : leadingMarkerAt(tag, marker);
+  if (markerAt !== -1) return removeMarkerAt(tag, markerAt, marker.length);
   const out: string[] = [];
   let index = 0;
   while (index < tag.length) {
@@ -272,7 +311,7 @@ function stripFromTag(tag: string): string {
     // characters this regex does not accept — non-ASCII, NUL — so `classé`
     // is one attribute and not `class`, and stripping its prefix produced
     // `<divé=x>` out of `<div classé=x>` (codex round 8).
-    if (FORBIDDEN.includes(name.toLowerCase()) && endsAttributeName(tag[nameEnd])) index += span;
+    if (isStripped(name) && endsAttributeName(tag[nameEnd])) index += span;
     else {
       out.push(tag.slice(index, index + span));
       index += span;

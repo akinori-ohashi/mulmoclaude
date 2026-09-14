@@ -398,11 +398,28 @@ describe("app markup injected into the source can prove itself with a nonce", ()
   });
 
   it("cutting the proof out does not disturb a quoted value that contains `>`", () => {
-    // `<span data-page="a >b" data-app-markup="…">` — trimming a trailing
-    // `\s+>` would hit the run INSIDE the value and rewrite the author's text.
-    const html = render(`<span data-page="a >b" ${APP_MARKUP_ATTR}="${NONCE}" class="wiki-link">x</span>`, NONCE);
+    // Trimming a trailing `\s+>` after cutting the marker would hit the run
+    // INSIDE the value and rewrite the text. The marker leads, as the app emits it.
+    const html = render(`<span ${APP_MARKUP_ATTR}="${NONCE}" data-page="a >b" class="wiki-link">x</span>`, NONCE);
     assert.match(html, /data-page="a >b"/);
     assert.match(html, /class="wiki-link"/);
+  });
+
+  it("the proof must be the FIRST attribute — a marker later in the tag is not app markup", () => {
+    // The transplant attack: the author does not guess the nonce, they make the
+    // app inject it into their tag. Position is what stops it.
+    const html = render(`<div class="absolute inset-0" data-x="stuff" ${APP_MARKUP_ATTR}="${NONCE}">x</div>`, NONCE);
+    assert.doesNotMatch(html, /class="absolute inset-0"/);
+  });
+
+  it("a marker after the tag name but behind another attribute is not trusted", () => {
+    const html = render(`<span data-page="p" ${APP_MARKUP_ATTR}="${NONCE}" style="position:absolute">x</span>`, NONCE);
+    assert.doesNotMatch(html, /style=/);
+  });
+
+  it("the marker never reaches the output, believed or not", () => {
+    const untrusted = render(`<div class="absolute" ${APP_MARKUP_ATTR}="${NONCE}">x</div>`, NONCE);
+    assert.doesNotMatch(untrusted, new RegExp(APP_MARKUP_ATTR));
   });
 
   it("an empty nonce trusts nothing — no CSPRNG must fail closed", () => {

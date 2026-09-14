@@ -37,7 +37,7 @@ export { escapeHtml };
  * way for this span to prove it is app markup. The caller owns the
  * value and must not build it from user input.
  */
-export function renderWikiLinks(content: string, extraAttrs: string = ""): string {
+export function renderWikiLinks(content: string, extraAttrs = ""): string {
   const attrs = extraAttrs === "" ? "" : ` ${extraAttrs}`;
   const out: string[] = [];
   let i = 0;

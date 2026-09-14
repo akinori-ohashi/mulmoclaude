@@ -63,6 +63,10 @@ function importsMarkedAtRuntime(code: string): boolean {
     .filter((line) => line.includes('from "marked"'))
     .some((line) => !line.trimStart().startsWith("import type"));
 }
+/** The file that DEFINES `renderWikiLinks` and the one that re-exports the
+ *  binding are not callers; both would otherwise read as violations. */
+const DEFINES_OR_REEXPORTS = ["export function renderWikiLinks", "export { renderWikiLinks }"];
+
 const REGISTERS_POLICY = /marked\.use\(rawHtmlPolicyExtension\)|instance\.use\(rawHtmlPolicyExtension\)/;
 
 /** Exempt surfaces, each with the reason it does not need its own
@@ -105,7 +109,7 @@ describe("every production marked configuration registers the raw-HTML policy", 
     const bare = trackedSources()
       // The file that DEFINES it is not a caller, and the re-export is a
       // binding rather than a call — both would otherwise read as violations.
-      .filter((file) => !/(export|function)\s+(function\s+)?renderWikiLinks\b/.test(readCode(file)))
+      .filter((file) => !DEFINES_OR_REEXPORTS.some((spelling) => readCode(file).includes(spelling)))
       .filter((file) => /\brenderWikiLinks\s*\(/.test(readCode(file)))
       .filter((file) => !readCode(file).includes("APP_MARKUP_ATTR"));
     assert.deepEqual(bare, [], `these inject wiki-link markup the policy will strip: ${bare.join(", ")}`);
