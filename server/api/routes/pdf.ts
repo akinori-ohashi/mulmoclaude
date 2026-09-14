@@ -234,11 +234,22 @@ export function inlineImages(html: string, options: InlineImagesOptions = {}): s
 // (codex round 9). The renderer needs no script of its own here, so the
 // policy is: none may run.
 //
-// Marp's document is built separately and deliberately does NOT carry this
-// — it ships its own custom-elements polyfill, and it ESCAPES author raw
-// HTML rather than passing it through, so there is nothing to block there.
-// `test_pdfCsp.ts` pins both halves of that.
-const NO_SCRIPT_CSP = "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+// `frame-src`/`child-src` are not belt-and-braces: measured in Chromium,
+// without them a `<iframe src="data:text/html,…">` LOADS and paints
+// attacker content into the exported PDF. With them it is blocked. (A
+// `srcdoc` frame was already covered — it inherits this policy.)
+//
+// Marp's document is built separately and deliberately does NOT carry
+// this, because it ships its own custom-elements polyfill and would
+// break. What makes that safe is narrower than it first looks, so state
+// it exactly: Marp escapes `<script>`, and every tag outside
+// `MARP_HTML_ALLOWLIST`. It does NOT escape raw HTML in general — the
+// allowlist deliberately passes `div`/`span`/`img`/`sub`/`sup`/`small`
+// with `id`/`class`/`style`, because authoring slides needs layout.
+// `test_pdfCsp.ts` pins the script claim and the allowlist's shape; an
+// entry gaining `iframe`, a form control, or an event-handler attribute
+// turns it red.
+const NO_SCRIPT_CSP = "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; child-src 'none'";
 
 function wrapHtml(body: string, css: string): string {
   return `<!DOCTYPE html>

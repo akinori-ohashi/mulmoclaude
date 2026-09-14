@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderMarpDeck } from "@mulmoclaude/markdown-plugin";
+import { MARP_HTML_ALLOWLIST } from "@mulmoclaude/markdown-utils/markdown/marpTheme";
 
 const REPO_ROOT = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "..", "..");
 const PDF_ROUTE = readFileSync(path.join(REPO_ROOT, "server/api/routes/pdf.ts"), "utf8");
@@ -29,21 +30,49 @@ describe("the plain-markdown PDF document forbids scripts", () => {
     const declared = /const NO_SCRIPT_CSP = "([^"]+)"/.exec(PDF_ROUTE);
     assert.ok(declared, "NO_SCRIPT_CSP must be a single literal the test can read");
     const policy = declared[1] ?? "";
-    ["script-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'none'"].forEach((directive) => {
+    // `frame-src`/`child-src` are load-bearing, not decoration: measured in
+    // Chromium, without them `<iframe src="data:text/html,…">` LOADS and
+    // paints attacker content into the exported PDF.
+    ["script-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'none'", "frame-src 'none'", "child-src 'none'"].forEach((directive) => {
       assert.ok(policy.includes(directive), `missing ${directive}`);
     });
   });
 });
 
 describe("the Marp document is exempt, and here is the assumption that makes it safe", () => {
-  it("Marp ESCAPES author raw HTML instead of rendering it", async () => {
-    // This is the whole reason the Marp document may keep JavaScript
-    // enabled for its own polyfill. A Marp upgrade that starts passing
-    // raw HTML through turns this red.
+  it("Marp escapes author SCRIPT tags", async () => {
+    // Deliberately narrower than "Marp escapes author raw HTML", which is
+    // FALSE for this repo: `MARP_HTML_ALLOWLIST` passes a layout subset
+    // through on purpose (see the next test). The claim that lets the Marp
+    // document keep JavaScript enabled for its own polyfill is only about
+    // `<script>`. A Marp upgrade that stops escaping it turns this red.
     const deck = ["---", "marp: true", "---", "", "# Slide", "", "<script>window.EVIL=1</script>", "", "after"].join("\n");
     const { html } = await renderMarpDeck(deck, { themes: [], inlineSVG: true });
     assert.match(html, /&lt;script&gt;/, "Marp must escape author script tags");
     assert.doesNotMatch(html, /<script[^>]*>\s*window\.EVIL/, "an author script must never become executable markup");
+  });
+
+  it("the allowlist passes LAYOUT tags only — never anything interactive", async () => {
+    // The other half of the exemption, and the half I originally got
+    // wrong. Marp is handed an explicit allowlist, so "what author HTML
+    // survives" is a decision this repo makes, not a Marp default. This
+    // pins the decision: layout tags with layout attributes, and nothing
+    // that executes, navigates, or embeds.
+    const tags = Object.keys(MARP_HTML_ALLOWLIST).sort();
+    assert.deepEqual(tags, ["br", "div", "img", "small", "span", "sub", "sup"]);
+
+    const forbidden = ["script", "iframe", "object", "embed", "form", "input", "button", "a", "style", "link", "base"];
+    forbidden.forEach((tag) => assert.ok(!(tag in MARP_HTML_ALLOWLIST), `${tag} must never be allowlisted`));
+
+    Object.entries(MARP_HTML_ALLOWLIST).forEach(([tag, attrs]) => {
+      attrs.forEach((attr) => {
+        assert.ok(!attr.toLowerCase().startsWith("on"), `${tag} must not allow the event-handler attribute ${attr}`);
+        assert.ok(
+          !["src", "href", "srcdoc", "formaction"].includes(attr.toLowerCase()) || tag === "img",
+          `${tag} must not allow the navigating/embedding attribute ${attr}`,
+        );
+      });
+    });
   });
 
   it("Marp ships exactly one script of its own, which is why it is not blanket-blocked", async () => {
