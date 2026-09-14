@@ -927,6 +927,70 @@ exit there, which is a startup-only path.
 
 ---
 
+## [1.17.0] - 2026-09-15
+
+**Pick the model per chat, copy any code block, and export a 3D model to GLB or STL — plus a markdown security fix and bridges that run inside the server.**
+
+### Highlights
+
+#### Choose the model, per setting, per role, or per chat (#2554, #2923, #3104, #3130, #3147)
+
+Chats run on Claude Fable, Opus, Sonnet or Haiku, resolved with the per-chat override
+winning over the role's pinned model, which wins over the setting. The override control is
+the model chip in the sidebar's role header, and it doubles as the display: its closed
+state names the model actually in effect, so neither picking a model nor inheriting one is
+silent. The model list lives in one place (#3130), which is also what added Fable.
+
+#### A copy button on every fenced code block (#3125)
+
+Rendered markdown now carries a copy button on each fence. The button is minted by the
+renderer rather than bolted on afterwards, and one delegated listener per document handles
+every block.
+
+#### Author markdown can no longer cover the rendered output (#3151)
+
+Raw HTML written into a markdown document has its `class` and `style` attributes stripped.
+Without this, an author could position their own content over the rendered page with CSS so
+that the copy button handed the reader text they could not see. The scanner reads a tag the
+way the HTML tokenizer does — tag-name termination, attribute separators, bogus comments,
+`<!-->` / `--!>`, `<?…>` — rather than by pattern.
+
+#### ShapeScript: a gallery, and GLB / STL export (#3171)
+
+`manageShapeScript` replaces `publishShapeScript` with one tool covering `publish`,
+`update`, `delete`, `get` and `getList`, so a model posted to the gallery can be read back
+and listed, not only written. The viewer gains **Download GLB** and **Download STL**
+alongside USDZ, and Copy moves to the source bar. A custom shape may now recurse, and the
+object budget is charged per object rather than per instance (#3112).
+
+#### Bridges run inside the server process (#3080, #3084, #3078)
+
+Configured bridges start with the server instead of needing their own terminal, and a
+bridge that loses the server reconnects on its own rather than being restarted by hand.
+Receiving bridges now fail loudly on a bad port instead of claiming to listen, and
+SIGINT / SIGTERM shut them down with a line saying which bridge is going.
+
+#### `[[wiki-link]]` is a marked extension (#3164)
+
+Wiki links are produced during parsing rather than by rewriting the source beforehand, so
+they no longer reach the renderer as author raw HTML. That removed the nonce machinery
+#3151 had needed to tell app markup from author markup.
+
+### Also in this release
+
+- **mermaid 12** (#3166), with `layout: "dagre"` and `look: "classic"` pinned so existing
+  diagrams keep their pre-12 appearance.
+- **A Canvas card keeps its custom collection view** (#3061), and collection teardown now
+  drains in-flight reconciles instead of returning while they run (#3160).
+- **Node.js 22.19 is the new minimum** (#3126), which unblocked matrix-js-sdk 42 and
+  google-auth-library 11 (#3132).
+- **`yarn dev` honours its flags again** — every one of them was silently dropped (#3113).
+- **A second server on a workspace that already has one is refused** (#3079); pass
+  `--allow-multiple-instances` when that is what you want.
+- **`.server-port` is cleaned up** on shutdown and on startup (#3082).
+
+Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@5.1.1`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ## [1.16.0] - 2026-09-12
 
 **3D models became a first-class canvas view, and a MulmoScript deck can now live in a registered stories root instead of only the workspace.**
