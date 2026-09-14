@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/mattermost",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Mattermost bridge for MulmoBridge — connect Mattermost to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",

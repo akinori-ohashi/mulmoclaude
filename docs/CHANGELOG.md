@@ -163,7 +163,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@5.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@5.1.1`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 
@@ -214,6 +214,27 @@ mermaid `^12.0.0` を宣言している。
 
 レンジは `@mulmoclaude/core` / `markdown-plugin` / launcher の 3 箇所すべてを `^3.0.0` に
 sweep 済み。
+
+#### 依存レンジが npm に反映されていなかった 37 本を出す
+
+publish 済みの manifest が、その後に動いた依存レンジを反映しないまま止まっていたもの一式。
+**コード変更は無く、公開される `dependencies` / `peerDependencies` だけが tag からずれていた**
+ので、どれも patch（既に版が先行していた 3 本はその版のまま）。
+
+判定は `audit:releases` に任せた（変更ファイルが実際に tarball に入るかを知っているのは
+これだけで、`protocol` と `webhook-runtime` は変更が `eslint.config.mjs` / `tsconfig.json`
+だけなので clean のまま据え置き）。適用は `scripts/packages/bump-pending-releases.mjs`、
+公開は `scripts/packages/publish-pending.mjs` が依存順に回す。
+
+| 種類 | パッケージ | 中身 |
+| --- | --- | --- |
+| 版が先行済み | `client@1.3.0` `chat-service@1.2.0` `telegram@1.2.0` | src が動いていて版だけ上がっていた。**`client` が未公開のまま 28 ブリッジが `^1.3.0` を宣言していた**ので、これを先頭に出す |
+| patch（ブリッジ 26 本） | `bluesky` `chatwork` `discord` `email` `google-chat` `irc` `line` `line-works` `mastodon` `matrix` `mattermost` `messenger` `nostr` `rocketchat` `signal` `slack` `teams` `twilio-sms` `viber` `webhook` `whatsapp` `xmpp` `zulip` `cli` `mock-server` `relay` | `@mulmobridge/client` のレンジ `^1.2.0` → `^1.3.0`。`email` は `imapflow` `nodemailer` の major も、`mock-server` は README も反映 |
+| patch（プラグイン 8 本） | `accounting@3.0.2` `chart@3.0.2` `collection@4.7.1` `email@2.0.2` `google@3.0.2` `html@4.0.2` `mulmoscript@4.8.2` `shapescript@5.1.1` | `@mulmoclaude/core` のレンジ（`^4.9.2` / `^4.9.3` → `^4.9.4`）。`collection` は `zod`、`email-plugin` は imapflow 2 への型追従と、日付が壊れていても list が落ちない `envelopeDateIso`（公開 entry からは出ていないので patch） |
+
+launcher (`mulmoclaude`) の `version` は `chore(release)` では触らない規則どおり据え置き。
+アプリ本体（`server/` / `src/`）が npm 利用者に届くのは `/publish-mulmoclaude` 経由なので、
+そちらは別途。
 
 #### `@mulmoclaude/markdown-plugin@4.2.0` — コピーボタンとなりすまし対策をプラグイン側で配線する (#3125, #3151)
 

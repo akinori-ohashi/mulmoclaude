@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/teams",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Microsoft Teams bridge for MulmoBridge — receives activity via Bot Framework webhook and relays to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",
