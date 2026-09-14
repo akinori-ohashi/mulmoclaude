@@ -11,6 +11,8 @@ const de: Messages = {
   applyChanges: "Änderungen übernehmen",
   saveError: "Speichern fehlgeschlagen:",
   downloadUsdz: "USDZ herunterladen",
+  downloadGlb: "GLB herunterladen",
+  downloadStl: "STL herunterladen",
   exportError: "Export fehlgeschlagen:",
   copyScript: "Kopieren",
   copied: "Kopiert",

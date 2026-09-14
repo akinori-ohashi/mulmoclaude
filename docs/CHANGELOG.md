@@ -10,6 +10,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+#### `@mulmoclaude/shapescript-plugin@5.1.0` — Download GLB and STL; Copy moves to the source bar
+
+The `presentShapeScript` view could save a model only as USDZ. Two more formats now sit beside
+it in the header, built the same way in the browser from the APPLIED script and disabled by the
+same rule while the editor holds unsaved edits:
+
+- **Download GLB** — binary glTF, for the web, game engines and most 3D tools. Vertex-coloured
+  meshes (`mesh { polygon { color … } }`, a `minkowski` result) keep their colours as `COLOR_0`;
+  no material splitting is needed as it is for USDZ.
+- **Download STL** — binary STL for slicers. Geometry only: hidden subtrees are pruned as they
+  are on screen, and every vertex is baked into world space (a posed skinned mesh included) so a `position` / `orient` in the
+  script lands where the viewport shows it.
+
+The **Copy** button leaves the header for the right end of the **Edit ShapeScript Source** bar,
+next to the text it copies; clicking it no longer toggles the editor open or closed.
+
+Exported for hosts: `shapeScriptToGlb` / `sceneToGlb` / `GLB_MIME_TYPE` / `GLB_EXTENSION`,
+`shapeScriptToStl` / `sceneToStl` / `STL_MIME_TYPE` / `STL_EXTENSION`, and `exportShapeScript`,
+the shared parse → build → serialise → dispose step the USDZ exporter now runs through too. New
+labels in all 8 locales.
+
 #### `@mulmoclaude/shapescript-plugin@5.0.0` — `manageShapeScript` replaces `publishShapeScript`: one gallery tool with `publish`, `update`, `delete`, `get`, `getList`
 
 The gallery had a way to post a model and, since 4.0.0, to update one — and no way to read one
@@ -142,7 +163,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@5.0.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@5.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 

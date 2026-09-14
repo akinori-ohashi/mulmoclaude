@@ -9,6 +9,10 @@ export interface Messages {
   applyChanges: string;
   saveError: string;
   downloadUsdz: string;
+  /** Downloads the applied model as a binary glTF. */
+  downloadGlb: string;
+  /** Downloads the applied model as a binary STL. */
+  downloadStl: string;
   exportError: string;
   /** Copies the ShapeScript source to the clipboard. */
   copyScript: string;

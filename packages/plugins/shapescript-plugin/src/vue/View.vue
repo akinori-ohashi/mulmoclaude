@@ -15,17 +15,20 @@
           <span class="material-icons">{{ showGrid ? "visibility_off" : "visibility" }}</span>
           {{ t.grid }}
         </button>
-        <button class="control-btn" data-testid="shapescript-copy-script" @click="copyScript">
-          <span class="material-icons">{{ copied ? "check" : "content_copy" }}</span>
-          {{ copied ? t.copied : t.copyScript }}
-        </button>
         <!-- Disabled while the source panel holds unapplied edits: the export
              is built from the APPLIED script, which is also what the viewport
              renders, so a dirty editor would otherwise download a model the
              user is no longer looking at. -->
-        <button class="control-btn" :disabled="!canExport" data-testid="shapescript-download-usdz" @click="downloadUsdz">
+        <button
+          v-for="format in DOWNLOAD_FORMATS"
+          :key="format.extension"
+          class="control-btn"
+          :disabled="!canExport"
+          :data-testid="`shapescript-download-${format.testId}`"
+          @click="downloadModel(format)"
+        >
           <span class="material-icons">download</span>
-          {{ t.downloadUsdz }}
+          {{ t[format.label] }}
         </button>
       </div>
     </div>
@@ -55,7 +58,16 @@
     <div ref="viewport" class="viewport" data-testid="shapescript-viewport" />
 
     <details class="script-source">
-      <summary>{{ t.editSource }}</summary>
+      <!-- The Copy button sits at the right end of the bar. A click inside a
+           <summary> toggles the panel, so it is stopped here: copying the
+           source must not open or close the editor. -->
+      <summary>
+        <span>{{ t.editSource }}</span>
+        <button class="control-btn copy-btn" data-testid="shapescript-copy-script" @click.prevent.stop="copyScript">
+          <span class="material-icons">{{ copied ? "check" : "content_copy" }}</span>
+          {{ copied ? t.copied : t.copyScript }}
+        </button>
+      </summary>
       <!-- `aria-label`, because the only visible text near this control is the
            <summary> that toggles the panel — a screen reader otherwise
            announces an unlabelled text area. -->
@@ -79,6 +91,9 @@ import { parseShapeScript } from "../shapescript/parser";
 import { astToThreeJS, sceneInfoOf } from "../shapescript/toThreeJS";
 import { removeAndDispose, disposeObject3D } from "../shapescript/dispose";
 import { shapeScriptToUsdz, USDZ_EXTENSION, USDZ_MIME_TYPE } from "../export/usdz";
+import { shapeScriptToGlb, GLB_EXTENSION, GLB_MIME_TYPE } from "../export/glb";
+import { shapeScriptToStl, STL_EXTENSION, STL_MIME_TYPE } from "../export/stl";
+import type { Messages } from "../lang/messages";
 import { slugify } from "../core/paths";
 import { useT } from "../lang";
 
@@ -140,7 +155,24 @@ const hasChanges = computed(() => {
   return editableScript.value !== props.selectedResult.data?.script;
 });
 
-/** Download USDZ is offered only for a model there is something to export
+/** One downloadable format: how it is built, and how the file is named. */
+interface DownloadFormat {
+  label: keyof Messages;
+  testId: string;
+  extension: string;
+  mimeType: string;
+  serialise: (script: string) => Promise<Uint8Array<ArrayBuffer>>;
+}
+
+/** The formats the header offers, in button order: USDZ for AR Quick Look,
+ *  GLB for the web and game engines, STL for slicers. */
+const DOWNLOAD_FORMATS: readonly DownloadFormat[] = [
+  { label: "downloadUsdz", testId: "usdz", extension: USDZ_EXTENSION, mimeType: USDZ_MIME_TYPE, serialise: shapeScriptToUsdz },
+  { label: "downloadGlb", testId: "glb", extension: GLB_EXTENSION, mimeType: GLB_MIME_TYPE, serialise: shapeScriptToGlb },
+  { label: "downloadStl", testId: "stl", extension: STL_EXTENSION, mimeType: STL_MIME_TYPE, serialise: shapeScriptToStl },
+];
+
+/** Download is offered only for a model there is something to export
  *  from: an applied, non-empty, valid script with no unapplied edits. An
  *  empty script is a valid way to clear the scene, but an empty USDZ helps
  *  nobody, so the button disables rather than clicking through to nothing
@@ -411,8 +443,8 @@ function updateCameraState() {
 const OBJECT_URL_REVOKE_DELAY_MS = 60_000;
 
 /** Hand the browser a file to save. */
-function triggerBlobDownload(bytes: Uint8Array<ArrayBuffer>, filename: string) {
-  const url = URL.createObjectURL(new Blob([bytes], { type: USDZ_MIME_TYPE }));
+function triggerBlobDownload(bytes: Uint8Array<ArrayBuffer>, filename: string, mimeType: string) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
@@ -420,20 +452,20 @@ function triggerBlobDownload(bytes: Uint8Array<ArrayBuffer>, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), OBJECT_URL_REVOKE_DELAY_MS);
 }
 
-/** Build the USDZ in the browser from the script the viewport is rendering —
+/** Build the file in the browser from the script the viewport is rendering —
  *  the APPLIED one — with no round trip and no file layer, so it works on a
- *  host with neither. The button is disabled unless `canExport`, and this
+ *  host with neither. The buttons are disabled unless `canExport`, and this
  *  re-checks so a stale click cannot export a model that differs from the one
  *  on screen. The scene is rebuilt solid rather than reusing the on-screen
  *  objects, which may be wireframe. */
-async function downloadUsdz() {
+async function downloadModel(format: DownloadFormat) {
   const script = props.selectedResult.data?.script;
   if (!script || !canExport.value) return;
   exporting.value = true;
   exportError.value = null;
   try {
-    const bytes = await shapeScriptToUsdz(script);
-    triggerBlobDownload(bytes, `${slugify(props.selectedResult.title)}${USDZ_EXTENSION}`);
+    const bytes = await format.serialise(script);
+    triggerBlobDownload(bytes, `${slugify(props.selectedResult.title)}${format.extension}`, format.mimeType);
   } catch (error) {
     exportError.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -671,6 +703,30 @@ watch(
   padding: 0.5rem;
   background: #2a2a2a;
   border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* A flex <summary> loses the disclosure marker in Chromium and Safari; draw
+   one so the bar still reads as a toggle. */
+.script-source summary::before {
+  content: "▸";
+  margin-right: 0.5rem;
+}
+
+.script-source[open] summary::before {
+  content: "▾";
+}
+
+.script-source summary > span {
+  flex: 1;
+}
+
+.copy-btn {
+  padding: 0.25rem 0.75rem;
+  font-family: inherit;
 }
 
 .script-source[open] summary {

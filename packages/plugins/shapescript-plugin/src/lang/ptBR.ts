@@ -11,6 +11,8 @@ const ptBR: Messages = {
   applyChanges: "Aplicar alterações",
   saveError: "Falha ao salvar:",
   downloadUsdz: "Baixar USDZ",
+  downloadGlb: "Baixar GLB",
+  downloadStl: "Baixar STL",
   exportError: "Falha na exportação:",
   copyScript: "Copiar",
   copied: "Copiado",
