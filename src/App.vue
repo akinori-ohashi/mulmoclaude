@@ -1140,17 +1140,15 @@ async function sendMessage(text?: string) {
   beginUserTurn(session, message, attachments);
   ensureSessionSubscription(session);
 
-  // Read BEFORE the await below: this turn runs on the model chosen when send
-  // was pressed. Today that is belt-and-braces — `setSessionModelOverride`
-  // assigns inside its queued task, so nothing can change `chatModel` while
-  // this function is parked, and moving the read after the await was measured
-  // to change no behaviour. It is here so the ordering survives someone later
-  // moving that assignment out of the queue, which would otherwise make the
-  // first turn (this value) disagree with every later turn (the sidecar).
-  const { chatModel } = session;
   // The override is persisted by its own request and a later turn reads it
   // from disk, so the write is the barrier — not the click that started it.
+  // The model is read AFTER this await, deliberately: the await is on the
+  // LATEST queued write, so by the time it returns every selection made
+  // before Send has been applied. Reading before it sends the value from
+  // before the queue drained — the picker would show one model and the first
+  // turn would run another.
   await pendingModelWrite.value;
+  const { chatModel } = session;
   const result = await postAgentRun(
     buildAgentRequestBody({
       message,

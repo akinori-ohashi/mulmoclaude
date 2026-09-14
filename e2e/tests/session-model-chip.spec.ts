@@ -68,6 +68,38 @@ test.describe("session model chip", () => {
     expect(bodies[0]?.chatModel).toBe("opus");
   });
 
+  // The interleaving Codex found in round 5, which my first attempt at this got
+  // backwards. A second selection made while the first write is still in
+  // flight is QUEUED — `setSessionModelOverride` assigns `session.chatModel`
+  // inside the queued task, not at click time — so the value is still the
+  // first one when Send is pressed. Reading it before the await therefore
+  // sends the stale model; reading it after is correct, because the await is
+  // on the LATEST queued write. On a brand-new chat this is the only thing
+  // that decides the first turn, since the chat-model POST is a no-op until
+  // the sidecar exists.
+  test("sends the latest selection when two are queued before send", async ({ page }) => {
+    const bodies: { chatModel?: string }[] = [];
+    await page.route(`**${CHAT_MODEL_PATH}`, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.route("**/api/agent", (route) => {
+      bodies.push(route.request().postDataJSON());
+      return route.fulfill({ status: 202, json: { chatSessionId: SESSION_A.id } });
+    });
+    await page.goto(`/chat/${SESSION_A.id}`);
+
+    await chip(page).selectOption("opus");
+    // Queued behind the `opus` write, so `session.chatModel` is still `opus`
+    // at the moment Send is pressed.
+    await chip(page).selectOption("haiku");
+    await page.getByTestId("user-input").fill("hello");
+    await page.getByTestId("send-btn").click();
+
+    await expect.poll(() => bodies.length, { timeout: 10_000 }).toBe(1);
+    expect(bodies[0]?.chatModel).toBe("haiku");
+  });
+
   // The next turn reads the override from disk, so a send issued straight
   // after a selection must not overtake the write that persists it.
   test("does not dispatch a turn before the override write lands", async ({ page }) => {
