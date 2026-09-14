@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
-#### `@mulmoclaude/shapescript-plugin@5.2.0` — `manageShapeScript` asks for the gallery's CC BY 4.0 agreement
+#### `@mulmoclaude/shapescript-plugin@6.0.0` — `manageShapeScript` asks for the gallery's CC BY 4.0 agreement
 
 A public model in the gallery on mulmoserver is now licensed under CC BY 4.0
 (receptron/mulmoserver#269), and its editor asks the owner to agree before publishing. The tool
@@ -22,6 +22,12 @@ The post document carries `license` (`"CC-BY-4.0"` or `null`), the host stamps
 `licenseAcceptedAt` as a server time beside a grant, and `get` / `getList` answer both. Exported:
 `SHAPE_LICENSE`, `SHAPE_LICENSE_LABEL`, `SHAPE_LICENSE_URL`, `licenseFor`,
 `LICENSE_REQUIRED_MESSAGE`, and the `ShapeLicense` type.
+
+**Breaking for hosts:** the `ShapeGalleryWriter` contract now requires `createPost` / `updatePost`
+to stamp `licenseAcceptedAt` as `serverTimestamp()` beside a `license` (and to drop both when the
+stored post is licensed already). A 5.x adapter would send the grant without its stamp and have
+every public write refused by the gallery's rules — hence the major. The MulmoClaude adapter is
+updated here; MulmoTerminal stays on 5.x until its adapter is.
 
 #### `@mulmoclaude/shapescript-plugin@5.1.0` — Download GLB and STL; Copy moves to the source bar
 

@@ -100,7 +100,7 @@ clock. `deleteObject` is what takes an uploaded thumbnail back out when `createP
 no object is left that nothing references. With `gallery: null` the tool throws
 `NOT_CONNECTED_MESSAGE`, which tells the user to connect Remote Host.
 
-A public post is licensed under **CC BY 4.0** (`SHAPE_LICENSE`, `SHAPE_LICENSE_URL`), as the
+Publishing a post licenses it under **CC BY 4.0** (`SHAPE_LICENSE`, `SHAPE_LICENSE_URL`), as the
 gallery's own editor asks before publishing. The tool asks the same way: publishing a public post,
 making a draft public, or editing a public post that has no license yet needs `acceptLicense: true`
 — the user's explicit agreement, which `MANAGE_PROMPT` tells the model to ask for and never to pass
@@ -111,7 +111,14 @@ grant — in `createPost` when `doc.license` is set, in `updatePost` when the pa
 (the owner's first agreement; the plugin never sends it for a post already licensed). The rules let
 a grant be made once and never moved or removed, so `updatePost` must drop both keys if the stored
 document turns out to be licensed already; the mulmoclaude adapter does that inside its transaction.
-`get` / `getList` answer `license` and `licenseAcceptedAt` (an ISO string, `""` when none).
+`get` / `getList` answer `license` and `licenseAcceptedAt` (an ISO string, `""` when none). A
+public post with `license: null` predates the gallery's asking and carries no grant; the prompt
+tells the model not to present such a model as reusable.
+
+This is a **breaking change of the `ShapeGalleryWriter` contract** (5.x → 6.0.0): a host built
+against 5.x does not stamp `licenseAcceptedAt`, so with this plugin its `createPost` / `updatePost`
+would send `license` without the stamp and the rules would refuse every public write. A host
+takes 6.x only once its adapter stamps the grant.
 
 `update` rewrites the user's own post `id` in place: `readPost` fetches it, the tool refuses it
 unless its `uid` is the writer's (only the publisher may change a post; the gallery's rules say the
