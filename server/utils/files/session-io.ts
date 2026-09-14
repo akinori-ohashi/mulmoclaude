@@ -150,16 +150,10 @@ export async function createSessionMeta(sessionId: string, roleId: string, first
   await writeSessionMeta(sessionId, meta, rootOverride);
 }
 
-/** Every WRITE in this module goes through this first. `metaRel` / `jsonlRel`
- *  normalise `../` away and `readTextUnder` is documented as "internal fixed
- *  paths only", so one unvalidated id reaches any file under the workspace —
- *  reproduced on the real stack: `../../config/settings` from a route param
- *  overwrote the app's own settings file. The id itself is not logged; it is
- *  the hostile value.
- *
- *  Reads are deliberately NOT gated here — the listing path enumerates ids from
- *  the filesystem, where `indexer.ts` establishes SKIP rather than refuse as
- *  the handling, and that needs its own change. Tracked separately. */
+/** Says a refusal out loud. The refusing is done by `metaRel` / `jsonlRel`
+ *  returning null; this only reports it, for the operations where silence
+ *  would look like success. The id itself is never logged — it is the hostile
+ *  value — so the length stands in for it. */
 function refuseUnsafeSessionId(sessionId: string, action: string): void {
   log.warn("session-io", "refused a session id that is not path-safe", { action, length: sessionId.length });
 }
