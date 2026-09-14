@@ -118,11 +118,29 @@ const RAW_TEXT_ELEMENTS = ["textarea", "title", "script", "style", "xmp", "ifram
  *  markup after a close tag no parser honours (codex round 3). */
 const UNCLOSEABLE_RAW_TEXT = "plaintext";
 
+/** True when `char` ends a TAG name. Deliberately NOT `endsAttributeName`:
+ *  that also stops at `=`, which the tokenizer's tag-name state keeps as part
+ *  of the name, so reusing it would leave `<style=foo>` reading as `style`. */
+function endsTagName(char: string | undefined): boolean {
+  if (char === undefined) return true;
+  return isHtmlWhitespace(char) || char === "/" || char === ">";
+}
+
 /** Name of the tag starting at `start`, lower-cased; "" for a closing tag
- *  or anything that is not a plain element name. */
+ *  or anything that is not a plain element name.
+ *
+ *  The name runs to whitespace, `/` or `>` — HTML's own boundary — and not to
+ *  the end of a `[A-Za-z0-9-]` run. Stopping early made a name that merely
+ *  BEGINS with a raw-text one read as that element: `<style:foo>` came back as
+ *  `style`, so its contents were copied verbatim and a nested
+ *  `<pre class="absolute" style="position:absolute">` survived (codex round 17).
+ *  The attribute-name boundary had the identical bug in round 8 (`classé`); this
+ *  is the same rule one level up. */
 function openingTagName(fragment: string, start: number): string {
-  const match = /^<([A-Za-z][A-Za-z0-9-]*)/.exec(fragment.slice(start));
-  return match === null ? "" : (match[1] ?? "").toLowerCase();
+  if (fragment[start] !== "<" || !isAsciiLetter(fragment[start + 1] ?? "")) return "";
+  let index = start + 1;
+  while (index < fragment.length && !endsTagName(fragment[index])) index += 1;
+  return fragment.slice(start + 1, index).toLowerCase();
 }
 
 /** Index just past a `<!…>` run: `-->` for a real comment, the first `>`
@@ -278,6 +296,20 @@ function removeMarkerAt(tag: string, markerAt: number, length: number): string {
   return tag.slice(0, start) + tag.slice(markerAt + length);
 }
 
+/** Index just past `<`, an optional `/`, and the tag name.
+ *
+ *  The attribute walk has to START here. Beginning at the `<` instead made the
+ *  NAME of a closing tag read as an attribute, because `/` is an attribute
+ *  separator: `</style=foo>` matched separator `/` + name `style`, which is
+ *  FORBIDDEN, and the tag was eaten down to `<>`. It stayed invisible only
+ *  because a real `</style>` is reached through `rawTextEnd` and never comes
+ *  here — a name that merely begins with a raw-text one does. */
+function tagNameEnd(tag: string): number {
+  let index = tag[1] === "/" ? 2 : 1;
+  while (index < tag.length && !endsTagName(tag[index])) index += 1;
+  return index;
+}
+
 /** Removes the forbidden attributes from ONE tag's source text — unless the
  *  tag proves it is app markup, in which case only the proof is removed so it
  *  cannot leak into the document and be copied back in by an author. */
@@ -285,8 +317,8 @@ function stripFromTag(tag: string): string {
   const marker = trustedMarker();
   const markerAt = marker === "" ? -1 : leadingMarkerAt(tag, marker);
   if (markerAt !== -1) return removeMarkerAt(tag, markerAt, marker.length);
-  const out: string[] = [];
-  let index = 0;
+  let index = tagNameEnd(tag);
+  const out: string[] = [tag.slice(0, index)];
   while (index < tag.length) {
     const rest = tag.slice(index);
     // Separator run: whitespace OR `/`. HTML's before-attribute-name state

@@ -385,6 +385,15 @@ describe("renderWikiPageHtml — an author cannot have the app vouch for their t
     ["marker right after the tag name", '<div[[Home]] class="absolute inset-0">x</div>'],
     ["style rather than class", '<div style="position:absolute;inset:0" data-x="[[Home]]">x</div>'],
     ["author opens a span of their own", '<span [[Home]] class="absolute inset-0">x</span>'],
+    // These probe the position check's boundary specifically: what counts as
+    // "the tag name ended and a separator followed". A refactor that accepted
+    // `/` here, or that let a name run past what the regex matches, reopens the
+    // transplant.
+    ["tab as the separator", '<div\t[[Home]] class="absolute inset-0">x</div>'],
+    ["slash as the separator", '<div/[[Home]] class="absolute inset-0">x</div>'],
+    ["a character the name regex stops at", '<div_ [[Home]] class="absolute inset-0">x</div>'],
+    ["a non-ASCII tag name", '<div\u00e9 [[Home]] class="absolute inset-0">x</div>'],
+    ["two links in one tag", '<div [[A]][[B]] class="absolute inset-0">x</div>'],
   ];
   attacks.forEach(([name, source]) => {
     it(`gives the author nothing — ${name}`, () => {
@@ -393,6 +402,13 @@ describe("renderWikiPageHtml — an author cannot have the app vouch for their t
       assert.notEqual(outerAttr(html, "class"), "absolute inset-0");
       assert.equal(outerAttr(html, "style"), null);
     });
+  });
+
+  it("a forged marker in first position is still rejected on its value", () => {
+    const upper = renderWikiPageHtml('<span DATA-APP-MARKUP="x" class="absolute inset-0">x</span>', "data/wiki/pages");
+    const bare = renderWikiPageHtml('<span data-app-markup class="absolute inset-0">x</span>', "data/wiki/pages");
+    assert.equal(outerAttr(upper, "class"), null);
+    assert.equal(outerAttr(bare, "class"), null);
   });
 
   it("still renders an ordinary wiki link on a page that also contains an attack", () => {

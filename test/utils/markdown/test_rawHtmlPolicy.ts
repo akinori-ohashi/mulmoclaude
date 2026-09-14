@@ -158,6 +158,16 @@ describe("the WHOLE contract, differentially against a real parser", () => {
     "<div\u2028class=x>y</div>",
     "<div\u000cclass=x>y</div>",
     "<div\rclass=x>y</div>",
+    // TAG-name boundary parity. A name that merely BEGINS with a raw-text one
+    // is not that element, so its contents are markup and must be stripped.
+    // `<style:foo>` used to come back as `style`, copying the nested overlay
+    // through verbatim — the same boundary bug as `classé`, one level up.
+    '<style:foo><pre class="absolute" style="position:absolute">x</pre></style:foo>',
+    '<style_foo><pre class="absolute">x</pre></style_foo>',
+    "<style\u00e9><pre class=absolute>x</pre></style\u00e9>",
+    '<style=foo><pre class="absolute">x</pre></style=foo>',
+    '<textarea:x><pre class="absolute">x</pre></textarea:x>',
+    '<scriptx><pre class="absolute">x</pre></scriptx>',
   ];
 
   corpus.forEach((html) => {
@@ -165,6 +175,48 @@ describe("the WHOLE contract, differentially against a real parser", () => {
     it(`same document minus class/style — ${label}`, () => {
       assert.equal(parse(stripPresentationAttributes(html)).innerHTML, expectedShape(html));
     });
+  });
+
+  // The hand-written corpus above missed the tag-name boundary for seventeen
+  // review rounds; a generator found it on the first run. This crosses the
+  // dimensions that actually interact — element name, separator, attribute
+  // shape, nested content — and asserts the same contract over every
+  // combination, so the next boundary nobody thought of is caught by
+  // construction rather than by someone thinking of it.
+  it("holds over generated combinations, not just the cases someone thought of", () => {
+    const names = ["div", "span", "pre", "style", "textarea", "script", "title", "style:foo", "style=foo", "style\u00e9", "scriptx", "textarea:x"];
+    const attrs = ["", ' class="a"', " class=a", ' style="s"', " data-x=1", ' id="k" class="c"', ' class="a>b"'];
+    const separators = [" ", "\t", "\n", "/", ""];
+    const bodies = ["", "x", '<pre class="absolute">y</pre>', "a < b", "<!-- c -->"];
+
+    // The shared `parse` builds a whole JSDOM per call, which is fine for a
+    // hand-written corpus and exhausts the heap over thousands of inputs. One
+    // document, a detached body per input.
+    const scratch = new JSDOM("<!doctype html><body></body>").window.document;
+    const shapeOf = (html: string, strip: boolean): string => {
+      const body = scratch.createElement("body");
+      body.innerHTML = html;
+      if (strip) {
+        body.querySelectorAll("*").forEach((element) => {
+          element.removeAttribute("class");
+          element.removeAttribute("style");
+        });
+      }
+      return body.innerHTML;
+    };
+
+    const violations: string[] = [];
+    names.forEach((name) =>
+      attrs.forEach((attr) =>
+        separators.forEach((separator) =>
+          bodies.forEach((body) => {
+            const input = `<${name}${separator}${attr}>${body}</${name}>`;
+            if (shapeOf(stripPresentationAttributes(input), false) !== shapeOf(input, true)) violations.push(input);
+          }),
+        ),
+      ),
+    );
+    assert.deepEqual(violations, [], `the contract failed on ${violations.length} generated inputs, e.g. ${JSON.stringify(violations[0])}`);
   });
 
   it("the oracle is not vacuous — an unstripped document does NOT match its own expected shape", () => {
