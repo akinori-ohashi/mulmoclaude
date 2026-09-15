@@ -229,7 +229,7 @@ Kein zusätzliches Tippen, kein Kopieren und Einfügen von SKILL.md-Inhalten —
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | Auf den MulmoClaude-Workspace begrenzte Skills. Der Project-Scope **gewinnt**, wenn ein Name mit User kollidiert. |
 | **Claude Code plugin** | `<Plugin-Installationspfad>/skills/<name>/` (via `/plugin install`) | Werden als `<plugin>:<name>` gelistet, so wie die Claude CLI sie adressiert. Schreibgeschützt, niedrigste Priorität; in `enabledPlugins` deaktivierte Plugins entfallen. Nicht als Bridge-Slash-Befehl verfügbar und nicht planbar — ein Marketplace kann hunderte Skills mitbringen, eine `/help`-Antwort ist eine Nachricht. |
 
-Von den drei Scopes schreibt MulmoClaude nur den Project-Scope — die Skills-Ansicht erstellt, bearbeitet und löscht diese. User-Scope- und Plugin-Skills sind hier schreibgeschützt; bearbeite sie in ihren eigenen Quelldateien.
+Von den drei Scopes schreibt MulmoClaude nur den Project-Scope — diese kann es erstellen, bearbeiten und löschen. User-Scope- und Plugin-Skills sind hier schreibgeschützt; bearbeite sie in ihren eigenen Quelldateien.
 
 ### Docker-Sandbox vs. Nicht-Docker
 

@@ -268,7 +268,7 @@ No extra typing, no copy-pasting SKILL.md bodies — the Run button is a one-cli
 | **Project**     | `~/mulmoclaude/.claude/skills/<name>/`                          | MulmoClaude-workspace-scoped skills. Project scope **wins** if a name collides with user. |
 | **Claude Code plugin** | `<plugin install path>/skills/<name>/` (from `/plugin install`) | Listed as `<plugin>:<name>`, the way the Claude CLI addresses them. Read-only, lowest precedence, and omitted for a plugin switched off in `enabledPlugins`. Not offered as a bridge slash command and not schedulable — a marketplace can ship hundreds of skills, and a bridge `/help` reply is one message. |
 
-Of the three scopes MulmoClaude writes only the project one — the Skills view creates, edits and deletes those. User-scope and plugin skills are read-only here; edit them in their own source files.
+Of the three scopes MulmoClaude writes only the project one — it can create, edit and delete those. User-scope and plugin skills are read-only here; edit them in their own source files.
 
 ### Docker sandbox vs non-Docker
 

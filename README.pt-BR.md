@@ -231,7 +231,7 @@ Sem digitação extra, sem copiar e colar corpos de SKILL.md — o botão Run é
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | Skills de escopo do workspace MulmoClaude. O escopo de projeto **vence** se um nome colidir com o de usuário. |
 | **Claude Code plugin** | `<caminho de instalação do plugin>/skills/<name>/` (via `/plugin install`) | Listados como `<plugin>:<name>`, do jeito que o Claude CLI os endereça. Somente leitura, precedência mais baixa; um plugin desativado em `enabledPlugins` é omitido. Não aparecem como comando slash de bridge e não são agendáveis — um marketplace pode trazer centenas, e uma resposta `/help` é uma única mensagem. |
 
-Dos três escopos o MulmoClaude escreve apenas o de projeto — a visão Skills cria, edita e exclui esses. Skills de escopo de usuário e de plugins são somente leitura aqui; edite-os nos seus próprios arquivos de origem.
+Dos três escopos o MulmoClaude escreve apenas o de projeto — ele pode criá-los, editá-los e excluí-los. Skills de escopo de usuário e de plugins são somente leitura aqui; edite-os nos seus próprios arquivos de origem.
 
 ### Sandbox Docker vs. sem Docker
 

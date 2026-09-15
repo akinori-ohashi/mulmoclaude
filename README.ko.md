@@ -232,7 +232,7 @@ MulmoClaude는 이미 가지고 있는 **Claude Code skills** 을 나열하고 �
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | MulmoClaude-워크스페이스 스코프 skills. 이름이 user와 충돌하면 Project 스코프가 **우선**합니다. |
 | **Claude Code plugin** | `<플러그인 설치 경로>/skills/<name>/` (`/plugin install`) | Claude CLI가 주소를 지정하는 방식 그대로 `<plugin>:<name>`으로 표시됩니다. 읽기 전용이며 우선순위가 가장 낮고, `enabledPlugins`에서 끈 플러그인은 제외됩니다. 브리지 슬래시 명령으로는 제공되지 않고 스케줄도 불가합니다(마켓플레이스 하나가 수백 개를 담을 수 있는데 `/help` 응답은 메시지 하나이기 때문). |
 
-세 스코프 중 MulmoClaude가 쓰는 것은 project 뿐이며, Skills 뷰에서 생성 · 편집 · 삭제할 수 있습니다. user 스코프와 플러그인 skills 는 여기서는 읽기 전용이므로 각자의 원본 파일에서 편집합니다.
+세 스코프 중 MulmoClaude가 쓰는 것은 project 뿐이며, 생성 · 편집 · 삭제할 수 있습니다. user 스코프와 플러그인 skills 는 여기서는 읽기 전용이므로 각자의 원본 파일에서 편집합니다.
 
 ### Docker 샌드박스 vs 비-Docker
 

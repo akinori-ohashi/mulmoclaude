@@ -228,7 +228,7 @@ Aucune saisie supplémentaire, aucun copier-coller du corps de SKILL.md — le b
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | Skills limitées à l'espace de travail MulmoClaude. La portée project **l'emporte** en cas de collision de nom avec user. |
 | **Claude Code plugin** | `<chemin d'installation du plugin>/skills/<name>/` (via `/plugin install`) | Listées sous `<plugin>:<name>`, comme la CLI Claude les adresse. En lecture seule, priorité la plus basse ; un plugin désactivé dans `enabledPlugins` est ignoré. Pas proposées comme commande slash de bridge ni planifiables — une marketplace peut en livrer des centaines, et une réponse `/help` tient en un message. |
 
-Des trois portées, MulmoClaude n'écrit que celle du projet — la vue Skills les crée, les modifie et les supprime. Les skills de portée user et celles des plugins sont en lecture seule ici ; modifiez-les dans leurs propres fichiers source.
+Des trois portées, MulmoClaude n'écrit que celle du projet — il peut les créer, les modifier et les supprimer. Les skills de portée user et celles des plugins sont en lecture seule ici ; modifiez-les dans leurs propres fichiers source.
 
 ### Bac à sable Docker vs non-Docker
 

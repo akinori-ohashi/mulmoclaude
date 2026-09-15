@@ -227,7 +227,7 @@ Sin escribir nada extra, sin copiar y pegar cuerpos de SKILL.md — el botón Ru
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | Skills con alcance al workspace de MulmoClaude. El alcance de proyecto **gana** si un nombre colisiona con el de usuario. |
 | **Claude Code plugin** | `<ruta de instalación del plugin>/skills/<name>/` (con `/plugin install`) | Se listan como `<plugin>:<name>`, igual que los direcciona la CLI de Claude. Solo lectura, la precedencia más baja; se omite un plugin desactivado en `enabledPlugins`. No se ofrecen como comando slash de bridge ni se pueden programar: un marketplace puede traer cientos y una respuesta `/help` es un solo mensaje. |
 
-De los tres alcances MulmoClaude solo escribe el de proyecto — la vista Skills los crea, edita y elimina. Los skills de alcance de usuario y los de plugins son de solo lectura aquí; edítalos en sus propios archivos fuente.
+De los tres alcances MulmoClaude solo escribe el de proyecto — puede crearlos, editarlos y eliminarlos. Los skills de alcance de usuario y los de plugins son de solo lectura aquí; edítalos en sus propios archivos fuente.
 
 ### Sandbox de Docker vs sin Docker
 

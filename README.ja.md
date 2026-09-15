@@ -248,7 +248,7 @@ MulmoClaude はすでにお持ちの **Claude Code skills** を一覧表示し�
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | MulmoClaude ワークスペーススコープの skill。名前が user と衝突した場合、project が **優先** されます。 |
 | **Claude Code plugin** | `<プラグインのインストール先>/skills/<name>/`（`/plugin install` で入るもの） | Claude CLI と同じ `<plugin>:<name>` の名前で一覧に出ます。読み取り専用で優先順位は最下位。`enabledPlugins` で無効にしたプラグインは除外されます。ブリッジのスラッシュコマンドとしては出ず、スケジュールもできません（1 プラグインで数百件になり得るのに対し `/help` の返信は 1 通のため）。 |
 
-3 つのスコープのうち MulmoClaude が書き込むのは project だけで、Skills ビューから作成・編集・削除できます。user スコープとプラグインの skill は読み取り専用なので、編集はそれぞれの元ファイルで行います。
+3 つのスコープのうち MulmoClaude が書き込むのは project だけで、作成・編集・削除ができます。user スコープとプラグインの skill は読み取り専用なので、編集はそれぞれの元ファイルで行います。
 
 ### Docker サンドボックス vs 非 Docker
 
