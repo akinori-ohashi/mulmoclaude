@@ -75,6 +75,14 @@ test.describe("shapescript plugin rendering", () => {
     const viewBox = await page.getByTestId("shapescript-view").boundingBox();
     const panelBox = await page.getByTestId("shapescript-download-menu-panel").boundingBox();
     expect(panelBox && viewBox && panelBox.x >= viewBox.x && panelBox.x + panelBox.width <= viewBox.x + viewBox.width).toBe(true);
+    // ...and refits when the pane is resized while it is open.
+    await page.setViewportSize({ width: 900, height: 720 });
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toBeVisible();
+    await expect(async () => {
+      const narrowView = await page.getByTestId("shapescript-view").boundingBox();
+      const narrowPanel = await page.getByTestId("shapescript-download-menu-panel").boundingBox();
+      expect(narrowPanel && narrowView && narrowPanel.x >= narrowView.x && narrowPanel.x + narrowPanel.width <= narrowView.x + narrowView.width).toBe(true);
+    }).toPass();
     // Escape closes it and hands focus back to the trigger; a click outside closes it too.
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);

@@ -39,7 +39,7 @@
             class="control-btn"
             :disabled="!canExport"
             :aria-expanded="downloadMenuOpen"
-            aria-controls="shapescript-download-panel"
+            :aria-controls="downloadPanelId"
             data-testid="shapescript-download-menu"
             @click="downloadMenuOpen = !downloadMenuOpen"
           >
@@ -49,7 +49,7 @@
           </button>
           <div
             v-if="downloadMenuOpen"
-            id="shapescript-download-panel"
+            :id="downloadPanelId"
             ref="downloadPanelRef"
             class="download-menu-panel"
             :style="{ left: `${downloadPanelShift}px` }"
@@ -118,7 +118,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, useId } from "vue";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useRuntime } from "gui-chat-protocol/vue";
@@ -251,6 +251,10 @@ watch(downloadMenuOpen, async (isOpen) => {
   fitDownloadPanel();
 });
 
+/** Per instance: the stack layout mounts every result's view at once, and
+ *  `aria-controls` must name THIS view's panel, not the first one's (codex on
+ *  #3187). */
+const downloadPanelId = `shapescript-download-panel-${useId()}`;
 const toolbarRef = ref<HTMLElement | null>(null);
 const downloadPanelRef = ref<HTMLElement | null>(null);
 /** How far left of the trigger the panel is drawn, in px (0 or negative). */
@@ -268,6 +272,15 @@ function fitDownloadPanel() {
   if (!panel || !toolbar) return;
   const overrun = panel.getBoundingClientRect().right - (toolbar.getBoundingClientRect().right - TOOLBAR_SIDE_PADDING_PX);
   downloadPanelShift.value = overrun > 0 ? -overrun : 0;
+}
+
+/** Measure again from the trigger's own edge: the shift that fitted the old
+ *  width is wrong for the new one in both directions (codex on #3187). */
+async function refitDownloadPanel() {
+  if (!downloadMenuOpen.value) return;
+  downloadPanelShift.value = 0;
+  await nextTick();
+  fitDownloadPanel();
 }
 
 // An edit or a parse error while the menu is open takes the export away;
@@ -412,6 +425,9 @@ function handleResize() {
   camera.updateProjectionMatrix();
 
   renderer.setSize(width, height);
+  // The viewport is as wide as the toolbar, so this fires for every pane
+  // resize (window, sidebar toggle) while the Download panel is open.
+  void refitDownloadPanel();
 }
 
 // `scene.remove` only drops the reference; the GPU buffers live until each
