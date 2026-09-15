@@ -61,11 +61,19 @@ export const SHAPE_POST_LIMITS = {
   aiModelMax: 80,
 } as const;
 
+/** The one license a public post is granted under — mulmoserver's `src/config/shapeLicense.ts`.
+ *  The document records it as `license`, and the server stamps `licenseAcceptedAt` when the
+ *  owner first agrees; the rules accept no other value and never let a grant go again. */
+export const SHAPE_LICENSE = "CC-BY-4.0";
+export const SHAPE_LICENSE_LABEL = "CC BY 4.0";
+export const SHAPE_LICENSE_URL = "https://creativecommons.org/licenses/by/4.0/";
+export type ShapeLicense = typeof SHAPE_LICENSE | null;
+
 export const MANAGE_DESCRIPTION =
-  "Manage the user's ShapeScript models in the public gallery at server.mulmocast.com/shapes, where anyone can view a model in 3D, read its source, download the USDZ and fork it. `action` says what to do. `publish` posts a new model — the same source as presentShapeScript, inline `script` or `path` to a saved .shape file, plus a `title` — and returns its URL. `update` changes a model the user already published, by `id` (the tail of its gallery URL), sending only the fields that change. `delete` removes one of the user's models by `id`. `get` fetches one post's details and its ShapeScript source by `id` — any published model, or the user's own draft — and with `save: true` also saves the source under artifacts/shapes/ where presentShapeScript can open it. `getList` lists the models the user has posted, drafts included, newest first. Every action runs under the user's own Google account — the app must be connected to Remote Host (signed in) first — and only the account that published a model can update or delete it. On publish and update a thumbnail is rendered and attached when the host can rasterise; the post still lands without one.";
+  "Manage the user's ShapeScript models in the public gallery at server.mulmocast.com/shapes, where anyone can view a model in 3D, read its source, download the USDZ and fork it. `action` says what to do. `publish` posts a new model — the same source as presentShapeScript, inline `script` or `path` to a saved .shape file, plus a `title` — and returns its URL. `update` changes a model the user already published, by `id` (the tail of its gallery URL), sending only the fields that change. `delete` removes one of the user's models by `id`. `get` fetches one post's details and its ShapeScript source by `id` — any published model, or the user's own draft — and with `save: true` also saves the source under artifacts/shapes/ where presentShapeScript can open it. `getList` lists the models the user has posted, drafts included, newest first. Every action runs under the user's own Google account — the app must be connected to Remote Host (signed in) first — and only the account that published a model can update or delete it. Publishing a public post, or making a draft or an unlicensed post public, licenses it under CC BY 4.0 and needs the user's explicit agreement, passed as `acceptLicense: true`; a draft needs none. A post's `license` field says whether its owner has granted that (CC-BY-4.0) or not (null: public posts from before the gallery asked). On publish and update a thumbnail is rendered and attached when the host can rasterise; the post still lands without one.";
 
 export const MANAGE_PROMPT =
-  "Use manageShapeScript for the gallery. `publish` and `update` make a model public under the user's name and `delete` removes one for good, so use those three ONLY when the user asks to publish, post, share, change or remove a model — never on your own initiative. `get` and `getList` only read, and are fine whenever they help: to find the id of a model the user wants to change, or to fetch a published model the user wants to see, fork or build on (`get` with `save: true` puts its source under artifacts/shapes/, where presentShapeScript opens it by `path`). Before publishing, make sure the model previews correctly (presentShapeScript / renderShapeScript) and give it a short title, a sentence of description and a few lowercase keywords someone would search for. Pass the user's original request as `prompt` so the post records how the model was made, and the model you are running as (its id, e.g. claude-opus-5) as `aiModel` when you know it. To change a model that is already in the gallery — a fix, a new version — `update` it by `id` rather than publishing a second copy, sending only the fields that change (a new `script` or `path`, a new `title`, …); the rest stay as they are. If the tool answers that Remote Host is not connected, tell the user to connect it (the Remote Host control in the app, Google sign-in) and offer to try again.";
+  "Use manageShapeScript for the gallery. `publish` and `update` make a model public under the user's name and `delete` removes one for good, so use those three ONLY when the user asks to publish, post, share, change or remove a model — never on your own initiative. `get` and `getList` only read, and are fine whenever they help: to find the id of a model the user wants to change, or to fetch a published model the user wants to see, fork or build on (`get` with `save: true` puts its source under artifacts/shapes/, where presentShapeScript opens it by `path`). Publishing a model publicly licenses it under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/): anyone may share and adapt it, commercially too, as long as they credit the author. Before publishing a public post — or making a draft public, or editing a public post that has no license yet — tell the user that in a sentence and ask whether they agree; pass `acceptLicense: true` only after they have said yes in this conversation, never on your own, and leave it out for a draft (`published: false`). Being public does not mean being licensed: a post whose `license` (from `get` / `getList`) is null was published before the gallery asked, and its owner has granted nothing — do not tell the user such a model may be reused, adapted or forked, and check `license` before saying so of any model that is not the user's own. Before publishing, make sure the model previews correctly (presentShapeScript / renderShapeScript) and give it a short title, a sentence of description and a few lowercase keywords someone would search for. Pass the user's original request as `prompt` so the post records how the model was made, and the model you are running as (its id, e.g. claude-opus-5) as `aiModel` when you know it. To change a model that is already in the gallery — a fix, a new version — `update` it by `id` rather than publishing a second copy, sending only the fields that change (a new `script` or `path`, a new `title`, …); the rest stay as they are. If the tool answers that Remote Host is not connected, tell the user to connect it (the Remote Host control in the app, Google sign-in) and offer to try again.";
 
 /** The tool's JSON schema, in the shape both a gui-chat-protocol
  *  `ToolDefinition` (`parameters`) and an MCP tool (`inputSchema`) take. */
@@ -119,6 +127,10 @@ export const MANAGE_SCHEMA = {
       description:
         "publish and update: false makes the post a draft only the user can see in the gallery's My models. Default true on publish; unchanged on update.",
     },
+    acceptLicense: {
+      type: "boolean",
+      description: `publish and update: true records that the user has explicitly agreed, in this conversation, to license the model under ${SHAPE_LICENSE_LABEL} (${SHAPE_LICENSE_URL}) — anyone may share and adapt it, commercially too, with credit to the author. Required to publish a public post, to make a draft public, and to edit a public post that has no license yet; not needed for a draft or for a post already licensed. Never pass it without asking the user first. The grant is permanent: it stays on the post through later edits and unpublishing.`,
+    },
     save: {
       type: "boolean",
       description: "get: true also saves the fetched source as a new .shape file under artifacts/shapes/ and returns its path. Default false.",
@@ -134,9 +146,10 @@ export const MANAGE_SCHEMA = {
   required: ["action"],
 };
 
-/** The document a post is, minus the two server-stamped times the host adds
+/** The document a post is, minus the server-stamped times the host adds
  *  (`createdAt` / `updatedAt` must be `serverTimestamp()` — the rules refuse
- *  anything else). Every key present with a value: the rules pin the set and
+ *  anything else — and `licenseAcceptedAt`, stamped the same way when `license`
+ *  is set). Every key present with a value: the rules pin the set and
  *  Firestore rejects `undefined`. The script is `scriptId`, the Storage object
  *  `uploadScript` returned — never the text. */
 export interface ShapePostDoc {
@@ -155,9 +168,13 @@ export interface ShapePostDoc {
   /** The AI model that wrote the script; "" when not said. */
   aiModel: string;
   published: boolean;
+  /** `SHAPE_LICENSE` once the owner has agreed to it; null for a draft, and for a post from
+   *  before the gallery asked. The rules refuse a public write that changes or removes a grant. */
+  license: ShapeLicense;
 }
 
-/** The key set mulmoserver's rules accept, in the rules' own order. */
+/** The key set mulmoserver's rules accept, in the rules' own order (`licenseAcceptedAt`, the
+ *  server stamp beside `license`, is the host's, as the two times are). */
 export const SHAPE_POST_KEYS = [
   "uid",
   "authorName",
@@ -172,6 +189,7 @@ export const SHAPE_POST_KEYS = [
   "keywords",
   "aiModel",
   "published",
+  "license",
 ] as const;
 
 /** One post as `get` and `getList` answer it: the document's readable fields plus its id,
@@ -189,6 +207,10 @@ export interface ShapePostSummary {
   source: ShapePostDoc["source"];
   forkedFrom: string | null;
   authorName: string;
+  /** The license the owner granted, or null when none has been. */
+  license: ShapeLicense;
+  /** When the owner agreed, as an ISO string; "" when they have not. */
+  licenseAcceptedAt: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -202,7 +224,9 @@ export interface ShapeGalleryWriter {
   authorName: string;
   /** Overrides `SHAPE_GALLERY_URL` for the returned link. */
   siteUrl?: string;
-  /** Create `shapes/{id}` from `doc` plus the server timestamps. */
+  /** Create `shapes/{id}` from `doc` plus the server timestamps — `createdAt`, `updatedAt`,
+   *  and `licenseAcceptedAt` when (and only when) `doc.license` is set: the rules want the
+   *  grant's stamp to be the server's, and refuse a stamp without a grant. */
   createPost: (id: string, doc: ShapePostDoc) => Promise<void>;
   /** The data of `shapes/{id}` as stored, or null when there is no such post (or the rules
    *  hide it — another account's draft reads as absent). The plugin coerces it; `createdAt`
@@ -211,9 +235,12 @@ export interface ShapeGalleryWriter {
   readPost: (id: string) => Promise<Record<string, unknown> | null>;
   /** Merge `patch` into `shapes/{id}` with a server `updatedAt` — a field-level update
    *  (Firestore `updateDoc`), never a whole-document write: a field absent from the patch
-   *  must keep what the document holds now. `createdAt` is not sent; the rules freeze it.
+   *  must keep what the document holds now. `createdAt` is not sent; the rules freeze it. A
+   *  `license` in the patch is the owner's first agreement: the host adds `licenseAcceptedAt`
+   *  as a server stamp beside it — unless the document turns out to be licensed already, in
+   *  which case both are dropped, since the rules let a grant be made once and never moved.
    *  CONDITIONAL: the write applies only while the document still matches `expect` — the
-   *  owner and the object ids the plugin read — and is refused (throw, with
+   *  owner, the object ids and the published state the plugin read — and is refused (throw, with
    *  `POST_CHANGED_MESSAGE` or a cause of the host's own) when it no longer does: a
    *  transaction, so a concurrent edit that replaced the script cannot lose its objects. */
   updatePost: (id: string, patch: ShapePostPatch, expect: ShapePostExpect) => Promise<void>;
@@ -272,12 +299,23 @@ export const SHAPE_OBJECT_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 /** What `updatePost` must still find on the document for the write to apply: the read the
  *  plugin merged against. Object ids are minted per upload and never reused, so an equal
- *  pair means no other edit replaced the model in between. */
+ *  pair means no other edit replaced the model in between. `published` is pinned too: whether
+ *  the patch carries a grant was decided from it (CodeRabbit on #3180), so a publish or
+ *  unpublish that landed meanwhile must refuse the write rather than license a draft. */
 export interface ShapePostExpect {
   uid: string;
   scriptId: string;
   thumbnailId: string;
+  published: boolean;
 }
+
+/** The precondition for an update or delete of `existing`, as the plugin read it. */
+export const expectOf = (existing: ShapePostDoc): ShapePostExpect => ({
+  uid: existing.uid,
+  scriptId: existing.scriptId,
+  thumbnailId: existing.thumbnailId,
+  published: existing.published,
+});
 
 /** The refusal a host raises from `updatePost` when the post no longer matches `expect`. */
 export const POST_CHANGED_MESSAGE =
@@ -285,6 +323,9 @@ export const POST_CHANGED_MESSAGE =
 
 export const NOT_CONNECTED_MESSAGE =
   "Not connected to the gallery: it is reached under the user's Google account, which needs the app's Remote Host connected (sign in with Google in the Remote Host control), then try again.";
+
+/** The refusal for a public write without the owner's agreement. */
+export const LICENSE_REQUIRED_MESSAGE = `Publishing a post publicly licenses it under ${SHAPE_LICENSE_LABEL} (${SHAPE_LICENSE_URL}): anyone may share and adapt it, commercially too, with credit to the author. Ask the user whether they agree, and pass \`acceptLicense: true\` only once they have — or post it as a draft (\`published: false\`), which needs no agreement.`;
 
 const optionalString = (value: unknown): string | undefined => (typeof value === "string" && value.trim() !== "" ? value : undefined);
 
@@ -330,6 +371,7 @@ export function shapePostFrom(
     aiModel?: string | undefined;
     published?: boolean | undefined;
     thumbnailId?: string | undefined;
+    license?: ShapeLicense | undefined;
   },
 ): ShapePostDoc {
   return {
@@ -346,7 +388,20 @@ export function shapePostFrom(
     keywords: normalizeKeywords(fields.keywords),
     aiModel: requireLength("aiModel", (fields.aiModel ?? "").trim(), SHAPE_POST_LIMITS.aiModelMax),
     published: fields.published !== false,
+    license: fields.license ?? null,
   };
+}
+
+/** The grant a write carries, mirroring the gallery's own editor: a public post needs the
+ *  owner's agreement (`acceptLicense: true`) and records it; a draft records none even when
+ *  agreement was offered — publishing later is when it is asked for; a post already licensed
+ *  keeps its grant, which the rules would refuse to restate. Throws `LICENSE_REQUIRED_MESSAGE`
+ *  for a public post without agreement — before anything is uploaded. */
+export function licenseFor(published: boolean, acceptLicense: unknown, existing: ShapeLicense = null): ShapeLicense {
+  if (existing === SHAPE_LICENSE) return existing;
+  if (!published) return null;
+  if (acceptLicense !== true) throw new Error(LICENSE_REQUIRED_MESSAGE);
+  return SHAPE_LICENSE;
 }
 
 /** The gallery's address for one post. */
@@ -408,6 +463,7 @@ export function existingShapePost(data: Record<string, unknown>): ShapePostDoc {
     keywords: normalizeKeywords(data.keywords),
     aiModel: stringOr(data.aiModel, ""),
     published: data.published !== false,
+    license: data.license === SHAPE_LICENSE ? SHAPE_LICENSE : null,
   };
 }
 
@@ -437,6 +493,8 @@ export function shapePostSummary(id: string, data: Record<string, unknown>, site
     source: post.source,
     forkedFrom: post.forkedFrom,
     authorName: post.authorName,
+    license: post.license,
+    licenseAcceptedAt: post.license ? stampOf(data.licenseAcceptedAt) : "",
     createdAt: stampOf(data.createdAt),
     updatedAt: stampOf(data.updatedAt),
   };
@@ -459,7 +517,10 @@ async function requireOwnPost(gallery: ShapeGalleryWriter, id: string, verb: "up
  *  saw. Two clients editing one post cannot then put back each other's replaced objects. */
 export type ShapePostPatch = Partial<
   Pick<ShapePostDoc, "title" | "description" | "prompt" | "keywords" | "aiModel" | "published" | "scriptId" | "thumbnailId">
->;
+> & {
+  /** Present only for the owner's FIRST agreement: never null, never on a licensed post. */
+  license?: typeof SHAPE_LICENSE;
+};
 
 const givenString = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
 
@@ -477,18 +538,20 @@ function givenFields(args: Record<string, unknown>): ShapePostPatch {
 
 /** The update for the user's own post: `doc` is the post as it will read, `patch` what is
  *  sent — only the fields the caller gave (an explicit "" clears one), plus the new object
- *  ids when the source changed. Every value has passed the same limits as a new post, so a
- *  refusal is named here before anything is uploaded. `uid`, `authorName`, `source`,
- *  `photoIds` and `forkedFrom` are never the caller's. */
+ *  ids when the source changed, plus `license` when this edit is the owner's first agreement
+ *  (a public post that had none needs it — `LICENSE_REQUIRED_MESSAGE` otherwise). Every value
+ *  has passed the same limits as a new post, so a refusal is named here before anything is
+ *  uploaded. `uid`, `authorName`, `source`, `photoIds` and `forkedFrom` are never the caller's. */
 export function shapePostPatch(
   existing: ShapePostDoc,
   args: Record<string, unknown>,
   objects?: { scriptId: string; thumbnailId: string },
 ): { doc: ShapePostDoc; patch: ShapePostPatch } {
   const given = givenFields(args);
-  const checked = shapePostFrom({ uid: existing.uid, authorName: existing.authorName }, { ...existing, ...given, ...objects });
+  const license = licenseFor(given.published ?? existing.published, args.acceptLicense, existing.license);
+  const checked = shapePostFrom({ uid: existing.uid, authorName: existing.authorName }, { ...existing, ...given, ...objects, license });
   const doc: ShapePostDoc = { ...checked, source: existing.source, photoIds: existing.photoIds, forkedFrom: existing.forkedFrom };
-  const patch: ShapePostPatch = { ...objects };
+  const patch: ShapePostPatch = { ...objects, ...(license && !existing.license ? { license } : {}) };
   for (const key of Object.keys(given) as Array<keyof ShapePostPatch>) Object.assign(patch, { [key]: doc[key] });
   return { doc, patch };
 }
@@ -522,15 +585,18 @@ async function discardObjects(context: ManageShapeScriptContext, gallery: ShapeG
 
 function writtenResult(action: "publish" | "update", doc: ShapePostDoc, id: string, gallery: ShapeGalleryWriter, state: string): ManageShapeResult {
   const url = shapePostUrl(id, gallery.siteUrl);
+  const licensed = doc.license ? ` (licensed under ${SHAPE_LICENSE_LABEL})` : "";
   const picture = doc.thumbnailId ? "" : " No thumbnail could be attached; the gallery shows a placeholder until the user edits the post.";
-  return { action, message: `${state}: "${doc.title}" is at ${url}.${picture}`, id, url, thumbnail: doc.thumbnailId !== "" };
+  return { action, message: `${state}: "${doc.title}" is at ${url}${licensed}.${picture}`, id, url, thumbnail: doc.thumbnailId !== "" };
 }
 
 async function publishNewPost(context: ManageShapeScriptContext, gallery: ShapeGalleryWriter, args: Record<string, unknown>): Promise<ManageShapeResult> {
   const title = optionalString(args.title);
   if (!title) throw new Error("`title` is required");
   const script = await checkedScript(context, args);
-  // The document is built first — with a placeholder id — so a limit is named before an upload.
+  const published = args.published !== false;
+  // The document is built first — with a placeholder id — so a limit, or a missing
+  // agreement, is named before an upload.
   const post = shapePostFrom(gallery, {
     title,
     scriptId: "",
@@ -538,7 +604,8 @@ async function publishNewPost(context: ManageShapeScriptContext, gallery: ShapeG
     prompt: optionalString(args.prompt),
     keywords: args.keywords,
     aiModel: optionalString(args.aiModel),
-    published: args.published !== false,
+    published,
+    license: licenseFor(published, args.acceptLicense),
   });
   const id = newPostId();
   const doc: ShapePostDoc = { ...post, ...(await uploadObjects(context, gallery, id, script)) };
@@ -565,7 +632,7 @@ async function updateExistingPost(
   const objects = script === null ? undefined : await uploadObjects(context, gallery, id, script);
   const { doc, patch } = shapePostPatch(existing, args, objects);
   try {
-    await gallery.updatePost(id, patch, { uid: existing.uid, scriptId: existing.scriptId, thumbnailId: existing.thumbnailId });
+    await gallery.updatePost(id, patch, expectOf(existing));
   } catch (error) {
     if (objects) await discardObjects(context, gallery, id, [objects.scriptId, objects.thumbnailId]);
     throw error;
@@ -585,7 +652,7 @@ async function deleteOwnPost(context: ManageShapeScriptContext, gallery: ShapeGa
   const existing = await requireOwnPost(gallery, id, "delete");
   // The objects to remove are the DELETED document's, not the read's: `expect` pins the model,
   // not the reference photos, which the web editor may have swapped in between (CodeRabbit).
-  const gone = existingShapePost(await gallery.deletePost(id, { uid: existing.uid, scriptId: existing.scriptId, thumbnailId: existing.thumbnailId }));
+  const gone = existingShapePost(await gallery.deletePost(id, expectOf(existing)));
   await discardObjects(context, gallery, id, [gone.scriptId, gone.thumbnailId, ...gone.photoIds]);
   const url = shapePostUrl(id, gallery.siteUrl);
   return { action: "delete", message: `Deleted: "${existing.title}" (${url}) is no longer in the gallery.`, id, url };

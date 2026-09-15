@@ -58,10 +58,17 @@ export {
   SHAPE_SCRIPT_CONTENT_TYPE,
   SHAPE_OBJECT_CACHE_CONTROL,
   requireScriptBytes,
+  licenseFor,
+  expectOf,
   NOT_CONNECTED_MESSAGE,
   POST_CHANGED_MESSAGE,
+  LICENSE_REQUIRED_MESSAGE,
+  SHAPE_LICENSE,
+  SHAPE_LICENSE_LABEL,
+  SHAPE_LICENSE_URL,
 } from "./manage";
 export type {
+  ShapeLicense,
   ManageShapeAction,
   ManageShapeScriptContext,
   ManageShapeResult,

@@ -19,12 +19,16 @@ import {
   stampOf,
   GET_LIST_DEFAULT_LIMIT,
   GET_LIST_MAX_LIMIT,
+  licenseFor,
+  LICENSE_REQUIRED_MESSAGE,
   MANAGE_ACTIONS,
   MANAGE_SCHEMA,
   MANAGE_TOOL_NAME,
   NOT_CONNECTED_MESSAGE,
   POST_CHANGED_MESSAGE,
   requireScriptBytes,
+  SHAPE_LICENSE,
+  SHAPE_LICENSE_URL,
   SHAPE_POST_KEYS,
   SHAPE_POST_LIMITS,
   SHAPE_SCRIPT_CONTENT_TYPE,
@@ -71,7 +75,13 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
   const deleted: Array<{ id: string; objectId: string }> = [];
   const patches: ShapePostPatch[] = [];
   const scriptReads: Array<{ ownerUid: string; id: string; scriptId: string }> = [];
-  const withStamps = (id: string, stored: ShapePostDoc) => ({ ...stored, createdAt: stamps.get(id), updatedAt: stamps.get(id) });
+  // The host adds `licenseAcceptedAt` beside a grant, as it adds the two times.
+  const withStamps = (id: string, stored: ShapePostDoc) => ({
+    ...stored,
+    ...(stored.license ? { licenseAcceptedAt: stamps.get(id) } : {}),
+    createdAt: stamps.get(id),
+    updatedAt: stamps.get(id),
+  });
   const writer: ShapeGalleryWriter = {
     uid: "u-alice",
     authorName: "Alice",
@@ -91,7 +101,13 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
     // and conditional, as the host's transaction is: refused unless the post still matches.
     updatePost: async (id, patch, expect) => {
       const stored = posts.get(id);
-      if (!stored || stored.uid !== expect.uid || stored.scriptId !== expect.scriptId || stored.thumbnailId !== expect.thumbnailId) {
+      if (
+        !stored ||
+        stored.uid !== expect.uid ||
+        stored.scriptId !== expect.scriptId ||
+        stored.thumbnailId !== expect.thumbnailId ||
+        stored.published !== expect.published
+      ) {
         throw new Error(POST_CHANGED_MESSAGE);
       }
       patches.push(patch);
@@ -100,7 +116,13 @@ function fakeGallery(createPost?: ShapeGalleryWriter["createPost"], siteUrl?: st
     // Conditional, as the host's transaction is: refused unless the post still matches.
     deletePost: async (id, expect) => {
       const stored = posts.get(id);
-      if (!stored || stored.uid !== expect.uid || stored.scriptId !== expect.scriptId || stored.thumbnailId !== expect.thumbnailId) {
+      if (
+        !stored ||
+        stored.uid !== expect.uid ||
+        stored.scriptId !== expect.scriptId ||
+        stored.thumbnailId !== expect.thumbnailId ||
+        stored.published !== expect.published
+      ) {
         throw new Error(POST_CHANGED_MESSAGE);
       }
       posts.delete(id);
@@ -141,13 +163,15 @@ function contextFor(gallery: ShapeGalleryWriter | null, renderThumbnail = noThum
 }
 
 const publish = (context: ManageShapeScriptContext, args: Record<string, unknown>) => executeManageShapeScript(context, { action: "publish", ...args });
+/** A public post, with the agreement the gallery asks for one. */
+const publishAgreed = (context: ManageShapeScriptContext, args: Record<string, unknown>) => publish(context, { acceptLicense: true, ...args });
 const update = (context: ManageShapeScriptContext, args: Record<string, unknown>) => executeManageShapeScript(context, { action: "update", ...args });
 
 /** A gallery with one of Alice's posts in it, and what it was posted as. */
 async function seeded(files?: FileOps) {
   const gallery = fakeGallery();
   const context = contextFor(gallery.writer, onePixel, files);
-  const first = await publish(context, { title: "Lamp", script: CUBE, description: "v1", keywords: ["lamp"], aiModel: "claude-opus-5" });
+  const first = await publishAgreed(context, { title: "Lamp", script: CUBE, description: "v1", keywords: ["lamp"], aiModel: "claude-opus-5" });
   return { ...gallery, context, id: first.action === "publish" ? first.id : "" };
 }
 
@@ -167,6 +191,7 @@ describe("manageShapeScript tool", () => {
       "prompt",
       "aiModel",
       "published",
+      "acceptLicense",
       "save",
       "limit",
     ]);
@@ -209,6 +234,7 @@ describe("manageShapeScript tool", () => {
         keywords: [],
         aiModel: "",
         published: true,
+        license: null,
       },
     );
   });
@@ -253,7 +279,7 @@ describe("manageShapeScript tool", () => {
   describe("publish", () => {
     it("publishes an inline script as a Storage object, with its thumbnail, and answers the model's URL", async () => {
       const { writer, posts, uploads, scripts } = fakeGallery();
-      const result = await publish(contextFor(writer, onePixel), {
+      const result = await publishAgreed(contextFor(writer, onePixel), {
         title: "Tiny Cube",
         script: CUBE,
         description: "A cube",
@@ -278,7 +304,8 @@ describe("manageShapeScript tool", () => {
       assert.equal(doc.prompt, "make a cube");
       assert.equal(doc.aiModel, "claude-opus-5");
       assert.equal(doc.published, true);
-      assert.match(result.message, /^Published: "Tiny Cube" is at https:/);
+      assert.equal(doc.license, SHAPE_LICENSE);
+      assert.match(result.message, /^Published: "Tiny Cube" is at https:.*\(licensed under CC BY 4\.0\)\./);
       assert.doesNotMatch(result.message, /No thumbnail/);
     });
 
@@ -307,7 +334,7 @@ describe("manageShapeScript tool", () => {
       const failing = async (): Promise<Uint8Array | null> => {
         throw new Error("no GPU");
       };
-      const result = await publish({ ...contextFor(writer, failing), onWarning: (m) => warnings.push(m) }, { title: "Lamp", script: CUBE });
+      const result = await publishAgreed({ ...contextFor(writer, failing), onWarning: (m) => warnings.push(m) }, { title: "Lamp", script: CUBE });
       assert.equal(posts.size, 1);
       assert.equal(result.action === "publish" && result.thumbnail, false);
       assert.deepEqual(warnings, ["thumbnail skipped: no GPU"]);
@@ -316,11 +343,11 @@ describe("manageShapeScript tool", () => {
     it("refuses a script that will not build, or a post over a limit, before anything is uploaded or written", async () => {
       const { writer, posts, uploads, scripts } = fakeGallery();
       const context = contextFor(writer, onePixel);
-      await assert.rejects(publish(context, { title: "Bad", script: "loft { square }" }), /cross-sections/);
-      await assert.rejects(publish(context, { title: "x".repeat(121), script: CUBE }), /`title` is too long/);
-      await assert.rejects(publish(context, { script: CUBE }), /`title` is required/);
-      await assert.rejects(publish(context, { title: "t", script: CUBE, path: "artifacts/shapes/x.shape" }), /not both/);
-      await assert.rejects(publish(context, { title: "t", script: "x".repeat(SHAPE_POST_LIMITS.scriptMax + 1) }), /`script` is too long/);
+      await assert.rejects(publishAgreed(context, { title: "Bad", script: "loft { square }" }), /cross-sections/);
+      await assert.rejects(publishAgreed(context, { title: "x".repeat(121), script: CUBE }), /`title` is too long/);
+      await assert.rejects(publishAgreed(context, { script: CUBE }), /`title` is required/);
+      await assert.rejects(publishAgreed(context, { title: "t", script: CUBE, path: "artifacts/shapes/x.shape" }), /not both/);
+      await assert.rejects(publishAgreed(context, { title: "t", script: "x".repeat(SHAPE_POST_LIMITS.scriptMax + 1) }), /`script` is too long/);
       assert.equal(posts.size, 0);
       assert.deepEqual(uploads, []);
       assert.deepEqual(scripts, []);
@@ -333,7 +360,7 @@ describe("manageShapeScript tool", () => {
       writer.uploadScript = async () => {
         throw new Error("quota");
       };
-      await assert.rejects(publish(contextFor(writer, onePixel), { title: "Lamp", script: CUBE }), /quota/);
+      await assert.rejects(publishAgreed(contextFor(writer, onePixel), { title: "Lamp", script: CUBE }), /quota/);
       assert.equal(posts.size, 0);
       assert.deepEqual(uploads, []);
       assert.deepEqual(deleted, []);
@@ -343,13 +370,50 @@ describe("manageShapeScript tool", () => {
       const { writer, uploads, deleted } = fakeGallery(async () => {
         throw new Error("permission-denied");
       });
-      await assert.rejects(publish(contextFor(writer, onePixel), { title: "Lamp", script: CUBE }), /permission-denied/);
+      await assert.rejects(publishAgreed(contextFor(writer, onePixel), { title: "Lamp", script: CUBE }), /permission-denied/);
       assert.equal(uploads.length, 1);
       const id = uploads[0]!.id;
       assert.deepEqual(deleted, [
         { id, objectId: "script-1" },
         { id, objectId: "obj-1" },
       ]);
+    });
+
+    // mulmoserver's editor asks the owner to agree to CC BY 4.0 before a public post; so does
+    // the tool, and it refuses — before an upload — rather than posting under a license the
+    // user never saw. A draft is not public and needs none.
+    it("refuses a public post without the user's agreement, before anything is uploaded, and says what to ask", async () => {
+      const { writer, posts, uploads, scripts } = fakeGallery();
+      const context = contextFor(writer, onePixel);
+      await assert.rejects(publish(context, { title: "Lamp", script: CUBE }), new RegExp(LICENSE_REQUIRED_MESSAGE.slice(0, 40)));
+      await assert.rejects(publish(context, { title: "Lamp", script: CUBE, acceptLicense: "yes" }), /acceptLicense/);
+      assert.match(LICENSE_REQUIRED_MESSAGE, new RegExp(SHAPE_LICENSE_URL.replaceAll(".", "\\.")));
+      assert.equal(posts.size, 0);
+      assert.deepEqual(uploads, []);
+      assert.deepEqual(scripts, []);
+    });
+
+    it("saves a draft without agreement, and records no grant for one even when agreement is offered", async () => {
+      const { writer, posts } = fakeGallery();
+      const context = contextFor(writer);
+      await publish(context, { title: "One", script: CUBE, published: false });
+      await publish(context, { title: "Two", script: CUBE, published: false, acceptLicense: true });
+      assert.deepEqual(
+        [...posts.values()].map((doc) => doc.license),
+        [null, null],
+      );
+    });
+
+    it("grants the one license the gallery knows, only for a public post the user agreed to", () => {
+      assert.equal(SHAPE_LICENSE, "CC-BY-4.0");
+      assert.equal(licenseFor(true, true), SHAPE_LICENSE);
+      assert.equal(licenseFor(false, true), null);
+      assert.equal(licenseFor(false, undefined), null);
+      assert.throws(() => licenseFor(true, undefined), new RegExp(LICENSE_REQUIRED_MESSAGE.slice(0, 40)));
+      assert.throws(() => licenseFor(true, "true"), new RegExp(LICENSE_REQUIRED_MESSAGE.slice(0, 40)));
+      // A grant already made stands, agreement or not: the rules let it be made once.
+      assert.equal(licenseFor(true, undefined, SHAPE_LICENSE), SHAPE_LICENSE);
+      assert.equal(licenseFor(false, undefined, SHAPE_LICENSE), SHAPE_LICENSE);
     });
   });
 
@@ -374,6 +438,10 @@ describe("manageShapeScript tool", () => {
       assert.equal(post.source, "photos");
       assert.deepEqual(post.photoIds, ["p1"]);
       assert.equal(post.forkedFrom, "f");
+      // A post from before the gallery asked for a license has none; only the one value counts.
+      assert.equal(post.license, null);
+      assert.equal(existingShapePost({ license: "CC0" }).license, null);
+      assert.equal(existingShapePost({ license: "CC-BY-4.0" }).license, SHAPE_LICENSE);
     });
 
     it("replaces the script and thumbnail, keeps every field not given, and answers the same URL", async () => {
@@ -442,6 +510,53 @@ describe("manageShapeScript tool", () => {
       assert.match(result.message, /^Updated as a draft/);
     });
 
+    // The grant is made once, by the owner, and the rules refuse a public write that restates,
+    // moves or removes it — so an edit of a licensed post never sends `license`, and only an
+    // unlicensed post going (or staying) public needs the user's agreement.
+    it("never sends the license of a licensed post again — edits and unpublishing keep it", async () => {
+      const { context, posts, patches, id } = await seeded();
+      await update(context, { id, title: "Lamp 2" });
+      await update(context, { id, published: false });
+      await update(context, { id, published: true, acceptLicense: true });
+      for (const patch of patches) assert.equal(Object.hasOwn(patch, "license"), false, JSON.stringify(patch));
+      assert.equal(posts.get(id)!.license, SHAPE_LICENSE);
+    });
+
+    it("makes a draft public only with the user's agreement, and sends the grant with that one write", async () => {
+      const { writer, posts, patches } = fakeGallery();
+      const context = contextFor(writer);
+      const draft = await publish(context, { title: "Draft", script: CUBE, published: false });
+      const id = draft.action === "publish" ? draft.id : "";
+      await assert.rejects(update(context, { id, published: true }), new RegExp(LICENSE_REQUIRED_MESSAGE.slice(0, 40)));
+      assert.deepEqual(patches, []);
+      // Still a draft: an edit that leaves it one needs no agreement and grants nothing.
+      await update(context, { id, title: "Draft 2" });
+      assert.deepEqual(patches.at(-1), { title: "Draft 2" });
+      assert.equal(posts.get(id)!.license, null);
+      await update(context, { id, published: true, acceptLicense: true });
+      assert.deepEqual(patches.at(-1), { license: SHAPE_LICENSE, published: true });
+      assert.equal(posts.get(id)!.license, SHAPE_LICENSE);
+    });
+
+    // A post from before the gallery asked (or one an older client published): public, but
+    // with no grant on record. Editing it while public is the moment the gallery's own editor
+    // asks, and so does the tool; unpublishing it needs nothing.
+    it("asks for agreement before editing a public post that has no license yet, and grants it then", async () => {
+      const { context, writer, posts, patches, scripts, id } = await seeded();
+      posts.set(id, { ...posts.get(id)!, license: null });
+      await assert.rejects(update(context, { id, script: CUBE_2 }), new RegExp(LICENSE_REQUIRED_MESSAGE.slice(0, 40)));
+      assert.equal(scripts.length, 1);
+      await update(context, { id, published: false });
+      assert.deepEqual(patches.at(-1), { published: false });
+      assert.equal(posts.get(id)!.license, null);
+      await update(context, { id, published: true, title: "Lamp 2", acceptLicense: true });
+      assert.deepEqual(patches.at(-1), { license: SHAPE_LICENSE, title: "Lamp 2", published: true });
+      assert.equal(posts.get(id)!.license, SHAPE_LICENSE);
+      // Another account's post is refused as such before any license question.
+      writer.uid = "u-bob";
+      await assert.rejects(update(context, { id, title: "Mine now" }), /published by another account/);
+    });
+
     it("refuses an id that is not a post, and one published by another account, before anything is uploaded", async () => {
       const { context, writer, posts, scripts, id } = await seeded();
       await assert.rejects(update(context, { id: "no-such-post", script: CUBE_2 }), /No gallery post has the id "no-such-post"/);
@@ -490,6 +605,23 @@ describe("manageShapeScript tool", () => {
         { id, objectId: "obj-2" },
       ]);
       assert.equal(posts.get(id)!.scriptId, "script-other");
+    });
+
+    // CodeRabbit on #3180: whether the patch carries a grant was decided from the read's
+    // `published`. An unpublish landing in between would otherwise have the grant written onto
+    // a draft, which records none — so the published state is part of the precondition.
+    it("refuses a granting update when the post was unpublished meanwhile, so no draft is licensed", async () => {
+      const { context, writer, posts, patches, id } = await seeded();
+      posts.set(id, { ...posts.get(id)!, license: null });
+      const slowRead = writer.readPost;
+      writer.readPost = async (postId) => {
+        const snapshot = await slowRead(postId);
+        posts.set(id, { ...posts.get(id)!, published: false });
+        return snapshot;
+      };
+      await assert.rejects(update(context, { id, title: "Lamp 2", acceptLicense: true }), new RegExp(POST_CHANGED_MESSAGE.slice(0, 40)));
+      assert.deepEqual(patches, []);
+      assert.equal(posts.get(id)!.license, null);
     });
   });
 
@@ -588,6 +720,8 @@ describe("manageShapeScript tool", () => {
         source: "prompt",
         forkedFrom: null,
         authorName: "Alice",
+        license: SHAPE_LICENSE,
+        licenseAcceptedAt: "2026-09-01T00:00:00.000Z",
         createdAt: "2026-09-01T00:00:00.000Z",
         updatedAt: "2026-09-01T00:00:00.000Z",
       });
@@ -632,9 +766,9 @@ describe("manageShapeScript tool", () => {
     it("lists the user's own posts, drafts included, newest first, and no one else's", async () => {
       const { context, writer, id } = await seeded();
       await publish(context, { title: "Draft", script: CUBE_2, published: false });
-      const third = await publish(context, { title: "Newest", script: CUBE });
+      const third = await publishAgreed(context, { title: "Newest", script: CUBE });
       writer.uid = "u-bob";
-      await publish(context, { title: "Bob's", script: CUBE });
+      await publishAgreed(context, { title: "Bob's", script: CUBE });
       writer.uid = "u-alice";
       const result = await executeManageShapeScript(context, { action: "getList" });
       if (result.action !== "getList") return assert.fail(result.action);
@@ -656,8 +790,8 @@ describe("manageShapeScript tool", () => {
 
     it("answers at most `limit` posts, defaulting and clamping the count", async () => {
       const { context } = await seeded();
-      await publish(context, { title: "Two", script: CUBE });
-      await publish(context, { title: "Three", script: CUBE });
+      await publishAgreed(context, { title: "Two", script: CUBE });
+      await publishAgreed(context, { title: "Three", script: CUBE });
       const result = await executeManageShapeScript(context, { action: "getList", limit: 2 });
       assert.deepEqual(result.action === "getList" ? result.posts.map((post) => post.title) : [], ["Three", "Two"]);
       assert.equal(listLimitOf(undefined), GET_LIST_DEFAULT_LIMIT);

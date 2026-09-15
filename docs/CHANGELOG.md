@@ -10,6 +10,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+#### `@mulmoclaude/shapescript-plugin@6.0.0` — `manageShapeScript` asks for the gallery's CC BY 4.0 agreement
+
+A public model in the gallery on mulmoserver is now licensed under CC BY 4.0
+(receptron/mulmoserver#269), and its editor asks the owner to agree before publishing. The tool
+asks the same way: `publish` of a public post, an `update` that makes a draft public, or an edit
+of a public post that has no license yet, needs `acceptLicense: true` — the user's explicit
+agreement, which the tool's prompt tells the model to ask for and never to pass on its own — and
+is refused with `LICENSE_REQUIRED_MESSAGE`, before any upload, without it. A draft needs none.
+The post document carries `license` (`"CC-BY-4.0"` or `null`), the host stamps
+`licenseAcceptedAt` as a server time beside a grant, and `get` / `getList` answer both. Exported:
+`SHAPE_LICENSE`, `SHAPE_LICENSE_LABEL`, `SHAPE_LICENSE_URL`, `licenseFor`,
+`LICENSE_REQUIRED_MESSAGE`, and the `ShapeLicense` type.
+
+**Breaking for hosts:** the `ShapeGalleryWriter` contract now requires `createPost` / `updatePost`
+to stamp `licenseAcceptedAt` as `serverTimestamp()` beside a `license` (and to drop both when the
+stored post is licensed already). A 5.x adapter would send the grant without its stamp and have
+every public write refused by the gallery's rules — hence the major. The MulmoClaude adapter is
+updated here; MulmoTerminal stays on 5.x until its adapter is.
+
 #### `@mulmoclaude/shapescript-plugin@5.1.0` — Download GLB and STL; Copy moves to the source bar
 
 The `presentShapeScript` view could save a model only as USDZ. Two more formats now sit beside
@@ -163,7 +182,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@5.1.1`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@6.0.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 

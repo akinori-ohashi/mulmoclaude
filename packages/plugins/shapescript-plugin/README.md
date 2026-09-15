@@ -69,7 +69,7 @@ built the same way by `shapeScriptToGlb` and `shapeScriptToStl`. Neither has an 
 
 | `action`  | Does                                                                                                   | Needs                              |
 | --------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------- |
-| `publish` | Posts a new model and answers its URL.                                                                 | `title`, `script` or `path`        |
+| `publish` | Posts a new model and answers its URL.                                                                 | `title`, `script` or `path`; `acceptLicense: true` unless a draft |
 | `update`  | Changes the user's own post in place, sending only the fields given.                                   | `id`                               |
 | `delete`  | Removes the user's own post and every object under it.                                                 | `id`                               |
 | `get`     | One post's readable fields and its ShapeScript source — anyone's published one, or the user's draft.  | `id`; `save: true` writes a .shape |
@@ -100,13 +100,33 @@ clock. `deleteObject` is what takes an uploaded thumbnail back out when `createP
 no object is left that nothing references. With `gallery: null` the tool throws
 `NOT_CONNECTED_MESSAGE`, which tells the user to connect Remote Host.
 
+Publishing a post licenses it under **CC BY 4.0** (`SHAPE_LICENSE`, `SHAPE_LICENSE_URL`), as the
+gallery's own editor asks before publishing. The tool asks the same way: publishing a public post,
+making a draft public, or editing a public post that has no license yet needs `acceptLicense: true`
+— the user's explicit agreement, which `MANAGE_PROMPT` tells the model to ask for and never to pass
+on its own — and is refused with `LICENSE_REQUIRED_MESSAGE`, before any upload, without it. A draft
+(`published: false`) needs none and records none. The document carries `license` (`"CC-BY-4.0"` or
+`null`, a pinned key), and the host stamps `licenseAcceptedAt` as `serverTimestamp()` beside a
+grant — in `createPost` when `doc.license` is set, in `updatePost` when the patch carries `license`
+(the owner's first agreement; the plugin never sends it for a post already licensed). The rules let
+a grant be made once and never moved or removed, so `updatePost` must drop both keys if the stored
+document turns out to be licensed already; the mulmoclaude adapter does that inside its transaction.
+`get` / `getList` answer `license` and `licenseAcceptedAt` (an ISO string, `""` when none). A
+public post with `license: null` predates the gallery's asking and carries no grant; the prompt
+tells the model not to present such a model as reusable.
+
+This is a **breaking change of the `ShapeGalleryWriter` contract** (5.x → 6.0.0): a host built
+against 5.x does not stamp `licenseAcceptedAt`, so with this plugin its `createPost` / `updatePost`
+would send `license` without the stamp and the rules would refuse every public write. A host
+takes 6.x only once its adapter stamps the grant.
+
 `update` rewrites the user's own post `id` in place: `readPost` fetches it, the tool refuses it
 unless its `uid` is the writer's (only the publisher may change a post; the gallery's rules say the
 same, but without a reason), and `updatePost` merges a PATCH — only the fields the caller gave,
 plus new object ids — with a server `updatedAt` and no `createdAt`, which the rules freeze. It must
 be a field-level update (Firestore `updateDoc`), never a whole-document write, so a field not given
 keeps what the document holds now rather than what the read saw; and it must be CONDITIONAL on
-`expect` (owner and object ids as read), refusing with `POST_CHANGED_MESSAGE` when the post changed
+`expect` (owner, object ids and published state as read), refusing with `POST_CHANGED_MESSAGE` when the post changed
 meanwhile — a `runTransaction` that re-reads, compares and updates — so two racing edits cannot
 orphan each other's objects. A field given replaces the post's (an explicit `""` clears
 `description` / `prompt` / `aiModel`), one omitted keeps it. A new `script` / `path` uploads a new
