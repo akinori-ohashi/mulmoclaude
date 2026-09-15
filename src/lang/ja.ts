@@ -946,7 +946,7 @@ const jaMessages = {
     sectionActive: "アクティブ",
     sectionCatalog: "カタログ",
     sectionLegendActive:
-      "Claude がいま使えるスキル。会話の流れで Claude が自動的に使うほか、スキル名を指定して呼び出すこともできます。{system} システム(同梱 mc-) / {project} プロジェクト(編集可。このワークスペース専用) / {user} ユーザー(~/.claude/skills/ のスキル)。",
+      "Claude がいま使えるスキル。会話の流れで Claude が自動的に使うほか、スキル名を指定して呼び出すこともできます。{system} システム(同梱 mc-) / {project} プロジェクト(編集可。このワークスペース専用) / {user} ユーザー(~/.claude/skills/ のスキル) / {claudePlugin} プラグイン(インストール済みの Claude Code プラグイン。読み取り専用)。",
     sectionLegendCatalog:
       "カタログ: {star} を付けるとアクティブになるスキル。アクティブから {star} を外せばカタログに戻り、Claude は使わなくなります (削除はされません)。",
     catalogEmpty: "利用できるプリセットスキルがありません。",
@@ -954,6 +954,7 @@ const jaMessages = {
     catalogStar: "スター",
     catalogStarred: "スター済み",
     sourceUserTitle: "ユーザースキル (~/.claude/skills/、全ワークスペース共通)",
+    sourceClaudePluginTitle: "プラグインスキル (インストール済みの Claude Code プラグイン — 読み取り専用、プラグイン側で更新)",
     sourceSystemTitle: "システムスキル (同梱、mc- 接頭辞 — 読み取り専用、launcher 起動時に上書き)",
     sourceProjectTitle: "プロジェクトスキル (ワークスペース直下の .claude/skills/、このワークスペースのみ)",
     sourcePresetTitle: "プリセットカタログ — スターでこのワークスペースに有効化",

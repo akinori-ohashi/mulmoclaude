@@ -961,7 +961,7 @@ const esMessages = {
     sectionActive: "Activas",
     sectionCatalog: "Catálogo",
     sectionLegendActive:
-      "Skills que Claude puede usar ahora mismo. Claude las usa automáticamente en el flujo de la conversación, o puedes invocar una escribiendo su nombre. {system} Sistema (mc- incluida) / {project} Proyecto (editable, solo en este workspace) / {user} Usuario (skills en ~/.claude/skills/).",
+      "Skills que Claude puede usar ahora mismo. Claude las usa automáticamente en el flujo de la conversación, o puedes invocar una escribiendo su nombre. {system} Sistema (mc- incluida) / {project} Proyecto (editable, solo en este workspace) / {user} Usuario (skills en ~/.claude/skills/) / {claudePlugin} Plugin (de un plugin de Claude Code instalado, solo lectura).",
     sectionLegendCatalog:
       "Catálogo: skills que pasan a Activas al marcarlas con {star}. Quitar {star} desde Activas devuelve la skill al Catálogo — Claude deja de usarla (la skill no se elimina).",
     catalogEmpty: "No hay skills de preajuste disponibles.",
@@ -969,6 +969,7 @@ const esMessages = {
     catalogStar: "Destacar",
     catalogStarred: "Destacada",
     sourceUserTitle: "Skill de usuario (~/.claude/skills/, disponible en todos los espacios)",
+    sourceClaudePluginTitle: "Skill de plugin (plugin de Claude Code instalado — solo lectura, lo actualiza el plugin)",
     sourceSystemTitle: "Skill de sistema (incluida, prefijo mc- — solo lectura, sobrescrita por el launcher)",
     sourceProjectTitle: "Skill del proyecto (.claude/skills/ del workspace, solo este espacio)",
     sourcePresetTitle: "Catálogo de preajustes — pulsa Destacar para activarla en este espacio",

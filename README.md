@@ -254,20 +254,21 @@ MulmoClaude can list and launch the **Claude Code skills** you already have. A s
 1. Open MulmoClaude and stay in one of the skill-enabled roles: **General**, **Office**, or **Tutor**.
 2. Ask Claude to show your skills — e.g. _"show my skills"_ or _"list skills"_.
 3. Claude invokes the `manageSkills` tool, and a split-pane **Skills** view opens in the canvas:
-   - **Left**: every skill discovered on your machine, with its description and scope badge (`USER` / `PROJECT`).
+   - **Left**: every skill discovered on your machine, with its description and a badge for the scope it came from.
    - **Right**: the full `SKILL.md` content of the selected skill.
-4. Click **Run** on a skill. MulmoClaude sends `/<skill-name>` to Claude as a regular chat message; Claude Code's slash-command machinery resolves it against `~/.claude/skills/` and executes the skill's instructions inline in the same chat session.
+4. Click **Run** on a skill. MulmoClaude sends `/<skill-name>` to Claude as a regular chat message; Claude Code's slash-command machinery resolves it against `~/.claude/skills/` — or against the owning plugin, for a `<plugin>:<name>` skill — and executes the skill's instructions inline in the same chat session.
 
 No extra typing, no copy-pasting SKILL.md bodies — the Run button is a one-click wrapper around `/skill-name`.
 
-### Skill discovery — two scopes
+### Skill discovery — three scopes
 
-| Scope       | Location                               | Semantics                                                                                 |
-| ----------- | -------------------------------------- | ----------------------------------------------------------------------------------------- |
-| **User**    | `~/.claude/skills/<name>/SKILL.md`     | Personal skills, shared across every project you open with the Claude CLI.                |
-| **Project** | `~/mulmoclaude/.claude/skills/<name>/` | MulmoClaude-workspace-scoped skills. Project scope **wins** if a name collides with user. |
+| Scope           | Location                                                        | Semantics                                                                                 |
+| --------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **User**        | `~/.claude/skills/<name>/SKILL.md`                              | Personal skills, shared across every project you open with the Claude CLI.                |
+| **Project**     | `~/mulmoclaude/.claude/skills/<name>/`                          | MulmoClaude-workspace-scoped skills. Project scope **wins** if a name collides with user. |
+| **Claude Code plugin** | `<plugin install path>/skills/<name>/` (from `/plugin install`) | Listed as `<plugin>:<name>`, the way the Claude CLI addresses them. Read-only, lowest precedence, and omitted for a plugin switched off in `enabledPlugins`. Not offered as a bridge slash command and not schedulable — a marketplace can ship hundreds of skills, and a bridge `/help` reply is one message. |
 
-Both scopes are read-only in phase 0 — edits happen on the file system. A future release will let MulmoClaude itself create / edit project-scope skills.
+Of the three scopes MulmoClaude writes only the project one — it can create, edit and delete those. User-scope and plugin skills are read-only here; edit them in their own source files.
 
 ### Docker sandbox vs non-Docker
 
@@ -332,7 +333,7 @@ Notes on saving:
 
 ### Delete a saved skill
 
-Project-scope skills get a **Delete** button next to the Run button in the Skills view (user-scope skills are read-only — no Delete button shown). Confirming the dialog removes `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. If you also dropped extra files in that folder by hand, they're left in place; only the SKILL.md is removed.
+Project-scope skills get a **Delete** button next to the Run button in the Skills view. Every other scope is read-only, so user-scope and plugin skills show no Delete button. Confirming the dialog removes `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. If you also dropped extra files in that folder by hand, they're left in place; only the SKILL.md is removed.
 
 You can also ask Claude to delete by name:
 

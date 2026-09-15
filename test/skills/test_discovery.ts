@@ -148,11 +148,19 @@ describe("collectSkillsFromDir", () => {
   });
 });
 
+// The plugin ledger's default path is the developer's real ~/.claude, so every
+// case that isn't about plugins points at one inside the temp root — otherwise
+// the result depends on which plugins the machine running the test has.
+function noPlugins(): { pluginLedgerPath: string; claudeSettingsPaths: readonly string[] } {
+  return { pluginLedgerPath: join(root, "absent-ledger.json"), claudeSettingsPaths: [] };
+}
+
 describe("discoverSkills", () => {
   it("returns an empty list when user and project dirs are both missing", async () => {
     const skills = await discoverSkills({
       userDir: join(root, "nope"),
       workspaceRoot: root,
+      ...noPlugins(),
     });
     assert.deepEqual(skills, []);
   });
@@ -160,7 +168,7 @@ describe("discoverSkills", () => {
   it("returns only user skills when no workspaceRoot is given", async () => {
     await writeSkill(root, "u1", "User 1");
     await writeSkill(root, "u2", "User 2");
-    const skills = await discoverSkills({ userDir: root });
+    const skills = await discoverSkills({ userDir: root, ...noPlugins() });
     assert.equal(skills.length, 2);
     assert.deepEqual(
       skills.map((skill) => [skill.name, skill.source]),
@@ -185,6 +193,7 @@ describe("discoverSkills", () => {
       const skills = await discoverSkills({
         userDir: userRoot,
         workspaceRoot: workspace,
+        ...noPlugins(),
       });
       // Alphabetical: only_project, only_user, shared
       assert.deepEqual(
@@ -198,5 +207,88 @@ describe("discoverSkills", () => {
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
+  });
+});
+
+describe("discoverSkills — Claude Code plugin scope", () => {
+  // `<installPath>/skills/<name>/SKILL.md`, the layout `/plugin install` leaves
+  // behind under ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/.
+  async function installPlugin(pluginDirName: string, skillName: string, description: string): Promise<string> {
+    const installPath = join(root, "plugins", pluginDirName);
+    await mkdir(join(installPath, "skills"), { recursive: true });
+    await writeSkill(join(installPath, "skills"), skillName, description);
+    return installPath;
+  }
+
+  async function writeLedger(plugins: Record<string, { installPath: string }[]>): Promise<string> {
+    const ledgerPath = join(root, "installed_plugins.json");
+    await writeFile(ledgerPath, JSON.stringify({ version: 2, plugins }));
+    return ledgerPath;
+  }
+
+  it("names a plugin's skill the way the CLI addresses it", async () => {
+    const installPath = await installPlugin("demo", "story", "Tell a story");
+    const pluginLedgerPath = await writeLedger({ "demo@shop": [{ installPath }] });
+
+    const skills = await discoverSkills({ userDir: join(root, "no-user-skills"), pluginLedgerPath, claudeSettingsPaths: [] });
+    assert.deepEqual(
+      skills.map((skill) => [skill.name, skill.source, skill.description]),
+      [["demo:story", "claude-plugin", "Tell a story"]],
+    );
+  });
+
+  it("omits a plugin the settings switched off", async () => {
+    const installPath = await installPlugin("demo", "story", "Tell a story");
+    const pluginLedgerPath = await writeLedger({ "demo@shop": [{ installPath }] });
+    const settingsPath = join(root, "settings.json");
+    await writeFile(settingsPath, JSON.stringify({ enabledPlugins: { "demo@shop": false } }));
+
+    const skills = await discoverSkills({ userDir: join(root, "no-user-skills"), pluginLedgerPath, claudeSettingsPaths: [settingsPath] });
+    assert.deepEqual(skills, []);
+  });
+
+  it("omits every plugin when the caller opts out", async () => {
+    const installPath = await installPlugin("demo", "story", "Tell a story");
+    const pluginLedgerPath = await writeLedger({ "demo@shop": [{ installPath }] });
+
+    const skills = await discoverSkills({
+      userDir: join(root, "no-user-skills"),
+      pluginLedgerPath,
+      claudeSettingsPaths: [],
+      includeClaudePlugins: false,
+    });
+    assert.deepEqual(skills, []);
+  });
+
+  it("keeps the user's own skill when a plugin skill has the same name", async (ctx) => {
+    if (process.platform === "win32") {
+      // The collision can only be built by naming a directory `demo:story`,
+      // and `:` is not a legal Windows filename character.
+      ctx.skip("Windows filenames cannot contain ':'");
+      return;
+    }
+    const installPath = await installPlugin("demo", "story", "From the plugin");
+    const pluginLedgerPath = await writeLedger({ "demo@shop": [{ installPath }] });
+    const userRoot = join(root, "user-skills");
+    await mkdir(userRoot, { recursive: true });
+    await writeSkill(userRoot, "demo:story", "From the user");
+
+    const skills = await discoverSkills({ userDir: userRoot, pluginLedgerPath, claudeSettingsPaths: [] });
+    assert.deepEqual(
+      skills.map((skill) => [skill.name, skill.source, skill.description]),
+      [["demo:story", "user", "From the user"]],
+    );
+  });
+
+  it("reads every enabled plugin", async () => {
+    const first = await installPlugin("first", "alpha", "A");
+    const second = await installPlugin("second", "beta", "B");
+    const pluginLedgerPath = await writeLedger({ "first@shop": [{ installPath: first }], "second@shop": [{ installPath: second }] });
+
+    const skills = await discoverSkills({ userDir: join(root, "no-user-skills"), pluginLedgerPath, claudeSettingsPaths: [] });
+    assert.deepEqual(
+      skills.map((skill) => skill.name),
+      ["first:alpha", "second:beta"],
+    );
   });
 });

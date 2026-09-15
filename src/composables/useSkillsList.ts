@@ -2,11 +2,12 @@ import { readonly, ref, type Ref, type DeepReadonly } from "vue";
 import { apiGet } from "../utils/api";
 import { API_ROUTES } from "../config/apiRoutes";
 import { errorMessage } from "../utils/errors";
+import type { SkillSource } from "../types/session";
 
 export interface SkillSummary {
   name: string;
   description: string;
-  source: "user" | "project";
+  source: SkillSource;
 }
 
 // Module-level shared state across consumers. Failed fetch keeps the previous list (no visual wipe on a blip) and

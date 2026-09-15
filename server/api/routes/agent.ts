@@ -46,7 +46,8 @@ import { decorateMessageForCli, sanitiseOriginalFilename, type AttachedFile } fr
 import { getOrCreateSession, beginRun, endRun, cancelRun, pushSessionEvent, pushToolResult, getActiveSessionIds } from "../../events/session-store/index.js";
 import { workspacePath } from "../../workspace/workspace.js";
 import { discoverSkills } from "../../workspace/skills/discovery.js";
-import type { Skill } from "../../workspace/skills/types.js";
+import { couldBeClaudePluginSkill } from "../../workspace/skills/claude-plugins.js";
+import type { Skill, SkillSource } from "../../workspace/skills/types.js";
 import { isNonEmptyString } from "../../utils/types.js";
 import { findLastSessionEntry } from "../../utils/sessionJsonl.js";
 import { maybeRunJournal } from "../../workspace/journal/index.js";
@@ -957,7 +958,7 @@ async function writeSkillEntry(ctx: EventContext, skillName: string, body: strin
 }
 
 interface SkillMetadata {
-  scope: "user" | "project" | "unknown";
+  scope: SkillSource | "unknown";
   path: string | null;
   /** From the SKILL.md frontmatter `description:` field. Used by the
    *  host's collapsed-skill card — Claude CLI strips frontmatter from
@@ -974,7 +975,13 @@ interface SkillMetadata {
 
 async function resolveSkillMetadata(skillName: string): Promise<SkillMetadata> {
   try {
-    const skills: Skill[] = await discoverSkills({ workspaceRoot: workspacePath });
+    // This runs once per Skill invocation, mid-turn, so it only pays for the
+    // plugin scan when the name it is resolving could be a plugin's (~170 ms of
+    // the ~180 ms a full scan costs with three plugins installed).
+    const skills: Skill[] = await discoverSkills({
+      workspaceRoot: workspacePath,
+      includeClaudePlugins: couldBeClaudePluginSkill(skillName),
+    });
     const found = skills.find((skill) => skill.name === skillName);
     if (!found) return { scope: "unknown", path: null, description: null, body: null };
     return { scope: found.source, path: found.path, description: found.description, body: found.body };

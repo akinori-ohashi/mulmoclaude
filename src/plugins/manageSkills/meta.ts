@@ -4,7 +4,7 @@ export const META = definePluginMeta({
   toolName: "manageSkills",
   apiNamespace: "skills",
   apiRoutes: {
-    /** GET /api/skills — list every available skill (user + project). */
+    /** GET /api/skills — list every available skill, whatever scope it came from. */
     list: { method: "GET", path: "" },
     /** GET /api/skills/:name — read one skill's body + frontmatter. */
     detail: { method: "GET", path: "/:name" },

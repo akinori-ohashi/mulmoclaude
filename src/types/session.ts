@@ -118,13 +118,14 @@ export interface TextEntry extends SessionEntry {
   attachments?: PersistedAttachment[];
 }
 
-/** Where a skill resolution landed. Mirrors `SkillSource` from
- *  `server/workspace/skills/types.ts` (preset skills are synced into
- *  `<workspaceRoot>/.claude/skills/` at boot, so they surface as
- *  `project` here — discovery doesn't carry a separate `preset` tag).
- *  `unknown` covers the case where the skill went away between the
- *  tool call and the body flush. */
-export type SkillScope = "user" | "project" | "unknown";
+/** Mirrors `SkillSource` from `server/workspace/skills/types.ts`. Preset
+ *  skills are synced into `<workspaceRoot>/.claude/skills/` at boot, so they
+ *  surface as `project` — discovery doesn't carry a separate `preset` tag. */
+export type SkillSource = "user" | "project" | "claude-plugin";
+
+/** Where a skill resolution landed. `unknown` covers the case where the skill
+ *  went away between the tool call and the body flush. */
+export type SkillScope = SkillSource | "unknown";
 
 export interface SkillEntry extends SessionEntry {
   source: "assistant";

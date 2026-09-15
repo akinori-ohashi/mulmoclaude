@@ -218,20 +218,21 @@ MulmoClaude는 이미 가지고 있는 **Claude Code skills** 을 나열하고 �
 1. MulmoClaude를 열고 skill 지원 역할 중 하나에 머무르세요: **General**, **Office**, 또는 **Tutor**.
 2. Claude에게 skills 를 보여달라고 요청하세요 — 예: _"show my skills"_ 또는 _"list skills"_.
 3. Claude가 `manageSkills` 도구를 호출하고, 캔버스에 분할 창 **Skills** 뷰가 열립니다:
-   - **왼쪽**: 머신에서 발견된 모든 skill 과 설명 및 스코프 뱃지 (`USER` / `PROJECT`).
+   - **왼쪽**: 머신에서 발견된 모든 skill 과 설명, 그리고 어느 스코프에서 왔는지 보여주는 뱃지.
    - **오른쪽**: 선택한 skill 의 전체 `SKILL.md` 내용.
-4. skill 에서 **Run** 을 클릭하세요. MulmoClaude는 `/<skill-name>` 을 일반 채팅 메시지로 Claude에 전송하며; Claude Code의 슬래시 명령 메커니즘이 `~/.claude/skills/` 를 기준으로 이를 해결하고 동일한 채팅 세션 내에서 skill 의 지시사항을 인라인으로 실행합니다.
+4. skill 에서 **Run** 을 클릭하세요. MulmoClaude는 `/<skill-name>` 을 일반 채팅 메시지로 Claude에 전송하며; Claude Code의 슬래시 명령 메커니즘이 `~/.claude/skills/`(`<plugin>:<name>` skill 이면 해당 플러그인)를 기준으로 이를 해결하고 동일한 채팅 세션 내에서 skill 의 지시사항을 인라인으로 실행합니다.
 
 추가 입력이나 SKILL.md 본문 복사 붙여넣기가 필요 없습니다 — Run 버튼은 `/skill-name` 의 원클릭 래퍼입니다.
 
-### Skill 발견 — 두 가지 스코프
+### Skill 발견 — 세 가지 스코프
 
 | 스코프      | 위치                                   | 의미                                                                                            |
 | ----------- | -------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | 개인 skills, Claude CLI로 여는 모든 프로젝트에서 공유됩니다.                                    |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | MulmoClaude-워크스페이스 스코프 skills. 이름이 user와 충돌하면 Project 스코프가 **우선**합니다. |
+| **Claude Code plugin** | `<플러그인 설치 경로>/skills/<name>/` (`/plugin install`) | Claude CLI가 주소를 지정하는 방식 그대로 `<plugin>:<name>`으로 표시됩니다. 읽기 전용이며 우선순위가 가장 낮고, `enabledPlugins`에서 끈 플러그인은 제외됩니다. 브리지 슬래시 명령으로는 제공되지 않고 스케줄도 불가합니다(마켓플레이스 하나가 수백 개를 담을 수 있는데 `/help` 응답은 메시지 하나이기 때문). |
 
-두 스코프 모두 phase 0에서는 읽기 전용입니다 — 편집은 파일 시스템에서 이루어집니다. 향후 릴리스에서는 MulmoClaude 자체가 project 스코프 skills 를 생성 / 편집할 수 있게 됩니다.
+세 스코프 중 MulmoClaude가 쓰는 것은 project 뿐이며, 생성 · 편집 · 삭제할 수 있습니다. user 스코프와 플러그인 skills 는 여기서는 읽기 전용이므로 각자의 원본 파일에서 편집합니다.
 
 ### Docker 샌드박스 vs 비-Docker
 
@@ -296,7 +297,7 @@ Claude가 현재 채팅 전사본을 읽고, 사용한 단계를 정제한 뒤, 
 
 ### 저장된 skill 삭제
 
-Project 스코프 skills 는 Skills 뷰에서 Run 버튼 옆에 **Delete** 버튼이 표시됩니다 (user 스코프 skills 는 읽기 전용 — Delete 버튼이 표시되지 않습니다). 대화 상자를 확인하면 `~/mulmoclaude/.claude/skills/<slug>/SKILL.md` 가 제거됩니다. 해당 폴더에 추가 파일을 수동으로 넣었다면 그대로 남으며; SKILL.md만 제거됩니다.
+Project 스코프 skills 는 Skills 뷰에서 Run 버튼 옆에 **Delete** 버튼이 표시됩니다 (project 이외의 스코프는 읽기 전용 — user 스코프와 플러그인 skills 에는 Delete 버튼이 표시되지 않습니다). 대화 상자를 확인하면 `~/mulmoclaude/.claude/skills/<slug>/SKILL.md` 가 제거됩니다. 해당 폴더에 추가 파일을 수동으로 넣었다면 그대로 남으며; SKILL.md만 제거됩니다.
 
 이름으로 Claude에게 삭제를 요청할 수도 있습니다:
 

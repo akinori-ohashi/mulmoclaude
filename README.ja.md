@@ -234,20 +234,21 @@ MulmoClaude はすでにお持ちの **Claude Code skills** を一覧表示し�
 1. MulmoClaude を開き、skill が有効なロールのいずれかに留まります: **General**、**Office**、または **Tutor**。
 2. Claude に skill を表示するよう頼みます — 例: _「show my skills」_ や _「list skills」_。
 3. Claude が `manageSkills` ツールを呼び出し、キャンバスに分割ペインの **Skills** ビューが開きます:
-   - **左**: マシン上で検出されたすべての skill、その説明、スコープバッジ (`USER` / `PROJECT`)。
+   - **左**: マシン上で検出されたすべての skill、その説明、どのスコープ由来かを示すバッジ。
    - **右**: 選択された skill の `SKILL.md` の完全な内容。
-4. skill の **Run** をクリックします。MulmoClaude は通常のチャットメッセージとして `/<skill-name>` を Claude に送信します。Claude Code のスラッシュコマンド機能がそれを `~/.claude/skills/` に対して解決し、skill の指示を同じチャットセッション内でインラインに実行します。
+4. skill の **Run** をクリックします。MulmoClaude は通常のチャットメッセージとして `/<skill-name>` を Claude に送信します。Claude Code のスラッシュコマンド機能がそれを `~/.claude/skills/`（`<plugin>:<name>` の skill なら該当プラグイン）に対して解決し、skill の指示を同じチャットセッション内でインラインに実行します。
 
 余計な入力もコピー & ペーストも不要 — Run ボタンは `/skill-name` のワンクリックラッパーです。
 
-### skill の発見 — 2 つのスコープ
+### skill の発見 — 3 つのスコープ
 
 | スコープ    | 場所                                   | 意味                                                                                                   |
 | ----------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | 個人用の skill。Claude CLI で開くあらゆるプロジェクト間で共有されます。                                |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | MulmoClaude ワークスペーススコープの skill。名前が user と衝突した場合、project が **優先** されます。 |
+| **Claude Code plugin** | `<プラグインのインストール先>/skills/<name>/`（`/plugin install` で入るもの） | Claude CLI と同じ `<plugin>:<name>` の名前で一覧に出ます。読み取り専用で優先順位は最下位。`enabledPlugins` で無効にしたプラグインは除外されます。ブリッジのスラッシュコマンドとしては出ず、スケジュールもできません（1 プラグインで数百件になり得るのに対し `/help` の返信は 1 通のため）。 |
 
-フェーズ 0 では両スコープとも読み取り専用です — 編集はファイルシステム上で行います。将来のリリースで MulmoClaude 自身が project スコープの skill を作成 / 編集できるようになります。
+3 つのスコープのうち MulmoClaude が書き込むのは project だけで、作成・編集・削除ができます。user スコープとプラグインの skill は読み取り専用なので、編集はそれぞれの元ファイルで行います。
 
 ### Docker サンドボックス vs 非 Docker
 
@@ -312,7 +313,7 @@ Claude は現在のチャットトランスクリプトを読み、あなたが�
 
 ### 保存した skill を削除する
 
-Project スコープの skill には Skills ビュー内の Run ボタンの隣に **Delete** ボタンが表示されます (user スコープの skill は読み取り専用のため Delete ボタンは表示されません)。ダイアログを確認すると `~/mulmoclaude/.claude/skills/<slug>/SKILL.md` が削除されます。そのフォルダに手動で追加のファイルを置いている場合、それらはそのまま残されます。削除されるのは SKILL.md のみです。
+Project スコープの skill には Skills ビュー内の Run ボタンの隣に **Delete** ボタンが表示されます (project 以外のスコープは読み取り専用なので、user スコープとプラグインの skill には Delete ボタンは表示されません)。ダイアログを確認すると `~/mulmoclaude/.claude/skills/<slug>/SKILL.md` が削除されます。そのフォルダに手動で追加のファイルを置いている場合、それらはそのまま残されます。削除されるのは SKILL.md のみです。
 
 Claude に名前で削除を頼むこともできます:
 

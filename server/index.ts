@@ -785,8 +785,14 @@ async function getSessionHistoryForBridge(sessionId: string, opts: { limit: numb
 // bridge slash, which is fine because bridge slashes are infrequent
 // and the workspace skill directory is small. Stays fresh against
 // skill add/remove without any cache invalidation.
+//
+// Claude Code plugin skills are left out: `/help` renders one line per skill
+// into a SINGLE chat message, and a plugin can ship hundreds (the `tne`
+// marketplace plugin ships ~700), which would blow past every bridge's
+// message limit. A bridge slash for a plugin skill is unreachable for the
+// same reason — it is not in this allowlist.
 async function listRegisteredSkills(): Promise<{ name: string; description: string }[]> {
-  const skills = await discoverSkills({ workspaceRoot: workspacePath });
+  const skills = await discoverSkills({ workspaceRoot: workspacePath, includeClaudePlugins: false });
   return skills.map((skill) => ({ name: skill.name, description: skill.description }));
 }
 
