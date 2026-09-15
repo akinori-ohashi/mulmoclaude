@@ -91,6 +91,13 @@ test.describe("shapescript plugin rendering", () => {
     await expect(page.getByTestId("shapescript-download-menu-panel")).toBeVisible();
     await page.getByTestId("shapescript-viewport").click({ position: { x: 5, y: 5 } });
     await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);
+    // Picking a format closes the panel and returns focus to the trigger too.
+    // The click is stubbed at the anchor so the test does not save a file.
+    await page.evaluate(() => (HTMLAnchorElement.prototype.click = () => undefined));
+    await downloadMenu.click();
+    await page.getByTestId("shapescript-download-stl").click();
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);
+    await expect(downloadMenu).toBeFocused();
     // Copy lives at the right end of the "Edit ShapeScript" bar and must not
     // toggle the editor it sits on.
     const source = page.locator('[data-testid="shapescript-view"] details.script-source');

@@ -229,8 +229,8 @@ const downloadMenuOpen = ref(false);
 const downloadMenuRef = ref<HTMLElement | null>(null);
 const downloadTriggerRef = ref<HTMLButtonElement | null>(null);
 
-/** Escape: close, and put focus back on the trigger so a keyboard user is
- *  not left on an item that no longer exists. */
+/** Escape and a picked format: close, and put focus back on the trigger so
+ *  a keyboard user is not left on an item that no longer exists. */
 function closeDownloadMenu() {
   if (!downloadMenuOpen.value) return;
   downloadMenuOpen.value = false;
@@ -572,7 +572,9 @@ function triggerBlobDownload(bytes: Uint8Array<ArrayBuffer>, filename: string, m
  *  on screen. The scene is rebuilt solid rather than reusing the on-screen
  *  objects, which may be wireframe. */
 async function downloadModel(format: DownloadFormat) {
-  downloadMenuOpen.value = false;
+  // The same close as Escape: picking a format removes the focused item, so
+  // focus goes back to the trigger rather than to the document body.
+  closeDownloadMenu();
   const script = props.selectedResult.data?.script;
   if (!script || !canExport.value) return;
   exporting.value = true;
