@@ -1,8 +1,8 @@
 // Path helpers and slug validation for the skills module.
 //
-// Skills live in two scopes:
-//   - user:    ~/.claude/skills/<slug>/SKILL.md        (read-only from MulmoClaude)
-//   - project: <workspaceRoot>/.claude/skills/<slug>/SKILL.md  (MulmoClaude can CRUD)
+// This file holds the paths MulmoClaude can WRITE — the project scope, and the
+// user root it must never write into. Which scopes are READ, and in what
+// precedence, lives in `discovery.ts`.
 //
 // The slug doubles as a filename and appears in Claude CLI slash
 // commands (`/<slug>`), so it has to be strict: no uppercase, no

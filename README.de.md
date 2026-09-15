@@ -294,7 +294,7 @@ Hinweise zum Speichern:
 
 ### Einen gespeicherten Skill löschen
 
-Project-Scope-Skills erhalten in der Skills-Ansicht eine **Delete**-Schaltfläche neben der Run-Schaltfläche (User-Scope-Skills sind schreibgeschützt — es wird keine Delete-Schaltfläche angezeigt). Die Bestätigung des Dialogs entfernt `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. Wenn Sie auch zusätzliche Dateien per Hand in diesem Ordner abgelegt haben, bleiben diese erhalten; nur die SKILL.md wird entfernt.
+Project-Scope-Skills erhalten in der Skills-Ansicht eine **Delete**-Schaltfläche neben der Run-Schaltfläche (jeder andere Scope ist schreibgeschützt — bei User-Scope- und Plugin-Skills erscheint keine Delete-Schaltfläche). Die Bestätigung des Dialogs entfernt `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. Wenn Sie auch zusätzliche Dateien per Hand in diesem Ordner abgelegt haben, bleiben diese erhalten; nur die SKILL.md wird entfernt.
 
 Sie können Claude auch bitten, nach Namen zu löschen:
 

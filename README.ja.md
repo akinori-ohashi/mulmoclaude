@@ -313,7 +313,7 @@ Claude は現在のチャットトランスクリプトを読み、あなたが�
 
 ### 保存した skill を削除する
 
-Project スコープの skill には Skills ビュー内の Run ボタンの隣に **Delete** ボタンが表示されます (user スコープの skill は読み取り専用のため Delete ボタンは表示されません)。ダイアログを確認すると `~/mulmoclaude/.claude/skills/<slug>/SKILL.md` が削除されます。そのフォルダに手動で追加のファイルを置いている場合、それらはそのまま残されます。削除されるのは SKILL.md のみです。
+Project スコープの skill には Skills ビュー内の Run ボタンの隣に **Delete** ボタンが表示されます (project 以外のスコープは読み取り専用なので、user スコープとプラグインの skill には Delete ボタンは表示されません)。ダイアログを確認すると `~/mulmoclaude/.claude/skills/<slug>/SKILL.md` が削除されます。そのフォルダに手動で追加のファイルを置いている場合、それらはそのまま残されます。削除されるのは SKILL.md のみです。
 
 Claude に名前で削除を頼むこともできます:
 

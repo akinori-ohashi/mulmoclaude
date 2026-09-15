@@ -333,7 +333,7 @@ Notes on saving:
 
 ### Delete a saved skill
 
-Project-scope skills get a **Delete** button next to the Run button in the Skills view (user-scope skills are read-only — no Delete button shown). Confirming the dialog removes `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. If you also dropped extra files in that folder by hand, they're left in place; only the SKILL.md is removed.
+Project-scope skills get a **Delete** button next to the Run button in the Skills view. Every other scope is read-only, so user-scope and plugin skills show no Delete button. Confirming the dialog removes `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. If you also dropped extra files in that folder by hand, they're left in place; only the SKILL.md is removed.
 
 You can also ask Claude to delete by name:
 

@@ -292,7 +292,7 @@ Notas sobre guardar:
 
 ### Eliminar un skill guardado
 
-Los skills de alcance de proyecto obtienen un botón **Delete** junto al botón Run en la vista Skills (los skills de alcance de usuario son de solo lectura — no se muestra el botón Delete). Al confirmar el diálogo se elimina `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. Si además dejaste archivos adicionales en esa carpeta a mano, se dejan en su lugar; solo se elimina el SKILL.md.
+Los skills de alcance de proyecto obtienen un botón **Delete** junto al botón Run en la vista Skills (cualquier otro alcance es de solo lectura — los skills de alcance de usuario y los de plugins no muestran el botón Delete). Al confirmar el diálogo se elimina `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. Si además dejaste archivos adicionales en esa carpeta a mano, se dejan en su lugar; solo se elimina el SKILL.md.
 
 También puedes pedirle a Claude que elimine por nombre:
 

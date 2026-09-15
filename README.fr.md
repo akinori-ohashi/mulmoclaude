@@ -293,7 +293,7 @@ Notes sur l'enregistrement :
 
 ### Supprimer une skill enregistrée
 
-Les skills de portée project obtiennent un bouton **Delete** à côté du bouton Run dans la vue Skills (les skills de portée user sont en lecture seule — pas de bouton Delete affiché). Confirmer la boîte de dialogue supprime `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. Si vous avez également déposé des fichiers supplémentaires dans ce dossier à la main, ils restent en place ; seul le SKILL.md est supprimé.
+Les skills de portée project obtiennent un bouton **Delete** à côté du bouton Run dans la vue Skills (toute autre portée est en lecture seule — les skills de portée user et celles des plugins n'affichent pas de bouton Delete). Confirmer la boîte de dialogue supprime `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. Si vous avez également déposé des fichiers supplémentaires dans ce dossier à la main, ils restent en place ; seul le SKILL.md est supprimé.
 
 Vous pouvez également demander à Claude de supprimer par nom :
 

@@ -293,7 +293,7 @@ Claude 会读取当前聊天记录，提炼出你执行的步骤，并将一个�
 
 ### 删除已保存的 skill
 
-Project 范围的 skill 在 Skills 视图中的 Run 按钮旁边会有一个 **Delete** 按钮（user 范围的 skill 是只读的 —— 不会显示 Delete 按钮）。确认对话框后会删除 `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`。如果你在该文件夹中还手动放入了额外文件，那些文件会保持原样；只有 SKILL.md 会被删除。
+Project 范围的 skill 在 Skills 视图中的 Run 按钮旁边会有一个 **Delete** 按钮（project 以外的范围都是只读的 —— user 范围和插件的 skill 不会显示 Delete 按钮）。确认对话框后会删除 `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`。如果你在该文件夹中还手动放入了额外文件，那些文件会保持原样；只有 SKILL.md 会被删除。
 
 你也可以让 Claude 按名称删除：
 

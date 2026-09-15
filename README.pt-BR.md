@@ -296,7 +296,7 @@ Notas sobre salvamento:
 
 ### Excluir um skill salvo
 
-Os skills de escopo de projeto ganham um botão **Delete** ao lado do botão Run na visão Skills (os skills de escopo de usuário são somente leitura — sem botão Delete exibido). Confirmar a caixa de diálogo remove `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. Se você também colocou arquivos extras nessa pasta manualmente, eles são mantidos; apenas o SKILL.md é removido.
+Os skills de escopo de projeto ganham um botão **Delete** ao lado do botão Run na visão Skills (qualquer outro escopo é somente leitura — skills de escopo de usuário e de plugins não exibem o botão Delete). Confirmar a caixa de diálogo remove `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. Se você também colocou arquivos extras nessa pasta manualmente, eles são mantidos; apenas o SKILL.md é removido.
 
 Você também pode pedir ao Claude para excluir pelo nome:
 

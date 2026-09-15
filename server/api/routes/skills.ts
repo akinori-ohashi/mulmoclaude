@@ -6,9 +6,8 @@
 //   PUT    /api/skills/:name  → { updated: true, path } | 400/403/404    phase 2
 //   DELETE /api/skills/:name  → { deleted: true } | 400/403/404          phase 1
 //
-// Discovery reads both ~/.claude/skills/ (user) and
-// <workspace>/.claude/skills/ (project); project wins on name
-// collision. Writes are confined to the project scope —
+// `discoverSkills` owns which scopes are read and how a name collision
+// resolves. Writes are confined to the project scope —
 // `saveProjectSkill` / `updateProjectSkill` / `deleteProjectSkill`
 // enforce that.
 

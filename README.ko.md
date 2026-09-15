@@ -297,7 +297,7 @@ Claude가 현재 채팅 전사본을 읽고, 사용한 단계를 정제한 뒤, 
 
 ### 저장된 skill 삭제
 
-Project 스코프 skills 는 Skills 뷰에서 Run 버튼 옆에 **Delete** 버튼이 표시됩니다 (user 스코프 skills 는 읽기 전용 — Delete 버튼이 표시되지 않습니다). 대화 상자를 확인하면 `~/mulmoclaude/.claude/skills/<slug>/SKILL.md` 가 제거됩니다. 해당 폴더에 추가 파일을 수동으로 넣었다면 그대로 남으며; SKILL.md만 제거됩니다.
+Project 스코프 skills 는 Skills 뷰에서 Run 버튼 옆에 **Delete** 버튼이 표시됩니다 (project 이외의 스코프는 읽기 전용 — user 스코프와 플러그인 skills 에는 Delete 버튼이 표시되지 않습니다). 대화 상자를 확인하면 `~/mulmoclaude/.claude/skills/<slug>/SKILL.md` 가 제거됩니다. 해당 폴더에 추가 파일을 수동으로 넣었다면 그대로 남으며; SKILL.md만 제거됩니다.
 
 이름으로 Claude에게 삭제를 요청할 수도 있습니다:
 

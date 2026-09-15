@@ -127,6 +127,30 @@ test/plugins/manageSkills/test_categories.ts  provenance / バッジ / 並び順
    `{claudePlugin}` を追加 + View.vue にスロット。`test/lang/test_skill_legend_placeholders.ts` で
    「全ロケールに 4 スロット」かつ「スロット数 == `skillBadgeMeta` が返す provenance 数」を固定。
 
+## round 2-3 で変えたこと — 「2 スコープ」という主張が 15 か所に書かれていた
+
+round 2 は P3 1 件（スコープ表の下の「両スコープとも読み取り専用」）、round 3 は P3 1 件だが
+**サイトを全部列挙した形**で来た。合わせて 15 か所。1 つの主張を 15 か所に書き写していたので、
+スコープを 1 つ足した瞬間に 15 か所が同時に嘘になった、というだけの話。
+
+直し方を 2 つに分けた：
+
+- **読者の道案内でしかない文**（`skills/paths.ts` の冒頭、`api/routes/skills.ts` の冒頭、
+  `manageSkills/meta.ts` の route コメント、`docs/extension-mechanisms.md`）は、
+  一覧を書き写すのをやめて **`discovery.ts` が単一の source of truth** だと指すだけにした。
+  次にスコープが増えても陳腐化しない。
+- **読者や**モデル**が行動の根拠にする文**（`manageSkills/definition.ts` のツール説明と
+  update/delete プロンプト、8 ロケールの Delete 段落、スコープ表の下の文）は、
+  スコープを数える形をやめて「**書けるのは project だけ、他は読み取り専用**」という形にした。
+
+`definition.ts` は**モデルが読むプロンプト**なので、ここが古いままだと
+「プラグインの skill を削除して」と言われたエージェントが誤った前提で動く。15 か所の中で
+唯一、実行時の挙動に触るサイト。
+
+なお round 2 の書き直しで自分が入れた「Skills ビューから作成できる」は**嘘**だった
+（`src/` に create エンドポイントの呼び出しは無く、作成は chat の manageSkills ツールか
+カタログの★経由）。Codex が見る前に自分で見つけて直した（c3915da9c）。
+
 ## 検証（実施済み・2026-09-15）
 
 - `yarn format` → `yarn build:packages` → `yarn typecheck`(exit 0) → `yarn lint`(0 errors /
