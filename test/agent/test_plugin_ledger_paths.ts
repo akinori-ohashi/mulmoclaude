@@ -40,6 +40,14 @@ describe("toContainerConfigPath", () => {
     assert.equal(toContainerConfigPath(POSIX_CONFIG_DIR, `${POSIX_CONFIG_DIR}/./plugins/x`, POSIX_SEP), null);
   });
 
+  // The guard asks whether the VALUE escapes the config dir, not whether the
+  // config dir is tidily spelled. Asking the whole string instead would make a
+  // `CLAUDE_CONFIG_DIR` carrying a `.` segment reject every plugin under it —
+  // silently, which is the exact failure shape this module exists to remove.
+  it("translates under a config dir that itself carries a dot segment", () => {
+    assert.equal(toContainerConfigPath("/Users/someone/./claude", "/Users/someone/./claude/plugins/x", POSIX_SEP), `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/x`);
+  });
+
   it("refuses values that are not non-empty strings", () => {
     [undefined, null, 42, "", {}, []].forEach((value) => {
       assert.equal(toContainerConfigPath(POSIX_CONFIG_DIR, value, POSIX_SEP), null);

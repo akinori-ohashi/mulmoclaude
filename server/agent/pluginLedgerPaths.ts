@@ -21,10 +21,10 @@ import { isNonEmptyString, isRecord, isUnknownArray } from "../utils/types.js";
 export const CONTAINER_CLAUDE_CONFIG_DIR = "/home/node/.claude";
 
 /** The ledger key naming where a marketplace was cloned to. */
-export const MARKETPLACE_LOCATION_KEY = "installLocation";
+const MARKETPLACE_LOCATION_KEY = "installLocation";
 
 /** The ledger key naming where a plugin's tree was installed to. */
-export const PLUGIN_INSTALL_PATH_KEY = "installPath";
+const PLUGIN_INSTALL_PATH_KEY = "installPath";
 
 const WINDOWS_SEPARATOR = "\\";
 
@@ -54,12 +54,11 @@ function toPosixSegments(relative: string, sep: string): string {
  * `null` covers three cases, and all three mean "leave it exactly as it is":
  * a value outside the config dir (a marketplace added from a local path is a
  * supported shape — its tree simply isn't mounted, so no spelling helps), a
- * value carrying `.` / `..` segments (the line #3184 drew: a corrupt ledger),
- * and anything that isn't a non-empty string.
+ * value whose path BELOW the config dir carries `.` / `..` segments (the line
+ * #3184 drew: a corrupt ledger), and anything that isn't a non-empty string.
  */
 export function toContainerConfigPath(hostConfigDir: string, value: unknown, sep: string): string | null {
   if (!isNonEmptyString(value) || !isNonEmptyString(hostConfigDir)) return null;
-  if (hasTraversalSegment(value)) return null;
 
   const dirKey = comparisonKey(hostConfigDir, sep);
   const valueKey = comparisonKey(value, sep);
@@ -71,7 +70,14 @@ export function toContainerConfigPath(hostConfigDir: string, value: unknown, sep
   const prefix = dirKey.endsWith(boundary) ? dirKey : `${dirKey}${boundary}`;
   if (!valueKey.startsWith(prefix)) return null;
 
-  return `${CONTAINER_CLAUDE_CONFIG_DIR}/${toPosixSegments(value.slice(prefix.length), sep)}`;
+  // Only the part BELOW the config dir is asked about: that is the half which
+  // could escape, since the prefix is replaced wholesale. Guarding the whole
+  // value instead would let a `CLAUDE_CONFIG_DIR` spelled with a `.` segment
+  // reject every plugin under it — silently, which is this bug's own shape.
+  const relative = value.slice(prefix.length);
+  if (hasTraversalSegment(relative)) return null;
+
+  return `${CONTAINER_CLAUDE_CONFIG_DIR}/${toPosixSegments(relative, sep)}`;
 }
 
 // A value we cannot translate is kept VERBATIM, never dropped. This file
@@ -91,7 +97,7 @@ function rewriteMarketplaceEntry(entry: unknown, hostConfigDir: string, sep: str
  *  returned untouched: this is CLI-internal state, not a published contract. */
 export function rewriteKnownMarketplaces(ledger: unknown, hostConfigDir: string, sep: string): unknown {
   if (!isRecord(ledger)) return ledger;
-  const entries = Object.entries(ledger).map(([name, entry]) => [name, rewriteMarketplaceEntry(entry, hostConfigDir, sep)] as const);
+  const entries = Object.entries(ledger).map(([name, entry]): [string, unknown] => [name, rewriteMarketplaceEntry(entry, hostConfigDir, sep)]);
   return Object.fromEntries(entries);
 }
 
@@ -110,6 +116,6 @@ function rewriteInstallList(installs: unknown, hostConfigDir: string, sep: strin
  *  ride through unchanged so a future shape change costs nothing here. */
 export function rewriteInstalledPlugins(ledger: unknown, hostConfigDir: string, sep: string): unknown {
   if (!isRecord(ledger) || !isRecord(ledger.plugins)) return ledger;
-  const plugins = Object.entries(ledger.plugins).map(([key, installs]) => [key, rewriteInstallList(installs, hostConfigDir, sep)] as const);
+  const plugins = Object.entries(ledger.plugins).map(([key, installs]): [string, unknown] => [key, rewriteInstallList(installs, hostConfigDir, sep)]);
   return { ...ledger, plugins: Object.fromEntries(plugins) };
 }
