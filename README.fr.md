@@ -216,7 +216,7 @@ MulmoClaude peut lister et lancer les **Claude Code skills** que vous avez déj�
 3. Claude invoque l'outil `manageSkills`, et une vue **Skills** en volet divisé s'ouvre dans le canevas :
    - **Gauche** : chaque skill découverte sur votre machine, avec sa description et son badge de portée (`USER` / `PROJECT`).
    - **Droite** : le contenu complet du `SKILL.md` de la skill sélectionnée.
-4. Cliquez sur **Run** sur une skill. MulmoClaude envoie `/<skill-name>` à Claude sous forme de message de chat classique ; le mécanisme de commandes slash de Claude Code le résout contre `~/.claude/skills/` et exécute les instructions de la skill en ligne dans la même session de chat.
+4. Cliquez sur **Run** sur une skill. MulmoClaude envoie `/<skill-name>` à Claude sous forme de message de chat classique ; le mécanisme de commandes slash de Claude Code le résout contre `~/.claude/skills/` — ou contre le plugin propriétaire, pour une skill `<plugin>:<name>` — et exécute les instructions de la skill en ligne dans la même session de chat.
 
 Aucune saisie supplémentaire, aucun copier-coller du corps de SKILL.md — le bouton Run est un simple clic autour de `/skill-name`.
 
@@ -226,9 +226,9 @@ Aucune saisie supplémentaire, aucun copier-coller du corps de SKILL.md — le b
 | ----------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | Skills personnelles, partagées entre tous les projets que vous ouvrez avec la CLI Claude.                                |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | Skills limitées à l'espace de travail MulmoClaude. La portée project **l'emporte** en cas de collision de nom avec user. |
-| **Claude Code plugin** | `<chemin d'installation du plugin>/skills/<name>/` (via `/plugin install`) | Listées sous `<plugin>:<name>`, comme la CLI Claude les adresse. En lecture seule, priorité la plus basse ; un plugin désactivé dans `enabledPlugins` est ignoré. |
+| **Claude Code plugin** | `<chemin d'installation du plugin>/skills/<name>/` (via `/plugin install`) | Listées sous `<plugin>:<name>`, comme la CLI Claude les adresse. En lecture seule, priorité la plus basse ; un plugin désactivé dans `enabledPlugins` est ignoré. Pas proposées comme commande slash de bridge ni planifiables — une marketplace peut en livrer des centaines, et une réponse `/help` tient en un message. |
 
-Les deux portées sont en lecture seule en phase 0 — les modifications se font au niveau du système de fichiers. Une future version permettra à MulmoClaude lui-même de créer / éditer des skills de portée project.
+Des trois portées, MulmoClaude n'écrit que celle du projet — la vue Skills les crée, les modifie et les supprime. Les skills de portée user et celles des plugins sont en lecture seule ici ; modifiez-les dans leurs propres fichiers source.
 
 ### Bac à sable Docker vs non-Docker
 

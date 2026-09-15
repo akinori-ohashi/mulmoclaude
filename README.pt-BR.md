@@ -219,7 +219,7 @@ O MulmoClaude pode listar e iniciar os **Claude Code skills** que você já poss
 3. O Claude invoca a ferramenta `manageSkills`, e uma visão **Skills** em painel dividido se abre no canvas:
    - **Esquerda**: cada skill descoberto na sua máquina, com sua descrição e o badge de escopo (`USER` / `PROJECT`).
    - **Direita**: o conteúdo completo do `SKILL.md` do skill selecionado.
-4. Clique em **Run** em um skill. O MulmoClaude envia `/<skill-name>` ao Claude como uma mensagem de chat normal; a maquinaria de slash-command do Claude Code resolve isso contra `~/.claude/skills/` e executa as instruções do skill inline na mesma sessão de chat.
+4. Clique em **Run** em um skill. O MulmoClaude envia `/<skill-name>` ao Claude como uma mensagem de chat normal; a maquinaria de slash-command do Claude Code resolve isso contra `~/.claude/skills/` — ou contra o plugin dono, no caso de um skill `<plugin>:<name>` — e executa as instruções do skill inline na mesma sessão de chat.
 
 Sem digitação extra, sem copiar e colar corpos de SKILL.md — o botão Run é um wrapper de um clique em volta de `/skill-name`.
 
@@ -229,9 +229,9 @@ Sem digitação extra, sem copiar e colar corpos de SKILL.md — o botão Run é
 | ----------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | Skills pessoais, compartilhados em todos os projetos que você abre com o Claude CLI.                          |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | Skills de escopo do workspace MulmoClaude. O escopo de projeto **vence** se um nome colidir com o de usuário. |
-| **Claude Code plugin** | `<caminho de instalação do plugin>/skills/<name>/` (via `/plugin install`) | Listados como `<plugin>:<name>`, do jeito que o Claude CLI os endereça. Somente leitura, precedência mais baixa; um plugin desativado em `enabledPlugins` é omitido. |
+| **Claude Code plugin** | `<caminho de instalação do plugin>/skills/<name>/` (via `/plugin install`) | Listados como `<plugin>:<name>`, do jeito que o Claude CLI os endereça. Somente leitura, precedência mais baixa; um plugin desativado em `enabledPlugins` é omitido. Não aparecem como comando slash de bridge e não são agendáveis — um marketplace pode trazer centenas, e uma resposta `/help` é uma única mensagem. |
 
-Ambos os escopos são somente leitura na fase 0 — as edições acontecem no sistema de arquivos. Uma versão futura permitirá que o próprio MulmoClaude crie / edite skills de escopo de projeto.
+Dos três escopos o MulmoClaude escreve apenas o de projeto — a visão Skills cria, edita e exclui esses. Skills de escopo de usuário e de plugins são somente leitura aqui; edite-os nos seus próprios arquivos de origem.
 
 ### Sandbox Docker vs. sem Docker
 

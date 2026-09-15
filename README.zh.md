@@ -216,7 +216,7 @@ MulmoClaude 可以列出并启动你已有的 **Claude Code skills**。一个 sk
 3. Claude 会调用 `manageSkills` 工具，canvas 中会打开一个分栏的 **Skills** 视图：
    - **左侧**：机器上发现的每个 skill，及其描述和范围标记（`USER` / `PROJECT`）。
    - **右侧**：所选 skill 的完整 `SKILL.md` 内容。
-4. 点击某个 skill 上的 **Run**。MulmoClaude 会将 `/<skill-name>` 作为普通聊天消息发送给 Claude；Claude Code 的斜杠命令机制会在 `~/.claude/skills/` 下解析它，并在同一聊天会话中内联执行该 skill 的指令。
+4. 点击某个 skill 上的 **Run**。MulmoClaude 会将 `/<skill-name>` 作为普通聊天消息发送给 Claude；Claude Code 的斜杠命令机制会在 `~/.claude/skills/` 下解析它（`<plugin>:<name>` 形式的 skill 则在所属插件下解析），并在同一聊天会话中内联执行该 skill 的指令。
 
 无需额外输入、无需复制粘贴 SKILL.md 的内容 —— Run 按钮就是对 `/skill-name` 的一键封装。
 
@@ -226,9 +226,9 @@ MulmoClaude 可以列出并启动你已有的 **Claude Code skills**。一个 sk
 | ----------- | -------------------------------------- | -------------------------------------------------------------------------------- |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | 个人 skill，在你通过 Claude CLI 打开的每个项目之间共享。                         |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | MulmoClaude 工作区范围的 skill。当名称与 user 范围冲突时，**project 范围胜出**。 |
-| **Claude Code plugin** | `<插件安装路径>/skills/<name>/`（来自 `/plugin install`） | 以 Claude CLI 寻址的方式列为 `<plugin>:<name>`。只读、优先级最低；在 `enabledPlugins` 中关闭的插件会被忽略。 |
+| **Claude Code plugin** | `<插件安装路径>/skills/<name>/`（来自 `/plugin install`） | 以 Claude CLI 寻址的方式列为 `<plugin>:<name>`。只读、优先级最低；在 `enabledPlugins` 中关闭的插件会被忽略。不作为桥接斜杠命令提供，也无法排程（一个市场可能带来数百个技能，而 `/help` 回复只有一条消息）。 |
 
-两种范围在第 0 阶段都是只读的 —— 编辑发生在文件系统上。未来的版本将允许 MulmoClaude 本身创建 / 编辑 project 范围的 skill。
+三种范围中 MulmoClaude 只写 project 范围 —— Skills 视图可以创建、编辑和删除它们。user 范围和插件的 skill 在这里是只读的，请在各自的源文件中编辑。
 
 ### Docker 沙盒模式 vs 非 Docker 模式
 

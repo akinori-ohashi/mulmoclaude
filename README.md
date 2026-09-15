@@ -256,7 +256,7 @@ MulmoClaude can list and launch the **Claude Code skills** you already have. A s
 3. Claude invokes the `manageSkills` tool, and a split-pane **Skills** view opens in the canvas:
    - **Left**: every skill discovered on your machine, with its description and scope badge (`USER` / `PROJECT`).
    - **Right**: the full `SKILL.md` content of the selected skill.
-4. Click **Run** on a skill. MulmoClaude sends `/<skill-name>` to Claude as a regular chat message; Claude Code's slash-command machinery resolves it against `~/.claude/skills/` and executes the skill's instructions inline in the same chat session.
+4. Click **Run** on a skill. MulmoClaude sends `/<skill-name>` to Claude as a regular chat message; Claude Code's slash-command machinery resolves it against `~/.claude/skills/` — or against the owning plugin, for a `<plugin>:<name>` skill — and executes the skill's instructions inline in the same chat session.
 
 No extra typing, no copy-pasting SKILL.md bodies — the Run button is a one-click wrapper around `/skill-name`.
 
@@ -266,9 +266,9 @@ No extra typing, no copy-pasting SKILL.md bodies — the Run button is a one-cli
 | --------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | **User**        | `~/.claude/skills/<name>/SKILL.md`                              | Personal skills, shared across every project you open with the Claude CLI.                |
 | **Project**     | `~/mulmoclaude/.claude/skills/<name>/`                          | MulmoClaude-workspace-scoped skills. Project scope **wins** if a name collides with user. |
-| **Claude Code plugin** | `<plugin install path>/skills/<name>/` (from `/plugin install`) | Listed as `<plugin>:<name>`, the way the Claude CLI addresses them. Read-only, lowest precedence, and omitted for a plugin switched off in `enabledPlugins`. |
+| **Claude Code plugin** | `<plugin install path>/skills/<name>/` (from `/plugin install`) | Listed as `<plugin>:<name>`, the way the Claude CLI addresses them. Read-only, lowest precedence, and omitted for a plugin switched off in `enabledPlugins`. Not offered as a bridge slash command and not schedulable — a marketplace can ship hundreds of skills, and a bridge `/help` reply is one message. |
 
-Both scopes are read-only in phase 0 — edits happen on the file system. A future release will let MulmoClaude itself create / edit project-scope skills.
+Of the three scopes MulmoClaude writes only the project one — the Skills view creates, edits and deletes those. User-scope and plugin skills are read-only here; edit them in their own source files.
 
 ### Docker sandbox vs non-Docker
 

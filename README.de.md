@@ -217,7 +217,7 @@ MulmoClaude kann die **Claude Code Skills**, die Sie bereits haben, auflisten un
 3. Claude ruft das `manageSkills`-Tool auf, und eine geteilte **Skills**-Ansicht öffnet sich im Canvas:
    - **Links**: jeder auf Ihrem Rechner gefundene Skill mit Beschreibung und Scope-Badge (`USER` / `PROJECT`).
    - **Rechts**: der vollständige `SKILL.md`-Inhalt des ausgewählten Skills.
-4. Klicken Sie auf **Run** bei einem Skill. MulmoClaude sendet `/<skill-name>` als reguläre Chat-Nachricht an Claude; der Slash-Command-Mechanismus von Claude Code löst es gegen `~/.claude/skills/` auf und führt die Anweisungen des Skills inline in derselben Chat-Sitzung aus.
+4. Klicken Sie auf **Run** bei einem Skill. MulmoClaude sendet `/<skill-name>` als reguläre Chat-Nachricht an Claude; der Slash-Command-Mechanismus von Claude Code löst es gegen `~/.claude/skills/` auf — oder gegen das zugehörige Plugin, bei einem `<plugin>:<name>`-Skill — und führt die Anweisungen des Skills inline in derselben Chat-Sitzung aus.
 
 Kein zusätzliches Tippen, kein Kopieren und Einfügen von SKILL.md-Inhalten — die Run-Schaltfläche ist ein Ein-Klick-Wrapper um `/skill-name`.
 
@@ -227,9 +227,9 @@ Kein zusätzliches Tippen, kein Kopieren und Einfügen von SKILL.md-Inhalten —
 | ----------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | Persönliche Skills, die über jedes Projekt hinweg geteilt werden, das Sie mit der Claude CLI öffnen.              |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | Auf den MulmoClaude-Workspace begrenzte Skills. Der Project-Scope **gewinnt**, wenn ein Name mit User kollidiert. |
-| **Claude Code plugin** | `<Plugin-Installationspfad>/skills/<name>/` (via `/plugin install`) | Werden als `<plugin>:<name>` gelistet, so wie die Claude CLI sie adressiert. Schreibgeschützt, niedrigste Priorität; in `enabledPlugins` deaktivierte Plugins entfallen. |
+| **Claude Code plugin** | `<Plugin-Installationspfad>/skills/<name>/` (via `/plugin install`) | Werden als `<plugin>:<name>` gelistet, so wie die Claude CLI sie adressiert. Schreibgeschützt, niedrigste Priorität; in `enabledPlugins` deaktivierte Plugins entfallen. Nicht als Bridge-Slash-Befehl verfügbar und nicht planbar — ein Marketplace kann hunderte Skills mitbringen, eine `/help`-Antwort ist eine Nachricht. |
 
-Beide Scopes sind in Phase 0 schreibgeschützt — Änderungen erfolgen im Dateisystem. Ein zukünftiges Release wird es MulmoClaude selbst erlauben, Project-Scope-Skills zu erstellen / bearbeiten.
+Von den drei Scopes schreibt MulmoClaude nur den Project-Scope — die Skills-Ansicht erstellt, bearbeitet und löscht diese. User-Scope- und Plugin-Skills sind hier schreibgeschützt; bearbeite sie in ihren eigenen Quelldateien.
 
 ### Docker-Sandbox vs. Nicht-Docker
 

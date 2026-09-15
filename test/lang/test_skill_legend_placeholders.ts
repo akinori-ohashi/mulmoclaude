@@ -26,8 +26,12 @@ describe("skills legend placeholders", () => {
   it("has one slot per provenance the badge helper can return", () => {
     const sources: SkillSource[] = ["user", "project", "claude-plugin"];
     // `mc-`-prefixed project skills are the fourth provenance (system), so the
-    // helper's whole range is these three plus that one.
-    const provenances = new Set([...sources.map((source) => skillBadgeMeta({ name: "x", source })), skillBadgeMeta({ name: "mc-x", source: "project" })]);
-    assert.equal(provenances.size, LEGEND_SLOTS.length);
+    // helper's whole range is these three plus that one. Keyed by `titleKey`
+    // rather than by the returned object: a `Set` of fresh object literals
+    // counts CALLS, so it would report four however many provenances the helper
+    // actually distinguishes.
+    const titleKeys = new Set([...sources, ...sources].map((source) => skillBadgeMeta({ name: "x", source }).titleKey));
+    titleKeys.add(skillBadgeMeta({ name: "mc-x", source: "project" }).titleKey);
+    assert.equal(titleKeys.size, LEGEND_SLOTS.length);
   });
 });

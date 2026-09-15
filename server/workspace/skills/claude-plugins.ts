@@ -52,20 +52,12 @@ export function pluginNameFromLedgerKey(key: string): string {
   return separator > 0 ? key.slice(0, separator) : key;
 }
 
-// The CLI writes an absolute, traversal-free path here. A relative one would be
-// followed from wherever the server process was started, and a `..` segment
-// points somewhere the CLI never installed anything — both are a corrupt ledger
-// rather than a plugin, so they are dropped loudly instead of walked.
-//
-// Deliberately NOT confined to `<claudeConfigDir>/plugins/`: `claude plugin
-// marketplace add` accepts a local path, so an install path outside the cache is
-// a supported shape, and confinement would silently drop the plugins of whoever
-// is developing one. It would also buy nothing — anyone able to rewrite this
-// ledger can equally write `~/.claude/settings.json`, which carries the agent's
-// own permissions, or drop a skill into `~/.claude/skills/`, which discovery has
-// always read.
-function usableInstallPath(entry: Record<string, unknown>, key: string): string | null {
-  const { installPath } = entry;
+// A relative path would be followed from wherever the server process was started
+// and a `..` segment points where the CLI never installed anything, so both mean
+// a corrupt ledger rather than a plugin. Deliberately NOT confined to
+// `<claudeConfigDir>/plugins/` on top of that: `claude plugin marketplace add`
+// accepts a local path, so an install outside the cache is a supported shape.
+function usableInstallPath(installPath: unknown, key: string): string | null {
   if (!isNonEmptyString(installPath)) return null;
   if (!isAbsolute(installPath) || hasTraversalSegment(installPath)) {
     log.warn("skills", "plugin ledger install path is not an absolute canonical path, skipping", { key, installPath });
@@ -79,7 +71,7 @@ function installsForLedgerKey(key: string, entries: unknown): ClaudePluginInstal
   if (pluginName.length === 0 || !isUnknownArray(entries)) return [];
   return entries.flatMap((entry) => {
     if (!isRecord(entry)) return [];
-    const installPath = usableInstallPath(entry, key);
+    const installPath = usableInstallPath(entry.installPath, key);
     return installPath ? [{ key, pluginName, installPath }] : [];
   });
 }
