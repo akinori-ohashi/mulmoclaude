@@ -7,7 +7,8 @@
 // would put CONTAINER paths into the file the HOST reads, which is the same bug
 // this fixes, pointing the other way.
 
-import { mkdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { writeFileAtomicSync } from "../utils/files/atomic.js";
@@ -38,9 +39,6 @@ const LEDGERS: readonly LedgerSpec[] = [
 ];
 
 export interface PluginLedgerMountParams {
-  /** Stable chat session id — scopes the copies so concurrent sessions can't
-   *  write over each other's files while a container is reading them. */
-  sessionId: string;
   /** `process.platform` at the call site. Only `win32` differs, and only in
    *  which separator the host's recorded paths use. */
   platform: Platform;
@@ -50,11 +48,14 @@ export interface PluginLedgerMountParams {
   outputDir?: string;
 }
 
-// `sessionId` reaches a filesystem path here. Mirrors `safeSessionSegment` in
-// config.ts: strip everything that isn't an id character so a crafted id cannot
-// climb out of the output directory (CodeQL js/path-injection).
-function safeSegment(sessionId: string): string {
-  return sessionId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64) || "session";
+export interface PluginLedgerMounts {
+  /** `-v` pairs to splice into the docker argv, after the config-dir mount. */
+  args: string[];
+  /** Where the staged copies were written, for the caller to remove once the
+   *  container has exited. `null` when nothing was staged and so nothing needs
+   *  removing. Deleting it EARLIER is not safe: the container bind-mounts these
+   *  files, so they must outlive its start. */
+  stagingDir: string | null;
 }
 
 function readLedger(path: string): unknown {
@@ -108,13 +109,19 @@ function mountArgsFor(spec: LedgerSpec, hostConfigDir: string, sep: string, outp
  * the argv they ran before. Never throws: a sandbox that starts without plugins
  * beats one that does not start.
  *
+ * The caller MUST pass `stagingDir` to `removePluginLedgerStaging` once the
+ * container has exited, or every turn leaves two files behind in `tmpdir()`.
+ *
  * MUST be spliced in AFTER the config-dir bind mount, since these overlay files
  * that live inside it.
  */
-export function pluginLedgerMountArgs(params: PluginLedgerMountParams): string[] {
+export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLedgerMounts {
   const hostConfigDir = params.hostConfigDir ?? claudeConfigDir();
   const sep = params.platform === "win32" ? "\\" : "/";
-  const outputDir = params.outputDir ?? join(tmpdir(), "mulmoclaude-plugin-ledger", safeSegment(params.sessionId));
+  // One directory per SPAWN, not per session: a turn then owns its staging
+  // outright and can delete it on exit without checking whether a sibling turn
+  // of the same session is still reading the same files.
+  const outputDir = params.outputDir ?? join(tmpdir(), "mulmoclaude-plugin-ledger", randomUUID());
   try {
     mkdirSync(outputDir, { recursive: true });
   } catch (error) {
@@ -122,7 +129,19 @@ export function pluginLedgerMountArgs(params: PluginLedgerMountParams): string[]
       path: outputDir,
       error: errorMessage(error),
     });
-    return [];
+    return { args: [], stagingDir: null };
   }
-  return LEDGERS.flatMap((spec) => mountArgsFor(spec, hostConfigDir, sep, outputDir));
+  const args = LEDGERS.flatMap((spec) => mountArgsFor(spec, hostConfigDir, sep, outputDir));
+  return { args, stagingDir: args.length > 0 ? outputDir : null };
+}
+
+/** Remove a turn's staged ledger copies. Best-effort: a staging directory that
+ *  outlives its turn is litter in `tmpdir()`, never a correctness problem, so a
+ *  failure here must not surface as a turn failure. */
+export function removePluginLedgerStaging(stagingDir: string): void {
+  try {
+    rmSync(stagingDir, { recursive: true, force: true });
+  } catch (error) {
+    log.warn("sandbox", "could not remove plugin ledger staging dir", { path: stagingDir, error: errorMessage(error) });
+  }
 }

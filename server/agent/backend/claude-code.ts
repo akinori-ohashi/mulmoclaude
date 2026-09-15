@@ -15,7 +15,7 @@ import type { Readable, Writable } from "stream";
 import { buildCliArgs, buildDockerSpawnArgs, buildUserMessageLine, resolveSystemPromptPaths, type CliArgsParams } from "../config.js";
 import { writeFileAtomic } from "../../utils/files/atomic.js";
 import { resolveSandboxAuth } from "../sandboxMounts.js";
-import { pluginLedgerMountArgs } from "../pluginLedgerMount.js";
+import { pluginLedgerMountArgs, removePluginLedgerStaging } from "../pluginLedgerMount.js";
 import { getCachedReferenceDirs, referenceDirMountArgs } from "../../workspace/reference-dirs.js";
 import { createStreamParser, type AgentEvent, type RawStreamEvent } from "../stream.js";
 import { createMcpFailureMonitor } from "../mcpFailureMonitor.js";
@@ -54,7 +54,7 @@ function spawnClaude(useDocker: boolean, workspacePath: string, cliArgs: string[
   // nothing under the container's HOME — without this every installed plugin is
   // silently inert (#3186). Must follow the config-dir mount, which the
   // `sandboxAuthArgs` splice point guarantees.
-  const pluginLedgerArgs = pluginLedgerMountArgs({ sessionId: chatSessionId, platform: process.platform });
+  const pluginLedger = pluginLedgerMountArgs({ platform: process.platform });
   const dockerArgs = buildDockerSpawnArgs({
     workspacePath,
     cliArgs,
@@ -62,10 +62,15 @@ function spawnClaude(useDocker: boolean, workspacePath: string, cliArgs: string[
     uid: process.getuid?.() ?? 1000,
     gid: process.getgid?.() ?? 1000,
     platform: process.platform,
-    sandboxAuthArgs: [...sandboxAuth.args, ...refDirArgs, ...pluginLedgerArgs],
+    sandboxAuthArgs: [...sandboxAuth.args, ...refDirArgs, ...pluginLedger.args],
     sshAgentForward: env.sandboxSshAgentForward,
   });
-  return spawn("docker", dockerArgs, { stdio: ["pipe", "pipe", "pipe"] });
+  const proc = spawn("docker", dockerArgs, { stdio: ["pipe", "pipe", "pipe"] });
+  const { stagingDir } = pluginLedger;
+  // The container bind-mounts the staged ledgers, so they have to outlive its
+  // start — `close` is the first moment they are certainly unused.
+  if (stagingDir !== null) proc.once("close", () => removePluginLedgerStaging(stagingDir));
+  return proc;
 }
 
 // Counts the tools a turn ran FROM THE BUILT-IN BROKER. Scoped to
