@@ -23,7 +23,7 @@
            user picks, while this one is a resolved id the CLI reported — a list
            holding both "Haiku 4.5" and "haiku" unlabelled reads as two models. -->
       <option value="">{{ label ? t("sessionModelChip.inherited", { model: label }) : t("sessionModelChip.unknown") }}</option>
-      <option v-for="model in CHAT_MODELS" :key="model" :value="model">{{ model }}</option>
+      <option v-for="choice in CHAT_MODELS" :key="choice" :value="choice">{{ choice }}</option>
     </select>
     <button
       v-if="override"
