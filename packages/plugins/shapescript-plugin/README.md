@@ -54,12 +54,12 @@ import { executeExportShapeScriptUsdz, EXPORT_USDZ_TOOL_NAME, EXPORT_USDZ_DESCRI
 const { message, filePath } = await executeExportShapeScriptUsdz({ files: shapeFiles }, args);
 ```
 
-The file lands at `artifacts/shapes/<slug>-<epoch-ms>-<token>.usdz`. The View's **Download USDZ**
-button builds the same archive in the browser with `shapeScriptToUsdz` and saves it locally.
+The file lands at `artifacts/shapes/<slug>-<epoch-ms>-<token>.usdz`. The View's **Download**
+menu (USDZ item) builds the same archive in the browser with `shapeScriptToUsdz` and saves it locally.
 USDZ units are metres, so `size 1` is one metre in AR.
 
-The View also offers **Download GLB** (binary glTF, for the web and game engines; vertex colours
-survive as `COLOR_0`) and **Download STL** (binary, geometry only, in world space, for slicers),
+The same menu also offers **GLB** (binary glTF, for the web and game engines; vertex colours
+survive as `COLOR_0`) and **STL** (binary, geometry only, in world space, for slicers),
 built the same way by `shapeScriptToGlb` and `shapeScriptToStl`. Neither has an MCP tool yet.
 
 ## The gallery: `manageShapeScript`

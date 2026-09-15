@@ -25,7 +25,7 @@ export const EXPORT_USDZ_DESCRIPTION =
   "Export a ShapeScript model to a USDZ file (Apple's AR / 3D format, openable with AR Quick Look on iPhone, iPad and Mac) and save it under artifacts/shapes/. Returns the saved path. Takes the same source as presentShapeScript: inline `script`, or `path` to a saved .shape file. USDZ units are metres, so a `size 1` cube becomes a one-metre object in AR — scale the model in the script if that is not what the user wants.";
 
 export const EXPORT_USDZ_PROMPT =
-  "Use exportShapeScriptUsdz when the user wants to take a 3D model out of the chat — to view it in AR, open it in a 3D app, or share the file. It saves a .usdz next to the model's .shape file and returns the path; tell the user where it is. The user can also press \"Download USDZ\" in the model's view themselves.";
+  "Use exportShapeScriptUsdz when the user wants to take a 3D model out of the chat — to view it in AR, open it in a 3D app, or share the file. It saves a .usdz next to the model's .shape file and returns the path; tell the user where it is. The user can also pick USDZ from the Download menu in the model's view themselves.";
 
 /** The tool's JSON schema, in the shape both a gui-chat-protocol `ToolDefinition`
  *  (`parameters`) and an MCP tool (`inputSchema`) take. */

@@ -66,7 +66,14 @@ test.describe("shapescript plugin rendering", () => {
     await expect(page.locator('[data-testid="shapescript-view"]')).toBeVisible();
     await expect(page.locator('[data-testid="shapescript-viewport"]')).toBeVisible();
     await expect(page.locator('[data-testid="shapescript-parse-error"]')).toHaveCount(0);
+    // The formats live in one Download menu; open it to see them.
+    const downloadMenu = page.getByTestId("shapescript-download-menu");
+    await expect(downloadMenu).toBeEnabled();
+    await downloadMenu.click();
     for (const format of ["usdz", "glb", "stl"]) await expect(page.getByTestId(`shapescript-download-${format}`)).toBeEnabled();
+    // A click outside closes it.
+    await page.getByTestId("shapescript-viewport").click({ position: { x: 5, y: 5 } });
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);
     // Copy lives at the right end of the "Edit ShapeScript" bar and must not
     // toggle the editor it sits on.
     const source = page.locator('[data-testid="shapescript-view"] details.script-source');
@@ -83,14 +90,16 @@ test.describe("shapescript plugin rendering", () => {
     await view.locator("summary").click();
     const editor = view.locator("textarea");
     const apply = view.locator("button.apply-btn");
-    const download = page.getByTestId("shapescript-download-usdz");
-    const downloadStl = page.getByTestId("shapescript-download-stl");
+    const download = page.getByTestId("shapescript-download-menu");
     await expect(download).toBeEnabled();
+    await download.click();
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toBeVisible();
     await editor.fill("cube { size missing }");
     // A dirty editor cannot be exported: every format is built from the
     // APPLIED script, which is what the viewport shows, not from unsaved edits.
+    // The menu that was open closes with it.
     await expect(download).toBeDisabled();
-    await expect(downloadStl).toBeDisabled();
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);
     await apply.click();
     await expect(page.getByTestId("shapescript-parse-error")).toContainText("Undefined variable: missing");
     // Failed edits remain unsaved and can be corrected in place.
@@ -105,7 +114,6 @@ test.describe("shapescript plugin rendering", () => {
       await expect(page.getByTestId("shapescript-parse-error")).toHaveCount(0);
       await expect(apply).toBeDisabled();
       await expect(download).toBeEnabled();
-      await expect(downloadStl).toBeEnabled();
       await expect(view.locator("canvas")).toBeVisible();
     }
   });
