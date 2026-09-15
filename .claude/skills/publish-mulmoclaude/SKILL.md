@@ -262,6 +262,17 @@ Read every PR it lists and fold the user-visible ones into the `## [X.Y.Z]` sect
 
 **9b. Tag + release at the merged bump commit.** After the §8 PR merges, tag `main` (the tag MUST point at the commit whose root `package.json` is `X.Y.Z`):
 
+**Tag before you publish when you can.** `docs/package-releases.md` states the contract
+as *commit + tag → publish*, because publish is irreversible and the tarball must
+correspond to a tagged commit. The steps here are numbered the other way round — §6
+publishes before §8 commits — and that ordering belongs to §5's iteration path, where you
+are burning throwaway versions to find out whether the thing even boots and there is
+nothing worth tagging yet. **Cutting a real release is not that path**: the bump is
+committed and merged via §8, so tag that merged commit and push the tags BEFORE running
+§6's `npm publish`. Doing it the other way leaves a window where npm serves a version no
+tag points at, and `audit:releases` reports the launcher as `untagged — drift cannot be
+measured` for as long as it lasts. 1.17.0 spent that window untagged.
+
 **The launcher takes TWO tags on the same commit, not one.** `vX.Y.Z` is the app
 release that carries `latest`; `mulmoclaude@X.Y.Z` is what `audit:releases` reads to
 answer "has the source moved since this version shipped?". It looks for the
