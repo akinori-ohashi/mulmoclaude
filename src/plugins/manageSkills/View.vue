@@ -15,6 +15,9 @@
           <template #user>
             <span class="material-icons !text-sm align-middle leading-none text-blue-500" aria-hidden="true">home</span>
           </template>
+          <template #claudePlugin>
+            <span class="material-icons !text-sm align-middle leading-none text-purple-500" aria-hidden="true">extension</span>
+          </template>
         </i18n-t>
         <i18n-t keypath="pluginManageSkills.sectionLegendCatalog" tag="p" class="text-xs text-gray-400 mt-0.5">
           <template #star>

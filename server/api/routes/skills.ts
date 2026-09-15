@@ -14,6 +14,7 @@
 
 import { Router, Request, Response } from "express";
 import { deleteProjectSkill, discoverSkills, saveProjectSkill, updateProjectSkill } from "../../workspace/skills/index.js";
+import { couldBeClaudePluginSkill } from "../../workspace/skills/claude-plugins.js";
 import type { Skill, SkillSummary } from "../../workspace/skills/index.js";
 import {
   listCatalogEntries,
@@ -309,7 +310,11 @@ bindRoute(router, API_ROUTES.skills.externalReposRemove, async (req: Request<{ r
 
 bindRoute(router, API_ROUTES.skills.detail, async (req: Request<{ name: string }>, res: Response<SkillDetailResponse | ErrorResponse>) => {
   log.info("skills", "detail: start", { name: singleLineForLog(req.params.name) });
-  const skills = await discoverSkills({ workspaceRoot: workspacePath });
+  // A lookup by name skips the plugin scan unless the name could be a plugin's.
+  const skills = await discoverSkills({
+    workspaceRoot: workspacePath,
+    includeClaudePlugins: couldBeClaudePluginSkill(req.params.name),
+  });
   const skill = skills.find((candidate) => candidate.name === req.params.name);
   if (!skill) {
     log.warn("skills", "detail: not found", { name: singleLineForLog(req.params.name) });

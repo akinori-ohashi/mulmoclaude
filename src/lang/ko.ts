@@ -944,7 +944,7 @@ const koMessages = {
     sectionActive: "활성",
     sectionCatalog: "카탈로그",
     sectionLegendActive:
-      "Claude가 지금 사용할 수 있는 스킬. 대화 흐름에서 Claude가 자동으로 사용하거나, 스킬 이름을 입력해 호출할 수 있습니다. {system} 시스템(동봉 mc-) / {project} 프로젝트(편집 가능, 이 워크스페이스 전용) / {user} 사용자(~/.claude/skills/ 의 스킬).",
+      "Claude가 지금 사용할 수 있는 스킬. 대화 흐름에서 Claude가 자동으로 사용하거나, 스킬 이름을 입력해 호출할 수 있습니다. {system} 시스템(동봉 mc-) / {project} 프로젝트(편집 가능, 이 워크스페이스 전용) / {user} 사용자(~/.claude/skills/ 의 스킬) / {claudePlugin} 플러그인(설치된 Claude Code 플러그인. 읽기 전용).",
     sectionLegendCatalog:
       "카탈로그: {star}를 누르면 활성이 되는 스킬. 활성에서 {star}를 해제하면 카탈로그로 돌아가고 Claude는 사용하지 않게 됩니다 (스킬은 삭제되지 않습니다).",
     catalogEmpty: "사용 가능한 프리셋 스킬이 없습니다.",

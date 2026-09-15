@@ -952,7 +952,7 @@ const frMessages = {
     sectionActive: "Actives",
     sectionCatalog: "Catalogue",
     sectionLegendActive:
-      "Skills que Claude peut utiliser dès maintenant. Claude les utilise automatiquement dans le fil de la conversation, ou vous pouvez en invoquer une en saisissant son nom. {system} Système (mc- intégrée) / {project} Projet (modifiable, uniquement dans ce workspace) / {user} Utilisateur (skills dans ~/.claude/skills/).",
+      "Skills que Claude peut utiliser dès maintenant. Claude les utilise automatiquement dans le fil de la conversation, ou vous pouvez en invoquer une en saisissant son nom. {system} Système (mc- intégrée) / {project} Projet (modifiable, uniquement dans ce workspace) / {user} Utilisateur (skills dans ~/.claude/skills/) / {claudePlugin} Plugin (d'un plugin Claude Code installé, en lecture seule).",
     sectionLegendCatalog:
       "Catalogue : skills qui deviennent Actives quand vous les marquez par {star}. Retirer {star} depuis Actives renvoie la skill au Catalogue — Claude cesse de l'utiliser (la skill n'est pas supprimée).",
     catalogEmpty: "Aucune skill de préréglage disponible.",

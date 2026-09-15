@@ -106,11 +106,36 @@ test/skills/test_discovery.ts             3 スコープの優先順位と prefi
 test/plugins/manageSkills/test_categories.ts  provenance / バッジ / 並び順
 ```
 
+## Codex cross-review round 1 で変えたこと
+
+3 件（P2 2 / P3 1）。いずれも**同じラウンド内で**代替案を Codex に投げ返して合意済み。
+
+1. **ledger の `installPath` を検証していなかった**（P2）。絶対パス かつ `.`/`..` セグメント無し
+   だけを使う（既存の `hasTraversalSegment` を再利用）。弾いたら key とパスを warn。
+   **プラグインキャッシュ配下への封じ込めはしない** — `claude plugin marketplace add` は
+   "URL, path, or GitHub repo" を受けるのでキャッシュ外の installPath は正当な形であり、
+   封じ込めるとプラグイン開発者のプラグインを黙って落とす。そもそも ledger を書ける相手は
+   同じディレクトリの `settings.json`（エージェントの permissions）も書けるので封じ込めは何も買わない。
+   symlink 追従も user スコープの設計どおりなので変えない。
+2. **既定の `discoverSkills()` が毎回プラグインを全スキャンしていた**（P2）。実測 11-18 ms →
+   179-204 ms（3 プラグイン / 1116 件 / warm）。**キャッシュは入れず**、名前で引く 2 か所
+   （`resolveSkillMetadata`、`GET /api/skills/:name`）が `:` を含まない名前ではプラグインを
+   スキャンしないようにした（`couldBeClaudePluginSkill` + `PLUGIN_NAMESPACE_SEPARATOR`）。
+   残る呼び元は 2 つの一覧ビューだけで、どちらもユーザー操作起点。キャッシュは「無効化なしで常に最新」
+   というこのモジュールの性質を壊す。
+3. **サイドバーの凡例が provenance 3 種しか説明していなかった**（P3）。8 ロケールに
+   `{claudePlugin}` を追加 + View.vue にスロット。`test/lang/test_skill_legend_placeholders.ts` で
+   「全ロケールに 4 スロット」かつ「スロット数 == `skillBadgeMeta` が返す provenance 数」を固定。
+
 ## 検証（実施済み・2026-09-15）
 
 - `yarn format` → `yarn build:packages` → `yarn typecheck`(exit 0) → `yarn lint`(0 errors /
   既存 warning 46・変更ファイルは 0) → `yarn test`(fail 0) → `yarn build`(exit 0)
 - 型ユニオンを広げる変更なので、網羅していないガードは typecheck が落として教える
+- **break-verify**: round 1 で足したガードと凡例テストは、それぞれ実装を外すと赤になることを確認
+  （installPath ガード削除 → 新規 2 件が fail / ko.ts から凡例の一文を削除 → 8 pass 1 fail。
+  どちらも復元はバイト一致）。最初に書いた traversal のテストは `path.join` が `..` を
+  正規化してしまい何も検証していなかったので、リテラル文字列に直した。
 - **実機**: 実際の `~/.claude/plugins/` に対して `discoverSkills()` を実行し、
   `claude-plugin: 1116` / namespaces `ever-better, mulmocast, tne` を確認。
   CLI 自身のスキル一覧に出る `mulmocast:story` / `ever-better:ever-better` /

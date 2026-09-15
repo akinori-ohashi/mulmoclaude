@@ -5,6 +5,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  couldBeClaudePluginSkill,
   disabledPluginKeys,
   parsePluginLedger,
   pluginNameFromLedgerKey,
@@ -46,6 +47,16 @@ describe("pluginNameFromLedgerKey", () => {
   });
 });
 
+describe("couldBeClaudePluginSkill", () => {
+  it("is true only for a namespaced name", () => {
+    assert.equal(couldBeClaudePluginSkill("mulmocast:story"), true);
+    assert.equal(couldBeClaudePluginSkill("demo:mc-foo"), true);
+    assert.equal(couldBeClaudePluginSkill("release-app"), false);
+    assert.equal(couldBeClaudePluginSkill("mc-manage-skills"), false);
+    assert.equal(couldBeClaudePluginSkill(""), false);
+  });
+});
+
 describe("parsePluginLedger", () => {
   const ledger = {
     version: 2,
@@ -74,6 +85,26 @@ describe("parsePluginLedger", () => {
     [null, undefined, 42, "text", [], {}, { plugins: null }, { plugins: [] }, { plugins: "x" }].forEach((value) => {
       assert.deepEqual(parsePluginLedger(value), [], `unexpected installs for ${JSON.stringify(value)}`);
     });
+  });
+
+  it("skips a relative install path — it would be followed from the server's cwd, not from anywhere the CLI wrote", () => {
+    const relative = { plugins: { "demo@shop": [{ installPath: "plugins/demo" }, { installPath: "./demo" }] } };
+    assert.deepEqual(parsePluginLedger(relative), []);
+  });
+
+  it("skips an install path with a traversal segment", () => {
+    // Literal strings, the way a corrupt ledger carries them — `path.join` would
+    // normalise the traversal away before the guard ever saw it.
+    const traversal = {
+      plugins: {
+        "demo@shop": [{ installPath: "/plugins/../../etc" }, { installPath: "/plugins/./demo" }, { installPath: "/plugins/demo/.." }],
+        "kept@shop": [{ installPath: "/plugins/kept" }],
+      },
+    };
+    assert.deepEqual(
+      parsePluginLedger(traversal).map((install) => install.installPath),
+      ["/plugins/kept"],
+    );
   });
 
   it("skips entries with no usable installPath", () => {

@@ -10,9 +10,23 @@
 // rest of discovery working.
 
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { log } from "../../system/logger/index.js";
+import { hasTraversalSegment } from "../../utils/files/safe.js";
 import { isErrorWithCode, isNonEmptyString, isRecord, isUnknownArray } from "../../utils/types.js";
+
+/** What the CLI puts between a plugin's name and one of its skills, so
+ *  `mulmocast:story` here names the same skill `Skill({skill:"mulmocast:story"})`
+ *  runs. Also the reason a name WITHOUT it cannot be a plugin skill. */
+export const PLUGIN_NAMESPACE_SEPARATOR = ":";
+
+/** Whether a skill name could name one of a plugin's skills. Lets a by-name
+ *  lookup skip the plugin scan entirely for the common case: measured on a
+ *  machine with three plugins installed, that scan is 170 ms of the 180 ms a
+ *  full `discoverSkills()` takes. */
+export function couldBeClaudePluginSkill(skillName: string): boolean {
+  return skillName.includes(PLUGIN_NAMESPACE_SEPARATOR);
+}
 
 export interface ClaudePluginInstall {
   /** Ledger key `<plugin>@<marketplace>` — how `enabledPlugins` addresses it. */
@@ -38,10 +52,36 @@ export function pluginNameFromLedgerKey(key: string): string {
   return separator > 0 ? key.slice(0, separator) : key;
 }
 
+// The CLI writes an absolute, traversal-free path here. A relative one would be
+// followed from wherever the server process was started, and a `..` segment
+// points somewhere the CLI never installed anything — both are a corrupt ledger
+// rather than a plugin, so they are dropped loudly instead of walked.
+//
+// Deliberately NOT confined to `<claudeConfigDir>/plugins/`: `claude plugin
+// marketplace add` accepts a local path, so an install path outside the cache is
+// a supported shape, and confinement would silently drop the plugins of whoever
+// is developing one. It would also buy nothing — anyone able to rewrite this
+// ledger can equally write `~/.claude/settings.json`, which carries the agent's
+// own permissions, or drop a skill into `~/.claude/skills/`, which discovery has
+// always read.
+function usableInstallPath(entry: Record<string, unknown>, key: string): string | null {
+  const { installPath } = entry;
+  if (!isNonEmptyString(installPath)) return null;
+  if (!isAbsolute(installPath) || hasTraversalSegment(installPath)) {
+    log.warn("skills", "plugin ledger install path is not an absolute canonical path, skipping", { key, installPath });
+    return null;
+  }
+  return installPath;
+}
+
 function installsForLedgerKey(key: string, entries: unknown): ClaudePluginInstall[] {
   const pluginName = pluginNameFromLedgerKey(key);
   if (pluginName.length === 0 || !isUnknownArray(entries)) return [];
-  return entries.flatMap((entry) => (isRecord(entry) && isNonEmptyString(entry.installPath) ? [{ key, pluginName, installPath: entry.installPath }] : []));
+  return entries.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const installPath = usableInstallPath(entry, key);
+    return installPath ? [{ key, pluginName, installPath }] : [];
+  });
 }
 
 /** Every install recorded in the ledger, in ledger order. */

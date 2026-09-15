@@ -946,7 +946,7 @@ const jaMessages = {
     sectionActive: "アクティブ",
     sectionCatalog: "カタログ",
     sectionLegendActive:
-      "Claude がいま使えるスキル。会話の流れで Claude が自動的に使うほか、スキル名を指定して呼び出すこともできます。{system} システム(同梱 mc-) / {project} プロジェクト(編集可。このワークスペース専用) / {user} ユーザー(~/.claude/skills/ のスキル)。",
+      "Claude がいま使えるスキル。会話の流れで Claude が自動的に使うほか、スキル名を指定して呼び出すこともできます。{system} システム(同梱 mc-) / {project} プロジェクト(編集可。このワークスペース専用) / {user} ユーザー(~/.claude/skills/ のスキル) / {claudePlugin} プラグイン(インストール済みの Claude Code プラグイン。読み取り専用)。",
     sectionLegendCatalog:
       "カタログ: {star} を付けるとアクティブになるスキル。アクティブから {star} を外せばカタログに戻り、Claude は使わなくなります (削除はされません)。",
     catalogEmpty: "利用できるプリセットスキルがありません。",

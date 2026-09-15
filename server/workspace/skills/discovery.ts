@@ -8,7 +8,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { log } from "../../system/logger/index.js";
 import { parseSkillFrontmatter } from "./parser.js";
-import { readClaudePluginSkillRoots } from "./claude-plugins.js";
+import { PLUGIN_NAMESPACE_SEPARATOR, readClaudePluginSkillRoots } from "./claude-plugins.js";
 import { CLAUDE_PLUGIN_LEDGER_PATH, SKILL_FILE, USER_SKILLS_DIR, claudeSettingsPaths, projectSkillsDir } from "./paths.js";
 import type { Skill, SkillSource } from "./types.js";
 import { isErrorWithCode } from "../../utils/types.js";
@@ -125,7 +125,9 @@ async function collectClaudePluginSkills(opts: DiscoverSkillsOptions): Promise<S
     ledgerPath: opts.pluginLedgerPath ?? CLAUDE_PLUGIN_LEDGER_PATH,
     settingsPaths: opts.claudeSettingsPaths ?? claudeSettingsPaths(opts.workspaceRoot),
   });
-  const skillsPerPlugin = await Promise.all(roots.map((root) => collectSkillsFromDir(root.skillsDir, "claude-plugin", `${root.pluginName}:`)));
+  const skillsPerPlugin = await Promise.all(
+    roots.map((root) => collectSkillsFromDir(root.skillsDir, "claude-plugin", `${root.pluginName}${PLUGIN_NAMESPACE_SEPARATOR}`)),
+  );
   return skillsPerPlugin.flat();
 }
 

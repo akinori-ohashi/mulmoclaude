@@ -973,7 +973,7 @@ const enMessages = {
     sectionActive: "Active",
     sectionCatalog: "Catalog",
     sectionLegendActive:
-      "Skills Claude can use right now. Claude calls them automatically in the flow of a conversation, or you can invoke one by typing its name. {system} System (mc- bundled) / {project} Project (editable, this workspace only) / {user} User (skills in ~/.claude/skills/).",
+      "Skills Claude can use right now. Claude calls them automatically in the flow of a conversation, or you can invoke one by typing its name. {system} System (mc- bundled) / {project} Project (editable, this workspace only) / {user} User (skills in ~/.claude/skills/) / {claudePlugin} Plugin (from an installed Claude Code plugin, read-only).",
     sectionLegendCatalog:
       "Catalog: skills that become Active when you mark them with {star}. Removing {star} from an Active skill sends it back to Catalog — Claude stops using it (the skill is not deleted).",
     catalogEmpty: "No preset skills available.",
