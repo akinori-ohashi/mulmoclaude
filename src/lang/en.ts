@@ -981,6 +981,7 @@ const enMessages = {
     catalogStar: "Star",
     catalogStarred: "Starred",
     sourceUserTitle: "User skill (~/.claude/skills/, available in every workspace)",
+    sourceClaudePluginTitle: "Plugin skill (installed Claude Code plugin — read-only, updated by the plugin)",
     sourceSystemTitle: "System skill (bundled, mc- prefix — read-only, overwritten by the launcher)",
     sourceProjectTitle: "Project skill (workspace .claude/skills/, this workspace only)",
     sourcePresetTitle: "Preset catalog — click Star to activate in this workspace",

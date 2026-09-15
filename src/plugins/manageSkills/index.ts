@@ -6,11 +6,12 @@ import View from "./View.vue";
 import Preview from "./Preview.vue";
 import { apiGet } from "../../utils/api";
 import { makeUuid } from "../../utils/id";
+import type { SkillSource } from "../../types/session";
 
 export interface SkillSummary {
   name: string;
   description: string;
-  source: "user" | "project";
+  source: SkillSource;
 }
 
 // Full active-skill detail returned by GET /api/skills/:name. Shared by
@@ -19,7 +20,7 @@ export interface SkillDetail {
   name: string;
   description: string;
   body: string;
-  source: "user" | "project";
+  source: SkillSource;
   path: string;
 }
 

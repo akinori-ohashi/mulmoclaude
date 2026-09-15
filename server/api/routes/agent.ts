@@ -46,7 +46,7 @@ import { decorateMessageForCli, sanitiseOriginalFilename, type AttachedFile } fr
 import { getOrCreateSession, beginRun, endRun, cancelRun, pushSessionEvent, pushToolResult, getActiveSessionIds } from "../../events/session-store/index.js";
 import { workspacePath } from "../../workspace/workspace.js";
 import { discoverSkills } from "../../workspace/skills/discovery.js";
-import type { Skill } from "../../workspace/skills/types.js";
+import type { Skill, SkillSource } from "../../workspace/skills/types.js";
 import { isNonEmptyString } from "../../utils/types.js";
 import { findLastSessionEntry } from "../../utils/sessionJsonl.js";
 import { maybeRunJournal } from "../../workspace/journal/index.js";
@@ -957,7 +957,7 @@ async function writeSkillEntry(ctx: EventContext, skillName: string, body: strin
 }
 
 interface SkillMetadata {
-  scope: "user" | "project" | "unknown";
+  scope: SkillSource | "unknown";
   path: string | null;
   /** From the SKILL.md frontmatter `description:` field. Used by the
    *  host's collapsed-skill card — Claude CLI strips frontmatter from

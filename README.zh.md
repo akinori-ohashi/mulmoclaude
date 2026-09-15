@@ -220,12 +220,13 @@ MulmoClaude 可以列出并启动你已有的 **Claude Code skills**。一个 sk
 
 无需额外输入、无需复制粘贴 SKILL.md 的内容 —— Run 按钮就是对 `/skill-name` 的一键封装。
 
-### Skill 发现 —— 两种范围
+### Skill 发现 —— 三种范围
 
 | 范围        | 位置                                   | 语义                                                                             |
 | ----------- | -------------------------------------- | -------------------------------------------------------------------------------- |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | 个人 skill，在你通过 Claude CLI 打开的每个项目之间共享。                         |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | MulmoClaude 工作区范围的 skill。当名称与 user 范围冲突时，**project 范围胜出**。 |
+| **Claude Code plugin** | `<插件安装路径>/skills/<name>/`（来自 `/plugin install`） | 以 Claude CLI 寻址的方式列为 `<plugin>:<name>`。只读、优先级最低；在 `enabledPlugins` 中关闭的插件会被忽略。 |
 
 两种范围在第 0 阶段都是只读的 —— 编辑发生在文件系统上。未来的版本将允许 MulmoClaude 本身创建 / 编辑 project 范围的 skill。
 

@@ -952,6 +952,7 @@ const koMessages = {
     catalogStar: "별 표시",
     catalogStarred: "별 표시됨",
     sourceUserTitle: "사용자 스킬 (~/.claude/skills/, 모든 워크스페이스 공통)",
+    sourceClaudePluginTitle: "플러그인 스킬 (설치된 Claude Code 플러그인 — 읽기 전용, 플러그인에서 갱신)",
     sourceSystemTitle: "시스템 스킬 (동봉, mc- 접두사 — 읽기 전용, 런처 부팅 시 덮어씀)",
     sourceProjectTitle: "프로젝트 스킬 (워크스페이스 .claude/skills/, 이 워크스페이스 전용)",
     sourcePresetTitle: "프리셋 카탈로그 — 별 표시를 눌러 이 워크스페이스에 활성화",

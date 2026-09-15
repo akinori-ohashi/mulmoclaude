@@ -124,6 +124,7 @@ import { pluginEndpoints } from "../api";
 import { buildRouteUrl } from "../meta-types";
 import type { SkillsEndpoints } from "./definition";
 import {
+  compareSkillsForSidebar,
   loadCollapsedSections,
   persistCollapsedSections,
   pickInitialSelection,
@@ -165,7 +166,7 @@ const collapsedSections = shallowRef<Set<SkillSectionKey>>(loadCollapsedSections
 // Active skills, alphabetised. Provenance (system / project / user) is
 // shown as a per-row badge via sourceMeta, not as its own collapsible
 // group — the sidebar groups by section, not by provenance.
-const activeSkills = computed(() => [...skills.value].sort((leftSkill, rightSkill) => leftSkill.name.localeCompare(rightSkill.name)));
+const activeSkills = computed(() => [...skills.value].sort(compareSkillsForSidebar));
 
 function isSectionOpen(key: SkillSectionKey): boolean {
   return !collapsedSections.value.has(key);

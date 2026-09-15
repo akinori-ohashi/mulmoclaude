@@ -971,6 +971,7 @@ const deMessages = {
     catalogStar: "Markieren",
     catalogStarred: "Markiert",
     sourceUserTitle: "Benutzer-Skill (~/.claude/skills/, in allen Workspaces verfügbar)",
+    sourceClaudePluginTitle: "Plugin-Skill (installiertes Claude-Code-Plugin — schreibgeschützt, wird vom Plugin aktualisiert)",
     sourceSystemTitle: "System-Skill (mitgeliefert, mc- Präfix — schreibgeschützt, vom Launcher überschrieben)",
     sourceProjectTitle: "Projekt-Skill (.claude/skills/ des Workspaces, nur dieser Workspace)",
     sourcePresetTitle: "Preset-Katalog — Markieren anklicken, um in diesem Workspace zu aktivieren",

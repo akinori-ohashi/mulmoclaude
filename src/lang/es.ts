@@ -969,6 +969,7 @@ const esMessages = {
     catalogStar: "Destacar",
     catalogStarred: "Destacada",
     sourceUserTitle: "Skill de usuario (~/.claude/skills/, disponible en todos los espacios)",
+    sourceClaudePluginTitle: "Skill de plugin (plugin de Claude Code instalado — solo lectura, lo actualiza el plugin)",
     sourceSystemTitle: "Skill de sistema (incluida, prefijo mc- — solo lectura, sobrescrita por el launcher)",
     sourceProjectTitle: "Skill del proyecto (.claude/skills/ del workspace, solo este espacio)",
     sourcePresetTitle: "Catálogo de preajustes — pulsa Destacar para activarla en este espacio",

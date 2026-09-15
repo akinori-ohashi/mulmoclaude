@@ -18,13 +18,27 @@ export type SkillIdentity = Pick<SkillSummary, "name" | "source">;
 // drives the per-row badge tooltip and the edit/delete gate. The
 // sidebar groups by section (active vs catalog), see SKILL_SECTION_KEYS.
 export const SYSTEM_SKILL_PREFIX = "mc-";
-export type SkillProvenance = "system" | "project" | "user";
+export type SkillProvenance = "system" | "project" | "user" | "claude-plugin";
 
 /** Map a skill to its provenance bucket (badge + edit-gate, not layout). */
 export function categorizeSkill(skill: SkillIdentity): SkillProvenance {
+  if (skill.source === "claude-plugin") return "claude-plugin";
   if (skill.source === "user") return "user";
   if (skill.name.startsWith(SYSTEM_SKILL_PREFIX)) return "system";
   return "project";
+}
+
+/**
+ * Sidebar order: the skills the user owns first, an installed plugin's after
+ * them, each alphabetical. A machine with a large marketplace plugin can carry
+ * a thousand plugin skills (measured: 1116 from three plugins), which would
+ * otherwise bury the handful the user wrote and take the default selection with
+ * them.
+ */
+export function compareSkillsForSidebar(leftSkill: SkillIdentity, rightSkill: SkillIdentity): number {
+  const leftRank = leftSkill.source === "claude-plugin" ? 1 : 0;
+  const rightRank = rightSkill.source === "claude-plugin" ? 1 : 0;
+  return leftRank === rightRank ? leftSkill.name.localeCompare(rightSkill.name) : leftRank - rightRank;
 }
 
 // Sidebar collapsible sections, aligned with the #1335 catalog/active
@@ -277,6 +291,9 @@ export function skillBadgeMeta(skill: SkillIdentity): SkillBadgeMeta {
   }
   if (provenance === "user") {
     return { icon: "home", colour: "text-blue-500", titleKey: "pluginManageSkills.sourceUserTitle" };
+  }
+  if (provenance === "claude-plugin") {
+    return { icon: "extension", colour: "text-purple-500", titleKey: "pluginManageSkills.sourceClaudePluginTitle" };
   }
   return { icon: "folder", colour: "text-green-600", titleKey: "pluginManageSkills.sourceProjectTitle" };
 }

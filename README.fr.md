@@ -220,12 +220,13 @@ MulmoClaude peut lister et lancer les **Claude Code skills** que vous avez déj�
 
 Aucune saisie supplémentaire, aucun copier-coller du corps de SKILL.md — le bouton Run est un simple clic autour de `/skill-name`.
 
-### Découverte des skills — deux portées
+### Découverte des skills — trois portées
 
 | Portée      | Emplacement                            | Sémantique                                                                                                               |
 | ----------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | Skills personnelles, partagées entre tous les projets que vous ouvrez avec la CLI Claude.                                |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | Skills limitées à l'espace de travail MulmoClaude. La portée project **l'emporte** en cas de collision de nom avec user. |
+| **Claude Code plugin** | `<chemin d'installation du plugin>/skills/<name>/` (via `/plugin install`) | Listées sous `<plugin>:<name>`, comme la CLI Claude les adresse. En lecture seule, priorité la plus basse ; un plugin désactivé dans `enabledPlugins` est ignoré. |
 
 Les deux portées sont en lecture seule en phase 0 — les modifications se font au niveau du système de fichiers. Une future version permettra à MulmoClaude lui-même de créer / éditer des skills de portée project.
 

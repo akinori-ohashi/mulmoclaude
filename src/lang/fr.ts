@@ -960,6 +960,7 @@ const frMessages = {
     catalogStar: "Favori",
     catalogStarred: "Favoris",
     sourceUserTitle: "Skill utilisateur (~/.claude/skills/, disponible dans tous les espaces)",
+    sourceClaudePluginTitle: "Skill de plugin (plugin Claude Code installé — en lecture seule, mis à jour par le plugin)",
     sourceSystemTitle: "Skill système (incluse, préfixe mc- — lecture seule, écrasée par le launcher)",
     sourceProjectTitle: "Skill de projet (.claude/skills/ de l'espace, espace courant uniquement)",
     sourcePresetTitle: "Catalogue de préréglages — cliquez sur Favori pour activer dans cet espace",

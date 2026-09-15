@@ -224,12 +224,13 @@ MulmoClaude는 이미 가지고 있는 **Claude Code skills** 을 나열하고 �
 
 추가 입력이나 SKILL.md 본문 복사 붙여넣기가 필요 없습니다 — Run 버튼은 `/skill-name` 의 원클릭 래퍼입니다.
 
-### Skill 발견 — 두 가지 스코프
+### Skill 발견 — 세 가지 스코프
 
 | 스코프      | 위치                                   | 의미                                                                                            |
 | ----------- | -------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | 개인 skills, Claude CLI로 여는 모든 프로젝트에서 공유됩니다.                                    |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | MulmoClaude-워크스페이스 스코프 skills. 이름이 user와 충돌하면 Project 스코프가 **우선**합니다. |
+| **Claude Code plugin** | `<플러그인 설치 경로>/skills/<name>/` (`/plugin install`) | Claude CLI가 주소를 지정하는 방식 그대로 `<plugin>:<name>`으로 표시됩니다. 읽기 전용이며 우선순위가 가장 낮고, `enabledPlugins`에서 끈 플러그인은 제외됩니다. |
 
 두 스코프 모두 phase 0에서는 읽기 전용입니다 — 편집은 파일 시스템에서 이루어집니다. 향후 릴리스에서는 MulmoClaude 자체가 project 스코프 skills 를 생성 / 편집할 수 있게 됩니다.
 

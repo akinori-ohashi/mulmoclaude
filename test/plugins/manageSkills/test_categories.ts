@@ -13,6 +13,7 @@ import {
   SKILL_SECTION_KEYS,
   SYSTEM_SKILL_PREFIX,
   categorizeSkill,
+  compareSkillsForSidebar,
   isSkillSectionKey,
   loadCollapsedSections,
   persistCollapsedSections,
@@ -113,6 +114,11 @@ describe("manageSkills categorizeSkill", () => {
   it("returns 'user' for user-source skills regardless of name", () => {
     assert.equal(categorizeSkill({ name: "anything", source: "user" }), "user");
     assert.equal(categorizeSkill({ name: "mc-foo", source: "user" }), "user");
+  });
+
+  it("returns 'claude-plugin' for a skill an installed plugin ships, mc- prefix or not", () => {
+    assert.equal(categorizeSkill({ name: "demo:story", source: "claude-plugin" }), "claude-plugin");
+    assert.equal(categorizeSkill({ name: "demo:mc-foo", source: "claude-plugin" }), "claude-plugin");
   });
 
   it("returns 'system' for project skills whose name begins with mc-", () => {
@@ -259,6 +265,42 @@ describe("manageSkills persistCollapsedSections", () => {
   it("is a no-op when window is undefined", () => {
     delete globalRef.window;
     assert.doesNotThrow(() => persistCollapsedSections(new Set(["catalog"])));
+  });
+});
+
+describe("manageSkills compareSkillsForSidebar", () => {
+  function sorted(skills: { name: string; source: "user" | "project" | "claude-plugin" }[]): string[] {
+    return [...skills].sort(compareSkillsForSidebar).map((skill) => skill.name);
+  }
+
+  it("sorts alphabetically within one provenance", () => {
+    assert.deepEqual(
+      sorted([
+        { name: "b", source: "user" },
+        { name: "a", source: "project" },
+      ]),
+      ["a", "b"],
+    );
+  });
+
+  it("puts every plugin skill after the user's own, whatever the alphabet says", () => {
+    assert.deepEqual(
+      sorted([
+        { name: "aaa:one", source: "claude-plugin" },
+        { name: "zzz-mine", source: "user" },
+        { name: "aaa:two", source: "claude-plugin" },
+        { name: "mmm-mine", source: "project" },
+      ]),
+      ["mmm-mine", "zzz-mine", "aaa:one", "aaa:two"],
+    );
+  });
+
+  it("leaves the first selectable row a user skill, so the default selection survives a plugin install", () => {
+    const withPlugins = [
+      { name: "aaa:one", source: "claude-plugin" as const },
+      { name: "my-skill", source: "user" as const },
+    ].sort(compareSkillsForSidebar);
+    assert.equal(pickInitialSelection(withPlugins, new Set()), "my-skill");
   });
 });
 
@@ -533,6 +575,14 @@ describe("manageSkills skillBadgeMeta", () => {
       icon: "home",
       colour: "text-blue-500",
       titleKey: "pluginManageSkills.sourceUserTitle",
+    });
+  });
+
+  it("maps a plugin skill to the extension badge", () => {
+    assert.deepEqual(skillBadgeMeta({ name: "demo:story", source: "claude-plugin" }), {
+      icon: "extension",
+      colour: "text-purple-500",
+      titleKey: "pluginManageSkills.sourceClaudePluginTitle",
     });
   });
 

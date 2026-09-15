@@ -260,12 +260,13 @@ MulmoClaude can list and launch the **Claude Code skills** you already have. A s
 
 No extra typing, no copy-pasting SKILL.md bodies — the Run button is a one-click wrapper around `/skill-name`.
 
-### Skill discovery — two scopes
+### Skill discovery — three scopes
 
-| Scope       | Location                               | Semantics                                                                                 |
-| ----------- | -------------------------------------- | ----------------------------------------------------------------------------------------- |
-| **User**    | `~/.claude/skills/<name>/SKILL.md`     | Personal skills, shared across every project you open with the Claude CLI.                |
-| **Project** | `~/mulmoclaude/.claude/skills/<name>/` | MulmoClaude-workspace-scoped skills. Project scope **wins** if a name collides with user. |
+| Scope           | Location                                                        | Semantics                                                                                 |
+| --------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **User**        | `~/.claude/skills/<name>/SKILL.md`                              | Personal skills, shared across every project you open with the Claude CLI.                |
+| **Project**     | `~/mulmoclaude/.claude/skills/<name>/`                          | MulmoClaude-workspace-scoped skills. Project scope **wins** if a name collides with user. |
+| **Claude Code plugin** | `<plugin install path>/skills/<name>/` (from `/plugin install`) | Listed as `<plugin>:<name>`, the way the Claude CLI addresses them. Read-only, lowest precedence, and omitted for a plugin switched off in `enabledPlugins`. |
 
 Both scopes are read-only in phase 0 — edits happen on the file system. A future release will let MulmoClaude itself create / edit project-scope skills.
 

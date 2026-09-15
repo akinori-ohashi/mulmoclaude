@@ -240,12 +240,13 @@ MulmoClaude はすでにお持ちの **Claude Code skills** を一覧表示し�
 
 余計な入力もコピー & ペーストも不要 — Run ボタンは `/skill-name` のワンクリックラッパーです。
 
-### skill の発見 — 2 つのスコープ
+### skill の発見 — 3 つのスコープ
 
 | スコープ    | 場所                                   | 意味                                                                                                   |
 | ----------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | 個人用の skill。Claude CLI で開くあらゆるプロジェクト間で共有されます。                                |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | MulmoClaude ワークスペーススコープの skill。名前が user と衝突した場合、project が **優先** されます。 |
+| **Claude Code plugin** | `<プラグインのインストール先>/skills/<name>/`（`/plugin install` で入るもの） | Claude CLI と同じ `<plugin>:<name>` の名前で一覧に出ます。読み取り専用で優先順位は最下位。`enabledPlugins` で無効にしたプラグインは除外されます。 |
 
 フェーズ 0 では両スコープとも読み取り専用です — 編集はファイルシステム上で行います。将来のリリースで MulmoClaude 自身が project スコープの skill を作成 / 編集できるようになります。
 

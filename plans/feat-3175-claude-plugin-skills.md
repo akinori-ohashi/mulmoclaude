@@ -1,0 +1,118 @@
+# feat(#3175): Claude Code プラグインのスキルも走査する
+
+## 背景
+
+`discoverSkills()` が見ているのは 2 か所だけ。
+
+```
+<claudeConfigDir>/skills/<name>/SKILL.md        ← user
+<workspaceRoot>/.claude/skills/<name>/SKILL.md  ← project
+```
+
+Claude Code のスキル配布には**もう1つ標準経路**がある。`/plugin marketplace add` →
+`/plugin install` で入るプラグインで、実体はここ:
+
+```
+~/.claude/plugins/installed_plugins.json
+  { "version": 2, "plugins": { "<plugin>@<marketplace>": [{ "scope": "user", "installPath": "…", … }] } }
+~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/<name>/SKILL.md
+```
+
+実機確認（2026-09-15, このマシン）: user scope 4 件が上記 ledger に載っており、うち
+`swift-lsp@claude-plugins-official` は Anthropic 公式マーケットプレイス。`SKILL.md` の
+frontmatter は user/project スコープと同形（`description:` のみ、名前はディレクトリ名）。
+
+## この PR が変えること / 変えないこと
+
+**変えない**: エージェントがスキルを呼べるかどうか。MulmoClaude は `claude` CLI を spawn し
+`--allowedTools` に裸の `Skill`（= 全スキル許可）を渡すだけで、`server/agent/prompt.ts` は
+スキル一覧を注入しない。**エージェント側の発見は CLI の仕事**で、CLI はプラグインのスキルを
+元から読む。
+
+**変える**: `discoverSkills()` の結果を使う MulmoClaude 自身の面。
+
+| 面 | 場所 |
+|---|---|
+| スキル一覧 UI / manageSkills | `server/api/routes/skills.ts` |
+| bridge `/help` の "Skills:" | `server/index.ts` |
+| スキルのスケジューラ | `server/workspace/skills/scheduler.ts` |
+| 呼び出しイベントへの path/description 付与（表示用） | `server/api/routes/agent.ts` |
+
+issue の症状（`Skill` 呼び出しが 0 件）は Docker サンドボックスが原因の別問題と見ている
+（ledger の `installPath` がホスト絶対パスで、コンテナの HOME は `/home/node` なので解決できない）。
+報告者に確認中。**この PR はその症状を直さない。**
+
+## 決定
+
+1. **スキル名は `<plugin>:<skill>`**。CLI の Skill ツールがこの形で addressing する
+   （`ever-better:ever-better-drain`）。スケジューラと manageSkills の Run はどちらも
+   `/${skill.name}` を送るので、名前を CLI に合わせないと押せても動かない。
+   `<plugin>` は ledger キー `<plugin>@<marketplace>` の `@` より前（`lastIndexOf`）。
+2. **優先順位は project > user > claude-plugin**。既存のスキルを奪わない。
+3. **`enabledPlugins` を尊重する**。`settings.json` で明示的に `false` のプラグインは除外。
+   user → workspace `.claude/settings.json` → `.claude/settings.local.json` の順にマージし、
+   マージ後の値が `false` のキーだけを落とす（キー不在は「有効」扱い — install は `true` を書くので不在は編集/破損由来）。
+4. **`SkillSource` に `claude-plugin` を追加**し、読み取り専用として扱う。
+5. **ledger は壊れていても例外を投げない**。CLI の内部状態ファイルで公開 API ではなく、
+   すでに `"version": 2` を持つ（一度形が変わっている）。型ガードで読み、想定外は黙って捨てる。
+
+## プラグインのスキルを渡さない呼び出し元（理由付き）
+
+実測で**プラグインのスキルは 1116 件**あった（このマシン、3 プラグイン）。全部を無条件に流すと
+壊れる面があるので、2 か所は明示的に opt-out する。
+
+- **bridge の `/help`**（`server/index.ts`）: スキル 1 行ずつを**1 通のチャットメッセージ**に詰めて送る。
+  1116 行はどのブリッジのメッセージ上限も超える。同じ理由でブリッジのスラッシュコマンド
+  allowlist にも載らない。
+- **スキルのスケジューラ**（`workspace/skills/scheduler.ts`）: マーケットプレイスの
+  プラグインを入れただけで、その frontmatter の schedule が**定期実行として自動登録される**のは
+  ユーザーが頼んでいない挙動。
+- **writer の 3 呼び出し**（`workspace/skills/writer.ts`）: 下の「触らないと決めたもの」のとおり
+  writer に到達し得ないうえ、読むとテストがマシンの導入済みプラグインに依存する。
+
+UI 側は件数が多くても一覧なので出す。ただし**並び順は「ユーザーのスキルが先、プラグインは後」**に
+する（`compareSkillsForSidebar`）。これをやらないと `pickInitialSelection` が拾う先頭行が
+プラグインのスキルになり、開いたときの既定選択が変わってしまう。
+
+## 触らないと決めたもの（理由付き）
+
+- **`writer.ts` の `source === "user"` ガード**。`update`/`delete` はどちらも先に
+  `isValidSlug(name)` を通し、slug は `:` を許さない（`server/utils/slug.ts`）。よって
+  `plugin:skill` 名は writer に到達しない。`!== "project"` に広げても**到達しないコード**が増える
+  だけで、返る `kind: "user-scope"` はプラグインスキルに対しては誤った名前になる。
+  到達可能性が変わるのは命名規則を変えたときだけなので、その時に一緒に直す。
+- **`saveProjectSkill` の重複チェック**。`discoverSkills()` 全体を見るので prefix 付きの
+  プラグインスキルも自動的に考慮されるが、slug が `:` を許さないので実際には衝突しない。
+
+## 変更ファイル
+
+```
+server/utils/claudeConfigPath.ts          claudeSettingsPath / claudePluginLedgerPath
+server/workspace/skills/claude-plugins.ts 新規: ledger と enabledPlugins の純粋パーサ + 読み出し
+server/workspace/skills/paths.ts          プラグイン側のパス定数
+server/workspace/skills/types.ts          SkillSource += "claude-plugin"
+server/workspace/skills/discovery.ts      3 つ目のルート + collectSkillsFromDir に namePrefix
+server/api/routes/agent.ts                SkillMetadata.scope を SkillSource ベースに
+src/types/session.ts                      SkillScope += "claude-plugin"
+src/utils/agent/parseSseEvent.ts          isSkillScope
+src/composables/useSkillsList.ts          source union
+src/plugins/manageSkills/index.ts         source union
+src/plugins/manageSkills/categories.ts    provenance + バッジ + 並び順
+src/plugins/manageSkills/View.vue         並び順を compareSkillsForSidebar に委譲
+src/lang/*.ts (8)                         sourceClaudePluginTitle
+README.md + README.*.md (8)               スコープ表に 3 行目
+test/skills/test_claudePlugins.ts         新規: 純粋パーサ（正常・異常・境界）
+test/skills/test_discovery.ts             3 スコープの優先順位と prefix
+test/plugins/manageSkills/test_categories.ts  provenance / バッジ / 並び順
+```
+
+## 検証（実施済み・2026-09-15）
+
+- `yarn format` → `yarn build:packages` → `yarn typecheck`(exit 0) → `yarn lint`(0 errors /
+  既存 warning 46・変更ファイルは 0) → `yarn test`(fail 0) → `yarn build`(exit 0)
+- 型ユニオンを広げる変更なので、網羅していないガードは typecheck が落として教える
+- **実機**: 実際の `~/.claude/plugins/` に対して `discoverSkills()` を実行し、
+  `claude-plugin: 1116` / namespaces `ever-better, mulmocast, tne` を確認。
+  CLI 自身のスキル一覧に出る `mulmocast:story` / `ever-better:ever-better` /
+  `ever-better:ever-better-drain` / `tne:bod14-collect-reports` が**同じ名前で**見つかった
+  （外部の ground truth = CLI の一覧との突き合わせ）。`swift-lsp` は skills を持たないので 0 件。

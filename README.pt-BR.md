@@ -223,12 +223,13 @@ O MulmoClaude pode listar e iniciar os **Claude Code skills** que você já poss
 
 Sem digitação extra, sem copiar e colar corpos de SKILL.md — o botão Run é um wrapper de um clique em volta de `/skill-name`.
 
-### Descoberta de skills — dois escopos
+### Descoberta de skills — três escopos
 
 | Scope       | Location                               | Semântica                                                                                                     |
 | ----------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | Skills pessoais, compartilhados em todos os projetos que você abre com o Claude CLI.                          |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | Skills de escopo do workspace MulmoClaude. O escopo de projeto **vence** se um nome colidir com o de usuário. |
+| **Claude Code plugin** | `<caminho de instalação do plugin>/skills/<name>/` (via `/plugin install`) | Listados como `<plugin>:<name>`, do jeito que o Claude CLI os endereça. Somente leitura, precedência mais baixa; um plugin desativado em `enabledPlugins` é omitido. |
 
 Ambos os escopos são somente leitura na fase 0 — as edições acontecem no sistema de arquivos. Uma versão futura permitirá que o próprio MulmoClaude crie / edite skills de escopo de projeto.
 

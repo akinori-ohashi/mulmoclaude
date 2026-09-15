@@ -219,12 +219,13 @@ MulmoClaude puede listar y lanzar los **skills de Claude Code** que ya tienes. U
 
 Sin escribir nada extra, sin copiar y pegar cuerpos de SKILL.md — el botón Run es un envoltorio de un solo clic alrededor de `/skill-name`.
 
-### Descubrimiento de skills — dos alcances
+### Descubrimiento de skills — tres alcances
 
 | Scope       | Location                               | Semantics                                                                                                                 |
 | ----------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | Skills personales, compartidos en cada proyecto que abras con la CLI de Claude.                                           |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | Skills con alcance al workspace de MulmoClaude. El alcance de proyecto **gana** si un nombre colisiona con el de usuario. |
+| **Claude Code plugin** | `<ruta de instalación del plugin>/skills/<name>/` (con `/plugin install`) | Se listan como `<plugin>:<name>`, igual que los direcciona la CLI de Claude. Solo lectura, la precedencia más baja; se omite un plugin desactivado en `enabledPlugins`. |
 
 Ambos alcances son de solo lectura en la fase 0 — las ediciones se hacen en el sistema de archivos. Una versión futura permitirá que MulmoClaude mismo cree / edite skills de alcance de proyecto.
 

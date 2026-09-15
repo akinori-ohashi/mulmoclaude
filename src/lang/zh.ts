@@ -938,6 +938,7 @@ const zhMessages = {
     catalogStar: "收藏",
     catalogStarred: "已收藏",
     sourceUserTitle: "用户技能 (~/.claude/skills/，所有工作区通用)",
+    sourceClaudePluginTitle: "插件技能 (已安装的 Claude Code 插件 — 只读，由插件更新)",
     sourceSystemTitle: "系统技能 (随附，mc- 前缀 — 只读，启动器启动时覆盖)",
     sourceProjectTitle: "项目技能 (工作区的 .claude/skills/，仅当前工作区可用)",
     sourcePresetTitle: "预设目录 — 点击收藏在当前工作区启用",

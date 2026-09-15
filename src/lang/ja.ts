@@ -954,6 +954,7 @@ const jaMessages = {
     catalogStar: "スター",
     catalogStarred: "スター済み",
     sourceUserTitle: "ユーザースキル (~/.claude/skills/、全ワークスペース共通)",
+    sourceClaudePluginTitle: "プラグインスキル (インストール済みの Claude Code プラグイン — 読み取り専用、プラグイン側で更新)",
     sourceSystemTitle: "システムスキル (同梱、mc- 接頭辞 — 読み取り専用、launcher 起動時に上書き)",
     sourceProjectTitle: "プロジェクトスキル (ワークスペース直下の .claude/skills/、このワークスペースのみ)",
     sourcePresetTitle: "プリセットカタログ — スターでこのワークスペースに有効化",

@@ -1,13 +1,15 @@
-// Scan the user's ~/.claude/skills/ and the workspace-level
-// <workspace>/.claude/skills/ for SKILL.md files, parse them, and
-// produce a deduped list. Project-level skills override user-level
-// skills with the same name (mirrors settings precedence in #197).
+// Scan the user's ~/.claude/skills/, the workspace-level
+// <workspace>/.claude/skills/, and every installed Claude Code plugin's
+// skills/ for SKILL.md files, parse them, and produce a deduped list.
+// Project-level skills override user-level ones with the same name (mirrors
+// settings precedence in #197), and both override a plugin's.
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { log } from "../../system/logger/index.js";
 import { parseSkillFrontmatter } from "./parser.js";
-import { SKILL_FILE, USER_SKILLS_DIR, projectSkillsDir } from "./paths.js";
+import { readClaudePluginSkillRoots } from "./claude-plugins.js";
+import { CLAUDE_PLUGIN_LEDGER_PATH, SKILL_FILE, USER_SKILLS_DIR, claudeSettingsPaths, projectSkillsDir } from "./paths.js";
 import type { Skill, SkillSource } from "./types.js";
 import { isErrorWithCode } from "../../utils/types.js";
 
@@ -54,12 +56,15 @@ async function readSkillDir(skillDir: string, name: string, source: SkillSource)
 }
 
 /**
- * Scan one skills root (either the user or project location) and
+ * Scan one skills root (the user's, the project's, or one plugin's) and
  * return every valid Skill. The root itself is allowed to not exist
  * — we just return an empty list (a workspace with no .claude/skills/
  * is the common case).
+ *
+ * `namePrefix` is prepended to each directory name, which is how a plugin's
+ * skills carry the `<plugin>:` namespace the CLI addresses them by.
  */
-export async function collectSkillsFromDir(root: string, source: SkillSource): Promise<Skill[]> {
+export async function collectSkillsFromDir(root: string, source: SkillSource, namePrefix = ""): Promise<Skill[]> {
   let entries: string[];
   try {
     entries = await readdir(root);
@@ -85,7 +90,7 @@ export async function collectSkillsFromDir(root: string, source: SkillSource): P
       continue;
     }
     if (!dirStat.isDirectory()) continue;
-    const skill = await readSkillDir(skillDir, name, source);
+    const skill = await readSkillDir(skillDir, `${namePrefix}${name}`, source);
     if (skill) results.push(skill);
   }
   // Stable alphabetical order for the UI.
@@ -101,12 +106,33 @@ export interface DiscoverSkillsOptions {
    *  `<workspaceRoot>/.claude/skills/`. Passing undefined skips the
    *  project scope entirely. */
   workspaceRoot?: string | undefined;
+  /** Set false where a plugin's skills would do harm rather than good — a
+   *  listing whose entire text ships as one chat message, or a scheduler that
+   *  would register a third-party plugin's schedule frontmatter as a task of
+   *  its own. Defaults to including them. */
+  includeClaudePlugins?: boolean | undefined;
+  /** Absolute path to the CLI's `installed_plugins.json`. Overridable so a
+   *  test reads its own ledger rather than the developer's real one. */
+  pluginLedgerPath?: string | undefined;
+  /** `settings.json` files consulted for `enabledPlugins`, in ascending
+   *  precedence. Overridable for the same reason as `pluginLedgerPath`. */
+  claudeSettingsPaths?: readonly string[] | undefined;
+}
+
+async function collectClaudePluginSkills(opts: DiscoverSkillsOptions): Promise<Skill[]> {
+  if (opts.includeClaudePlugins === false) return [];
+  const roots = await readClaudePluginSkillRoots({
+    ledgerPath: opts.pluginLedgerPath ?? CLAUDE_PLUGIN_LEDGER_PATH,
+    settingsPaths: opts.claudeSettingsPaths ?? claudeSettingsPaths(opts.workspaceRoot),
+  });
+  const skillsPerPlugin = await Promise.all(roots.map((root) => collectSkillsFromDir(root.skillsDir, "claude-plugin", `${root.pluginName}:`)));
+  return skillsPerPlugin.flat();
 }
 
 /**
  * Discover every skill available to this workspace. Project-level
  * skills (under `<workspace>/.claude/skills/`) override user-level
- * skills of the same name.
+ * skills of the same name, and both override a plugin's.
  */
 export async function discoverSkills(opts: DiscoverSkillsOptions = {}): Promise<Skill[]> {
   const userDir = opts.userDir ?? USER_SKILLS_DIR;
@@ -114,11 +140,12 @@ export async function discoverSkills(opts: DiscoverSkillsOptions = {}): Promise<
 
   const projectSkills = opts.workspaceRoot ? await collectSkillsFromDir(projectSkillsDir(opts.workspaceRoot), "project") : [];
 
-  // Project overrides user on name collision. Merge by building a
-  // map keyed by name, starting with user, overwriting with project.
+  const pluginSkills = await collectClaudePluginSkills(opts);
+
+  // Later scopes win on name collision, so a plugin the user installed can
+  // never shadow a skill they wrote themselves.
   const merged = new Map<string, Skill>();
-  for (const skill of userSkills) merged.set(skill.name, skill);
-  for (const skill of projectSkills) merged.set(skill.name, skill);
+  [...pluginSkills, ...userSkills, ...projectSkills].forEach((skill) => merged.set(skill.name, skill));
 
   return [...merged.values()].sort((leftSkill, rightSkill) => leftSkill.name.localeCompare(rightSkill.name));
 }

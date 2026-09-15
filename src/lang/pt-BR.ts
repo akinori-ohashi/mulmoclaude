@@ -957,6 +957,7 @@ const ptBRMessages = {
     catalogStar: "Favoritar",
     catalogStarred: "Favoritada",
     sourceUserTitle: "Skill do usuário (~/.claude/skills/, disponível em todos os workspaces)",
+    sourceClaudePluginTitle: "Skill de plugin (plugin do Claude Code instalado — somente leitura, atualizado pelo plugin)",
     sourceSystemTitle: "Skill de sistema (inclusa, prefixo mc- — somente leitura, sobrescrita pelo launcher)",
     sourceProjectTitle: "Skill do projeto (.claude/skills/ do workspace, apenas este workspace)",
     sourcePresetTitle: "Catálogo de presets — clique em Favoritar para ativar neste workspace",
