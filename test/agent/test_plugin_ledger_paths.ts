@@ -46,6 +46,12 @@ describe("toContainerConfigPath", () => {
     });
   });
 
+  // A backslash is an ordinary filename character on POSIX, so `we\\ird` is ONE
+  // directory. Folding it to a separator would invent a level that is not there.
+  it("keeps a backslash inside a POSIX filename as part of the segment", () => {
+    assert.equal(toContainerConfigPath(POSIX_CONFIG_DIR, `${POSIX_CONFIG_DIR}/plugins/we\\ird`, POSIX_SEP), `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/we\\ird`);
+  });
+
   it("does not mistake a dot inside a segment for a traversal segment", () => {
     assert.equal(toContainerConfigPath("/Users/some.one/.claude", "/Users/some.one/.claude/plugins/x", POSIX_SEP), `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/x`);
   });
@@ -64,6 +70,17 @@ describe("toContainerConfigPath", () => {
         toContainerConfigPath(WINDOWS_CONFIG_DIR, "c:\\users\\someone\\.claude\\plugins\\x", WINDOWS_SEP),
         `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/x`,
       );
+    });
+
+    // The CLI writes backslashes, but a `CLAUDE_CONFIG_DIR` override can arrive
+    // with forward slashes. On Windows those name one directory, so a mismatch
+    // here would silently leave every plugin untranslated.
+    it("matches across mixed separators", () => {
+      assert.equal(
+        toContainerConfigPath("C:/Users/someone/.claude", `${WINDOWS_CONFIG_DIR}\\plugins\\x`, WINDOWS_SEP),
+        `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/x`,
+      );
+      assert.equal(toContainerConfigPath(WINDOWS_CONFIG_DIR, "C:/Users/someone/.claude/plugins/x", WINDOWS_SEP), `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/x`);
     });
 
     it("keeps POSIX comparison case-SENSITIVE", () => {

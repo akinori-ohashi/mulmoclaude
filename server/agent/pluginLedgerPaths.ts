@@ -28,11 +28,23 @@ export const PLUGIN_INSTALL_PATH_KEY = "installPath";
 
 const WINDOWS_SEPARATOR = "\\";
 
-// Windows filesystems are case-insensitive, so `C:\Users\X\.claude` and
-// `c:\users\x\.claude` name one directory; comparing them verbatim would leave
-// the other spelling untranslated and the plugin inert for no visible reason.
+// On Windows both separators are legal and the filesystem is case-insensitive,
+// so `C:\Users\X\.claude` and `c:/users/x/.claude` name ONE directory. Comparing
+// them verbatim would leave the other spelling untranslated and the plugin inert
+// with nothing to show for it. On POSIX neither is true — a backslash there is
+// an ordinary filename character — so the key is the value itself.
+//
+// Length-preserving on purpose: the caller slices the ORIGINAL string by this
+// key's prefix length, which only lines up while the two stay the same length.
 function comparisonKey(value: string, sep: string): string {
-  return sep === WINDOWS_SEPARATOR ? value.toLowerCase() : value;
+  return sep === WINDOWS_SEPARATOR ? value.toLowerCase().split(WINDOWS_SEPARATOR).join("/") : value;
+}
+
+// Windows accepts either separator inside a path; POSIX has only `/`, where a
+// backslash is an ordinary filename character. So splitting on both everywhere
+// would turn the single POSIX directory `we\ird` into two segments.
+function toPosixSegments(relative: string, sep: string): string {
+  return sep === WINDOWS_SEPARATOR ? relative.split(/[/\\]/).join("/") : relative;
 }
 
 /**
@@ -53,14 +65,13 @@ export function toContainerConfigPath(hostConfigDir: string, value: unknown, sep
   const valueKey = comparisonKey(value, sep);
   if (valueKey === dirKey) return CONTAINER_CLAUDE_CONFIG_DIR;
 
-  const prefix = dirKey.endsWith(sep) ? dirKey : `${dirKey}${sep}`;
+  // `comparisonKey` has already folded `\` to `/` on Windows, so the segment
+  // boundary is `/` on both platforms by the time we compare.
+  const boundary = sep === WINDOWS_SEPARATOR ? "/" : sep;
+  const prefix = dirKey.endsWith(boundary) ? dirKey : `${dirKey}${boundary}`;
   if (!valueKey.startsWith(prefix)) return null;
 
-  // Split on BOTH separators rather than replacing `\`: a backslash is a legal
-  // POSIX filename character, so a blanket replace would turn one directory
-  // named `we\ird` into two segments.
-  const relative = value.slice(prefix.length).split(/[/\\]/).join("/");
-  return `${CONTAINER_CLAUDE_CONFIG_DIR}/${relative}`;
+  return `${CONTAINER_CLAUDE_CONFIG_DIR}/${toPosixSegments(value.slice(prefix.length), sep)}`;
 }
 
 // A value we cannot translate is kept VERBATIM, never dropped. This file
