@@ -9,7 +9,7 @@
       <h1 class="title" :title="selectedResult.title || t.untitled">
         {{ selectedResult.title || t.untitled }}
       </h1>
-      <div class="toolbar" data-testid="shapescript-toolbar">
+      <div ref="toolbarRef" class="toolbar" data-testid="shapescript-toolbar">
         <button class="control-btn" @click="resetCamera">
           <span class="material-icons">refresh</span>
           {{ t.resetCamera }}
@@ -47,7 +47,14 @@
             {{ t.download }}
             <span class="material-icons">{{ downloadMenuOpen ? "expand_less" : "expand_more" }}</span>
           </button>
-          <div v-if="downloadMenuOpen" id="shapescript-download-panel" class="download-menu-panel" data-testid="shapescript-download-menu-panel">
+          <div
+            v-if="downloadMenuOpen"
+            id="shapescript-download-panel"
+            ref="downloadPanelRef"
+            class="download-menu-panel"
+            :style="{ left: `${downloadPanelShift}px` }"
+            data-testid="shapescript-download-menu-panel"
+          >
             <button
               v-for="format in DOWNLOAD_FORMATS"
               :key="format.extension"
@@ -235,10 +242,33 @@ function closeDownloadMenuFromOutside(event: MouseEvent) {
   downloadMenuOpen.value = false;
 }
 
-watch(downloadMenuOpen, (isOpen) => {
+watch(downloadMenuOpen, async (isOpen) => {
   if (isOpen) document.addEventListener("mousedown", closeDownloadMenuFromOutside);
   else document.removeEventListener("mousedown", closeDownloadMenuFromOutside);
+  downloadPanelShift.value = 0;
+  if (!isOpen) return;
+  await nextTick();
+  fitDownloadPanel();
 });
+
+const toolbarRef = ref<HTMLElement | null>(null);
+const downloadPanelRef = ref<HTMLElement | null>(null);
+/** How far left of the trigger the panel is drawn, in px (0 or negative). */
+const downloadPanelShift = ref(0);
+/** The toolbar's side padding — the same 12px as `.toolbar` in the styles. */
+const TOOLBAR_SIDE_PADDING_PX = 12;
+
+/** The panel hangs off the trigger's left edge, and the trigger is the last
+ *  control in a row that wraps, so in a narrow pane the panel can run past
+ *  the canvas, which clips it (CodeRabbit on #3187). Its width is already
+ *  capped to the toolbar's, so pulling it left by the overrun always fits. */
+function fitDownloadPanel() {
+  const panel = downloadPanelRef.value;
+  const toolbar = toolbarRef.value;
+  if (!panel || !toolbar) return;
+  const overrun = panel.getBoundingClientRect().right - (toolbar.getBoundingClientRect().right - TOOLBAR_SIDE_PADDING_PX);
+  downloadPanelShift.value = overrun > 0 ? -overrun : 0;
+}
 
 // An edit or a parse error while the menu is open takes the export away;
 // close rather than leave a panel of items that can no longer be clicked.
@@ -700,6 +730,7 @@ watch(
 /* Chrome row per docs/ui-controls.md: 8px between groups, 12/8 outer padding,
    32px-tall controls. Wraps rather than overflows when the pane is narrow. */
 .toolbar {
+  container-type: inline-size;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -749,8 +780,10 @@ watch(
   top: calc(100% + 4px);
   left: 0;
   z-index: 10;
-  min-width: 12rem;
-  max-width: 18rem;
+  width: max-content;
+  /* Never wider than the toolbar's inner width, so the shift computed in
+     fitDownloadPanel() can always bring it fully into view. */
+  max-width: min(18rem, calc(100cqw - 24px));
   padding: 4px;
   background: #2a2a2a;
   border: 1px solid #555;

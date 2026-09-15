@@ -71,6 +71,10 @@ test.describe("shapescript plugin rendering", () => {
     await expect(downloadMenu).toBeEnabled();
     await downloadMenu.click();
     for (const format of ["usdz", "glb", "stl"]) await expect(page.getByTestId(`shapescript-download-${format}`)).toBeEnabled();
+    // The open panel stays inside the view, whatever width the pane has.
+    const viewBox = await page.getByTestId("shapescript-view").boundingBox();
+    const panelBox = await page.getByTestId("shapescript-download-menu-panel").boundingBox();
+    expect(panelBox && viewBox && panelBox.x >= viewBox.x && panelBox.x + panelBox.width <= viewBox.x + viewBox.width).toBe(true);
     // Escape closes it and hands focus back to the trigger; a click outside closes it too.
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);
