@@ -28,12 +28,18 @@
              APPLIED script, which is also what the viewport renders, so a
              dirty editor would otherwise download a model the user is no
              longer looking at. -->
-        <div ref="downloadMenuRef" class="download-menu">
+        <!-- A disclosure, not an ARIA `menu`: `role="menu"` promises
+             arrow-key focus movement this does not implement (codex on
+             #3187). As a disclosure the items are plain buttons next in
+             tab order, and Escape closes the panel and returns focus to
+             the trigger. -->
+        <div ref="downloadMenuRef" class="download-menu" @keydown.escape="closeDownloadMenu">
           <button
+            ref="downloadTriggerRef"
             class="control-btn"
             :disabled="!canExport"
-            aria-haspopup="menu"
             :aria-expanded="downloadMenuOpen"
+            aria-controls="shapescript-download-panel"
             data-testid="shapescript-download-menu"
             @click="downloadMenuOpen = !downloadMenuOpen"
           >
@@ -41,12 +47,11 @@
             {{ t.download }}
             <span class="material-icons">{{ downloadMenuOpen ? "expand_less" : "expand_more" }}</span>
           </button>
-          <div v-if="downloadMenuOpen" class="download-menu-panel" role="menu" data-testid="shapescript-download-menu-panel">
+          <div v-if="downloadMenuOpen" id="shapescript-download-panel" class="download-menu-panel" data-testid="shapescript-download-menu-panel">
             <button
               v-for="format in DOWNLOAD_FORMATS"
               :key="format.extension"
               class="download-menu-item"
-              role="menuitem"
               :disabled="!canExport"
               :data-testid="`shapescript-download-${format.testId}`"
               @click="downloadModel(format)"
@@ -215,6 +220,15 @@ const canExport = computed(() => !exporting.value && !parseError.value && !hasCh
  *  is retargeted to the shadow host. The listener exists only while open. */
 const downloadMenuOpen = ref(false);
 const downloadMenuRef = ref<HTMLElement | null>(null);
+const downloadTriggerRef = ref<HTMLButtonElement | null>(null);
+
+/** Escape: close, and put focus back on the trigger so a keyboard user is
+ *  not left on an item that no longer exists. */
+function closeDownloadMenu() {
+  if (!downloadMenuOpen.value) return;
+  downloadMenuOpen.value = false;
+  downloadTriggerRef.value?.focus();
+}
 
 function closeDownloadMenuFromOutside(event: MouseEvent) {
   if (downloadMenuRef.value && event.composedPath().includes(downloadMenuRef.value)) return;

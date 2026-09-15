@@ -136,9 +136,11 @@ buttons ran off the right edge. The title now sits on its own line (one line, el
 the toolbar under it, sized to the chrome-row standard in `docs/ui-controls.md` (32px controls,
 8px gaps) and wrapping rather than overflowing. **Download USDZ / GLB / STL** collapse into one
 **Download** menu whose items carry a hint of what each format is for (AR Quick Look, web and
-game engines, 3D printing). The menu closes on an outside click — tested with `composedPath()`,
-so it works inside MulmoTerminal's shadow-root PluginFrame — and closes itself when the export
-is withdrawn (an unsaved edit or a parse error). The formats' `data-testid`s are unchanged;
+game engines, 3D printing). It is a disclosure rather than an ARIA `menu` (the items are plain
+buttons next in tab order); Escape closes it and returns focus to the trigger, an outside click
+closes it — tested with `composedPath()`, so it works inside MulmoTerminal's shadow-root
+PluginFrame — and it closes itself when the export is withdrawn (an unsaved edit or a parse
+error). The formats' `data-testid`s are unchanged;
 they now live under `shapescript-download-menu`. `download` is a new message key in all eight
 locales; the three `download*` keys now hold the hints.
 

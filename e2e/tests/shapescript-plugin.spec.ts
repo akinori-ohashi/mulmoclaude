@@ -71,7 +71,12 @@ test.describe("shapescript plugin rendering", () => {
     await expect(downloadMenu).toBeEnabled();
     await downloadMenu.click();
     for (const format of ["usdz", "glb", "stl"]) await expect(page.getByTestId(`shapescript-download-${format}`)).toBeEnabled();
-    // A click outside closes it.
+    // Escape closes it and hands focus back to the trigger; a click outside closes it too.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);
+    await expect(downloadMenu).toBeFocused();
+    await downloadMenu.click();
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toBeVisible();
     await page.getByTestId("shapescript-viewport").click({ position: { x: 5, y: 5 } });
     await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);
     // Copy lives at the right end of the "Edit ShapeScript" bar and must not
