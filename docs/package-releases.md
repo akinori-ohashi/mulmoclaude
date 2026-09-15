@@ -195,6 +195,7 @@ PR #2639 rather than at the branch-local bump.
 |---|---|
 | version bump + **every declared range swept** to the new version | ranges are the record of intent; a stale one hides which line a consumer was built against |
 | commit + tag **before** `npm publish` | publish is irreversible; the tarball must correspond to a tagged commit |
+| the launcher takes **two** tags: `vX.Y.Z` (app release, `--latest`) **and** `mulmoclaude@X.Y.Z` (what `audit:releases` reads) | the `v` form is an app-release convention the audit does not know, so a launcher tagged only `vX.Y.Z` reports as `untagged`. `/publish-mulmoclaude` §9b carries the procedure |
 | tag `@scope/name@X.Y.Z`, never `vX.Y.Z` | `v` prefixes belong to app releases (`/release-app`) |
 | GitHub release with `--latest=false` | a package release must not displace the app's latest |
 | `docs/CHANGELOG.md` entry | the only place a reader finds out a package moved and why |
