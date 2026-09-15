@@ -128,6 +128,22 @@ has its post refused, so deploy that first.
 
 ### Changed
 
+#### `@mulmoclaude/shapescript-plugin@6.1.0` — the view's header stacks, and the three Download buttons become one menu
+
+In a narrow pane the `presentShapeScript` header put the title and six buttons on one line: a
+CJK title, which has no break opportunity, was squeezed into a one-glyph column, and the
+buttons ran off the right edge. The title now sits on its own line (one line, ellipsised) with
+the toolbar under it, sized to the chrome-row standard in `docs/ui-controls.md` (32px controls,
+8px gaps) and wrapping rather than overflowing. **Download USDZ / GLB / STL** collapse into one
+**Download** menu whose items carry a hint of what each format is for (AR Quick Look, web and
+game engines, 3D printing). It is a disclosure rather than an ARIA `menu` (the items are plain
+buttons next in tab order); Escape closes it and returns focus to the trigger, an outside click
+closes it — tested with `composedPath()`, so it works inside MulmoTerminal's shadow-root
+PluginFrame — and it closes itself when the export is withdrawn (an unsaved edit or a parse
+error). The formats' `data-testid`s are unchanged;
+they now live under `shapescript-download-menu`. `download` is a new message key in all eight
+locales; the three `download*` keys now hold the hints.
+
 #### `@mulmoclaude/shapescript-plugin@3.0.0` — `publishShapeScript` uploads the script as a Storage object
 
 The gallery moved a post's ShapeScript source out of its Firestore document into a Storage
@@ -182,7 +198,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@6.0.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@6.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 

@@ -1,5 +1,5 @@
 // USDZ export of a ShapeScript model — the pure part, shared by the
-// `exportShapeScriptUsdz` tool (server) and the View's "Download USDZ" button
+// `exportShapeScriptUsdz` tool (server) and the View's Download menu (USDZ)
 // (browser). It is browser-safe on purpose: three's `USDZExporter` needs a
 // canvas only to bake TEXTURES, and the converter emits untextured
 // `MeshStandardMaterial`s with plain colours, so no `document` is touched on
