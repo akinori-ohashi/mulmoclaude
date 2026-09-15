@@ -91,6 +91,14 @@ describe("toContainerConfigPath", () => {
       assert.equal(toContainerConfigPath(WINDOWS_CONFIG_DIR, "C:/Users/someone/.claude/plugins/x", WINDOWS_SEP), `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/x`);
     });
 
+    // Case folding is not length-preserving: `\u0130`.toLowerCase() is two code
+    // units. Matching by a folded prefix's LENGTH ate the first character of the
+    // relative path, turning `plugins` into `lugins`.
+    it("survives a character whose lowercase form is longer", () => {
+      const dir = `C:\\Users\\\u0130\\.claude`;
+      assert.equal(toContainerConfigPath(dir, `${dir}\\plugins\\x`, WINDOWS_SEP), `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/x`);
+    });
+
     it("keeps POSIX comparison case-SENSITIVE", () => {
       assert.equal(toContainerConfigPath(POSIX_CONFIG_DIR, "/users/someone/.claude/plugins/x", POSIX_SEP), null);
     });

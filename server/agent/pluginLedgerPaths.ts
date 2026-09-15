@@ -28,23 +28,22 @@ const PLUGIN_INSTALL_PATH_KEY = "installPath";
 
 const WINDOWS_SEPARATOR = "\\";
 
-// On Windows both separators are legal and the filesystem is case-insensitive,
-// so `C:\Users\X\.claude` and `c:/users/x/.claude` name ONE directory. Comparing
-// them verbatim would leave the other spelling untranslated and the plugin inert
-// with nothing to show for it. On POSIX neither is true — a backslash there is
-// an ordinary filename character — so the key is the value itself.
+// Windows accepts either separator inside a path; POSIX has only `/`, where a
+// backslash is an ordinary filename character. Splitting on both everywhere
+// would turn the single POSIX directory `we\ird` into two segments.
 //
-// Length-preserving on purpose: the caller slices the ORIGINAL string by this
-// key's prefix length, which only lines up while the two stay the same length.
-function comparisonKey(value: string, sep: string): string {
-  return sep === WINDOWS_SEPARATOR ? value.toLowerCase().split(WINDOWS_SEPARATOR).join("/") : value;
+// A trailing separator is spelling, not an extra empty segment.
+function splitSegments(value: string, sep: string): string[] {
+  const segments = sep === WINDOWS_SEPARATOR ? value.split(/[/\\]/) : value.split("/");
+  const lastNonEmpty = segments.reduce((last, segment, index) => (segment === "" ? last : index), -1);
+  return lastNonEmpty < 0 ? segments : segments.slice(0, lastNonEmpty + 1);
 }
 
-// Windows accepts either separator inside a path; POSIX has only `/`, where a
-// backslash is an ordinary filename character. So splitting on both everywhere
-// would turn the single POSIX directory `we\ird` into two segments.
-function toPosixSegments(relative: string, sep: string): string {
-  return sep === WINDOWS_SEPARATOR ? relative.split(/[/\\]/).join("/") : relative;
+// Windows filesystems are case-insensitive, so `C:\Users\X` and `c:/users/x`
+// name one directory; comparing verbatim would leave the other spelling
+// untranslated and the plugin inert with nothing to show for it.
+function sameSegment(left: string, right: string, sep: string): boolean {
+  return sep === WINDOWS_SEPARATOR ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
 /**
@@ -56,28 +55,30 @@ function toPosixSegments(relative: string, sep: string): string {
  * supported shape — its tree simply isn't mounted, so no spelling helps), a
  * value whose path BELOW the config dir carries `.` / `..` segments (the line
  * #3184 drew: a corrupt ledger), and anything that isn't a non-empty string.
+ *
+ * Compared segment by segment, and the result rebuilt from the ORIGINAL
+ * segments, because case folding is NOT length-preserving: `İ`.toLowerCase()
+ * is two code units, so slicing the original by a folded prefix's length eats
+ * the first character of the relative path and `plugins` becomes `lugins`.
  */
 export function toContainerConfigPath(hostConfigDir: string, value: unknown, sep: string): string | null {
   if (!isNonEmptyString(value) || !isNonEmptyString(hostConfigDir)) return null;
 
-  const dirKey = comparisonKey(hostConfigDir, sep);
-  const valueKey = comparisonKey(value, sep);
-  if (valueKey === dirKey) return CONTAINER_CLAUDE_CONFIG_DIR;
+  const dirSegments = splitSegments(hostConfigDir, sep);
+  const valueSegments = splitSegments(value, sep);
+  if (valueSegments.length < dirSegments.length) return null;
+  if (!dirSegments.every((segment, index) => sameSegment(segment, valueSegments[index] ?? "", sep))) return null;
 
-  // `comparisonKey` has already folded `\` to `/` on Windows, so the segment
-  // boundary is `/` on both platforms by the time we compare.
-  const boundary = sep === WINDOWS_SEPARATOR ? "/" : sep;
-  const prefix = dirKey.endsWith(boundary) ? dirKey : `${dirKey}${boundary}`;
-  if (!valueKey.startsWith(prefix)) return null;
+  const relative = valueSegments.slice(dirSegments.length).join("/");
+  if (relative.length === 0) return CONTAINER_CLAUDE_CONFIG_DIR;
 
   // Only the part BELOW the config dir is asked about: that is the half which
   // could escape, since the prefix is replaced wholesale. Guarding the whole
   // value instead would let a `CLAUDE_CONFIG_DIR` spelled with a `.` segment
   // reject every plugin under it — silently, which is this bug's own shape.
-  const relative = value.slice(prefix.length);
   if (hasTraversalSegment(relative)) return null;
 
-  return `${CONTAINER_CLAUDE_CONFIG_DIR}/${toPosixSegments(relative, sep)}`;
+  return `${CONTAINER_CLAUDE_CONFIG_DIR}/${relative}`;
 }
 
 // A value we cannot translate is kept VERBATIM, never dropped. This file
