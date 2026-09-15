@@ -15,6 +15,7 @@ import type { Readable, Writable } from "stream";
 import { buildCliArgs, buildDockerSpawnArgs, buildUserMessageLine, resolveSystemPromptPaths, type CliArgsParams } from "../config.js";
 import { writeFileAtomic } from "../../utils/files/atomic.js";
 import { resolveSandboxAuth } from "../sandboxMounts.js";
+import { pluginLedgerMountArgs } from "../pluginLedgerMount.js";
 import { getCachedReferenceDirs, referenceDirMountArgs } from "../../workspace/reference-dirs.js";
 import { createStreamParser, type AgentEvent, type RawStreamEvent } from "../stream.js";
 import { createMcpFailureMonitor } from "../mcpFailureMonitor.js";
@@ -49,6 +50,11 @@ function spawnClaude(useDocker: boolean, workspacePath: string, cliArgs: string[
     sshAuthSock: process.env.SSH_AUTH_SOCK,
   });
   const refDirArgs = referenceDirMountArgs(getCachedReferenceDirs());
+  // The CLI's plugin ledgers record host absolute paths, which resolve to
+  // nothing under the container's HOME — without this every installed plugin is
+  // silently inert (#3186). Must follow the config-dir mount, which the
+  // `sandboxAuthArgs` splice point guarantees.
+  const pluginLedgerArgs = pluginLedgerMountArgs({ sessionId: chatSessionId, platform: process.platform });
   const dockerArgs = buildDockerSpawnArgs({
     workspacePath,
     cliArgs,
@@ -56,7 +62,7 @@ function spawnClaude(useDocker: boolean, workspacePath: string, cliArgs: string[
     uid: process.getuid?.() ?? 1000,
     gid: process.getgid?.() ?? 1000,
     platform: process.platform,
-    sandboxAuthArgs: [...sandboxAuth.args, ...refDirArgs],
+    sandboxAuthArgs: [...sandboxAuth.args, ...refDirArgs, ...pluginLedgerArgs],
     sshAgentForward: env.sandboxSshAgentForward,
   });
   return spawn("docker", dockerArgs, { stdio: ["pipe", "pipe", "pipe"] });
