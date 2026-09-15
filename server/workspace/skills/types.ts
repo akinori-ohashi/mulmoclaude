@@ -3,9 +3,8 @@
 // equivalent under <workspace>/.claude/skills/<name>/SKILL.md, or one
 // shipped inside an installed Claude Code plugin — see claude-plugins.ts).
 //
-// Phase 0 is read-only: the server discovers and exposes skills
-// but never writes to them. Edits happen through the user's file
-// system or other tooling (e.g. their own skills repo).
+// Only the project scope is writable, through `writer.ts`; every other scope is
+// read-only here and edited in its own source files.
 
 export type SkillSource = "user" | "project" | "claude-plugin";
 

@@ -1,8 +1,6 @@
-// Path helpers and slug validation for the skills module.
-//
-// This file holds the paths MulmoClaude can WRITE — the project scope, and the
-// user root it must never write into. Which scopes are READ, and in what
-// precedence, lives in `discovery.ts`.
+// Path helpers and slug validation for the skills module. Writes go to the
+// project scope only; `discovery.ts` owns which scopes are read and in what
+// precedence.
 //
 // The slug doubles as a filename and appears in Claude CLI slash
 // commands (`/<slug>`), so it has to be strict: no uppercase, no
