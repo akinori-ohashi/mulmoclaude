@@ -262,10 +262,31 @@ Read every PR it lists and fold the user-visible ones into the `## [X.Y.Z]` sect
 
 **9b. Tag + release at the merged bump commit.** After the §8 PR merges, tag `main` (the tag MUST point at the commit whose root `package.json` is `X.Y.Z`):
 
+**Tag before you publish when you can.** `docs/package-releases.md` states the contract
+as *commit + tag → publish*, because publish is irreversible and the tarball must
+correspond to a tagged commit. The steps here are numbered the other way round — §6
+publishes before §8 commits — and that ordering belongs to §5's iteration path, where you
+are burning throwaway versions to find out whether the thing even boots and there is
+nothing worth tagging yet. **Cutting a real release is not that path**: the bump is
+committed and merged via §8, so tag that merged commit and push the tags BEFORE running
+§6's `npm publish`. Doing it the other way leaves a window where npm serves a version no
+tag points at, and `audit:releases` reports the launcher as `untagged — drift cannot be
+measured` for as long as it lasts. 1.17.0 spent that window untagged.
+
+**The launcher takes TWO tags on the same commit, not one.** `vX.Y.Z` is the app
+release that carries `latest`; `mulmoclaude@X.Y.Z` is what `audit:releases` reads to
+answer "has the source moved since this version shipped?". It looks for the
+`<name>@<version>` form for every publishable workspace, the launcher included, so a
+release with only `vX.Y.Z` reports as `untagged — drift cannot be measured` however
+correct the app tag is. Every past launcher release carries both (`v1.16.0` and
+`mulmoclaude@1.16.0` both point at `998bce091`); 1.17.0 shipped with only the `v` tag
+and the audit caught it after the fact.
+
 ```bash
 git checkout main && git pull
-git tag "vX.Y.Z"
-git push origin "vX.Y.Z"        # release-flow exception to no-direct-push — confirm with the user first
+git tag "vX.Y.Z"                    # app release — carries `latest`
+git tag "mulmoclaude@X.Y.Z"         # drift measurement — audit:releases reads this one
+git push origin "vX.Y.Z" "mulmoclaude@X.Y.Z"   # release-flow exception to no-direct-push — confirm with the user first
 LAST=$(git tag -l 'v*' --sort=-v:refname | sed -n 2p)   # previous app tag, for the compare link
 gh release create "vX.Y.Z" --repo receptron/mulmoclaude --latest \
   --title "vX.Y.Z — <short description>" \
@@ -296,4 +317,8 @@ EOF
 - Dynamic `import("pkg")` with try/catch is a legit pattern for optional native modules (`node-pty`). The audit flags it anyway; declare the package in `optionalDependencies` to signal intent.
 - The launcher's pre-flight refuses to start if `claude --version` fails AND if `~/.claude/*` are absent. CI uses a `claude` stub on PATH + `DISABLE_SANDBOX=1` to bypass both; the smoke only needs the server to serve `/`, no real agent calls.
 - `mulmoclaude@0.9.5` failed the §6 `npx` verify with `ETARGET: @mulmoclaude/collection-plugin@^0.7.4` — a prior `chore(release)` had bumped `packages/plugins/collection-plugin/package.json` to 0.7.4 without publishing. The §2 drift check only audits `@mulmobridge/*`, so `@mulmoclaude/*` slipped through. §6 now includes a manual loop over every `@mulmoclaude/*` dep; extend `scripts/mulmoclaude/drift.mjs` to cover them when appetite for the CI change surfaces.
+- `mulmoclaude@1.17.0` was tagged `v1.17.0` only, and `yarn audit:releases` reported the
+  launcher as `untagged` right after a clean release — the audit keys on `<name>@<version>`
+  for every workspace, and the `v` prefix is an app-release convention it does not know.
+  §9b now tags both.
 - v0.9.3 release-app tagged root=0.9.3 while `mulmoclaude@0.9.4` was already on npm — one patch of drift that made "which one am I running?" ambiguous. §5.5 (root bump in this flow) exists so the launcher npm version and the `/release-app` tag always match.
