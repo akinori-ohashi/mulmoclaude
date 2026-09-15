@@ -59,6 +59,35 @@ describe("parseSseEvent — accepted variants", () => {
     assert.deepEqual(parseSseEvent(event), event);
   });
 
+  it("keeps a plugin skill event", () => {
+    // The scope guard is the only thing standing between a plugin skill's card
+    // and being dropped client-side: `parseSseEvent` returning null makes the
+    // event vanish silently, so this pins `claude-plugin` as accepted.
+    const event = {
+      type: EVENT_TYPES.skill,
+      source: "assistant",
+      skillName: "demo:story",
+      skillScope: "claude-plugin",
+      skillPath: "/plugins/demo/skills/story/SKILL.md",
+      skillDescription: "Tell a story",
+      message: "body",
+    };
+    assert.deepEqual(parseSseEvent(event), event);
+  });
+
+  it("drops a skill event whose scope is not one we know", () => {
+    const event = {
+      type: EVENT_TYPES.skill,
+      source: "assistant",
+      skillName: "demo:story",
+      skillScope: "plugin",
+      skillPath: null,
+      skillDescription: null,
+      message: "body",
+    };
+    assert.equal(parseSseEvent(event), null);
+  });
+
   it("keeps generation_started / generation_finished", () => {
     const started = { type: EVENT_TYPES.generationStarted, kind: "beatImage", filePath: "a.json", key: "0" };
     assert.deepEqual(parseSseEvent(started), started);

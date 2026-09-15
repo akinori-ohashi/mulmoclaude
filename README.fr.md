@@ -214,7 +214,7 @@ MulmoClaude peut lister et lancer les **Claude Code skills** que vous avez déj�
 1. Ouvrez MulmoClaude et restez dans l'un des rôles prenant en charge les skills : **General**, **Office** ou **Tutor**.
 2. Demandez à Claude de montrer vos skills — par exemple _« montre mes skills »_ ou _« liste les skills »_.
 3. Claude invoque l'outil `manageSkills`, et une vue **Skills** en volet divisé s'ouvre dans le canevas :
-   - **Gauche** : chaque skill découverte sur votre machine, avec sa description et son badge de portée (`USER` / `PROJECT`).
+   - **Gauche** : chaque skill découverte sur votre machine, avec sa description et un badge indiquant la portée dont elle provient.
    - **Droite** : le contenu complet du `SKILL.md` de la skill sélectionnée.
 4. Cliquez sur **Run** sur une skill. MulmoClaude envoie `/<skill-name>` à Claude sous forme de message de chat classique ; le mécanisme de commandes slash de Claude Code le résout contre `~/.claude/skills/` — ou contre le plugin propriétaire, pour une skill `<plugin>:<name>` — et exécute les instructions de la skill en ligne dans la même session de chat.
 

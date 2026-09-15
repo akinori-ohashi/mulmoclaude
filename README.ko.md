@@ -218,7 +218,7 @@ MulmoClaude는 이미 가지고 있는 **Claude Code skills** 을 나열하고 �
 1. MulmoClaude를 열고 skill 지원 역할 중 하나에 머무르세요: **General**, **Office**, 또는 **Tutor**.
 2. Claude에게 skills 를 보여달라고 요청하세요 — 예: _"show my skills"_ 또는 _"list skills"_.
 3. Claude가 `manageSkills` 도구를 호출하고, 캔버스에 분할 창 **Skills** 뷰가 열립니다:
-   - **왼쪽**: 머신에서 발견된 모든 skill 과 설명 및 스코프 뱃지 (`USER` / `PROJECT`).
+   - **왼쪽**: 머신에서 발견된 모든 skill 과 설명, 그리고 어느 스코프에서 왔는지 보여주는 뱃지.
    - **오른쪽**: 선택한 skill 의 전체 `SKILL.md` 내용.
 4. skill 에서 **Run** 을 클릭하세요. MulmoClaude는 `/<skill-name>` 을 일반 채팅 메시지로 Claude에 전송하며; Claude Code의 슬래시 명령 메커니즘이 `~/.claude/skills/`(`<plugin>:<name>` skill 이면 해당 플러그인)를 기준으로 이를 해결하고 동일한 채팅 세션 내에서 skill 의 지시사항을 인라인으로 실행합니다.
 

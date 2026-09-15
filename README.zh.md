@@ -214,7 +214,7 @@ MulmoClaude 可以列出并启动你已有的 **Claude Code skills**。一个 sk
 1. 打开 MulmoClaude，并保持在启用 skill 的角色之一：**General**、**Office** 或 **Tutor**。
 2. 让 Claude 显示你的 skill —— 例如 _"show my skills"_ 或 _"list skills"_。
 3. Claude 会调用 `manageSkills` 工具，canvas 中会打开一个分栏的 **Skills** 视图：
-   - **左侧**：机器上发现的每个 skill，及其描述和范围标记（`USER` / `PROJECT`）。
+   - **左侧**：机器上发现的每个 skill，及其描述，以及标明来自哪个范围的标记。
    - **右侧**：所选 skill 的完整 `SKILL.md` 内容。
 4. 点击某个 skill 上的 **Run**。MulmoClaude 会将 `/<skill-name>` 作为普通聊天消息发送给 Claude；Claude Code 的斜杠命令机制会在 `~/.claude/skills/` 下解析它（`<plugin>:<name>` 形式的 skill 则在所属插件下解析），并在同一聊天会话中内联执行该 skill 的指令。
 

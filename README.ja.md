@@ -234,7 +234,7 @@ MulmoClaude はすでにお持ちの **Claude Code skills** を一覧表示し�
 1. MulmoClaude を開き、skill が有効なロールのいずれかに留まります: **General**、**Office**、または **Tutor**。
 2. Claude に skill を表示するよう頼みます — 例: _「show my skills」_ や _「list skills」_。
 3. Claude が `manageSkills` ツールを呼び出し、キャンバスに分割ペインの **Skills** ビューが開きます:
-   - **左**: マシン上で検出されたすべての skill、その説明、スコープバッジ (`USER` / `PROJECT`)。
+   - **左**: マシン上で検出されたすべての skill、その説明、どのスコープ由来かを示すバッジ。
    - **右**: 選択された skill の `SKILL.md` の完全な内容。
 4. skill の **Run** をクリックします。MulmoClaude は通常のチャットメッセージとして `/<skill-name>` を Claude に送信します。Claude Code のスラッシュコマンド機能がそれを `~/.claude/skills/`（`<plugin>:<name>` の skill なら該当プラグイン）に対して解決し、skill の指示を同じチャットセッション内でインラインに実行します。
 
