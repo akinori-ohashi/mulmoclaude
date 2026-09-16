@@ -16,11 +16,20 @@ on:
     - cron: "0 18 * * *"  # Daily 18:00 UTC = 03:00 JST
   workflow_dispatch:
   pull_request:
-    paths:
-      - ".github/workflows/e2e_live_no_llm.yaml"
-      - "e2e-live/**"
-      - "server/agent/**"
-      - "server/index.ts"
+    # e2e-live drives a REAL browser against a REAL dev server, so the blast
+    # radius is the whole app — every server module the request path touches
+    # and every frontend module the page loads. An allow-list of directories
+    # can only ever approximate that, and it fails silently: a spec that never
+    # starts reads as a green PR. #3146 widened the list once
+    # (server/agent/backend/** -> server/agent/**) and the same gap reopened
+    # for server/utils, server/workspace and src/, which the specs import
+    # directly. Deny-list instead, matching pull_request.yaml: skip only when
+    # ALL changed files are docs / plans / markdown, so a new source directory
+    # is covered the day it appears.
+    paths-ignore:
+      - 'docs/**'
+      - 'plans/**'
+      - '**/*.md'
 
 permissions:
   contents: read
