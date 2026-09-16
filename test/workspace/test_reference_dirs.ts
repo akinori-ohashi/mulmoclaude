@@ -9,7 +9,14 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import { homedir } from "os";
-import { buildReferenceDirsPrompt, loadReferenceDirs, planReferenceDirs, validateReferenceDirs } from "../../server/workspace/reference-dirs.ts";
+import {
+  buildReferenceDirsPrompt,
+  loadReferenceDirs,
+  planReferenceDirs,
+  referenceDirMountArgs,
+  validateReferenceDirs,
+} from "../../server/workspace/reference-dirs.ts";
+import { log } from "../../server/system/logger/index.ts";
 import { makeTempDir } from "../helpers/tempDir.js";
 
 function tmpRoot(): string {
@@ -268,6 +275,36 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
         ["bad", "unmountable"],
       ],
     );
+  });
+
+  // Pinning `kind` alone is not enough: it is the intermediate value, and the
+  // thing that regressed was the DISPATCH. A test over the discriminator stays
+  // green if the log site is changed to always-info, which is exactly how the
+  // regression got in. So assert the levels the spawn path actually writes.
+  it("writes unmountable at warn and missing at info", () => {
+    const root = scratch();
+    const unmountable = path.join(root, "bad:with,both");
+    mkdirSync(unmountable, { recursive: true });
+    const entries = [
+      { hostPath: path.join(root, "gone"), label: "gone" },
+      { hostPath: unmountable, label: "bad" },
+    ];
+
+    const originalInfo = log.info;
+    const originalWarn = log.warn;
+    const info: string[] = [];
+    const warn: string[] = [];
+    log.info = (_namespace, _message, data) => void info.push(String((data as { path?: string } | undefined)?.path ?? ""));
+    log.warn = (_namespace, _message, data) => void warn.push(String((data as { path?: string } | undefined)?.path ?? ""));
+    try {
+      referenceDirMountArgs(entries, "linux");
+    } finally {
+      log.info = originalInfo;
+      log.warn = originalWarn;
+    }
+
+    assert.deepEqual(info, [path.join(root, "gone")], "a directory that went away is ordinary news");
+    assert.deepEqual(warn, [unmountable], "a path that can never mount until renamed is not");
   });
 
   // Without Docker there is no mount at all: the agent reads the host path
