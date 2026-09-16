@@ -9,7 +9,14 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import path from "path";
 import { homedir } from "os";
-import { loadReferenceDirs, validateReferenceDirs } from "../../server/workspace/reference-dirs.ts";
+import {
+  buildReferenceDirsPrompt,
+  loadReferenceDirs,
+  planReferenceDirs,
+  referenceDirMountArgs,
+  validateReferenceDirs,
+} from "../../server/workspace/reference-dirs.ts";
+import { log } from "../../server/system/logger/index.ts";
 import { makeTempDir } from "../helpers/tempDir.js";
 
 function tmpRoot(): string {
@@ -186,3 +193,139 @@ function capCandidates(count: number): unknown[] {
     label: `cap-${i}`,
   }));
 }
+
+// The mount args and the system prompt derive from the SAME entry list and used
+// to disagree: an entry that could not be mounted was still named to the agent
+// as a readable container path (#3194). That is worse than the equivalent
+// divergence on `/api/sandbox` — that one misleads a human who can go and look,
+// this one misleads the agent, which acts on it.
+describe("planReferenceDirs — the prompt may only name what is reachable", () => {
+  const scratch = (): string => makeTempDir("reference-dirs-plan-");
+
+  const promptLines = (prompt: string): string[] => prompt.split("\n").filter((line) => line.startsWith("- "));
+
+  it("under Docker, an inexpressible path is neither mounted nor offered", () => {
+    const root = scratch();
+    const ok = path.join(root, "ok");
+    // Only a path holding BOTH a colon and a comma defeats every docker flag.
+    const inexpressible = path.join(root, "bad:with,both");
+    mkdirSync(ok, { recursive: true });
+    mkdirSync(inexpressible, { recursive: true });
+    const entries = [
+      { hostPath: ok, label: "ok" },
+      { hostPath: inexpressible, label: "bad" },
+    ];
+
+    const plan = planReferenceDirs(entries, true, "linux");
+    assert.deepEqual(
+      plan.available.map((entry) => entry.label),
+      ["ok"],
+    );
+    assert.deepEqual(
+      plan.skipped.map(({ entry }) => entry.label),
+      ["bad"],
+    );
+
+    const lines = promptLines(buildReferenceDirsPrompt(entries, true, "linux"));
+    assert.equal(lines.length, 1, "the agent is told about exactly the one that mounted");
+    assert.match(lines[0] ?? "", /— ok$/);
+  });
+
+  it("under Docker, a directory that no longer exists is neither mounted nor offered", () => {
+    const root = scratch();
+    const entries = [{ hostPath: path.join(root, "gone"), label: "gone" }];
+    assert.deepEqual(planReferenceDirs(entries, true, "linux").available, []);
+    assert.equal(buildReferenceDirsPrompt(entries, true, "linux"), "", "no section at all when nothing is reachable");
+  });
+
+  it("the mount arguments and the prompt agree entry for entry", () => {
+    const root = scratch();
+    const ok = path.join(root, "ok");
+    mkdirSync(ok, { recursive: true });
+    const entries = [
+      { hostPath: ok, label: "ok" },
+      { hostPath: path.join(root, "gone"), label: "gone" },
+      { hostPath: path.join(root, "bad:with,both"), label: "bad" },
+    ];
+    mkdirSync(path.join(root, "bad:with,both"), { recursive: true });
+
+    const plan = planReferenceDirs(entries, true, "linux");
+    const mountedTargets = plan.args.filter((arg) => arg !== "-v" && arg !== "--mount").length;
+    assert.equal(mountedTargets, plan.available.length, "one mount per available entry");
+    assert.equal(promptLines(buildReferenceDirsPrompt(entries, true, "linux")).length, plan.available.length);
+  });
+
+  // The two skips are not the same news. A directory the user deleted is
+  // ordinary; a path no docker flag can carry will never work until it is
+  // renamed, so it keeps the `warn` it had before both became one code path.
+  it("distinguishes a missing directory from an unmountable one", () => {
+    const root = scratch();
+    const unmountable = path.join(root, "bad:with,both");
+    mkdirSync(unmountable, { recursive: true });
+    const entries = [
+      { hostPath: path.join(root, "gone"), label: "gone" },
+      { hostPath: unmountable, label: "bad" },
+    ];
+
+    const { skipped } = planReferenceDirs(entries, true, "linux");
+    assert.deepEqual(
+      skipped.map(({ entry, kind }) => [entry.label, kind]),
+      [
+        ["gone", "missing"],
+        ["bad", "unmountable"],
+      ],
+    );
+  });
+
+  // Pinning `kind` alone is not enough: it is the intermediate value, and the
+  // thing that regressed was the DISPATCH. A test over the discriminator stays
+  // green if the log site is changed to always-info, which is exactly how the
+  // regression got in. So assert the levels the spawn path actually writes.
+  it("writes unmountable at warn and missing at info", () => {
+    const root = scratch();
+    const unmountable = path.join(root, "bad:with,both");
+    mkdirSync(unmountable, { recursive: true });
+    const entries = [
+      { hostPath: path.join(root, "gone"), label: "gone" },
+      { hostPath: unmountable, label: "bad" },
+    ];
+
+    const originalInfo = log.info;
+    const originalWarn = log.warn;
+    const info: string[] = [];
+    const warn: string[] = [];
+    log.info = (_namespace, _message, data) => void info.push(String((data as { path?: string } | undefined)?.path ?? ""));
+    log.warn = (_namespace, _message, data) => void warn.push(String((data as { path?: string } | undefined)?.path ?? ""));
+    try {
+      referenceDirMountArgs(entries, "linux");
+    } finally {
+      log.info = originalInfo;
+      log.warn = originalWarn;
+    }
+
+    assert.deepEqual(info, [path.join(root, "gone")], "a directory that went away is ordinary news");
+    assert.deepEqual(warn, [unmountable], "a path that can never mount until renamed is not");
+  });
+
+  // Without Docker there is no mount at all: the agent reads the host path
+  // directly, so a path docker could not express is perfectly reachable.
+  it("without Docker, a colon-and-comma path is still offered", () => {
+    const root = scratch();
+    const awkward = path.join(root, "fine:without,docker");
+    mkdirSync(awkward, { recursive: true });
+    const entries = [{ hostPath: awkward, label: "awkward" }];
+
+    assert.deepEqual(
+      planReferenceDirs(entries, false, "linux").available.map((entry) => entry.label),
+      ["awkward"],
+    );
+    assert.equal(promptLines(buildReferenceDirsPrompt(entries, false, "linux")).length, 1);
+  });
+
+  it("without Docker, a directory that no longer exists is still dropped", () => {
+    const root = scratch();
+    const entries = [{ hostPath: path.join(root, "gone"), label: "gone" }];
+    assert.deepEqual(planReferenceDirs(entries, false, "linux").available, []);
+    assert.equal(buildReferenceDirsPrompt(entries, false, "linux"), "");
+  });
+});

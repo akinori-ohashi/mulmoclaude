@@ -125,6 +125,15 @@ rather than letting Docker reject a spec the user never wrote.
 On Windows the drive letter is a colon Docker understands, and it deliberately
 does not count — otherwise every Windows mount would switch flags.
 
+**A dropped mount must also disappear from everything that claims it is there.**
+Three surfaces say what is attached — the docker argv, the startup log and
+`GET /api/sandbox` — and the system prompt tells the agent which reference
+directories it may read. They all derive from the same lists, so a skip has to
+reach every one of them or they start lying in the user's favour: `#3193` fixed
+the first three (`planConfigMounts`) and `#3194` the fourth (`planReferenceDirs`).
+The prompt is the one that matters most, because it misleads the **agent**, which
+acts on it, rather than a human who can go and look.
+
 ## Where-what summary
 
 | What | Where it runs |
