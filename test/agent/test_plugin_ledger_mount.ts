@@ -79,6 +79,19 @@ describe("pluginLedgerMountArgs", () => {
     });
   });
 
+  // A backslash is an ordinary filename character on POSIX, and `TMPDIR` can
+  // contain one. Folding it to `/` would hand Docker a source path that does
+  // not exist, and the sandbox would not start at all.
+  it("keeps a backslash in a POSIX staging path", () => {
+    const root = makeRoot();
+    const configDir = join(root, "cfg");
+    const outputDir = join(root, "we\\ird");
+    writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
+    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
+    assert.equal(result.args[1], `${join(outputDir, "known_marketplaces.json")}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/known_marketplaces.json:ro`);
+    assert.ok(result.args[1]?.includes("we\\ird"));
+  });
+
   // A malformed ledger is CLI-internal state we do not control; the sandbox has
   // to start regardless, just without the translation.
   it("stages nothing and does not throw on a corrupt ledger", () => {

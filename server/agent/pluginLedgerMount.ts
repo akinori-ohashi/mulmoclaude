@@ -102,8 +102,13 @@ function stageableLedgers(hostConfigDir: string, sep: string): StagedLedger[] {
   });
 }
 
-function mountArg(outputDir: string, file: string): string[] {
-  return ["-v", `${join(outputDir, file).replace(/\\/g, "/")}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/${file}:ro`];
+// Docker wants `/` in a `-v` source, and a Windows host path spells them `\`.
+// On POSIX a backslash is an ordinary filename character — `TMPDIR` may contain
+// one — so converting there would hand Docker a path that does not exist.
+function mountArg(outputDir: string, file: string, platform: Platform): string[] {
+  const source = join(outputDir, file);
+  const dockerSource = platform === "win32" ? source.split("\\").join("/") : source;
+  return ["-v", `${dockerSource}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/${file}:ro`];
 }
 
 /**
@@ -145,7 +150,7 @@ export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLe
     if (generated) removePluginLedgerStaging(outputDir);
     return { args: [], stagingDir: null };
   }
-  return { args: staged.flatMap((ledger) => mountArg(outputDir, ledger.file)), stagingDir: outputDir };
+  return { args: staged.flatMap((ledger) => mountArg(outputDir, ledger.file, params.platform)), stagingDir: outputDir };
 }
 
 /**
