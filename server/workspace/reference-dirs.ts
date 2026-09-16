@@ -231,28 +231,70 @@ export function containerPath(entry: ReferenceDirEntry): string {
  * Return Docker `-v` args for read-only reference directory mounts.
  * Skips entries whose host path doesn't exist.
  */
-export function referenceDirMountArgs(entries: readonly ReferenceDirEntry[], platform: Platform = process.platform): string[] {
-  return entries.flatMap((entry) => {
+export interface ReferenceDirPlan {
+  /** Docker mount arguments. Empty when not running under Docker. */
+  args: string[];
+  /** The entries the agent can actually reach — the only ones the prompt may
+   *  name. */
+  available: ReferenceDirEntry[];
+  skipped: { entry: ReferenceDirEntry; reason: string }[];
+}
+
+/**
+ * Decide which reference directories the agent can actually reach.
+ *
+ * One decision, because two surfaces derive from the same entry list and used to
+ * disagree: the mount args skipped an entry while the system prompt still told
+ * the agent its container path was readable (#3194). That is worse than the
+ * equivalent divergence on `/api/sandbox`, which misleads a human who can go and
+ * look — this one misleads the agent, which acts on it.
+ *
+ * Pure apart from the existence check, and deliberately silent: the prompt is
+ * rebuilt every turn, so the warning belongs to the spawn path alone.
+ */
+export function planReferenceDirs(entries: readonly ReferenceDirEntry[], useDocker: boolean, platform: Platform = process.platform): ReferenceDirPlan {
+  const plan: ReferenceDirPlan = { args: [], available: [], skipped: [] };
+  entries.forEach((entry) => {
     if (!isExistingDirectory(entry.hostPath)) {
-      log.info("reference-dirs", "skipped (not found or not a directory)", {
-        path: entry.hostPath,
-      });
-      return [];
+      plan.skipped.push({ entry, reason: "not found or not a directory" });
+      return;
+    }
+    // Without Docker there is no mount: the agent reads the host path directly,
+    // so existing is the whole of being reachable.
+    if (!useDocker) {
+      plan.available.push(entry);
+      return;
     }
     const mount = dockerMountArgs({ hostPath: entry.hostPath, containerPath: containerPath(entry), readOnly: true }, platform);
-    if (mount.kind === "args") return mount.args;
+    if (mount.kind === "args") {
+      plan.args.push(...mount.args);
+      plan.available.push(entry);
+      return;
+    }
     // A reference directory is an addition to the sandbox, not a prerequisite:
     // dropping this one leaves the others and the container working, where an
     // argument Docker refuses would stop the sandbox starting at all.
-    log.warn("reference-dirs", "skipped (path cannot be expressed as a docker mount)", { path: entry.hostPath, reason: mount.reason });
-    return [];
+    plan.skipped.push({ entry, reason: mount.reason });
   });
+  return plan;
+}
+
+export function referenceDirMountArgs(entries: readonly ReferenceDirEntry[], platform: Platform = process.platform): string[] {
+  const plan = planReferenceDirs(entries, true, platform);
+  plan.skipped.forEach(({ entry, reason }) => {
+    log.info("reference-dirs", "skipped (not mounted, and not offered to the agent)", { path: entry.hostPath, reason });
+  });
+  return plan.args;
 }
 
 // ── System prompt snippet ───────────────────────────────────────
 
-export function buildReferenceDirsPrompt(entries: readonly ReferenceDirEntry[], useDocker: boolean): string {
-  if (entries.length === 0) return "";
+export function buildReferenceDirsPrompt(entries: readonly ReferenceDirEntry[], useDocker: boolean, platform: Platform = process.platform): string {
+  // Only what is actually reachable. Naming a directory the agent cannot open
+  // is worse than omitting it: it reads the empty container path and can
+  // conclude the user's reference material is empty (#3194).
+  const { available } = planReferenceDirs(entries, useDocker, platform);
+  if (available.length === 0) return "";
 
   const lines = [
     "",
@@ -263,7 +305,7 @@ export function buildReferenceDirsPrompt(entries: readonly ReferenceDirEntry[], 
     "",
   ];
 
-  for (const entry of entries) {
+  for (const entry of available) {
     const mountPath = useDocker ? containerPath(entry) : entry.hostPath;
     lines.push(`- \`${mountPath}\` — ${entry.label}`);
   }
