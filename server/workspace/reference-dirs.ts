@@ -237,7 +237,10 @@ export interface ReferenceDirPlan {
   /** The entries the agent can actually reach — the only ones the prompt may
    *  name. */
   available: ReferenceDirEntry[];
-  skipped: { entry: ReferenceDirEntry; reason: string }[];
+  /** `missing` is ordinary — a directory the user removed. `unmountable` is a
+   *  configuration problem that will never resolve on its own, so the two carry
+   *  different log levels. */
+  skipped: { entry: ReferenceDirEntry; reason: string; kind: "missing" | "unmountable" }[];
 }
 
 /**
@@ -256,7 +259,7 @@ export function planReferenceDirs(entries: readonly ReferenceDirEntry[], useDock
   const plan: ReferenceDirPlan = { args: [], available: [], skipped: [] };
   entries.forEach((entry) => {
     if (!isExistingDirectory(entry.hostPath)) {
-      plan.skipped.push({ entry, reason: "not found or not a directory" });
+      plan.skipped.push({ entry, reason: "not found or not a directory", kind: "missing" });
       return;
     }
     // Without Docker there is no mount: the agent reads the host path directly,
@@ -274,15 +277,19 @@ export function planReferenceDirs(entries: readonly ReferenceDirEntry[], useDock
     // A reference directory is an addition to the sandbox, not a prerequisite:
     // dropping this one leaves the others and the container working, where an
     // argument Docker refuses would stop the sandbox starting at all.
-    plan.skipped.push({ entry, reason: mount.reason });
+    plan.skipped.push({ entry, reason: mount.reason, kind: "unmountable" });
   });
   return plan;
 }
 
 export function referenceDirMountArgs(entries: readonly ReferenceDirEntry[], platform: Platform = process.platform): string[] {
   const plan = planReferenceDirs(entries, true, platform);
-  plan.skipped.forEach(({ entry, reason }) => {
-    log.info("reference-dirs", "skipped (not mounted, and not offered to the agent)", { path: entry.hostPath, reason });
+  plan.skipped.forEach(({ entry, reason, kind }) => {
+    // A directory that went away is ordinary; a path no docker flag can carry is
+    // a configuration problem that will not resolve until the user renames it,
+    // and it kept its `warn` from before this was one code path.
+    const write = kind === "unmountable" ? log.warn : log.info;
+    write("reference-dirs", "skipped (not mounted, and not offered to the agent)", { path: entry.hostPath, reason });
   });
   return plan.args;
 }

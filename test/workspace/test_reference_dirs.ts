@@ -248,6 +248,28 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
     assert.equal(promptLines(buildReferenceDirsPrompt(entries, true, "linux")).length, plan.available.length);
   });
 
+  // The two skips are not the same news. A directory the user deleted is
+  // ordinary; a path no docker flag can carry will never work until it is
+  // renamed, so it keeps the `warn` it had before both became one code path.
+  it("distinguishes a missing directory from an unmountable one", () => {
+    const root = scratch();
+    const unmountable = path.join(root, "bad:with,both");
+    mkdirSync(unmountable, { recursive: true });
+    const entries = [
+      { hostPath: path.join(root, "gone"), label: "gone" },
+      { hostPath: unmountable, label: "bad" },
+    ];
+
+    const { skipped } = planReferenceDirs(entries, true, "linux");
+    assert.deepEqual(
+      skipped.map(({ entry, kind }) => [entry.label, kind]),
+      [
+        ["gone", "missing"],
+        ["bad", "unmountable"],
+      ],
+    );
+  });
+
   // Without Docker there is no mount at all: the agent reads the host path
   // directly, so a path docker could not express is perfectly reachable.
   it("without Docker, a colon-and-comma path is still offered", () => {
