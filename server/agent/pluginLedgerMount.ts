@@ -7,16 +7,16 @@
 // would put CONTAINER paths into the file the HOST reads, which is the same bug
 // this fixes, pointing the other way.
 
-import { closeSync, constants, fstatSync, mkdirSync, openSync, readSync, rmSync } from "node:fs";
+import { closeSync, constants, fstatSync, mkdirSync, openSync, readSync, realpathSync, rmSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { basename, isAbsolute, join } from "node:path";
+import { join, posix as posixPath, win32 as win32Path } from "node:path";
 import { tmpdir } from "node:os";
 import { writeFileAtomicSync } from "../utils/files/atomic.js";
 import { claudeConfigDir } from "../utils/claudeConfigPath.js";
 import { log } from "../system/logger/index.js";
 import { errorMessage } from "../utils/errors.js";
 import { hasTraversalSegment } from "../utils/files/safe.js";
-import { isSensitiveMountPath } from "../utils/sensitiveMountPaths.js";
+import { isSensitiveMountPath, type SensitivePathOptions } from "../utils/sensitiveMountPaths.js";
 import { isErrorWithCode, isNonEmptyString, isRecord, isUnknownArray } from "../utils/types.js";
 import {
   CONTAINER_CLAUDE_CONFIG_DIR,
@@ -60,9 +60,17 @@ const CONTAINER_EXTERNAL_PLUGIN_ROOT = "/mnt/plugin-src";
  *  what makes it stable across turns and unique across trees; the basename is
  *  decoration, reduced to a safe set so the host path's punctuation cannot
  *  reach the mount target. */
-function externalContainerRoot(hostRoot: string): string {
+/** `isAbsolute` and `basename` are host-bound: on a POSIX runner the ambient
+ *  ones read `C:\\Dev\\MP` as a relative path with no directory part, so a
+ *  `platform` argument that does not select these changes nothing at all. Same
+ *  discipline as `sensitiveMountPaths.ts` and `toPosixRelPath`. */
+function pathRules(platform: Platform): typeof posixPath {
+  return platform === "win32" ? win32Path : posixPath;
+}
+
+function externalContainerRoot(hostRoot: string, platform: Platform): string {
   const hash = createHash("sha256").update(hostRoot).digest("hex").slice(0, 8);
-  const readable = [...basename(hostRoot)].map((character) => (/[A-Za-z0-9._-]/.test(character) ? character : "_")).join("");
+  const readable = [...pathRules(platform).basename(hostRoot)].map((character) => (/[A-Za-z0-9._-]/.test(character) ? character : "_")).join("");
   return `${CONTAINER_EXTERNAL_PLUGIN_ROOT}/${readable.length > 0 ? readable : "tree"}-${hash}`;
 }
 
@@ -86,9 +94,81 @@ function isUnder(candidate: string, root: string, sep: string): boolean {
   return toContainerPath([{ hostRoot: root, containerRoot: "/x" }], candidate, sep) !== null;
 }
 
+/** Two spellings of ONE tree: a Windows path differing only in case, or a
+ *  symlink and its target. Mutual containment is the test because it already
+ *  knows the platform's case and separator rules.
+ *
+ *  Without this the nesting filter drops BOTH spellings — each reads as "inside"
+ *  the other — and the tree is never mounted at all. */
+function sameTree(left: string, right: string, sep: string): boolean {
+  return isUnder(left, right, sep) && isUnder(right, left, sep);
+}
+
+/** Resolves a host path to its physical location, or `null` when it does not
+ *  exist. Injected so the decision logic here stays pure and the symlink rule is
+ *  assertable without building a symlink farm. */
+export type RealPathResolver = (hostPath: string) => string | null;
+
+export interface ExternalTreeOptions {
+  /** Defaults to the real home. Injected by tests. */
+  home?: string | undefined;
+  /** Defaults to the real system blocklist. Injected by tests, because macOS
+   *  `tmpdir()` lives under `/var` and the real list blocks it. */
+  systemBlocked?: readonly string[] | undefined;
+  /** Defaults to `realpathSync.native`. Injected by tests so the symlink rule
+   *  is assertable without building a symlink farm. */
+  resolveRealPath?: RealPathResolver | undefined;
+}
+
+function realPathOrNull(hostPath: string): string | null {
+  try {
+    return realpathSync.native(hostPath);
+  } catch {
+    return null;
+  }
+}
+
 export interface ExternalPluginTree {
-  hostRoot: string;
+  /** Every ledger spelling that names this tree. Each becomes its own mapping,
+   *  so a ledger recording the symlink and one recording the target both
+   *  translate — they are the same directory. */
+  aliases: string[];
+  /** What Docker binds: the RESOLVED path. Binding the alias instead is what
+   *  lets a symlink named `~/dev/mp` hand the container `~/.ssh`. */
+  mountSource: string;
   containerRoot: string;
+}
+
+interface ResolvedCandidate {
+  alias: string;
+  mountSource: string;
+}
+
+/** The blocklist runs on the RESOLVED path, because that is what Docker binds.
+ *  Measured against the daemon: a `-v <symlink>:/x:ro` exposes the symlink's
+ *  TARGET inside the container, so a lexical check alone lets any blocked
+ *  directory in under a harmless name. The alias is checked too — cheap, and it
+ *  keeps an obviously-blocked spelling out of the log. */
+function resolveCandidate(alias: string, resolveRealPath: RealPathResolver, options: SensitivePathOptions): ResolvedCandidate | null {
+  const mountSource = resolveRealPath(alias);
+  if (mountSource === null) {
+    log.info("sandbox", "plugin tree not mounted (no such directory on the host)", { path: alias });
+    return null;
+  }
+  if (isSensitiveMountPath(alias, options) || isSensitiveMountPath(mountSource, options)) {
+    log.warn("sandbox", "plugin tree not mounted (the sandbox must never see this path)", { path: alias, resolved: mountSource });
+    return null;
+  }
+  return { alias, mountSource };
+}
+
+/** One entry per distinct tree, carrying every spelling that named it. */
+function groupByTree(resolved: readonly ResolvedCandidate[], sep: string): Omit<ExternalPluginTree, "containerRoot">[] {
+  return resolved.reduce<Omit<ExternalPluginTree, "containerRoot">[]>((groups, candidate) => {
+    const existing = groups.find((group) => sameTree(group.mountSource, candidate.mountSource, sep));
+    if (existing === undefined) return [...groups, { mountSource: candidate.mountSource, aliases: [candidate.alias] }];
+    return groups.map((group) => (group === existing ? { ...group, aliases: [...group.aliases, candidate.alias] } : group));
+  }, []);
 }
 
 /**
@@ -96,9 +176,10 @@ export interface ExternalPluginTree {
  * config dir the sandbox already carries.
  *
  * A path qualifies only when it is absolute, free of `.`/`..` segments, outside
- * the config dir, and NOT sensitive. The blocklist is the one reference
- * directories already use: both are "a host path the user chose", and keeping
- * one rule is what stops the second copy acquiring an entry six months late.
+ * the config dir, resolvable, and NOT sensitive once resolved. The blocklist is
+ * the one reference directories already use: both are "a host path the user
+ * chose", and keeping one rule is what stops the second copy acquiring an entry
+ * six months late.
  *
  * Read-only, and a smaller exposure than what the sandbox already has — it
  * mounts `~/.claude`, credentials included. A plugin tree is also code the agent
@@ -109,22 +190,19 @@ export function externalPluginTrees(
   hostConfigDir: string,
   sep: string,
   platform: Platform,
-  home?: string,
-  systemBlocked?: readonly string[],
+  options: ExternalTreeOptions = {},
 ): ExternalPluginTree[] {
   const outside = candidates.filter((candidate) => {
-    if (!isAbsolute(candidate) || hasTraversalSegment(candidate)) return false;
-    if (toContainerConfigPath(hostConfigDir, candidate, sep) !== null) return false;
-    if (isSensitiveMountPath(candidate, { home, platform, systemBlocked })) {
-      log.warn("sandbox", "plugin tree not mounted (the sandbox must never see this path)", { path: candidate });
-      return false;
-    }
-    return true;
+    if (!pathRules(platform).isAbsolute(candidate) || hasTraversalSegment(candidate)) return false;
+    return toContainerConfigPath(hostConfigDir, candidate, sep) === null;
   });
-  const unique = [...new Set(outside)];
-  return unique
-    .filter((candidate) => !unique.some((other) => other !== candidate && isUnder(candidate, other, sep)))
-    .map((hostRoot) => ({ hostRoot, containerRoot: externalContainerRoot(hostRoot) }));
+  const resolveRealPath = options.resolveRealPath ?? realPathOrNull;
+  const sensitivity: SensitivePathOptions = { home: options.home, platform, systemBlocked: options.systemBlocked };
+  const resolved = [...new Set(outside)].flatMap((alias) => resolveCandidate(alias, resolveRealPath, sensitivity) ?? []);
+  const trees = groupByTree(resolved, sep);
+  return trees
+    .filter((tree) => !trees.some((other) => other !== tree && isUnder(tree.mountSource, other.mountSource, sep)))
+    .map((tree) => ({ ...tree, containerRoot: externalContainerRoot(tree.mountSource, platform) }));
 }
 
 export interface PluginLedgerMountParams {
@@ -140,6 +218,9 @@ export interface PluginLedgerMountParams {
   /** Test seam for the sensitive-path blocklist's system prefixes — macOS
    *  `tmpdir()` lives under `/var`, which the real list blocks. */
   systemBlocked?: readonly string[];
+  /** Test seam for symlink resolution. Production passes nothing and gets the
+   *  real `realpathSync.native`. */
+  resolveRealPath?: RealPathResolver;
 }
 
 export interface PluginLedgerMounts {
@@ -229,14 +310,23 @@ interface LedgerPlan {
 // mount is a property of the pair: a marketplace's `installLocation` and its
 // plugins' `installPath`s are in different files and have to agree about where
 // the tree landed.
-function planLedgers(hostConfigDir: string, sep: string, platform: Platform, home?: string, systemBlocked?: readonly string[]): LedgerPlan {
+function planLedgers(hostConfigDir: string, sep: string, params: PluginLedgerMountParams): LedgerPlan {
   const read = LEDGERS.map((spec) => ({ spec, ledger: readLedgerTolerant(join(hostConfigDir, "plugins", spec.file)) }));
   const recorded = read.flatMap(({ spec, ledger }) => (ledger === null ? [] : spec.recordedPaths(ledger)));
-  const externalTrees = externalPluginTrees(recorded, hostConfigDir, sep, platform, home, systemBlocked);
+  const externalTrees = externalPluginTrees(recorded, hostConfigDir, sep, params.platform, {
+    home: params.home,
+    systemBlocked: params.systemBlocked,
+    resolveRealPath: params.resolveRealPath,
+  });
 
+  // One mapping per ALIAS, not per tree: the two ledgers may spell the same
+  // directory differently (a symlink in one, its target in the other), and both
+  // spellings have to land on the container root that tree was mounted at.
   const mappings: HostPathMapping[] = [
     { hostRoot: hostConfigDir, containerRoot: CONTAINER_CLAUDE_CONFIG_DIR },
-    ...externalTrees.map(({ hostRoot, containerRoot }) => ({ hostRoot, containerRoot })),
+    ...externalTrees.flatMap(({ aliases, mountSource, containerRoot }) =>
+      [...new Set([...aliases, mountSource])].map((hostRoot) => ({ hostRoot, containerRoot })),
+    ),
   ];
 
   const staged = read.flatMap(({ spec, ledger }) => {
@@ -281,7 +371,7 @@ function mountArg(outputDir: string, file: string, platform: Platform): string[]
 export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLedgerMounts {
   const hostConfigDir = params.hostConfigDir ?? claudeConfigDir();
   const sep = params.platform === "win32" ? "\\" : "/";
-  const { staged, externalTrees } = planLedgers(hostConfigDir, sep, params.platform, params.home, params.systemBlocked);
+  const { staged, externalTrees } = planLedgers(hostConfigDir, sep, params);
   if (staged.length === 0) return { args: [], stagingDir: null };
 
   // One directory per SPAWN, not per session: a turn then owns its staging
@@ -294,7 +384,7 @@ export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLe
   // would leave the CLI chasing a container path nothing carries — worse than
   // not translating it, because the host path at least existed. All or nothing.
   const treeMounts = externalTrees.map((tree) => {
-    const mount = dockerMountArgs({ hostPath: tree.hostRoot, containerPath: tree.containerRoot, readOnly: true }, params.platform);
+    const mount = dockerMountArgs({ hostPath: tree.mountSource, containerPath: tree.containerRoot, readOnly: true }, params.platform);
     return mount.kind === "args" ? mount.args : null;
   });
   if ([...mounts, ...treeMounts].some((mount) => mount === null)) {

@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -45,7 +45,11 @@ describe("pluginLedgerMountArgs", () => {
 
     const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
 
-    const treeMount = result.args.find((arg) => arg.startsWith(`${external}:`));
+    // The RESOLVED spelling is what gets bound, which is the point: a symlink
+    // must not be able to redirect the bind after the blocklist has passed it.
+    // On macOS this is visible even with no symlink of our own — `/var` is one,
+    // so a tmpdir path resolves under `/private/var`.
+    const treeMount = result.args.find((arg) => arg.startsWith(`${realpathSync.native(external)}:`));
     assert.ok(treeMount, `expected the external tree to be mounted, got ${JSON.stringify(result.args)}`);
     const [, containerRoot] = treeMount.split(":");
     assert.match(containerRoot ?? "", /^\/mnt\/plugin-src\//);
@@ -66,7 +70,7 @@ describe("pluginLedgerMountArgs", () => {
     writeLedgers(configDir, { ext: { installLocation: external } }, { version: 2, plugins: {} });
 
     const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
-    const treeIndex = result.args.findIndex((arg) => arg.startsWith(`${external}:`));
+    const treeIndex = result.args.findIndex((arg) => arg.startsWith(`${realpathSync.native(external)}:`));
     const overlayIndex = result.args.findIndex((arg) => arg.includes("known_marketplaces.json:"));
     assert.ok(treeIndex >= 0 && overlayIndex >= 0);
     assert.ok(treeIndex < overlayIndex, "the tree must be mounted before the overlay that references it");
@@ -83,6 +87,34 @@ describe("pluginLedgerMountArgs", () => {
 
     const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
     assert.deepEqual(result.args, []);
+    assert.equal(result.stagingDir, null);
+  });
+
+  // Raised by Codex in review and kept DELIBERATELY: resolving the alias means
+  // the bind source is the realpath, so a tree whose ALIAS is Docker-expressible
+  // but whose realpath is not now costs the mount. The alternative — staging a
+  // safe-named symlink to bind through — buys a rarity (a realpath holding both
+  // a colon and a comma) at the price of a symlink farm to create and clean up.
+  // Skipping matches what the rest of this module already does when a path
+  // cannot be expressed, and costs the plugins rather than the container.
+  it("stages nothing when the resolved path cannot be expressed, even though the alias could", () => {
+    const root = makeRoot();
+    const configDir = join(root, "cfg");
+    const alias = join(root, "elsewhere", "clean-name");
+    mkdirSync(alias, { recursive: true });
+    writeLedgers(configDir, { ext: { installLocation: alias } }, { version: 2, plugins: {} });
+
+    const result = pluginLedgerMountArgs({
+      platform: PLATFORM,
+      hostConfigDir: configDir,
+      outputDir: join(root, "out"),
+      home: root,
+      systemBlocked: [],
+      // `:` rules out `-v`, `,` rules out `--mount`. Neither flag carries it.
+      resolveRealPath: (hostPath: string) => (hostPath === alias ? `${root}/real/a:b,c` : hostPath),
+    });
+
+    assert.deepEqual(result.args, [], "a ledger pointing into a mount that does not exist is worse than no translation");
     assert.equal(result.stagingDir, null);
   });
 
@@ -295,7 +327,18 @@ describe("externalPluginTrees — what has to be mounted beyond the config dir",
   const HOME = "/Users/fake";
   const CONFIG = `${HOME}/.claude`;
 
-  const roots = (candidates: string[]): string[] => externalPluginTrees(candidates, CONFIG, "/", PLATFORM, HOME).map((tree) => tree.hostRoot);
+  // Every candidate here is an imaginary path, so the real `realpathSync` would
+  // reject the lot. `links` names the ones that are symlinks; everything else
+  // resolves to itself, which is what an ordinary directory does.
+  const resolver =
+    (links: Record<string, string> = {}, missing: readonly string[] = []) =>
+    (hostPath: string): string | null =>
+      missing.includes(hostPath) ? null : (links[hostPath] ?? hostPath);
+
+  const treesOf = (candidates: string[], links?: Record<string, string>, missing?: readonly string[]) =>
+    externalPluginTrees(candidates, CONFIG, "/", PLATFORM, { home: HOME, resolveRealPath: resolver(links, missing) });
+  const roots = (candidates: string[], links?: Record<string, string>, missing?: readonly string[]): string[] =>
+    treesOf(candidates, links, missing).map((tree) => tree.mountSource);
 
   it("ignores a path already carried by the config-dir mount", () => {
     assert.deepEqual(roots([`${CONFIG}/plugins/marketplaces/mp`]), []);
@@ -319,6 +362,10 @@ describe("externalPluginTrees — what has to be mounted beyond the config dir",
     assert.deepEqual(roots(["dev/mp", `${HOME}/dev/../dev/mp`]), []);
   });
 
+  it("refuses a tree that is not on the host at all", () => {
+    assert.deepEqual(roots([`${HOME}/dev/deleted`], {}, [`${HOME}/dev/deleted`]), []);
+  });
+
   // The blocklist is the one reference directories already use. These are the
   // paths a bind mount must never expose, whatever the ledger says.
   [
@@ -333,9 +380,57 @@ describe("externalPluginTrees — what has to be mounted beyond the config dir",
     });
   });
 
+  // The gate has to run on what Docker BINDS, not on what the ledger says.
+  // Measured against the daemon: `-v <symlink>:/x:ro` exposes the symlink's
+  // TARGET in the container, so a lexical check alone hands `.ssh` to the
+  // sandbox under any harmless name.
+  describe("a symlink cannot smuggle a blocked tree past the blocklist", () => {
+    [
+      [`${HOME}/.ssh`, "private keys"],
+      ["/etc", "a system directory"],
+      [HOME, "$HOME itself"],
+    ].forEach(([target, why]) => {
+      it(`refuses an innocent-looking name resolving to ${why}`, () => {
+        assert.deepEqual(roots([`${HOME}/dev/innocent`], { [`${HOME}/dev/innocent`]: String(target) }), []);
+      });
+    });
+
+    it("mounts the RESOLVED path, so the bind cannot be redirected after the check", () => {
+      const trees = treesOf([`${HOME}/dev/link`], { [`${HOME}/dev/link`]: `${HOME}/real/tree` });
+      assert.equal(trees[0]?.mountSource, `${HOME}/real/tree`);
+    });
+
+    // The ledger records whichever spelling the CLI saw, so both have to
+    // translate — they are one directory.
+    it("keeps the ledger's own spelling as an alias of the resolved tree", () => {
+      const trees = treesOf([`${HOME}/dev/link`], { [`${HOME}/dev/link`]: `${HOME}/real/tree` });
+      assert.deepEqual(trees[0]?.aliases, [`${HOME}/dev/link`]);
+    });
+
+    it("gives two symlinks to one tree a single mount with both aliases", () => {
+      const links = { [`${HOME}/dev/a`]: `${HOME}/real/tree`, [`${HOME}/dev/b`]: `${HOME}/real/tree` };
+      const trees = treesOf([`${HOME}/dev/a`, `${HOME}/dev/b`], links);
+      assert.equal(trees.length, 1, "one directory is one mount");
+      assert.deepEqual(trees[0]?.aliases, [`${HOME}/dev/a`, `${HOME}/dev/b`]);
+    });
+  });
+
+  // Windows filesystems are case-insensitive, so these name ONE directory.
+  // Containment is case-insensitive too, which made each spelling read as
+  // "inside" the other — and the nesting filter dropped BOTH, mounting nothing.
+  it("keeps one representative when two Windows spellings differ only in case", () => {
+    const winHome = "C:\\Users\\fake";
+    const trees = externalPluginTrees(["C:\\Dev\\MP", "c:\\dev\\mp"], `${winHome}\\.claude`, "\\", "win32", {
+      home: winHome,
+      resolveRealPath: (hostPath: string) => hostPath,
+    });
+    assert.equal(trees.length, 1, "two spellings of one tree must still be mounted");
+    assert.deepEqual(trees[0]?.aliases, ["C:\\Dev\\MP", "c:\\dev\\mp"], "both spellings must translate");
+  });
+
   it("gives each tree a stable, collision-free container root", () => {
-    const first = externalPluginTrees([`${HOME}/dev/a`, `${HOME}/other/a`], CONFIG, "/", PLATFORM, HOME);
-    const again = externalPluginTrees([`${HOME}/dev/a`], CONFIG, "/", PLATFORM, HOME);
+    const first = treesOf([`${HOME}/dev/a`, `${HOME}/other/a`]);
+    const again = treesOf([`${HOME}/dev/a`]);
 
     assert.equal(new Set(first.map((tree) => tree.containerRoot)).size, 2, "same basename, different tree — must not collide");
     assert.equal(first[0]?.containerRoot, again[0]?.containerRoot, "the same host path must map to the same place every turn");
@@ -345,7 +440,7 @@ describe("externalPluginTrees — what has to be mounted beyond the config dir",
   // The readable half is decoration; the hash carries uniqueness. Letting the
   // host path's punctuation through would put it in a mount TARGET.
   it("keeps the host path's punctuation out of the container root", () => {
-    const trees = externalPluginTrees([`${HOME}/dev/we:ird,name`], CONFIG, "/", PLATFORM, HOME);
+    const trees = treesOf([`${HOME}/dev/we:ird,name`]);
     assert.match(trees[0]?.containerRoot ?? "", /^\/mnt\/plugin-src\/we_ird_name-[0-9a-f]{8}$/);
   });
 });

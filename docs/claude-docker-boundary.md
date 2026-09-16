@@ -98,11 +98,15 @@ Two things to know when debugging this:
   `plugin marketplace add <local path>` is the plugin author's ordinary
   workflow, and that tree is carried by no other mount — so it gets its own,
   read-only, at `/mnt/plugin-src/<name>-<hash>`, and the ledger is translated to
-  point there. The path must pass the same blocklist reference directories use
-  (`server/utils/sensitiveMountPaths.ts`): `$HOME` itself, `.ssh`, `.aws`,
-  `.gnupg`, `.config/gh`, `.kube`, `.docker`, the system directories and the
-  filesystem root are refused whatever the ledger says, and such an entry is
-  left untranslated rather than mounted.
+  point there. **What is bound is the RESOLVED path**, and the blocklist runs on
+  that: Docker follows a symlinked source and exposes its target, so checking
+  the ledger's spelling and binding the ledger's spelling would let
+  `~/dev/mp -> ~/.ssh` walk straight in. The rule is the one reference
+  directories use (`server/utils/sensitiveMountPaths.ts`) — `$HOME` itself,
+  `.ssh`, `.aws`, `.gnupg`, `.config/gh`, `.kube`, `.docker`, the system
+  directories and the filesystem root — and a refused entry is left untranslated
+  rather than mounted. That helper is LEXICAL by contract; a caller that mounts
+  a user-supplied path must resolve it first.
 
 ## How a host path becomes a mount argument
 

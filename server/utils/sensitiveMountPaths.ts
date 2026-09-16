@@ -66,6 +66,13 @@ export interface SensitivePathOptions {
  * must never see: the filesystem root, `$HOME` itself (which transitively
  * carries `.ssh` and the rest), a known credential directory, or a system
  * directory.
+ *
+ * THIS TEST IS LEXICAL — it never touches the filesystem, so it cannot see
+ * through a symlink. Docker binds the symlink's TARGET (measured against the
+ * daemon: `-v <link>:/x:ro` exposes the target's contents), so a caller that
+ * mounts a path the user supplied MUST resolve it to its real location first
+ * and ask about THAT, then bind the resolved path. Asking about the spelling
+ * and binding the spelling is how `~/dev/mp -> ~/.ssh` walks straight in.
  */
 export function isSensitiveMountPath(absPath: string, options: SensitivePathOptions = {}): boolean {
   const { paths, key, systemBlocked: defaultBlocked } = comparisonRules(options.platform ?? process.platform);
