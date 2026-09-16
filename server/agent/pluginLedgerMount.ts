@@ -49,7 +49,8 @@ export interface PluginLedgerMountParams {
 }
 
 export interface PluginLedgerMounts {
-  /** `-v` pairs to splice into the docker argv, after the config-dir mount. */
+  /** `--mount` argument pairs to splice into the docker argv, after the
+   *  config-dir mount. */
   args: string[];
   /** Where the staged copies were written, for the caller to remove once the
    *  container has exited. `null` when nothing was staged and so nothing needs
@@ -102,17 +103,30 @@ function stageableLedgers(hostConfigDir: string, sep: string): StagedLedger[] {
   });
 }
 
-// Docker wants `/` in a `-v` source, and a Windows host path spells them `\`.
-// On POSIX a backslash is an ordinary filename character — `TMPDIR` may contain
-// one — so converting there would hand Docker a path that does not exist.
+// `--mount` rather than `-v`, because `-v` splits its fields on `:` and a POSIX
+// `TMPDIR` may legally contain one: measured, `docker run` then rejects the
+// whole command with "too many colons" and the sandbox does not start at all.
+// `--mount` takes explicit key=value fields and accepts the same path.
+//
+// Docker wants `/` in the source, and a Windows host path spells them `\`. On
+// POSIX a backslash is an ordinary filename character, so converting there would
+// hand Docker a path that does not exist.
 function mountArg(outputDir: string, file: string, platform: Platform): string[] {
   const source = join(outputDir, file);
   const dockerSource = platform === "win32" ? source.split("\\").join("/") : source;
-  return ["-v", `${dockerSource}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/${file}:ro`];
+  return ["--mount", `type=bind,source=${dockerSource},target=${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/${file},readonly`];
 }
 
+// The one character `--mount` cannot carry: it separates its own fields with `,`
+// and Docker's parser rejects a quoted value, so such a path cannot be expressed
+// by either flag. Skipping the translation costs the plugins and leaves the
+// sandbox starting exactly as it does today; emitting the argument anyway would
+// stop it starting at all.
+const MOUNT_FIELD_SEPARATOR = ",";
+
 /**
- * `-v` pairs that overlay container-shaped copies of the two plugin ledgers.
+ * Docker mount arguments that overlay container-shaped copies of the two plugin
+ * ledgers.
  *
  * Returns no arguments when there is nothing to translate, so a user with no
  * plugins — or with all of them installed outside the config dir — runs exactly
@@ -137,6 +151,12 @@ export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLe
   // of the same session is still reading the same files.
   const generated = params.outputDir === undefined;
   const outputDir = params.outputDir ?? join(tmpdir(), "mulmoclaude-plugin-ledger", randomUUID());
+  if (outputDir.includes(MOUNT_FIELD_SEPARATOR)) {
+    log.warn("sandbox", "staging path contains a comma, which no docker mount flag can express; plugins will not load in the sandbox", {
+      path: outputDir,
+    });
+    return { args: [], stagingDir: null };
+  }
   try {
     mkdirSync(outputDir, { recursive: true });
     staged.forEach((ledger) => writeFileAtomicSync(join(outputDir, ledger.file), ledger.content));

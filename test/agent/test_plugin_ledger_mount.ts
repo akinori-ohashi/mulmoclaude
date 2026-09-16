@@ -66,10 +66,10 @@ describe("pluginLedgerMountArgs", () => {
 
     assert.equal(result.stagingDir, outputDir);
     assert.deepEqual(result.args, [
-      "-v",
-      `${join(outputDir, "known_marketplaces.json")}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/known_marketplaces.json:ro`,
-      "-v",
-      `${join(outputDir, "installed_plugins.json")}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/installed_plugins.json:ro`,
+      "--mount",
+      `type=bind,source=${join(outputDir, "known_marketplaces.json")},target=${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/known_marketplaces.json,readonly`,
+      "--mount",
+      `type=bind,source=${join(outputDir, "installed_plugins.json")},target=${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/installed_plugins.json,readonly`,
     ]);
 
     const staged: unknown = JSON.parse(readFileSync(join(outputDir, "installed_plugins.json"), "utf-8"));
@@ -88,8 +88,37 @@ describe("pluginLedgerMountArgs", () => {
     const outputDir = join(root, "we\\ird");
     writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
     const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
-    assert.equal(result.args[1], `${join(outputDir, "known_marketplaces.json")}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/known_marketplaces.json:ro`);
+    assert.ok(result.args[1]?.includes(`source=${join(outputDir, "known_marketplaces.json")},`));
     assert.ok(result.args[1]?.includes("we\\ird"));
+  });
+
+  // `-v` splits its fields on `:`, and a POSIX `TMPDIR` may legally contain one.
+  // Measured: `docker run -v "<path with colon>:..."` is rejected outright with
+  // "too many colons", so the sandbox would not start at all. `--mount` takes
+  // the same path.
+  it("emits a staging path containing a colon rather than breaking the argv", () => {
+    const root = makeRoot();
+    const configDir = join(root, "cfg");
+    const outputDir = join(root, "stag:ing");
+    writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
+    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
+    assert.equal(result.args[0], "--mount");
+    assert.ok(result.args[1]?.includes("stag:ing"));
+    assert.equal(result.stagingDir, outputDir);
+  });
+
+  // `--mount` separates its own fields with `,` and Docker rejects a quoted
+  // value, so such a path cannot be expressed by either flag. Skipping costs the
+  // plugins; emitting it anyway would stop the sandbox starting.
+  it("stages nothing when the staging path contains a comma", () => {
+    const root = makeRoot();
+    const configDir = join(root, "cfg");
+    const outputDir = join(root, "stag,ing");
+    writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
+    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
+    assert.deepEqual(result.args, []);
+    assert.equal(result.stagingDir, null);
+    assert.equal(existsSync(outputDir), false);
   });
 
   // A malformed ledger is CLI-internal state we do not control; the sandbox has
