@@ -80,25 +80,30 @@ function readLedgerTolerant(path: string): unknown {
   }
 }
 
-function mountArgsFor(spec: LedgerSpec, hostConfigDir: string, sep: string, outputDir: string): string[] {
-  const sourcePath = join(hostConfigDir, "plugins", spec.file);
-  const ledger = readLedgerTolerant(sourcePath);
-  if (ledger === null) return [];
+interface StagedLedger {
+  /** Basename, shared by the source copy and the container-side target. */
+  file: string;
+  content: string;
+}
 
-  const translated = spec.rewrite(ledger, hostConfigDir, sep);
-  // Nothing under the config dir to translate (every plugin lives elsewhere, or
-  // the file is already container-shaped). Mounting an identical copy would only
-  // add a way for this to go wrong.
-  if (JSON.stringify(translated) === JSON.stringify(ledger)) return [];
+// Deciding WHAT to stage before creating anywhere to put it: a user with no
+// plugins, or with all of them outside the config dir, must not leave an empty
+// directory behind for every sandbox turn.
+function stageableLedgers(hostConfigDir: string, sep: string): StagedLedger[] {
+  return LEDGERS.flatMap((spec) => {
+    const ledger = readLedgerTolerant(join(hostConfigDir, "plugins", spec.file));
+    if (ledger === null) return [];
+    const translated = spec.rewrite(ledger, hostConfigDir, sep);
+    // Nothing under the config dir to translate (every plugin lives elsewhere,
+    // or the file is already container-shaped). Mounting an identical copy would
+    // only add a way for this to go wrong.
+    if (JSON.stringify(translated) === JSON.stringify(ledger)) return [];
+    return [{ file: spec.file, content: JSON.stringify(translated, null, 2) }];
+  });
+}
 
-  const copyPath = join(outputDir, spec.file);
-  try {
-    writeFileAtomicSync(copyPath, JSON.stringify(translated, null, 2));
-  } catch (error) {
-    log.warn("sandbox", "could not stage translated plugin ledger", { path: copyPath, error: errorMessage(error) });
-    return [];
-  }
-  return ["-v", `${copyPath.replace(/\\/g, "/")}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/${spec.file}:ro`];
+function mountArg(outputDir: string, file: string): string[] {
+  return ["-v", `${join(outputDir, file).replace(/\\/g, "/")}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/${file}:ro`];
 }
 
 /**
@@ -110,7 +115,8 @@ function mountArgsFor(spec: LedgerSpec, hostConfigDir: string, sep: string, outp
  * beats one that does not start.
  *
  * The caller MUST pass `stagingDir` to `removePluginLedgerStaging` once the
- * container has exited, or every turn leaves two files behind in `tmpdir()`.
+ * container has exited, INCLUDING when the spawn it was built for never
+ * happened — otherwise every turn leaves two files behind in `tmpdir()`.
  *
  * MUST be spliced in AFTER the config-dir bind mount, since these overlay files
  * that live inside it.
@@ -118,21 +124,43 @@ function mountArgsFor(spec: LedgerSpec, hostConfigDir: string, sep: string, outp
 export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLedgerMounts {
   const hostConfigDir = params.hostConfigDir ?? claudeConfigDir();
   const sep = params.platform === "win32" ? "\\" : "/";
+  const staged = stageableLedgers(hostConfigDir, sep);
+  if (staged.length === 0) return { args: [], stagingDir: null };
+
   // One directory per SPAWN, not per session: a turn then owns its staging
   // outright and can delete it on exit without checking whether a sibling turn
   // of the same session is still reading the same files.
+  const generated = params.outputDir === undefined;
   const outputDir = params.outputDir ?? join(tmpdir(), "mulmoclaude-plugin-ledger", randomUUID());
   try {
     mkdirSync(outputDir, { recursive: true });
+    staged.forEach((ledger) => writeFileAtomicSync(join(outputDir, ledger.file), ledger.content));
   } catch (error) {
-    log.warn("sandbox", "could not create plugin ledger staging dir, plugins will not load in the sandbox", {
+    log.warn("sandbox", "could not stage translated plugin ledgers, plugins will not load in the sandbox", {
       path: outputDir,
       error: errorMessage(error),
     });
+    // Only a directory this function generated is ours to delete; a caller that
+    // named the location owns whatever else is in it.
+    if (generated) removePluginLedgerStaging(outputDir);
     return { args: [], stagingDir: null };
   }
-  const args = LEDGERS.flatMap((spec) => mountArgsFor(spec, hostConfigDir, sep, outputDir));
-  return { args, stagingDir: args.length > 0 ? outputDir : null };
+  return { args: staged.flatMap((ledger) => mountArg(outputDir, ledger.file)), stagingDir: outputDir };
+}
+
+/**
+ * Run the spawn-and-register step, removing the staging if it throws before a
+ * child process exists to own that cleanup. `spawn` throws synchronously for a
+ * malformed argument, which is early enough that no `close` listener is
+ * registered yet.
+ */
+export function withPluginLedgerCleanup<T>(stagingDir: string | null, run: () => T): T {
+  try {
+    return run();
+  } catch (error) {
+    if (stagingDir !== null) removePluginLedgerStaging(stagingDir);
+    throw error;
+  }
 }
 
 /** Remove a turn's staged ledger copies. Best-effort: a staging directory that

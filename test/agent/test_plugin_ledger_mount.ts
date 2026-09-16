@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { pluginLedgerMountArgs, removePluginLedgerStaging } from "../../server/agent/pluginLedgerMount.ts";
+import { pluginLedgerMountArgs, removePluginLedgerStaging, withPluginLedgerCleanup } from "../../server/agent/pluginLedgerMount.ts";
 import { CONTAINER_CLAUDE_CONFIG_DIR } from "../../server/agent/pluginLedgerPaths.ts";
 
 const PLATFORM = "linux";
@@ -41,6 +41,16 @@ describe("pluginLedgerMountArgs", () => {
     const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out") });
     assert.deepEqual(result.args, []);
     assert.equal(result.stagingDir, null);
+  });
+
+  // An empty directory per no-op spawn is still a directory per no-op spawn.
+  it("creates no directory at all when there is nothing to stage", () => {
+    const root = makeRoot();
+    const outputDir = join(root, "out");
+    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: join(root, "cfg"), outputDir });
+    assert.deepEqual(result.args, []);
+    assert.equal(result.stagingDir, null);
+    assert.equal(existsSync(outputDir), false);
   });
 
   it("stages both ledgers with container paths and reports the staging dir", () => {
@@ -100,5 +110,47 @@ describe("removePluginLedgerStaging", () => {
 
   it("does not throw when the directory is already gone", () => {
     assert.doesNotThrow(() => removePluginLedgerStaging(join(tmpdir(), "ledger-mount-test-absent-dir")));
+  });
+});
+
+describe("withPluginLedgerCleanup", () => {
+  // `spawn` throws synchronously for a malformed argument, which is before any
+  // child exists to carry the `close` listener that normally cleans up.
+  it("removes the staging when the wrapped call throws, and rethrows", () => {
+    const root = mkdtempSync(join(tmpdir(), "ledger-mount-test-"));
+    const staging = join(root, "staging");
+    mkdirSync(staging, { recursive: true });
+    const boom = new Error("spawn EINVAL");
+
+    assert.throws(
+      () =>
+        withPluginLedgerCleanup(staging, () => {
+          throw boom;
+        }),
+      /spawn EINVAL/,
+    );
+    assert.equal(existsSync(staging), false);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("keeps the staging and returns the value when the wrapped call succeeds", () => {
+    const root = mkdtempSync(join(tmpdir(), "ledger-mount-test-"));
+    const staging = join(root, "staging");
+    mkdirSync(staging, { recursive: true });
+
+    assert.equal(
+      withPluginLedgerCleanup(staging, () => "child"),
+      "child",
+    );
+    assert.equal(existsSync(staging), true);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("is a no-op wrapper when nothing was staged", () => {
+    assert.throws(() =>
+      withPluginLedgerCleanup(null, () => {
+        throw new Error("boom");
+      }),
+    );
   });
 });
