@@ -107,18 +107,21 @@ describe("pluginLedgerMountArgs", () => {
     assert.equal(result.stagingDir, outputDir);
   });
 
-  // `--mount` separates its own fields with `,` and Docker rejects a quoted
-  // value, so such a path cannot be expressed by either flag. Skipping costs the
-  // plugins; emitting it anyway would stop the sandbox starting.
-  it("stages nothing when the staging path contains a comma", () => {
-    const root = makeRoot();
-    const configDir = join(root, "cfg");
-    const outputDir = join(root, "stag,ing");
-    writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
-    assert.deepEqual(result.args, []);
-    assert.equal(result.stagingDir, null);
-    assert.equal(existsSync(outputDir), false);
+  // Docker parses `--mount` as one CSV record: `,` ends the field, a bare `"`
+  // puts its reader into a quoted-field state it rejects, and a newline ends the
+  // record. All three reject the whole `docker run`, so such a path must cost
+  // the plugins rather than the sandbox.
+  ["stag,ing", 'stag"ing', "stag\ning"].forEach((name) => {
+    it(`stages nothing when the staging path holds ${JSON.stringify(name)}`, () => {
+      const root = makeRoot();
+      const configDir = join(root, "cfg");
+      const outputDir = join(root, name);
+      writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
+      const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
+      assert.deepEqual(result.args, []);
+      assert.equal(result.stagingDir, null);
+      assert.equal(existsSync(outputDir), false);
+    });
   });
 
   // A malformed ledger is CLI-internal state we do not control; the sandbox has

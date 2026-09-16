@@ -117,12 +117,25 @@ function mountArg(outputDir: string, file: string, platform: Platform): string[]
   return ["--mount", `type=bind,source=${dockerSource},target=${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/${file},readonly`];
 }
 
-// The one character `--mount` cannot carry: it separates its own fields with `,`
-// and Docker's parser rejects a quoted value, so such a path cannot be expressed
-// by either flag. Skipping the translation costs the plugins and leaves the
-// sandbox starting exactly as it does today; emitting the argument anyway would
-// stop it starting at all.
-const MOUNT_FIELD_SEPARATOR = ",";
+// What a `--mount` field value cannot carry. Docker parses the flag as one CSV
+// record, so `,` ends the field, a bare `"` puts its reader into a quoted-field
+// state it then rejects, and a newline ends the record — each measured against
+// the daemon, and each rejects the whole `docker run`.
+//
+// Stated as a rule rather than as the list of characters found so far: the
+// alternative is a new round every time another one turns up. A path outside it
+// skips translation, which costs the plugins and leaves the sandbox starting
+// exactly as it does today. Emitting the argument anyway would stop it starting,
+// and the sandbox is worth more than the feature.
+const MOUNT_FIELD_BREAKERS = new Set([",", '"']);
+
+/** Lowest code point the reader can carry: everything below is a control
+ *  character, and a newline among them ends the record outright. */
+const MIN_PRINTABLE_CODE_POINT = 0x20;
+
+function isExpressibleMountSource(value: string): boolean {
+  return [...value].every((character) => !MOUNT_FIELD_BREAKERS.has(character) && (character.codePointAt(0) ?? 0) >= MIN_PRINTABLE_CODE_POINT);
+}
 
 /**
  * Docker mount arguments that overlay container-shaped copies of the two plugin
@@ -151,10 +164,8 @@ export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLe
   // of the same session is still reading the same files.
   const generated = params.outputDir === undefined;
   const outputDir = params.outputDir ?? join(tmpdir(), "mulmoclaude-plugin-ledger", randomUUID());
-  if (outputDir.includes(MOUNT_FIELD_SEPARATOR)) {
-    log.warn("sandbox", "staging path contains a comma, which no docker mount flag can express; plugins will not load in the sandbox", {
-      path: outputDir,
-    });
+  if (!isExpressibleMountSource(outputDir)) {
+    log.warn("sandbox", "staging path holds a character no docker mount flag can express; plugins will not load in the sandbox", { path: outputDir });
     return { args: [], stagingDir: null };
   }
   try {
