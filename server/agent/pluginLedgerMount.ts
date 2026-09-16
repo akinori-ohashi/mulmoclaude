@@ -17,6 +17,7 @@ import { log } from "../system/logger/index.js";
 import { errorMessage } from "../utils/errors.js";
 import { isErrorWithCode } from "../utils/types.js";
 import { CONTAINER_CLAUDE_CONFIG_DIR, rewriteInstalledPlugins, rewriteKnownMarketplaces } from "./pluginLedgerPaths.js";
+import { dockerMountArgs } from "./dockerMount.js";
 import type { Platform } from "./config.js";
 
 /** A ledger is a short index the CLI maintains, not a data file — a megabyte of
@@ -137,38 +138,13 @@ function stageableLedgers(hostConfigDir: string, sep: string): StagedLedger[] {
   });
 }
 
-// `--mount` rather than `-v`, because `-v` splits its fields on `:` and a POSIX
-// `TMPDIR` may legally contain one: measured, `docker run` then rejects the
-// whole command with "too many colons" and the sandbox does not start at all.
-// `--mount` takes explicit key=value fields and accepts the same path.
-//
-// Docker wants `/` in the source, and a Windows host path spells them `\`. On
-// POSIX a backslash is an ordinary filename character, so converting there would
-// hand Docker a path that does not exist.
-function mountArg(outputDir: string, file: string, platform: Platform): string[] {
-  const source = join(outputDir, file);
-  const dockerSource = platform === "win32" ? source.split("\\").join("/") : source;
-  return ["--mount", `type=bind,source=${dockerSource},target=${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/${file},readonly`];
-}
-
-// What a `--mount` field value cannot carry. Docker parses the flag as one CSV
-// record, so `,` ends the field, a bare `"` puts its reader into a quoted-field
-// state it then rejects, and a newline ends the record — each measured against
-// the daemon, and each rejects the whole `docker run`.
-//
-// Stated as a rule rather than as the list of characters found so far: the
-// alternative is a new round every time another one turns up. A path outside it
-// skips translation, which costs the plugins and leaves the sandbox starting
-// exactly as it does today. Emitting the argument anyway would stop it starting,
-// and the sandbox is worth more than the feature.
-const MOUNT_FIELD_BREAKERS = new Set([",", '"']);
-
-/** Lowest code point the reader can carry: everything below is a control
- *  character, and a newline among them ends the record outright. */
-const MIN_PRINTABLE_CODE_POINT = 0x20;
-
-function isExpressibleMountSource(value: string): boolean {
-  return [...value].every((character) => !MOUNT_FIELD_BREAKERS.has(character) && (character.codePointAt(0) ?? 0) >= MIN_PRINTABLE_CODE_POINT);
+// Mount arguments come from the shared `dockerMount` helper so the staging path
+// obeys exactly the rule every other sandbox mount obeys (#3191). #3188 shipped
+// this module emitting `--mount` unconditionally, which skipped a staging path
+// containing a comma that `-v` carries perfectly well.
+function mountArg(outputDir: string, file: string, platform: Platform): string[] | null {
+  const mount = dockerMountArgs({ hostPath: join(outputDir, file), containerPath: `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/${file}`, readOnly: true }, platform);
+  return mount.kind === "args" ? mount.args : null;
 }
 
 /**
@@ -198,8 +174,11 @@ export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLe
   // of the same session is still reading the same files.
   const generated = params.outputDir === undefined;
   const outputDir = params.outputDir ?? join(tmpdir(), "mulmoclaude-plugin-ledger", randomUUID());
-  if (!isExpressibleMountSource(outputDir)) {
-    log.warn("sandbox", "staging path holds a character no docker mount flag can express; plugins will not load in the sandbox", { path: outputDir });
+  const mounts = staged.map((ledger) => mountArg(outputDir, ledger.file, params.platform));
+  if (mounts.some((mount) => mount === null)) {
+    // The plugin ledgers are an addition, not a prerequisite: skipping leaves
+    // the sandbox starting exactly as it does without this feature.
+    log.warn("sandbox", "staging path cannot be expressed as a docker mount; plugins will not load in the sandbox", { path: outputDir });
     return { args: [], stagingDir: null };
   }
   try {
@@ -215,7 +194,7 @@ export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLe
     if (generated) removePluginLedgerStaging(outputDir);
     return { args: [], stagingDir: null };
   }
-  return { args: staged.flatMap((ledger) => mountArg(outputDir, ledger.file, params.platform)), stagingDir: outputDir };
+  return { args: mounts.flatMap((mount) => mount ?? []), stagingDir: outputDir };
 }
 
 /**

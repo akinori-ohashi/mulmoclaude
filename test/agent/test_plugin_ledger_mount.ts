@@ -66,11 +66,13 @@ describe("pluginLedgerMountArgs", () => {
     const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
 
     assert.equal(result.stagingDir, outputDir);
+    // `-v` for an ordinary path: the shared mount helper only reaches for
+    // `--mount` when a colon rules `-v` out (#3191).
     assert.deepEqual(result.args, [
-      "--mount",
-      `type=bind,source=${join(outputDir, "known_marketplaces.json")},target=${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/known_marketplaces.json,readonly`,
-      "--mount",
-      `type=bind,source=${join(outputDir, "installed_plugins.json")},target=${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/installed_plugins.json,readonly`,
+      "-v",
+      `${join(outputDir, "known_marketplaces.json")}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/known_marketplaces.json:ro`,
+      "-v",
+      `${join(outputDir, "installed_plugins.json")}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/installed_plugins.json:ro`,
     ]);
 
     const staged: unknown = JSON.parse(readFileSync(join(outputDir, "installed_plugins.json"), "utf-8"));
@@ -89,7 +91,8 @@ describe("pluginLedgerMountArgs", () => {
     const outputDir = join(root, "we\\ird");
     writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
     const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
-    assert.ok(result.args[1]?.includes(`source=${join(outputDir, "known_marketplaces.json")},`));
+    assert.equal(result.args[0], "-v");
+    assert.ok(result.args[1]?.startsWith(`${join(outputDir, "known_marketplaces.json")}:`));
     assert.ok(result.args[1]?.includes("we\\ird"));
   });
 
@@ -97,7 +100,7 @@ describe("pluginLedgerMountArgs", () => {
   // Measured: `docker run -v "<path with colon>:..."` is rejected outright with
   // "too many colons", so the sandbox would not start at all. `--mount` takes
   // the same path.
-  it("emits a staging path containing a colon rather than breaking the argv", () => {
+  it("falls back to --mount for a staging path containing a colon", () => {
     const root = makeRoot();
     const configDir = join(root, "cfg");
     const outputDir = join(root, "stag:ing");
@@ -108,21 +111,33 @@ describe("pluginLedgerMountArgs", () => {
     assert.equal(result.stagingDir, outputDir);
   });
 
-  // Docker parses `--mount` as one CSV record: `,` ends the field, a bare `"`
-  // puts its reader into a quoted-field state it rejects, and a newline ends the
-  // record. All three reject the whole `docker run`, so such a path must cost
-  // the plugins rather than the sandbox.
+  // These three used to be skipped, because #3188 emitted `--mount`
+  // unconditionally and `--mount` cannot carry any of them. `-v` carries all
+  // three — its only forbidden character is `:` — so routing through the shared
+  // helper turns three skipped cases into three working ones (#3191).
   ["stag,ing", 'stag"ing', "stag\ning"].forEach((name) => {
-    it(`stages nothing when the staging path holds ${JSON.stringify(name)}`, () => {
+    it(`stages through -v when the staging path holds ${JSON.stringify(name)}`, () => {
       const root = makeRoot();
       const configDir = join(root, "cfg");
       const outputDir = join(root, name);
       writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
       const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
-      assert.deepEqual(result.args, []);
-      assert.equal(result.stagingDir, null);
-      assert.equal(existsSync(outputDir), false);
+      assert.equal(result.args[0], "-v");
+      assert.ok(result.args[1]?.includes(name));
+      assert.equal(result.stagingDir, outputDir);
     });
+  });
+
+  // A colon AND a character `--mount` cannot carry: no flag can express it, so
+  // the plugins are skipped and the sandbox still starts.
+  it("stages nothing when no docker flag can express the staging path", () => {
+    const root = makeRoot();
+    const configDir = join(root, "cfg");
+    const outputDir = join(root, "stag:i,ng");
+    writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
+    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
+    assert.deepEqual(result.args, []);
+    assert.equal(result.stagingDir, null);
   });
 
   // Opening a FIFO for read waits for a writer FOREVER, and this open is

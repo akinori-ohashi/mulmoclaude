@@ -9,8 +9,10 @@ import { makeTempDir } from "../helpers/tempDir.js";
 // Isolated fixture home so the tests don't depend on the developer
 // actually having ~/.config/gh or a ~/.gitconfig locally. Shares the
 // same pattern as test_sandboxMounts.ts.
-function makeFixtureHome(opts: { gh?: boolean; gitconfig?: boolean }): string {
-  const dir = makeTempDir("sandbox-status-");
+function makeFixtureHome(opts: { gh?: boolean; gitconfig?: boolean }, awkwardName?: string): string {
+  const root = makeTempDir("sandbox-status-");
+  const dir = awkwardName === undefined ? root : path.join(root, awkwardName);
+  if (awkwardName !== undefined) mkdirSync(dir, { recursive: true });
   if (opts.gh) {
     const ghDir = path.join(dir, ".config", "gh");
     mkdirSync(ghDir, { recursive: true });
@@ -177,5 +179,35 @@ describe("buildSandboxStatus", () => {
       sshAgent: true,
       mounts: ["gh", "gitconfig"],
     });
+  });
+});
+
+// This payload's documented contract is "what is actually attached", and the
+// popup shows it as such. A path no docker flag can express is resolved on the
+// host and never reaches the container, so reporting it here would tell the user
+// their credentials are in the sandbox when they are not (#3191).
+describe("buildSandboxStatus — mounts means attached, not merely resolved", () => {
+  it("omits a config mount whose host path cannot be expressed as a docker mount", () => {
+    const home = makeFixtureHome({ gitconfig: true }, "with:colon,and-comma");
+    const status = buildSandboxStatus({
+      sandboxEnabled: true,
+      sshAgentForward: false,
+      configMountNames: ["gitconfig"],
+      home,
+      platform: "linux",
+    });
+    assert.deepEqual(status?.mounts, []);
+  });
+
+  it("still reports one that can be", () => {
+    const home = makeFixtureHome({ gitconfig: true });
+    const status = buildSandboxStatus({
+      sandboxEnabled: true,
+      sshAgentForward: false,
+      configMountNames: ["gitconfig"],
+      home,
+      platform: "linux",
+    });
+    assert.deepEqual(status?.mounts, ["gitconfig"]);
   });
 });

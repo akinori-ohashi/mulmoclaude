@@ -705,14 +705,28 @@ describe("buildDockerSpawnArgs", () => {
     assert.ok(!args.includes("--add-host"));
   });
 
+  // The conversion is a WINDOWS rule, so the test says so. It used to pass a
+  // Windows path under the default platform and rely on the replace being
+  // unconditional — which is the defect: on POSIX a backslash is an ordinary
+  // filename character, and converting it mounts a directory that is not the
+  // one the user named (#3191).
   it("normalizes Windows backslash paths to forward slashes", async () => {
     const args = buildDockerSpawnArgs({
       ...baseParams(),
+      platform: "win32" as Platform,
       workspacePath: "C:\\Users\\me\\ws",
     });
     assert.ok(
       args.some((arg) => arg.startsWith("C:/Users/me/ws:")),
       "expected forward-slash conversion",
+    );
+  });
+
+  it("leaves a backslash alone on POSIX, where it is part of the filename", () => {
+    const args = buildDockerSpawnArgs({ ...baseParams(), platform: "linux" as Platform, workspacePath: "/home/me/we\\ird" });
+    assert.ok(
+      args.some((arg) => arg.startsWith("/home/me/we\\ird:")),
+      "expected the backslash to survive into the mount source",
     );
   });
 
@@ -1265,8 +1279,27 @@ describe("dockerBindMountArgs", () => {
   });
 
   it("converts Windows backslash host paths to forward slashes for -v", () => {
-    const args = dockerBindMountArgs({ ...opts, projectRoot: "C:\\Users\\me\\proj" });
+    const args = dockerBindMountArgs({ ...opts, platform: "win32" as Platform, projectRoot: "C:\\Users\\me\\proj" });
     assert.ok(args.includes("C:/Users/me/proj/node_modules:/app/node_modules:ro"));
+  });
+
+  // The Windows drive letter is a colon Docker understands. Treating it as a
+  // reason to switch flags would push every Windows mount onto `--mount`.
+  it("keeps -v for Windows paths despite the drive-letter colon", () => {
+    const args = dockerBindMountArgs({ ...opts, platform: "win32" as Platform, projectRoot: "C:\\proj" });
+    assert.ok(args.includes("-v"));
+    assert.ok(!args.includes("--mount"));
+  });
+
+  it("falls back to --mount when a host path holds a colon", () => {
+    const args = dockerBindMountArgs({ ...opts, workspacePath: "/ws:1" });
+    assert.ok(args.includes(`type=bind,source=/ws:1,target=${CONTAINER_WORKSPACE_PATH}`));
+  });
+
+  // The sandbox cannot run without its workspace, so an unmountable one must
+  // say so by name rather than let Docker refuse a spec the user never wrote.
+  it("throws naming the path when a required mount cannot be expressed", () => {
+    assert.throws(() => dockerBindMountArgs({ ...opts, workspacePath: "/ws:1,2" }), /Cannot mount \/ws:1,2 into the sandbox/);
   });
 });
 

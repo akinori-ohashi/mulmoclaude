@@ -85,10 +85,7 @@ skills, slash commands, MCP servers and hooks, with no error and no warning
 
 `pluginLedgerMountArgs` (`server/agent/pluginLedgerMount.ts`) stages
 container-shaped copies of both files and overlays them read-only, the same idea
-as `localhost` → `host.docker.internal` for HTTP MCP. These two use
-`--mount type=bind,…,readonly` rather than `-v`: `-v` splits its fields on `:`,
-so a staging path containing one is rejected by `docker run` outright and the
-sandbox does not start. The translation itself is
+as `localhost` → `host.docker.internal` for HTTP MCP. The translation itself is
 pure and lives in `server/agent/pluginLedgerPaths.ts`.
 
 Two things to know when debugging this:
@@ -101,6 +98,32 @@ Two things to know when debugging this:
   `plugin marketplace add <local path>` is a supported shape, but that tree is
   not bind-mounted, so no amount of path translation reaches it. Such entries
   are deliberately passed through untouched rather than rewritten.
+
+## How a host path becomes a mount argument
+
+Every bind mount the sandbox builds goes through `server/agent/dockerMount.ts`,
+which exists because two things about host paths are easy to get wrong (#3191):
+
+- **The separator conversion is a Windows rule.** Docker wants `/` and a Windows
+  path spells them `\`. On POSIX a backslash is an ordinary filename character,
+  so converting there hands Docker a path that does not exist — and Docker
+  answers that by creating an empty directory and mounting *that*, silently. A
+  workspace with a backslash in its path used to appear empty to the agent while
+  its writes went to a phantom directory on the host.
+- **`-v` and `--mount` are complementary, not ranked.** `-v` splits its fields on
+  `:`; `--mount` parses one CSV record, so it cannot carry `,`, a bare `"`, or a
+  control character. Neither can express every path.
+
+So `-v` stays the default — every path that worked before keeps the argument it
+had — and `--mount` is used only when a colon rules `-v` out. A path neither can
+express is refused, and what that costs depends on the mount: a **skippable** one
+(reference directory, `gh`/`gitconfig`, SSH socket, plugin ledgers) is dropped
+with a warning and the sandbox still runs, while an **essential** one (workspace,
+`~/.claude`, the app's own code) raises `UnmountablePathError` naming the path,
+rather than letting Docker reject a spec the user never wrote.
+
+On Windows the drive letter is a colon Docker understands, and it deliberately
+does not count — otherwise every Windows mount would switch flags.
 
 ## Where-what summary
 

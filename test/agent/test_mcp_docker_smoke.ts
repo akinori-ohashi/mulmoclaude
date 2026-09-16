@@ -29,6 +29,7 @@ import { execSync, spawn } from "node:child_process";
 import path from "node:path";
 
 import { buildMulmoclaudeServer, workspaceModuleMounts, type Platform } from "../../server/agent/config.ts";
+import { toDockerSource } from "../../server/agent/dockerMount.ts";
 import { ONE_SECOND_MS } from "../../server/utils/time.ts";
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, "../..");
@@ -78,7 +79,11 @@ const canRunDocker = isDockerAvailable() && isSandboxImageAvailable();
 
 describe("MCP server Docker smoke test", { skip: !canRunDocker }, () => {
   it("responds to initialize + tools/list inside Docker container", async () => {
-    const toDockerPath = (filePath: string): string => filePath.replace(/\\/g, "/");
+    // The shipped conversion, not a local copy of it: an unconditional
+    // backslash replace is the rule #3191 removed from production, and a repo
+    // path holding a literal backslash would make this "exact spec" a different
+    // path than the one Claude Code would mount.
+    const toDockerPath = (filePath: string): string => toDockerSource(filePath, hostPlatform());
 
     // The exact spec Claude Code would spawn: `tsx --import <bootstrap>
     // /app/server/agent/mcp-server.ts` with NODE_PATH carrying the

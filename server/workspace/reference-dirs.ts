@@ -13,6 +13,8 @@ import { log } from "../system/logger/index.js";
 import { readReferenceDirsJson, writeReferenceDirsJson, isExistingDirectory } from "../utils/files/reference-dirs-io.js";
 import { hasStringProp, isRecord } from "../utils/types.js";
 import { validateEntryList, type EntryListResult } from "../utils/validateEntryList.js";
+import { dockerMountArgs } from "../agent/dockerMount.js";
+import type { Platform } from "../agent/config.js";
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -211,29 +213,40 @@ function invalidateCache(): void {
 /** Container path for a reference directory.
  *  Disambiguates with a short hash suffix to prevent collisions
  *  when different host paths share the same basename. */
+// The readable half of the container name. Uniqueness comes from the hash, so
+// reducing this to a safe set is lossless — and it keeps the host path's
+// punctuation out of the mount TARGET, which used to disagree with the source
+// because only the source was ever converted (#3191).
+function safeBasename(hostPath: string): string {
+  const reduced = [...path.basename(hostPath)].map((character) => (/[A-Za-z0-9._-]/.test(character) ? character : "_")).join("");
+  return reduced.length > 0 ? reduced : "dir";
+}
+
 export function containerPath(entry: ReferenceDirEntry): string {
-  const basename = path.basename(entry.hostPath);
   const hash = createHash("sha256").update(entry.hostPath).digest("hex").slice(0, 8);
-  return path.posix.join(CONTAINER_MOUNT_ROOT, `${basename}-${hash}`);
+  return path.posix.join(CONTAINER_MOUNT_ROOT, `${safeBasename(entry.hostPath)}-${hash}`);
 }
 
 /**
  * Return Docker `-v` args for read-only reference directory mounts.
  * Skips entries whose host path doesn't exist.
  */
-export function referenceDirMountArgs(entries: readonly ReferenceDirEntry[]): string[] {
-  const args: string[] = [];
-  for (const entry of entries) {
+export function referenceDirMountArgs(entries: readonly ReferenceDirEntry[], platform: Platform = process.platform): string[] {
+  return entries.flatMap((entry) => {
     if (!isExistingDirectory(entry.hostPath)) {
       log.info("reference-dirs", "skipped (not found or not a directory)", {
         path: entry.hostPath,
       });
-      continue;
+      return [];
     }
-    const host = entry.hostPath.replace(/\\/g, "/");
-    args.push("-v", `${host}:${containerPath(entry)}:ro`);
-  }
-  return args;
+    const mount = dockerMountArgs({ hostPath: entry.hostPath, containerPath: containerPath(entry), readOnly: true }, platform);
+    if (mount.kind === "args") return mount.args;
+    // A reference directory is an addition to the sandbox, not a prerequisite:
+    // dropping this one leaves the others and the container working, where an
+    // argument Docker refuses would stop the sandbox starting at all.
+    log.warn("reference-dirs", "skipped (path cannot be expressed as a docker mount)", { path: entry.hostPath, reason: mount.reason });
+    return [];
+  });
 }
 
 // ── System prompt snippet ───────────────────────────────────────
