@@ -74,15 +74,21 @@ path on the machine that installed them:
 | `<claudeConfigDir>/plugins/known_marketplaces.json` | `installLocation` |
 | `<claudeConfigDir>/plugins/installed_plugins.json` | `installPath` |
 
-Those are HOST paths (`/Users/you/.claude/...`), and the container's `HOME` is
-`/home/node`, so read verbatim they are ENOENT. The CLI answers `cache-miss`
+Those are HOST paths (`/Users/you/.claude/...`) pointing into whatever
+`claudeConfigDir()` resolves to — `~/.claude`, or the directory
+`CLAUDE_CONFIG_DIR` names when it is set, which is the same source
+`dockerBindMountArgs` bind-mounts. The container's `HOME` is `/home/node`, so
+read verbatim they are ENOENT. The CLI answers `cache-miss`
 for the marketplace and the plugin goes with it — **every surface at once**:
 skills, slash commands, MCP servers and hooks, with no error and no warning
 ([#3186](https://github.com/receptron/mulmoclaude/issues/3186)).
 
 `pluginLedgerMountArgs` (`server/agent/pluginLedgerMount.ts`) stages
-container-shaped copies of both files and overlays them `:ro`, the same idea as
-`localhost` → `host.docker.internal` for HTTP MCP. The translation itself is
+container-shaped copies of both files and overlays them read-only, the same idea
+as `localhost` → `host.docker.internal` for HTTP MCP. These two use
+`--mount type=bind,…,readonly` rather than `-v`: `-v` splits its fields on `:`,
+so a staging path containing one is rejected by `docker run` outright and the
+sandbox does not start. The translation itself is
 pure and lives in `server/agent/pluginLedgerPaths.ts`.
 
 Two things to know when debugging this:

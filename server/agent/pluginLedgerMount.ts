@@ -7,7 +7,7 @@
 // would put CONTAINER paths into the file the HOST reads, which is the same bug
 // this fixes, pointing the other way.
 
-import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, mkdirSync, openSync, readSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -59,25 +59,59 @@ export interface PluginLedgerMounts {
   stagingDir: string | null;
 }
 
-function readLedger(path: string): unknown {
-  const stat = statSync(path);
+// `O_NONBLOCK` because opening a FIFO waits for a writer FOREVER and this open
+// is synchronous on the spawn path — a pipe where the ledger should be would
+// freeze the turn rather than merely fail it. `markerHolds` in
+// backend/claude-code.ts carries the same flag for the same reason, with the
+// hang reproduced.
+//
+// Deliberately NOT `O_NOFOLLOW`, which that call site does use: its path lives
+// inside the sandbox-writable workspace, where a planted symlink is the threat.
+// This path is the user's own config dir, and a symlinked config file is a
+// normal dotfile-manager arrangement — refusing it would silently cost the
+// plugins for exactly the users most likely to have one. The `fstat` below
+// still refuses a FIFO or device reached THROUGH a symlink, which is the part
+// that matters here.
+function openLedger(path: string): number | null {
+  try {
+    return openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+  } catch (error) {
+    if (isErrorWithCode(error) && error.code === "ENOENT") return null;
+    log.warn("sandbox", "could not open plugin ledger, leaving it as-is", { path, error: errorMessage(error) });
+    return null;
+  }
+}
+
+// Bounded from the descriptor we already hold, not from the path: a `stat`
+// followed by a `readFile` is two resolutions of the same name and can be raced.
+function readLedgerFrom(handle: number, path: string): unknown {
+  const stat = fstatSync(handle);
+  if (!stat.isFile()) {
+    log.warn("sandbox", "plugin ledger is not a regular file, leaving it as-is", { path });
+    return null;
+  }
   if (stat.size > MAX_LEDGER_BYTES) {
     log.warn("sandbox", "plugin ledger too large to translate, leaving it as-is", { path, bytes: stat.size });
     return null;
   }
-  return JSON.parse(readFileSync(path, "utf-8"));
+  const buffer = Buffer.alloc(stat.size);
+  const bytesRead = readSync(handle, buffer, 0, buffer.length, 0);
+  return JSON.parse(buffer.subarray(0, bytesRead).toString("utf-8"));
 }
 
 // A missing ledger is the ordinary "no plugins installed" state and must stay
 // silent; anything else is logged so a permissions problem is findable rather
 // than reading as "this user has no plugins".
 function readLedgerTolerant(path: string): unknown {
+  const handle = openLedger(path);
+  if (handle === null) return null;
   try {
-    return readLedger(path);
+    return readLedgerFrom(handle, path);
   } catch (error) {
-    if (isErrorWithCode(error) && error.code === "ENOENT") return null;
     log.warn("sandbox", "could not read plugin ledger, leaving it as-is", { path, error: errorMessage(error) });
     return null;
+  } finally {
+    closeSync(handle);
   }
 }
 

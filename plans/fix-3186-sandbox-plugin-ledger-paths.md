@@ -72,14 +72,23 @@ is rejected outright and takes the whole `docker run` down with it.
    - **An entry that cannot be rewritten is left verbatim, never dropped.** Dropping it
      would uninstall a plugin; leaving it reproduces exactly today's behaviour for it.
 2. **`server/agent/pluginLedgerMount.ts` — the fs half.** Reads both ledgers (skipping a
-   missing one, the no-plugins case), rewrites, writes session-scoped copies under
-   `tmpdir()` with `writeFileAtomicSync`, returns the two `-v … :ro` pairs. Returns no
-   mounts when there is nothing to translate.
+   missing one, the no-plugins case), rewrites, writes per-spawn copies under
+   `tmpdir()` with `writeFileAtomicSync`, returns two
+   `--mount type=bind,source=…,target=…,readonly` arguments, and hands back the staging
+   directory for the caller to remove once the container exits. Returns no mounts when
+   there is nothing to translate, and creates no directory in that case.
+
+   **`--mount`, not `-v`** (established during review, measured against the daemon):
+   `-v` splits its fields on `:` and a POSIX `TMPDIR` may contain one, which makes
+   `docker run` reject the whole command and the sandbox fail to start. `--mount` has
+   the mirror-image limit — it cannot carry `,`, a bare `"`, or a control character — so
+   a staging path holding one of those skips translation instead, costing the plugins
+   rather than the container.
 3. **`server/agent/backend/claude-code.ts`** splices those args in beside
    `refDirArgs` — the channel reference dirs already use. The overlay must come after
    the `.claude` directory mount, which that ordering gives.
 
-Keeping the two copies `:ro` is deliberate: it also stops the container writing
+Keeping the two copies read-only is deliberate: it also stops the container writing
 container-shaped paths back into the host's ledger.
 
 ## Not fixed here (state in the PR)
@@ -87,8 +96,12 @@ container-shaped paths back into the host's ledger.
 - A marketplace added from a local path **outside** the config dir still does not load —
   its tree is not mounted at all. Measured: mirror mount and rewrite fail identically, so
   this is neither caused nor worsened here. Separate issue.
-- The `:ro` ledger copies mean an in-container `/plugin install` or marketplace refresh
-  cannot update the ledger.
+- The read-only ledger copies mean an in-container `/plugin install` or marketplace
+  refresh cannot update the ledger.
+- Every other `-v` the sandbox builds folds backslashes unconditionally and splits on
+  `:` the same way (`toDockerPath` in `config.ts`, `sandboxMounts.ts`,
+  `reference-dirs.ts`). Only the mount introduced here is fixed; sweeping the shared
+  helpers changes every mount in the sandbox and needs its own verification.
 
 ## Tests
 
@@ -97,12 +110,23 @@ config dir, traversal rejection, the config dir itself, Windows separator and ca
 malformed ledger shapes surviving untouched, and entries that cannot be rewritten
 surviving verbatim.
 
+`test/agent/test_plugin_ledger_mount.ts` against the fs half: what gets staged, the
+no-op cases creating nothing, a corrupt ledger, removal of the staging, the
+cleanup-on-throw wrapper, a colon surviving into the mount argument, the characters
+`--mount` cannot carry producing no argument, and a FIFO or directory where a ledger
+should be. The FIFO case would HANG rather than fail without the non-blocking open.
+
 End-to-end, the synthetic plugin is driven through the argv the code actually builds and
 the `init` event compared against the host baseline.
 
 ## Docs
 
-- `packages/core/assets/helps/error-recovery.md` — a section for "plugins are silently
-  inert in the sandbox", since the agent reads that file before asking the user anything
-  on a tool failure. Bump `@mulmoclaude/core` when `assets/helps/*` changes.
-- `docs/claude-docker-boundary.md` — a line on where plugins run.
+- `docs/claude-docker-boundary.md` — a section on where plugins run, why the ledgers are
+  translated, and the two debugging notes (`claude plugin list` is not the success
+  signal; a plugin outside the config dir does not load).
+- **No `error-recovery.md` entry**, decided during implementation rather than as
+  planned above: that file is what the agent reads *before asking a clarifying question
+  on a tool failure*, and this failure produces no tool error — the plugins are simply
+  absent, so the agent never sees anything to recover from. Adding a section would also
+  require an `@mulmoclaude/core` bump plus the declared-range sweep, which belongs to a
+  release-shaped PR rather than this one.

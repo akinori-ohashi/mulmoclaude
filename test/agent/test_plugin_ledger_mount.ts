@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pluginLedgerMountArgs, removePluginLedgerStaging, withPluginLedgerCleanup } from "../../server/agent/pluginLedgerMount.ts";
@@ -122,6 +123,34 @@ describe("pluginLedgerMountArgs", () => {
       assert.equal(result.stagingDir, null);
       assert.equal(existsSync(outputDir), false);
     });
+  });
+
+  // Opening a FIFO for read waits for a writer FOREVER, and this open is
+  // synchronous on the spawn path — so a pipe where the ledger should be would
+  // freeze the turn rather than fail it. The test would hang, not fail, if the
+  // descriptor were opened blocking.
+  it("does not hang, and stages nothing, when a ledger is a FIFO", { skip: process.platform === "win32" }, () => {
+    const root = makeRoot();
+    const configDir = join(root, "cfg");
+    mkdirSync(join(configDir, "plugins"), { recursive: true });
+    execFileSync("mkfifo", [join(configDir, "plugins", "known_marketplaces.json")]);
+    writeFileSync(join(configDir, "plugins", "installed_plugins.json"), JSON.stringify({ version: 2, plugins: {} }));
+
+    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out") });
+
+    assert.deepEqual(result.args, []);
+    assert.equal(result.stagingDir, null);
+  });
+
+  // Same rule, reachable on every platform: whatever is at the path, only a
+  // regular file is read from.
+  it("stages nothing when a ledger path is a directory", () => {
+    const root = makeRoot();
+    const configDir = join(root, "cfg");
+    mkdirSync(join(configDir, "plugins", "known_marketplaces.json"), { recursive: true });
+    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out") });
+    assert.deepEqual(result.args, []);
+    assert.equal(result.stagingDir, null);
   });
 
   // A malformed ledger is CLI-internal state we do not control; the sandbox has
