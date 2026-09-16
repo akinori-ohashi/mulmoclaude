@@ -20,6 +20,8 @@ import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { log } from "../system/logger/index.js";
 import { SUBPROCESS_PROBE_TIMEOUT_MS } from "../utils/time.js";
+import { dockerMountArgs } from "./dockerMount.js";
+import type { Platform } from "./config.js";
 
 // ── Config-mount allowlist ──────────────────────────────────────────
 
@@ -122,12 +124,20 @@ function hostPathExists(spec: SandboxMountSpec): boolean {
  * Always read-only. The caller splices these into the full docker
  * argv in `buildDockerSpawnArgs`.
  */
-export function configMountArgs(resolved: readonly SandboxMountSpec[]): string[] {
-  const args: string[] = [];
-  for (const spec of resolved) {
-    args.push("-v", `${toDockerPath(spec.hostPath)}:${spec.containerPath}:ro`);
-  }
-  return args;
+export function configMountArgs(resolved: readonly SandboxMountSpec[], platform: Platform = process.platform): string[] {
+  return resolved.flatMap((spec) => {
+    const mount = dockerMountArgs({ hostPath: spec.hostPath, containerPath: spec.containerPath, readOnly: true }, platform);
+    if (mount.kind === "args") return mount.args;
+    // A credential mount is an opt-in convenience; losing it costs the tool
+    // inside the container, while emitting an argument Docker refuses would
+    // cost the sandbox itself.
+    log.warn("sandbox", "config mount skipped (path cannot be expressed as a docker mount)", {
+      name: spec.name,
+      hostPath: spec.hostPath,
+      reason: mount.reason,
+    });
+    return [];
+  });
 }
 
 // ── SSH agent forward ──────────────────────────────────────────────
@@ -171,9 +181,10 @@ export function sshAgentForwardArgs(
 
   // macOS + Docker Desktop: use the magic VM-internal socket.
   if (platform === "darwin") {
+    const magic = dockerMountArgs({ hostPath: DOCKER_DESKTOP_MAC_SSH_SOCK, containerPath: SSH_AGENT_CONTAINER_SOCK, readOnly: false }, platform);
     return {
-      args: ["-v", `${DOCKER_DESKTOP_MAC_SSH_SOCK}:${SSH_AGENT_CONTAINER_SOCK}`, "-e", `SSH_AUTH_SOCK=${SSH_AGENT_CONTAINER_SOCK}`],
-      skippedReason: null,
+      args: magic.kind === "args" ? [...magic.args, "-e", `SSH_AUTH_SOCK=${SSH_AGENT_CONTAINER_SOCK}`] : [],
+      skippedReason: magic.kind === "args" ? null : magic.reason,
     };
   }
 
@@ -190,8 +201,12 @@ export function sshAgentForwardArgs(
       skippedReason: `SSH_AUTH_SOCK=${sshAuthSock} not found on host`,
     };
   }
+  const mount = dockerMountArgs({ hostPath: sshAuthSock, containerPath: SSH_AGENT_CONTAINER_SOCK, readOnly: false }, platform);
+  if (mount.kind === "inexpressible") {
+    return { args: [], skippedReason: `SSH_AUTH_SOCK=${sshAuthSock} ${mount.reason}` };
+  }
   return {
-    args: ["-v", `${toDockerPath(sshAuthSock)}:${SSH_AGENT_CONTAINER_SOCK}`, "-e", `SSH_AUTH_SOCK=${SSH_AGENT_CONTAINER_SOCK}`],
+    args: [...mount.args, "-e", `SSH_AUTH_SOCK=${SSH_AGENT_CONTAINER_SOCK}`],
     skippedReason: null,
   };
 }
@@ -323,10 +338,3 @@ function resolveGhTokenFallback(requestedNames: readonly string[], parsed: Parse
 }
 
 // ── Utilities ──────────────────────────────────────────────────────
-
-// Docker accepts POSIX-style paths even on Windows when using
-// Docker Desktop, and the rest of the codebase already uses this
-// helper in buildDockerSpawnArgs.
-function toDockerPath(hostPath: string): string {
-  return hostPath.replace(/\\/g, "/");
-}

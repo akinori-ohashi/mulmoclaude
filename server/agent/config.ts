@@ -10,6 +10,7 @@ import type { McpServerSpec, PreparedMcpServerSpec } from "../system/config.js";
 import type { ChatModel, EffortLevel } from "../../src/config/models.js";
 import { startStdioHttpShim, type ShimHandle } from "./stdioHttpShim.js";
 import { claudeConfigDir, claudeConfigJson } from "../utils/claudeConfigPath.js";
+import { requiredMountArgs, toDockerSource, type DockerMountSpec } from "./dockerMount.js";
 import { getCurrentToken } from "../api/auth/token.js";
 import { ONE_MINUTE_MS } from "../utils/time.js";
 import type { Attachment } from "@mulmobridge/protocol";
@@ -962,19 +963,22 @@ export function workspaceModuleMounts(packageRoot: string, platform: Platform, t
 // `npm link` that copied the full repo, not just the published `files`). A true
 // npx install has a distinct `packageRoot` and NO `packages/`, which is the only
 // shape this mount serves.
-function nestedNodeModulesMount(projectRoot: string, packageRoot: string, toDocker: (hostPath: string) => string): string[] {
+function nestedNodeModulesMount(projectRoot: string, packageRoot: string, platform: Platform): string[] {
   if (packageRoot === projectRoot) return [];
   if (existsSync(join(packageRoot, "packages"))) return [];
   const nested = join(packageRoot, "node_modules");
   if (!existsSync(nested)) return [];
-  return ["-v", `${toDocker(nested)}:${CONTAINER_WORKSPACE_MODULES_PATH}:ro`];
+  return requiredMountArgs({ hostPath: nested, containerPath: CONTAINER_WORKSPACE_MODULES_PATH, readOnly: true }, platform);
 }
 
 // Pure helper that returns the full `docker run ... claude <args>`
 // argv array. Extracted from runAgent so the long flag list can be
 // inspected and tested without spawning a real subprocess.
-// Windows host paths use `\`; Docker's `-v` wants `/`. Pure.
-const toDockerPath = (hostPath: string): string => hostPath.replace(/\\/g, "/");
+//
+// Host paths reach Docker through `dockerMount.ts`, which owns the separator
+// rule (Windows only — a backslash is an ordinary POSIX filename character) and
+// picks `-v` or `--mount` per path, since neither flag can carry every one
+// (#3191).
 
 // Cap/user posture. With SSH-agent forwarding the entrypoint needs 5 caps +
 // HOST_UID/GID to fix /etc/passwd + chown/chmod the socket, then drops them on
@@ -1014,23 +1018,26 @@ interface DockerBindMountOpts {
 // #1770); server/src come from packageRoot (repo root in dev, the installed
 // package in npx). Pure given its inputs. Extracted to keep buildDockerSpawnArgs
 // under the max-lines threshold.
+// Every mount here is one the sandbox cannot run without — the app's own code,
+// the workspace, the CLI's config — so a path no docker flag can express raises
+// rather than being skipped. `requiredMountArgs` names the path in the message.
 export function dockerBindMountArgs(opts: DockerBindMountOpts): string[] {
+  const required: DockerMountSpec[] = [
+    { hostPath: join(opts.projectRoot, "node_modules"), containerPath: "/app/node_modules", readOnly: true },
+    { hostPath: join(opts.packageRoot, "server"), containerPath: "/app/server", readOnly: true },
+    { hostPath: join(opts.packageRoot, "src"), containerPath: "/app/src", readOnly: true },
+  ];
+  const trailing: DockerMountSpec[] = [
+    { hostPath: opts.workspacePath, containerPath: CONTAINER_WORKSPACE_PATH, readOnly: false },
+    { hostPath: claudeConfigDir(opts.homeDir), containerPath: "/home/node/.claude", readOnly: false },
+    { hostPath: claudeConfigJson(opts.homeDir), containerPath: "/home/node/.claude.json", readOnly: false },
+  ];
   return [
-    "-v",
-    `${toDockerPath(opts.projectRoot)}/node_modules:/app/node_modules:ro`,
-    "-v",
-    `${toDockerPath(opts.packageRoot)}/server:/app/server:ro`,
-    "-v",
-    `${toDockerPath(opts.packageRoot)}/src:/app/src:ro`,
+    ...required.flatMap((spec) => requiredMountArgs(spec, opts.platform)),
     ...opts.packagesMount,
-    ...workspaceModuleMounts(opts.packageRoot, opts.platform, toDockerPath),
-    ...nestedNodeModulesMount(opts.projectRoot, opts.packageRoot, toDockerPath),
-    "-v",
-    `${toDockerPath(opts.workspacePath)}:${CONTAINER_WORKSPACE_PATH}`,
-    "-v",
-    `${toDockerPath(claudeConfigDir(opts.homeDir))}:/home/node/.claude`,
-    "-v",
-    `${toDockerPath(claudeConfigJson(opts.homeDir))}:/home/node/.claude.json`,
+    ...workspaceModuleMounts(opts.packageRoot, opts.platform, (hostPath) => toDockerSource(hostPath, opts.platform)),
+    ...nestedNodeModulesMount(opts.projectRoot, opts.packageRoot, opts.platform),
+    ...trailing.flatMap((spec) => requiredMountArgs(spec, opts.platform)),
   ];
 }
 
@@ -1056,7 +1063,9 @@ export function buildDockerSpawnArgs(params: DockerSpawnArgsParams): string[] {
   // is absent so `docker run` doesn't error on a missing source path
   // in packaged installs (#1770 Docker-side gap @ystknsh flagged).
   const packagesDir = join(packageRoot, "packages");
-  const packagesMount: string[] = existsSync(packagesDir) ? ["-v", `${toDockerPath(packagesDir)}:/app/packages:ro`] : [];
+  const packagesMount: string[] = existsSync(packagesDir)
+    ? requiredMountArgs({ hostPath: packagesDir, containerPath: "/app/packages", readOnly: true }, platform)
+    : [];
 
   return [
     "run",

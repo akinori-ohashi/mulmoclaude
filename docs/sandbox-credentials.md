@@ -86,7 +86,7 @@ Set `SANDBOX_MOUNT_CONFIGS=<names>` to a comma-separated list of names from the 
 | `gh` | `~/.config/gh` | `/home/node/.config/gh` | dir | `gh` CLI (`gh issue list`, `gh pr create`, etc.). Also makes `git push` to GitHub over HTTPS work via the `gh` credential helper. |
 | `gitconfig` | `~/.gitconfig` | `/home/node/.gitconfig` | file | `user.name`, `user.email`, signing key, global aliases. Needed to let `git commit` record an author identity. |
 
-All mounts are **read-only** (`:ro`). The container cannot write back to your host config.
+All mounts are **read-only**. The container cannot write back to your host config. (The flag that carries it is `-v … :ro`, or `--mount …,readonly` when the path holds a character `-v` cannot express — see [`claude-docker-boundary.md`](claude-docker-boundary.md#how-a-host-path-becomes-a-mount-argument).)
 
 ### Adding a new tool
 
