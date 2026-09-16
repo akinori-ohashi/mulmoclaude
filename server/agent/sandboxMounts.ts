@@ -119,25 +119,57 @@ function hostPathExists(spec: SandboxMountSpec): boolean {
 
 // ── Docker arg generation ──────────────────────────────────────────
 
+export interface ConfigMountPlan {
+  /** Docker argv fragment for the mounts that can be expressed. */
+  args: string[];
+  /** The specs those arguments actually mount. */
+  attached: SandboxMountSpec[];
+  /** Resolved on the host, but no docker flag can carry the path. */
+  skipped: { spec: SandboxMountSpec; reason: string }[];
+}
+
+/**
+ * Decide which resolved config mounts can be expressed as a docker argument.
+ *
+ * Pure, and separate from the logging, because THREE surfaces have to agree
+ * about what is attached — the docker argv, the startup log, and
+ * `GET /api/sandbox` — and two of them used to derive it from the resolved list
+ * instead. Before #3191 nothing was ever skipped, so they could not disagree;
+ * now they can, and a credential the user believes is in the container but is
+ * not is the worst direction for that to be wrong in.
+ */
+export function planConfigMounts(resolved: readonly SandboxMountSpec[], platform: Platform = process.platform): ConfigMountPlan {
+  const plan: ConfigMountPlan = { args: [], attached: [], skipped: [] };
+  resolved.forEach((spec) => {
+    const mount = dockerMountArgs({ hostPath: spec.hostPath, containerPath: spec.containerPath, readOnly: true }, platform);
+    if (mount.kind === "args") {
+      plan.args.push(...mount.args);
+      plan.attached.push(spec);
+      return;
+    }
+    // A credential mount is an opt-in convenience; losing it costs the tool
+    // inside the container, while emitting an argument Docker refuses would
+    // cost the sandbox itself.
+    plan.skipped.push({ spec, reason: mount.reason });
+  });
+  return plan;
+}
+
+function logSkippedConfigMounts(skipped: readonly { spec: SandboxMountSpec; reason: string }[]): void {
+  skipped.forEach(({ spec, reason }) => {
+    log.warn("sandbox", "config mount skipped (path cannot be expressed as a docker mount)", { name: spec.name, hostPath: spec.hostPath, reason });
+  });
+}
+
 /**
  * Return the `-v ...` argument pairs for the given resolved mounts.
  * Always read-only. The caller splices these into the full docker
  * argv in `buildDockerSpawnArgs`.
  */
 export function configMountArgs(resolved: readonly SandboxMountSpec[], platform: Platform = process.platform): string[] {
-  return resolved.flatMap((spec) => {
-    const mount = dockerMountArgs({ hostPath: spec.hostPath, containerPath: spec.containerPath, readOnly: true }, platform);
-    if (mount.kind === "args") return mount.args;
-    // A credential mount is an opt-in convenience; losing it costs the tool
-    // inside the container, while emitting an argument Docker refuses would
-    // cost the sandbox itself.
-    log.warn("sandbox", "config mount skipped (path cannot be expressed as a docker mount)", {
-      name: spec.name,
-      hostPath: spec.hostPath,
-      reason: mount.reason,
-    });
-    return [];
-  });
+  const plan = planConfigMounts(resolved, platform);
+  logSkippedConfigMounts(plan.skipped);
+  return plan.args;
 }
 
 // ── SSH agent forward ──────────────────────────────────────────────
@@ -230,6 +262,8 @@ export interface ResolveSandboxAuthParams {
   configMountNames: readonly string[];
   sshAuthSock?: string | undefined;
   home?: string | undefined;
+  /** Test seam; production gets the host platform. */
+  platform?: Platform | undefined;
 }
 
 /**
@@ -276,10 +310,15 @@ export function resolveSandboxAuth(params: ResolveSandboxAuthParams): ResolvedSa
   // var instead. Only runs when "gh" was explicitly requested.
   const ghTokenArgs = resolveGhTokenFallback(params.configMountNames, parsed);
 
-  const args = [...configMountArgs(parsed.resolved), ...sshResult.args, ...sshAllowedHostsArgs, ...ghTokenArgs.args];
+  // `plan.attached`, not `parsed.resolved`: the log below says "attached to
+  // container", and a path no docker flag can express is resolved on the host
+  // without reaching the container at all (#3191).
+  const configPlan = planConfigMounts(parsed.resolved, params.platform);
+  logSkippedConfigMounts(configPlan.skipped);
+  const args = [...configPlan.args, ...sshResult.args, ...sshAllowedHostsArgs, ...ghTokenArgs.args];
   const allowedHostsSuffix = sshResult.args.length > 0 && params.sshAllowedHosts ? ` → hosts: ${params.sshAllowedHosts}` : "";
   const appliedDescriptions = [
-    ...parsed.resolved.map((spec) => `${spec.name} (${spec.description})`),
+    ...configPlan.attached.map((spec) => `${spec.name} (${spec.description})`),
     ...(sshResult.args.length > 0 ? [`ssh-agent forward${allowedHostsSuffix}`] : []),
     ...(ghTokenArgs.args.length > 0 ? ["gh CLI (GH_TOKEN fallback)"] : []),
   ];

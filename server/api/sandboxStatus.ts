@@ -12,7 +12,7 @@
 // `resolveSandboxAuth`. Exposing host paths to the browser is an
 // intentional non-goal (see #329).
 
-import { buildAllowedConfigMounts, resolveMountNames, sshAgentForwardArgs } from "../agent/sandboxMounts.js";
+import { buildAllowedConfigMounts, planConfigMounts, resolveMountNames, sshAgentForwardArgs } from "../agent/sandboxMounts.js";
 
 export interface SandboxStatus {
   /** True iff the host SSH agent socket is bound into the container. */
@@ -57,8 +57,15 @@ export function buildSandboxStatus(params: BuildSandboxStatusParams): SandboxSta
   const ssh = sshAgentForwardArgs(params.sshAgentForward, params.sshAuthSock, params.platform);
   const sshAgent = ssh.args.length > 0;
 
+  // The names that reach the CONTAINER, not the ones resolved on the host: a
+  // path no docker flag can express is skipped at spawn, and this payload's
+  // whole contract is "what is actually attached" (#3191). `planConfigMounts`
+  // is the same decision the spawn path makes, and it does not log — the status
+  // endpoint is polled, and the warning belongs to the spawn.
+  const plan = planConfigMounts(parsed.resolved, params.platform);
+
   return {
     sshAgent,
-    mounts: parsed.resolved.map((mount) => mount.name),
+    mounts: plan.attached.map((mount) => mount.name),
   };
 }

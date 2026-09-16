@@ -8,6 +8,8 @@ import {
   buildAllowedConfigMounts,
   resolveMountNames,
   configMountArgs,
+  planConfigMounts,
+  resolveSandboxAuth,
   sshAgentForwardArgs,
   SSH_AGENT_CONTAINER_SOCK,
 } from "../../server/agent/sandboxMounts.js";
@@ -15,8 +17,13 @@ import {
 // Use an isolated temp HOME so these tests don't depend on whether
 // the developer running CI actually has ~/.config/gh or a ~/.gitconfig.
 
-function makeFixtureHome(opts: { gh?: boolean; gitconfig?: boolean }): string {
-  const dir = makeTempDir("sandbox-mounts-");
+// `awkwardName` puts the fixture home inside a directory whose NAME carries the
+// characters under test, which is the only way a resolved config path acquires
+// one — the allowlist joins fixed segments onto `$HOME`.
+function makeFixtureHome(opts: { gh?: boolean; gitconfig?: boolean }, awkwardName?: string): string {
+  const root = makeTempDir("sandbox-mounts-");
+  const dir = awkwardName === undefined ? root : path.join(root, awkwardName);
+  if (awkwardName !== undefined) mkdirSync(dir, { recursive: true });
   if (opts.gh) {
     const ghDir = path.join(dir, ".config", "gh");
     mkdirSync(ghDir, { recursive: true });
@@ -134,6 +141,56 @@ describe("configMountArgs", () => {
 
   it("empty input → empty args", () => {
     assert.deepEqual(configMountArgs([]), []);
+  });
+});
+
+// Three surfaces claim to report what is ATTACHED — the docker argv, the startup
+// log, and GET /api/sandbox. Before #3191 nothing was ever skipped, so they could
+// not disagree; once a path can be inexpressible they can, and the dangerous
+// direction is claiming a credential reached the container when it did not.
+describe("planConfigMounts — attached is what the container actually gets", () => {
+  it("splits resolved specs into attached and skipped", () => {
+    const home = makeFixtureHome({ gh: true, gitconfig: true });
+    const { resolved } = resolveMountNames(["gh", "gitconfig"], buildAllowedConfigMounts(home));
+    const plan = planConfigMounts(resolved, "linux");
+    assert.deepEqual(
+      plan.attached.map((spec) => spec.name),
+      ["gh", "gitconfig"],
+    );
+    assert.deepEqual(plan.skipped, []);
+    assert.equal(plan.args.length, 4);
+  });
+
+  // A home holding both a colon and a comma cannot be carried by either flag.
+  it("reports a spec no docker flag can express as skipped, not attached", () => {
+    const home = makeFixtureHome({ gh: true, gitconfig: true }, "with:colon,and-comma");
+    const { resolved } = resolveMountNames(["gitconfig"], buildAllowedConfigMounts(home));
+    assert.equal(resolved.length, 1, "the host path exists, so it resolves");
+
+    const plan = planConfigMounts(resolved, "linux");
+    assert.deepEqual(plan.args, [], "nothing can be mounted");
+    assert.deepEqual(plan.attached, [], "so nothing may be reported as attached");
+    assert.deepEqual(
+      plan.skipped.map(({ spec }) => spec.name),
+      ["gitconfig"],
+    );
+  });
+});
+
+describe("resolveSandboxAuth — the startup summary matches the argv", () => {
+  it("omits a mount that could not be expressed from the attached list", () => {
+    const home = makeFixtureHome({ gitconfig: true }, "with:colon,and-comma");
+    const auth = resolveSandboxAuth({ sshAgentForward: false, configMountNames: ["gitconfig"], home, platform: "linux" });
+    assert.deepEqual(auth.args, [], "no docker argument was produced");
+    assert.deepEqual(auth.appliedDescriptions, [], "so the log must not say it was attached");
+  });
+
+  it("still reports a mount that was expressed", () => {
+    const home = makeFixtureHome({ gitconfig: true });
+    const auth = resolveSandboxAuth({ sshAgentForward: false, configMountNames: ["gitconfig"], home, platform: "linux" });
+    assert.equal(auth.args[0], "-v");
+    assert.equal(auth.appliedDescriptions.length, 1);
+    assert.match(auth.appliedDescriptions[0] ?? "", /^gitconfig /);
   });
 });
 
