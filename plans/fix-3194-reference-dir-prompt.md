@@ -52,6 +52,15 @@ turn, so the warning belongs to the spawn path alone. The log line now says
 "not mounted, and not offered to the agent", because that is the fact an operator
 needs — the old wording only mentioned the mount.
 
+**The two skips keep their different log levels**, which collapsing them into one
+code path nearly cost. A missing directory logged at `info` and an unmountable
+path at `warn`; one path gave them one `info`, so a directory that can never
+mount until the user renames it lost its warning. `skipped` carries
+`kind: "missing" | "unmountable"` and the log site picks from it — the
+discriminator lives on the plan, where the branch context is, rather than being
+re-derived at the log site from the human-readable reason string, which would
+couple behaviour to wording.
+
 ## Not doing
 
 `server/api/routes/files.ts` resolves `@ref/<label>` on the HOST with
@@ -67,3 +76,15 @@ deleted one are neither mounted nor offered; the arg count and the prompt line
 count agree entry for entry; without Docker a colon-and-comma path IS offered
 while a deleted one is not. Break-verified — four go red when the prompt is
 restored to listing every entry.
+
+Two more came out of the review. One pins the `missing` / `unmountable`
+discriminator. The other pins the **dispatch**, because the discriminator is only
+the intermediate value: a test over `kind` stays green if the log site is changed
+to always-`info`, which is exactly how the level regression got in. That one
+spies on `log.info` / `log.warn` and is break-verified against both mutations —
+always-`info` and always-`warn` each turn it red.
+
+Note for whoever runs these: the file as a whole cannot run where `$HOME` is not
+writable, because a pre-existing helper does `mkdtemp` there. That is #3196, not
+this change; the tests added here use `tmpdir` and run under
+`--test-name-pattern "prompt may only name what is reachable"`.
