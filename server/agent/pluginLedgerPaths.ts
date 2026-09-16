@@ -46,77 +46,103 @@ function sameSegment(left: string, right: string, sep: string): boolean {
   return sep === WINDOWS_SEPARATOR ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
+/** A host tree that is bind-mounted into the container, and where it lands.
+ *  The config dir is always one; a marketplace registered from a local path
+ *  outside it is another, mounted on purpose so its plugins can load (#3198). */
+export interface HostPathMapping {
+  hostRoot: string;
+  containerRoot: string;
+}
+
 /**
  * The container spelling of a host path recorded in a plugin ledger, or `null`
  * when the value is not ours to rewrite.
  *
  * `null` covers three cases, and all three mean "leave it exactly as it is":
- * a value outside the config dir (a marketplace added from a local path is a
- * supported shape — its tree simply isn't mounted, so no spelling helps), a
- * value whose path BELOW the config dir carries `.` / `..` segments (the line
- * #3184 drew: a corrupt ledger), and anything that isn't a non-empty string.
+ * a value under none of the mounted roots (nothing carries it into the
+ * container, so no spelling helps), a value whose path BELOW its root carries
+ * `.` / `..` segments (the line #3184 drew: a corrupt ledger), and anything
+ * that isn't a non-empty string.
+ *
+ * The LONGEST matching root wins, so a mapping nested inside another cannot be
+ * shadowed by it — the caller does not have to order the list correctly, which
+ * is the kind of contract that is obeyed until it isn't.
  *
  * Compared segment by segment, and the result rebuilt from the ORIGINAL
  * segments, because case folding is NOT length-preserving: `İ`.toLowerCase()
  * is two code units, so slicing the original by a folded prefix's length eats
  * the first character of the relative path and `plugins` becomes `lugins`.
  */
-export function toContainerConfigPath(hostConfigDir: string, value: unknown, sep: string): string | null {
-  if (!isNonEmptyString(value) || !isNonEmptyString(hostConfigDir)) return null;
+export function toContainerPath(mappings: readonly HostPathMapping[], value: unknown, sep: string): string | null {
+  if (!isNonEmptyString(value)) return null;
+  const usable = mappings.filter((mapping) => isNonEmptyString(mapping.hostRoot) && isNonEmptyString(mapping.containerRoot));
+  const bySpecificity = [...usable].sort((left, right) => splitSegments(right.hostRoot, sep).length - splitSegments(left.hostRoot, sep).length);
+  for (const mapping of bySpecificity) {
+    const translated = underRoot(mapping, value, sep);
+    if (translated !== null) return translated;
+  }
+  return null;
+}
 
-  const dirSegments = splitSegments(hostConfigDir, sep);
+/** The config dir alone — the mapping every sandbox has. */
+export function toContainerConfigPath(hostConfigDir: string, value: unknown, sep: string): string | null {
+  return toContainerPath([{ hostRoot: hostConfigDir, containerRoot: CONTAINER_CLAUDE_CONFIG_DIR }], value, sep);
+}
+
+function underRoot(mapping: HostPathMapping, value: string, sep: string): string | null {
+  const dirSegments = splitSegments(mapping.hostRoot, sep);
   const valueSegments = splitSegments(value, sep);
   if (valueSegments.length < dirSegments.length) return null;
   if (!dirSegments.every((segment, index) => sameSegment(segment, valueSegments[index] ?? "", sep))) return null;
 
   const relative = valueSegments.slice(dirSegments.length).join("/");
-  if (relative.length === 0) return CONTAINER_CLAUDE_CONFIG_DIR;
+  if (relative.length === 0) return mapping.containerRoot;
 
-  // Only the part BELOW the config dir is asked about: that is the half which
-  // could escape, since the prefix is replaced wholesale. Guarding the whole
-  // value instead would let a `CLAUDE_CONFIG_DIR` spelled with a `.` segment
-  // reject every plugin under it — silently, which is this bug's own shape.
+  // Only the part BELOW the root is asked about: that is the half which could
+  // escape, since the prefix is replaced wholesale. Guarding the whole value
+  // instead would let a root spelled with a `.` segment reject everything under
+  // it — silently, which is this bug's own shape.
   if (hasTraversalSegment(relative)) return null;
 
-  return `${CONTAINER_CLAUDE_CONFIG_DIR}/${relative}`;
+  return `${mapping.containerRoot}/${relative}`;
 }
 
 // A value we cannot translate is kept VERBATIM, never dropped. This file
 // produces what the CLI reads, so dropping an entry would uninstall a plugin;
 // keeping it reproduces exactly the behaviour that entry has today.
-function translatedOr(original: unknown, hostConfigDir: string, sep: string): unknown {
-  return toContainerConfigPath(hostConfigDir, original, sep) ?? original;
+function translatedOr(original: unknown, mappings: readonly HostPathMapping[], sep: string): unknown {
+  return toContainerPath(mappings, original, sep) ?? original;
 }
 
-function rewriteMarketplaceEntry(entry: unknown, hostConfigDir: string, sep: string): unknown {
+function rewriteMarketplaceEntry(entry: unknown, mappings: readonly HostPathMapping[], sep: string): unknown {
   if (!isRecord(entry) || !(MARKETPLACE_LOCATION_KEY in entry)) return entry;
-  return { ...entry, [MARKETPLACE_LOCATION_KEY]: translatedOr(entry[MARKETPLACE_LOCATION_KEY], hostConfigDir, sep) };
+  return { ...entry, [MARKETPLACE_LOCATION_KEY]: translatedOr(entry[MARKETPLACE_LOCATION_KEY], mappings, sep) };
 }
 
 /** `known_marketplaces.json` — a flat map of marketplace name to a record
  *  carrying `installLocation`. Anything that doesn't match that shape is
  *  returned untouched: this is CLI-internal state, not a published contract. */
-export function rewriteKnownMarketplaces(ledger: unknown, hostConfigDir: string, sep: string): unknown {
+export function rewriteKnownMarketplaces(ledger: unknown, mappings: readonly HostPathMapping[], sep: string): unknown {
   if (!isRecord(ledger)) return ledger;
-  const entries = Object.entries(ledger).map(([name, entry]): [string, unknown] => [name, rewriteMarketplaceEntry(entry, hostConfigDir, sep)]);
+  const entries = Object.entries(ledger).map(([name, entry]): [string, unknown] => [name, rewriteMarketplaceEntry(entry, mappings, sep)]);
   return Object.fromEntries(entries);
 }
 
-function rewriteInstallEntry(install: unknown, hostConfigDir: string, sep: string): unknown {
+function rewriteInstallEntry(install: unknown, mappings: readonly HostPathMapping[], sep: string): unknown {
   if (!isRecord(install) || !(PLUGIN_INSTALL_PATH_KEY in install)) return install;
-  return { ...install, [PLUGIN_INSTALL_PATH_KEY]: translatedOr(install[PLUGIN_INSTALL_PATH_KEY], hostConfigDir, sep) };
+  return { ...install, [PLUGIN_INSTALL_PATH_KEY]: translatedOr(install[PLUGIN_INSTALL_PATH_KEY], mappings, sep) };
 }
 
-function rewriteInstallList(installs: unknown, hostConfigDir: string, sep: string): unknown {
+function rewriteInstallList(installs: unknown, mappings: readonly HostPathMapping[], sep: string): unknown {
   if (!isUnknownArray(installs)) return installs;
-  return installs.map((install) => rewriteInstallEntry(install, hostConfigDir, sep));
+  return installs.map((install) => rewriteInstallEntry(install, mappings, sep));
 }
 
 /** `installed_plugins.json` — `{ version, plugins: { "<plugin>@<marketplace>":
  *  [{ installPath, ... }] } }`. The `version` field and any other sibling key
  *  ride through unchanged so a future shape change costs nothing here. */
-export function rewriteInstalledPlugins(ledger: unknown, hostConfigDir: string, sep: string): unknown {
+export function rewriteInstalledPlugins(ledger: unknown, mappings: readonly HostPathMapping[], sep: string): unknown {
   if (!isRecord(ledger) || !isRecord(ledger.plugins)) return ledger;
-  const plugins = Object.entries(ledger.plugins).map(([key, installs]): [string, unknown] => [key, rewriteInstallList(installs, hostConfigDir, sep)]);
+  const plugins = Object.entries(ledger.plugins).map(([key, installs]): [string, unknown] => [key, rewriteInstallList(installs, mappings, sep)]);
   return { ...ledger, plugins: Object.fromEntries(plugins) };
 }

@@ -94,10 +94,15 @@ Two things to know when debugging this:
   while the agent still receives nothing. Read the `init` event of
   `claude -p --output-format stream-json --verbose` instead: it carries the
   session's slash commands, tools and `mcp_servers`.
-- **A plugin installed OUTSIDE the config dir does not load.**
-  `plugin marketplace add <local path>` is a supported shape, but that tree is
-  not bind-mounted, so no amount of path translation reaches it. Such entries
-  are deliberately passed through untouched rather than rewritten.
+- **A plugin registered from OUTSIDE the config dir is mounted too** (#3198).
+  `plugin marketplace add <local path>` is the plugin author's ordinary
+  workflow, and that tree is carried by no other mount — so it gets its own,
+  read-only, at `/mnt/plugin-src/<name>-<hash>`, and the ledger is translated to
+  point there. The path must pass the same blocklist reference directories use
+  (`server/utils/sensitiveMountPaths.ts`): `$HOME` itself, `.ssh`, `.aws`,
+  `.gnupg`, `.config/gh`, `.kube`, `.docker`, the system directories and the
+  filesystem root are refused whatever the ledger says, and such an entry is
+  left untranslated rather than mounted.
 
 ## How a host path becomes a mount argument
 

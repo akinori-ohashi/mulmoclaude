@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { pluginLedgerMountArgs, removePluginLedgerStaging, withPluginLedgerCleanup } from "../../server/agent/pluginLedgerMount.ts";
+import { externalPluginTrees, pluginLedgerMountArgs, removePluginLedgerStaging, withPluginLedgerCleanup } from "../../server/agent/pluginLedgerMount.ts";
 import { CONTAINER_CLAUDE_CONFIG_DIR } from "../../server/agent/pluginLedgerPaths.ts";
 
 const PLATFORM = "linux";
@@ -33,13 +33,55 @@ describe("pluginLedgerMountArgs", () => {
     assert.equal(result.stagingDir, null);
   });
 
-  // Every plugin lives outside the config dir: nothing to translate, so the argv
-  // must come back exactly as it would have without this feature.
-  it("stages nothing when no recorded path is under the config dir", () => {
+  // This case used to assert `args: []` — the old behaviour, where a marketplace
+  // outside the config dir simply did not load in the sandbox. #3198 mounts the
+  // tree instead, so the expectation inverts: the limitation was the bug.
+  it("mounts a tree outside the config dir and points the ledger at it", () => {
     const root = makeRoot();
     const configDir = join(root, "cfg");
-    writeLedgers(configDir, { ext: { installLocation: "/elsewhere/mp" } }, { version: 2, plugins: { "p@ext": [{ installPath: "/elsewhere/mp/plugins/p" }] } });
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out") });
+    const external = join(root, "elsewhere", "mp");
+    mkdirSync(external, { recursive: true });
+    writeLedgers(configDir, { ext: { installLocation: external } }, { version: 2, plugins: { "p@ext": [{ installPath: join(external, "plugins", "p") }] } });
+
+    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
+
+    const treeMount = result.args.find((arg) => arg.startsWith(`${external}:`));
+    assert.ok(treeMount, `expected the external tree to be mounted, got ${JSON.stringify(result.args)}`);
+    const [, containerRoot] = treeMount.split(":");
+    assert.match(containerRoot ?? "", /^\/mnt\/plugin-src\//);
+    assert.ok(treeMount.endsWith(":ro"), "a plugin tree is mounted read-only");
+
+    // And the staged ledger points INTO that mount, not at the host path.
+    const staged: unknown = JSON.parse(readFileSync(join(root, "out", "installed_plugins.json"), "utf-8"));
+    assert.deepEqual(staged, { version: 2, plugins: { "p@ext": [{ installPath: `${containerRoot}/plugins/p` }] } });
+  });
+
+  // The tree mount is a plain directory; the ledger copies overlay files inside
+  // the config-dir mount, and an overlay has to follow what it sits on.
+  it("orders the tree mount before the ledger overlays", () => {
+    const root = makeRoot();
+    const configDir = join(root, "cfg");
+    const external = join(root, "elsewhere", "mp");
+    mkdirSync(external, { recursive: true });
+    writeLedgers(configDir, { ext: { installLocation: external } }, { version: 2, plugins: {} });
+
+    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
+    const treeIndex = result.args.findIndex((arg) => arg.startsWith(`${external}:`));
+    const overlayIndex = result.args.findIndex((arg) => arg.includes("known_marketplaces.json:"));
+    assert.ok(treeIndex >= 0 && overlayIndex >= 0);
+    assert.ok(treeIndex < overlayIndex, "the tree must be mounted before the overlay that references it");
+  });
+
+  // A sensitive path is refused whatever the ledger says, so the ledger keeps
+  // its host path and nothing new is mounted.
+  it("stages nothing when the only external tree is one the sandbox must never see", () => {
+    const root = makeRoot();
+    const configDir = join(root, "cfg");
+    const secret = join(root, ".ssh");
+    mkdirSync(secret, { recursive: true });
+    writeLedgers(configDir, { ext: { installLocation: secret } }, { version: 2, plugins: {} });
+
+    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
     assert.deepEqual(result.args, []);
     assert.equal(result.stagingDir, null);
   });
@@ -241,5 +283,69 @@ describe("withPluginLedgerCleanup", () => {
         throw new Error("boom");
       }),
     );
+  });
+});
+
+// A marketplace registered with `claude plugin marketplace add <local path>` is
+// the plugin author's ordinary workflow, and its tree is outside the config dir
+// — so nothing carries it into the container and the plugin is inert in the
+// sandbox while working on the host (#3198). Mounting the tree and pointing the
+// ledger at the mount is what fixes it.
+describe("externalPluginTrees — what has to be mounted beyond the config dir", () => {
+  const HOME = "/Users/fake";
+  const CONFIG = `${HOME}/.claude`;
+
+  const roots = (candidates: string[]): string[] => externalPluginTrees(candidates, CONFIG, "/", PLATFORM, HOME).map((tree) => tree.hostRoot);
+
+  it("ignores a path already carried by the config-dir mount", () => {
+    assert.deepEqual(roots([`${CONFIG}/plugins/marketplaces/mp`]), []);
+  });
+
+  it("returns a tree outside the config dir", () => {
+    assert.deepEqual(roots([`${HOME}/dev/my-marketplace`]), [`${HOME}/dev/my-marketplace`]);
+  });
+
+  // Two overlapping mounts is a way for the inner one to shadow the outer's
+  // files; the parent already carries the child.
+  it("drops a path whose parent is already being mounted", () => {
+    assert.deepEqual(roots([`${HOME}/dev/mp`, `${HOME}/dev/mp/plugins/one`]), [`${HOME}/dev/mp`]);
+  });
+
+  it("deduplicates the same tree named by both ledgers", () => {
+    assert.deepEqual(roots([`${HOME}/dev/mp`, `${HOME}/dev/mp`]), [`${HOME}/dev/mp`]);
+  });
+
+  it("refuses a relative path or one with traversal segments", () => {
+    assert.deepEqual(roots(["dev/mp", `${HOME}/dev/../dev/mp`]), []);
+  });
+
+  // The blocklist is the one reference directories already use. These are the
+  // paths a bind mount must never expose, whatever the ledger says.
+  [
+    [`${HOME}/.ssh`, "private keys"],
+    [`${HOME}/.aws/credentials-dir`, "cloud credentials"],
+    [HOME, "$HOME itself, which transitively carries all of them"],
+    ["/etc/somewhere", "a system directory"],
+    ["/", "the filesystem root"],
+  ].forEach(([candidate, why]) => {
+    it(`refuses ${why}`, () => {
+      assert.deepEqual(roots([String(candidate)]), []);
+    });
+  });
+
+  it("gives each tree a stable, collision-free container root", () => {
+    const first = externalPluginTrees([`${HOME}/dev/a`, `${HOME}/other/a`], CONFIG, "/", PLATFORM, HOME);
+    const again = externalPluginTrees([`${HOME}/dev/a`], CONFIG, "/", PLATFORM, HOME);
+
+    assert.equal(new Set(first.map((tree) => tree.containerRoot)).size, 2, "same basename, different tree — must not collide");
+    assert.equal(first[0]?.containerRoot, again[0]?.containerRoot, "the same host path must map to the same place every turn");
+    first.forEach((tree) => assert.match(tree.containerRoot, /^\/mnt\/plugin-src\/[A-Za-z0-9._-]+$/));
+  });
+
+  // The readable half is decoration; the hash carries uniqueness. Letting the
+  // host path's punctuation through would put it in a mount TARGET.
+  it("keeps the host path's punctuation out of the container root", () => {
+    const trees = externalPluginTrees([`${HOME}/dev/we:ird,name`], CONFIG, "/", PLATFORM, HOME);
+    assert.match(trees[0]?.containerRoot ?? "", /^\/mnt\/plugin-src\/we_ird_name-[0-9a-f]{8}$/);
   });
 });

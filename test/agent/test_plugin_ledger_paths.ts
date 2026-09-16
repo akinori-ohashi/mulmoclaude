@@ -1,10 +1,18 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { CONTAINER_CLAUDE_CONFIG_DIR, rewriteInstalledPlugins, rewriteKnownMarketplaces, toContainerConfigPath } from "../../server/agent/pluginLedgerPaths.ts";
+import {
+  CONTAINER_CLAUDE_CONFIG_DIR,
+  rewriteInstalledPlugins,
+  rewriteKnownMarketplaces,
+  toContainerConfigPath,
+  toContainerPath,
+} from "../../server/agent/pluginLedgerPaths.ts";
 
 const POSIX_SEP = "/";
 const WINDOWS_SEP = "\\";
 const POSIX_CONFIG_DIR = "/Users/someone/.claude";
+/** The mapping every sandbox has: the config dir alone. */
+const CONFIG_MAPPING = [{ hostRoot: POSIX_CONFIG_DIR, containerRoot: CONTAINER_CLAUDE_CONFIG_DIR }];
 const WINDOWS_CONFIG_DIR = "C:\\Users\\someone\\.claude";
 
 describe("toContainerConfigPath", () => {
@@ -119,7 +127,7 @@ describe("rewriteKnownMarketplaces", () => {
   };
 
   it("rewrites installLocation under the config dir and leaves everything else alone", () => {
-    assert.deepEqual(rewriteKnownMarketplaces(ledger, POSIX_CONFIG_DIR, POSIX_SEP), {
+    assert.deepEqual(rewriteKnownMarketplaces(ledger, CONFIG_MAPPING, POSIX_SEP), {
       "in-config": {
         source: { source: "github", repo: "a/b" },
         installLocation: `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/marketplaces/in-config`,
@@ -131,15 +139,15 @@ describe("rewriteKnownMarketplaces", () => {
 
   it("does not mutate its input", () => {
     const before = JSON.stringify(ledger);
-    rewriteKnownMarketplaces(ledger, POSIX_CONFIG_DIR, POSIX_SEP);
+    rewriteKnownMarketplaces(ledger, CONFIG_MAPPING, POSIX_SEP);
     assert.equal(JSON.stringify(ledger), before);
   });
 
   it("returns malformed shapes untouched", () => {
-    assert.equal(rewriteKnownMarketplaces(null, POSIX_CONFIG_DIR, POSIX_SEP), null);
-    assert.equal(rewriteKnownMarketplaces("nope", POSIX_CONFIG_DIR, POSIX_SEP), "nope");
-    assert.deepEqual(rewriteKnownMarketplaces({ mp: 7 }, POSIX_CONFIG_DIR, POSIX_SEP), { mp: 7 });
-    assert.deepEqual(rewriteKnownMarketplaces({ mp: {} }, POSIX_CONFIG_DIR, POSIX_SEP), { mp: {} });
+    assert.equal(rewriteKnownMarketplaces(null, CONFIG_MAPPING, POSIX_SEP), null);
+    assert.equal(rewriteKnownMarketplaces("nope", CONFIG_MAPPING, POSIX_SEP), "nope");
+    assert.deepEqual(rewriteKnownMarketplaces({ mp: 7 }, CONFIG_MAPPING, POSIX_SEP), { mp: 7 });
+    assert.deepEqual(rewriteKnownMarketplaces({ mp: {} }, CONFIG_MAPPING, POSIX_SEP), { mp: {} });
   });
 });
 
@@ -153,7 +161,7 @@ describe("rewriteInstalledPlugins", () => {
   };
 
   it("rewrites installPath, keeps siblings, and keeps an out-of-config install verbatim", () => {
-    assert.deepEqual(rewriteInstalledPlugins(ledger, POSIX_CONFIG_DIR, POSIX_SEP), {
+    assert.deepEqual(rewriteInstalledPlugins(ledger, CONFIG_MAPPING, POSIX_SEP), {
       version: 2,
       plugins: {
         "plug@mp": [{ scope: "user", installPath: `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/cache/mp/plug/1.0.0`, version: "1.0.0" }],
@@ -171,7 +179,7 @@ describe("rewriteInstalledPlugins", () => {
         ],
       },
     };
-    assert.deepEqual(rewriteInstalledPlugins(multi, POSIX_CONFIG_DIR, POSIX_SEP), {
+    assert.deepEqual(rewriteInstalledPlugins(multi, CONFIG_MAPPING, POSIX_SEP), {
       plugins: {
         "plug@mp": [
           { scope: "user", installPath: `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/cache/a` },
@@ -183,14 +191,58 @@ describe("rewriteInstalledPlugins", () => {
 
   it("does not mutate its input", () => {
     const before = JSON.stringify(ledger);
-    rewriteInstalledPlugins(ledger, POSIX_CONFIG_DIR, POSIX_SEP);
+    rewriteInstalledPlugins(ledger, CONFIG_MAPPING, POSIX_SEP);
     assert.equal(JSON.stringify(ledger), before);
   });
 
   it("returns malformed shapes untouched", () => {
-    assert.equal(rewriteInstalledPlugins(null, POSIX_CONFIG_DIR, POSIX_SEP), null);
-    assert.deepEqual(rewriteInstalledPlugins({ version: 2 }, POSIX_CONFIG_DIR, POSIX_SEP), { version: 2 });
-    assert.deepEqual(rewriteInstalledPlugins({ plugins: { "a@b": "nope" } }, POSIX_CONFIG_DIR, POSIX_SEP), { plugins: { "a@b": "nope" } });
-    assert.deepEqual(rewriteInstalledPlugins({ plugins: { "a@b": [7] } }, POSIX_CONFIG_DIR, POSIX_SEP), { plugins: { "a@b": [7] } });
+    assert.equal(rewriteInstalledPlugins(null, CONFIG_MAPPING, POSIX_SEP), null);
+    assert.deepEqual(rewriteInstalledPlugins({ version: 2 }, CONFIG_MAPPING, POSIX_SEP), { version: 2 });
+    assert.deepEqual(rewriteInstalledPlugins({ plugins: { "a@b": "nope" } }, CONFIG_MAPPING, POSIX_SEP), { plugins: { "a@b": "nope" } });
+    assert.deepEqual(rewriteInstalledPlugins({ plugins: { "a@b": [7] } }, CONFIG_MAPPING, POSIX_SEP), { plugins: { "a@b": [7] } });
+  });
+});
+
+// A sandbox carries the config dir plus, since #3198, one mount per plugin tree
+// registered from a local path outside it. The translation has to serve all of
+// them, and must not depend on the caller ordering the list correctly.
+describe("toContainerPath — several mounted roots", () => {
+  const EXTERNAL = "/Users/someone/dev/my-marketplace";
+  const MAPPINGS = [
+    { hostRoot: POSIX_CONFIG_DIR, containerRoot: CONTAINER_CLAUDE_CONFIG_DIR },
+    { hostRoot: EXTERNAL, containerRoot: "/mnt/plugin-src/my-marketplace-abcd1234" },
+  ];
+
+  it("translates against whichever root the value is under", () => {
+    assert.equal(toContainerPath(MAPPINGS, `${POSIX_CONFIG_DIR}/plugins/cache/x`, POSIX_SEP), `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/cache/x`);
+    assert.equal(toContainerPath(MAPPINGS, `${EXTERNAL}/plugins/p`, POSIX_SEP), "/mnt/plugin-src/my-marketplace-abcd1234/plugins/p");
+  });
+
+  it("maps a root itself to its container root", () => {
+    assert.equal(toContainerPath(MAPPINGS, EXTERNAL, POSIX_SEP), "/mnt/plugin-src/my-marketplace-abcd1234");
+  });
+
+  it("returns null for a value under none of them", () => {
+    assert.equal(toContainerPath(MAPPINGS, "/Users/someone/unrelated", POSIX_SEP), null);
+  });
+
+  // The LONGEST match wins, so a nested mapping is not shadowed by its parent
+  // whatever order the caller passes them in — a contract obeyed until it isn't.
+  it("prefers the most specific root regardless of order", () => {
+    const parent = { hostRoot: "/srv/trees", containerRoot: "/mnt/parent" };
+    const child = { hostRoot: "/srv/trees/one", containerRoot: "/mnt/child" };
+    const value = "/srv/trees/one/plugins/p";
+    assert.equal(toContainerPath([parent, child], value, POSIX_SEP), "/mnt/child/plugins/p");
+    assert.equal(toContainerPath([child, parent], value, POSIX_SEP), "/mnt/child/plugins/p");
+  });
+
+  it("ignores a mapping with an empty root", () => {
+    assert.equal(toContainerPath([{ hostRoot: "", containerRoot: "/mnt/x" }], "/anything", POSIX_SEP), null);
+  });
+
+  // Same rule as the single-root case: the part BELOW the matched root is what
+  // could escape, and a corrupt ledger is left alone rather than rewritten.
+  it("refuses a traversal segment below the matched root", () => {
+    assert.equal(toContainerPath(MAPPINGS, `${EXTERNAL}/plugins/../../etc`, POSIX_SEP), null);
   });
 });

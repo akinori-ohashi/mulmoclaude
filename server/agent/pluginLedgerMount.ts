@@ -8,15 +8,24 @@
 // this fixes, pointing the other way.
 
 import { closeSync, constants, fstatSync, mkdirSync, openSync, readSync, rmSync } from "node:fs";
-import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { basename, isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { writeFileAtomicSync } from "../utils/files/atomic.js";
 import { claudeConfigDir } from "../utils/claudeConfigPath.js";
 import { log } from "../system/logger/index.js";
 import { errorMessage } from "../utils/errors.js";
-import { isErrorWithCode } from "../utils/types.js";
-import { CONTAINER_CLAUDE_CONFIG_DIR, rewriteInstalledPlugins, rewriteKnownMarketplaces } from "./pluginLedgerPaths.js";
+import { hasTraversalSegment } from "../utils/files/safe.js";
+import { isSensitiveMountPath } from "../utils/sensitiveMountPaths.js";
+import { isErrorWithCode, isNonEmptyString, isRecord, isUnknownArray } from "../utils/types.js";
+import {
+  CONTAINER_CLAUDE_CONFIG_DIR,
+  rewriteInstalledPlugins,
+  rewriteKnownMarketplaces,
+  toContainerConfigPath,
+  toContainerPath,
+  type HostPathMapping,
+} from "./pluginLedgerPaths.js";
 import { dockerMountArgs } from "./dockerMount.js";
 import type { Platform } from "./config.js";
 
@@ -31,13 +40,92 @@ const INSTALLED_PLUGINS_FILE = "installed_plugins.json";
 interface LedgerSpec {
   /** Basename inside `<claudeConfigDir>/plugins/`. */
   file: string;
-  rewrite: (ledger: unknown, hostConfigDir: string, sep: string) => unknown;
+  rewrite: (ledger: unknown, mappings: readonly HostPathMapping[], sep: string) => unknown;
+  /** Every host path this ledger records, for deciding what has to be mounted. */
+  recordedPaths: (ledger: unknown) => string[];
 }
 
 const LEDGERS: readonly LedgerSpec[] = [
-  { file: KNOWN_MARKETPLACES_FILE, rewrite: rewriteKnownMarketplaces },
-  { file: INSTALLED_PLUGINS_FILE, rewrite: rewriteInstalledPlugins },
+  { file: KNOWN_MARKETPLACES_FILE, rewrite: rewriteKnownMarketplaces, recordedPaths: marketplaceLocations },
+  { file: INSTALLED_PLUGINS_FILE, rewrite: rewriteInstalledPlugins, recordedPaths: pluginInstallPaths },
 ];
+
+/** Where the container sees a plugin tree that lives OUTSIDE the config dir.
+ *  `claude plugin marketplace add <local path>` is the plugin author's ordinary
+ *  workflow, and no existing mount carries that tree — so without one of these
+ *  the plugin works on the host and is inert in the sandbox (#3198). */
+const CONTAINER_EXTERNAL_PLUGIN_ROOT = "/mnt/plugin-src";
+
+/** A stable, collision-free container directory for one host tree. The hash is
+ *  what makes it stable across turns and unique across trees; the basename is
+ *  decoration, reduced to a safe set so the host path's punctuation cannot
+ *  reach the mount target. */
+function externalContainerRoot(hostRoot: string): string {
+  const hash = createHash("sha256").update(hostRoot).digest("hex").slice(0, 8);
+  const readable = [...basename(hostRoot)].map((character) => (/[A-Za-z0-9._-]/.test(character) ? character : "_")).join("");
+  return `${CONTAINER_EXTERNAL_PLUGIN_ROOT}/${readable.length > 0 ? readable : "tree"}-${hash}`;
+}
+
+function marketplaceLocations(ledger: unknown): string[] {
+  if (!isRecord(ledger)) return [];
+  return Object.values(ledger).flatMap((entry) => (isRecord(entry) && isNonEmptyString(entry.installLocation) ? [entry.installLocation] : []));
+}
+
+function pluginInstallPaths(ledger: unknown): string[] {
+  if (!isRecord(ledger) || !isRecord(ledger.plugins)) return [];
+  return Object.values(ledger.plugins).flatMap((installs) =>
+    isUnknownArray(installs) ? installs.flatMap((install) => (isRecord(install) && isNonEmptyString(install.installPath) ? [install.installPath] : [])) : [],
+  );
+}
+
+/** Whether `candidate` sits inside `root` — used to drop a path whose parent is
+ *  already being mounted, since two overlapping mounts is a way for the inner
+ *  one to shadow files of the outer. The container root is irrelevant here, so
+ *  any placeholder does. */
+function isUnder(candidate: string, root: string, sep: string): boolean {
+  return toContainerPath([{ hostRoot: root, containerRoot: "/x" }], candidate, sep) !== null;
+}
+
+export interface ExternalPluginTree {
+  hostRoot: string;
+  containerRoot: string;
+}
+
+/**
+ * The host trees that must be mounted for the ledgers to resolve, beyond the
+ * config dir the sandbox already carries.
+ *
+ * A path qualifies only when it is absolute, free of `.`/`..` segments, outside
+ * the config dir, and NOT sensitive. The blocklist is the one reference
+ * directories already use: both are "a host path the user chose", and keeping
+ * one rule is what stops the second copy acquiring an entry six months late.
+ *
+ * Read-only, and a smaller exposure than what the sandbox already has — it
+ * mounts `~/.claude`, credentials included. A plugin tree is also code the agent
+ * already runs when it lives in the config dir, so this is not a new class.
+ */
+export function externalPluginTrees(
+  candidates: readonly string[],
+  hostConfigDir: string,
+  sep: string,
+  platform: Platform,
+  home?: string,
+  systemBlocked?: readonly string[],
+): ExternalPluginTree[] {
+  const outside = candidates.filter((candidate) => {
+    if (!isAbsolute(candidate) || hasTraversalSegment(candidate)) return false;
+    if (toContainerConfigPath(hostConfigDir, candidate, sep) !== null) return false;
+    if (isSensitiveMountPath(candidate, { home, platform, systemBlocked })) {
+      log.warn("sandbox", "plugin tree not mounted (the sandbox must never see this path)", { path: candidate });
+      return false;
+    }
+    return true;
+  });
+  const unique = [...new Set(outside)];
+  return unique
+    .filter((candidate) => !unique.some((other) => other !== candidate && isUnder(candidate, other, sep)))
+    .map((hostRoot) => ({ hostRoot, containerRoot: externalContainerRoot(hostRoot) }));
+}
 
 export interface PluginLedgerMountParams {
   /** `process.platform` at the call site. Only `win32` differs, and only in
@@ -47,6 +135,11 @@ export interface PluginLedgerMountParams {
   hostConfigDir?: string;
   /** Test seam for where the rewritten copies land. */
   outputDir?: string;
+  /** Test seam for the sensitive-path blocklist's idea of `$HOME`. */
+  home?: string;
+  /** Test seam for the sensitive-path blocklist's system prefixes — macOS
+   *  `tmpdir()` lives under `/var`, which the real list blocks. */
+  systemBlocked?: readonly string[];
 }
 
 export interface PluginLedgerMounts {
@@ -122,20 +215,42 @@ interface StagedLedger {
   content: string;
 }
 
+interface LedgerPlan {
+  staged: StagedLedger[];
+  /** Trees outside the config dir that the translated ledgers now point into,
+   *  so the caller can mount them. */
+  externalTrees: ExternalPluginTree[];
+}
+
 // Deciding WHAT to stage before creating anywhere to put it: a user with no
-// plugins, or with all of them outside the config dir, must not leave an empty
-// directory behind for every sandbox turn.
-function stageableLedgers(hostConfigDir: string, sep: string): StagedLedger[] {
-  return LEDGERS.flatMap((spec) => {
-    const ledger = readLedgerTolerant(join(hostConfigDir, "plugins", spec.file));
+// plugins must not leave an empty directory behind for every sandbox turn.
+//
+// Both ledgers are read BEFORE either is translated, because the set of trees to
+// mount is a property of the pair: a marketplace's `installLocation` and its
+// plugins' `installPath`s are in different files and have to agree about where
+// the tree landed.
+function planLedgers(hostConfigDir: string, sep: string, platform: Platform, home?: string, systemBlocked?: readonly string[]): LedgerPlan {
+  const read = LEDGERS.map((spec) => ({ spec, ledger: readLedgerTolerant(join(hostConfigDir, "plugins", spec.file)) }));
+  const recorded = read.flatMap(({ spec, ledger }) => (ledger === null ? [] : spec.recordedPaths(ledger)));
+  const externalTrees = externalPluginTrees(recorded, hostConfigDir, sep, platform, home, systemBlocked);
+
+  const mappings: HostPathMapping[] = [
+    { hostRoot: hostConfigDir, containerRoot: CONTAINER_CLAUDE_CONFIG_DIR },
+    ...externalTrees.map(({ hostRoot, containerRoot }) => ({ hostRoot, containerRoot })),
+  ];
+
+  const staged = read.flatMap(({ spec, ledger }) => {
     if (ledger === null) return [];
-    const translated = spec.rewrite(ledger, hostConfigDir, sep);
-    // Nothing under the config dir to translate (every plugin lives elsewhere,
-    // or the file is already container-shaped). Mounting an identical copy would
-    // only add a way for this to go wrong.
+    const translated = spec.rewrite(ledger, mappings, sep);
+    // Nothing to translate (the file is already container-shaped, or every path
+    // in it is one we will not mount). Mounting an identical copy would only add
+    // a way for this to go wrong.
     if (JSON.stringify(translated) === JSON.stringify(ledger)) return [];
     return [{ file: spec.file, content: JSON.stringify(translated, null, 2) }];
   });
+
+  // A tree is only worth mounting if a staged ledger actually points into it.
+  return staged.length === 0 ? { staged: [], externalTrees: [] } : { staged, externalTrees };
 }
 
 // Mount arguments come from the shared `dockerMount` helper so the staging path
@@ -166,7 +281,7 @@ function mountArg(outputDir: string, file: string, platform: Platform): string[]
 export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLedgerMounts {
   const hostConfigDir = params.hostConfigDir ?? claudeConfigDir();
   const sep = params.platform === "win32" ? "\\" : "/";
-  const staged = stageableLedgers(hostConfigDir, sep);
+  const { staged, externalTrees } = planLedgers(hostConfigDir, sep, params.platform, params.home, params.systemBlocked);
   if (staged.length === 0) return { args: [], stagingDir: null };
 
   // One directory per SPAWN, not per session: a turn then owns its staging
@@ -175,10 +290,17 @@ export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLe
   const generated = params.outputDir === undefined;
   const outputDir = params.outputDir ?? join(tmpdir(), "mulmoclaude-plugin-ledger", randomUUID());
   const mounts = staged.map((ledger) => mountArg(outputDir, ledger.file, params.platform));
-  if (mounts.some((mount) => mount === null)) {
+  // A tree the ledger now points into but that cannot be expressed as a mount
+  // would leave the CLI chasing a container path nothing carries — worse than
+  // not translating it, because the host path at least existed. All or nothing.
+  const treeMounts = externalTrees.map((tree) => {
+    const mount = dockerMountArgs({ hostPath: tree.hostRoot, containerPath: tree.containerRoot, readOnly: true }, params.platform);
+    return mount.kind === "args" ? mount.args : null;
+  });
+  if ([...mounts, ...treeMounts].some((mount) => mount === null)) {
     // The plugin ledgers are an addition, not a prerequisite: skipping leaves
     // the sandbox starting exactly as it does without this feature.
-    log.warn("sandbox", "staging path cannot be expressed as a docker mount; plugins will not load in the sandbox", { path: outputDir });
+    log.warn("sandbox", "a path cannot be expressed as a docker mount; plugins will not load in the sandbox", { path: outputDir });
     return { args: [], stagingDir: null };
   }
   try {
@@ -194,7 +316,10 @@ export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLe
     if (generated) removePluginLedgerStaging(outputDir);
     return { args: [], stagingDir: null };
   }
-  return { args: mounts.flatMap((mount) => mount ?? []), stagingDir: outputDir };
+  // The external trees come FIRST: they are plain directory mounts, while the
+  // ledger copies overlay files inside the config-dir mount, and an overlay has
+  // to follow what it sits on.
+  return { args: [...treeMounts.flatMap((mount) => mount ?? []), ...mounts.flatMap((mount) => mount ?? [])], stagingDir: outputDir };
 }
 
 /**
