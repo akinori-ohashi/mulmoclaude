@@ -481,4 +481,33 @@ describe("externalPluginMounts — what has to be mounted beyond the config dir"
     const result = plan([`${HOME}/dev/we:ird,name`]);
     assert.match(result.mounts[0]?.containerPath ?? "", /^\/mnt\/plugin-src\/we_ird_name-[0-9a-f]{8}$/);
   });
+
+  // Docker creates the mount TARGET inside the container, and an overlong
+  // component fails the whole `docker run` — measured against the daemon:
+  // `mkdir …: file name too long`, container never starts. A host basename may
+  // sit at the host's own NAME_MAX, and the hash then pushes the target past it.
+  // That would cost the SANDBOX, which is exactly what the all-or-nothing rule
+  // exists to prevent.
+  describe("the container root stays nameable", () => {
+    const NAME_MAX = 255;
+    const atNameMax = "a".repeat(NAME_MAX);
+
+    it("bounds the whole component when the host basename is at NAME_MAX", () => {
+      const result = plan([`${HOME}/dev/${atNameMax}`]);
+      const component = (result.mounts[0]?.containerPath ?? "").split("/").pop() ?? "";
+
+      assert.ok(component.length > 0, "the tree must still be mounted, not dropped");
+      assert.ok(component.length <= NAME_MAX, `component is ${component.length} bytes, which docker cannot create`);
+      assert.match(component, /-[0-9a-f]{8}$/, "the hash must survive truncation — it is what carries uniqueness");
+    });
+
+    // Truncation must not become a collision: the hash is taken from the FULL
+    // host path, so a shared prefix still separates.
+    it("keeps two trees distinct when their names differ only past the budget", () => {
+      const first = plan([`${HOME}/dev/${atNameMax}1`]).mounts[0]?.containerPath;
+      const second = plan([`${HOME}/dev/${atNameMax}2`]).mounts[0]?.containerPath;
+
+      assert.notEqual(first, second);
+    });
+  });
 });

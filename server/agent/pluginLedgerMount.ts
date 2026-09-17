@@ -56,10 +56,6 @@ const LEDGERS: readonly LedgerSpec[] = [
  *  the plugin works on the host and is inert in the sandbox (#3198). */
 const CONTAINER_EXTERNAL_PLUGIN_ROOT = "/mnt/plugin-src";
 
-/** A stable, collision-free container directory for one host tree. The hash is
- *  what makes it stable across turns and unique across trees; the basename is
- *  decoration, reduced to a safe set so the host path's punctuation cannot
- *  reach the mount target. */
 /** `isAbsolute` and `basename` are host-bound: on a POSIX runner the ambient
  *  ones read `C:\\Dev\\MP` as a relative path with no directory part, so a
  *  `platform` argument that does not select these changes nothing at all. Same
@@ -68,10 +64,39 @@ function pathRules(platform: Platform): typeof posixPath {
   return platform === "win32" ? win32Path : posixPath;
 }
 
+/** Enough hex for collision-freedom across one user's plugin trees without
+ *  spending the name budget below on it. */
+const CONTAINER_ROOT_HASH_CHARS = 8;
+
+/** `NAME_MAX` on the filesystems the sandbox image uses.
+ *
+ *  Docker creates the mount TARGET inside the container, and an overlong path
+ *  component fails the whole `docker run` — measured against the daemon:
+ *  `mkdir …: file name too long`, container never starts. A host basename may
+ *  legitimately sit at the host's own `NAME_MAX`, and appending the hash then
+ *  pushes the target past it.
+ *
+ *  That failure bypasses the all-or-nothing rule, whose entire point is that a
+ *  mount we cannot express costs the PLUGINS and not the sandbox — so the
+ *  budget is enforced here, where the name is built, rather than left to
+ *  `dockerMountArgs`, which sees a string it has no reason to reject. */
+const MAX_MOUNT_TARGET_NAME_BYTES = 255;
+
+/** A stable, collision-free container directory for one host tree. The hash is
+ *  what makes it stable across turns and unique across trees; the basename is
+ *  decoration, reduced to a safe set so the host path's punctuation cannot
+ *  reach the mount target — and truncated so the two together stay nameable.
+ *
+ *  Truncating the readable half cannot cause a collision: the hash is taken
+ *  from the FULL host path, so two trees sharing a truncated prefix still
+ *  differ in it. */
 function externalContainerRoot(hostRoot: string, platform: Platform): string {
-  const hash = createHash("sha256").update(hostRoot).digest("hex").slice(0, 8);
-  const readable = [...pathRules(platform).basename(hostRoot)].map((character) => (/[A-Za-z0-9._-]/.test(character) ? character : "_")).join("");
-  return `${CONTAINER_EXTERNAL_PLUGIN_ROOT}/${readable.length > 0 ? readable : "tree"}-${hash}`;
+  const hash = createHash("sha256").update(hostRoot).digest("hex").slice(0, CONTAINER_ROOT_HASH_CHARS);
+  const sanitized = [...pathRules(platform).basename(hostRoot)].map((character) => (/[A-Za-z0-9._-]/.test(character) ? character : "_")).join("");
+  // Sanitising to ASCII first is what makes a character budget a byte budget.
+  const budget = MAX_MOUNT_TARGET_NAME_BYTES - hash.length - "-".length;
+  const readable = (sanitized.length > 0 ? sanitized : "tree").slice(0, budget);
+  return `${CONTAINER_EXTERNAL_PLUGIN_ROOT}/${readable}-${hash}`;
 }
 
 function marketplaceLocations(ledger: unknown): string[] {
