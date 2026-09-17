@@ -23,7 +23,9 @@ both slash commands, the skill, the `SessionStart` hook.
 1. **`server/utils/sensitiveMountPaths.ts`** — the blocklist that decides which
    host paths may be mounted, lifted out of `reference-dirs.ts`. It had one
    caller; plugin trees are a second, and a security rule with two copies is one
-   that drifts.
+   that drifts. Catalogued in `docs/shared-utils.md` as the repo requires, with
+   the part a future caller actually needs: it is LEXICAL, so a caller that
+   mounts must resolve the path first and ask about the resolved one.
 2. **`toContainerPath(mappings, value, sep)`** generalises `toContainerConfigPath`
    from one root to several. The **longest** matching root wins, so the caller
    cannot get the order wrong. `toContainerConfigPath` remains as the
@@ -65,6 +67,28 @@ by a test rather than left to be rediscovered: the alternative is staging a
 safe-named symlink to bind through, which buys a rarity at the price of a
 symlink farm to create and clean up, and skipping is what the rest of this
 module already does with a path no flag can carry.
+
+### The one way an unexpressible mount could still cost the SANDBOX
+
+`dockerMountArgs` decides expressibility from the characters in a path, which is
+the right question for the flags — and the wrong one for the mount TARGET.
+Docker creates that target inside the container, so a component past `NAME_MAX`
+fails the whole `docker run`:
+
+```
+mkdir …/mnt/plugin-src/aaa…-deadbeef: file name too long: unknown
+```
+
+The container never starts. A host basename may legitimately sit at the host's
+own `NAME_MAX`, and appending the hash pushes the target past it — while
+`dockerMountArgs` sees a string with no colon, comma or control character and
+has no reason to reject it. So the budget is enforced where the name is BUILT,
+in `externalContainerRoot`, and the readable half is truncated to fit.
+
+Truncation cannot cause a collision, which is the property that makes it safe:
+the hash is taken from the FULL host path, so two trees sharing a truncated
+prefix still differ in it. Both directions measured against the daemon — the
+overlong target kills the container, the capped one mounts.
 
 ## Security
 
@@ -157,8 +181,10 @@ of a path rather than to what that path actually is.
   stability and collision-freedom, a tree that is not on the host, a symlink to
   each blocked class refused, the resolved path being what is bound, two
   symlinks to one tree sharing a mount, the Windows case-variant pair, a
-  spelling nested below a root mapping to its offset, and a spelling resolving
-  into the config dir translating without a second mount.
+  spelling nested below a root mapping to its offset, a spelling resolving into
+  the config dir translating without a second mount, and a container root that
+  stays nameable when the host basename is at `NAME_MAX` — including that two
+  trees differing only past the budget keep distinct roots.
 
 One existing test **inverted**: it asserted that an external-only ledger produces
 no mounts. That was the limitation this change removes, encoded as an
@@ -179,8 +205,8 @@ Each fix is break-verified by mutation, restoring from a pristine copy between
 cases and confirming the tree is clean again at the end: checking only the alias,
 binding the alias instead of the resolved path, grouping by exact string, a
 platform-blind `isAbsolute`, a non-aborting tree mount, mapping only spellings
-that sit AT a root, not special-casing the config dir, and keeping nested trees
-as their own mounts each turn tests red.
+that sit AT a root, not special-casing the config dir, keeping nested trees as
+their own mounts, and dropping the name-length cap each turn tests red.
 
 The blocklist extraction's behaviour-preservation claim is proved by running the
 pre-change `isSensitivePath`, copied verbatim, beside the extracted one over
