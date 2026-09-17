@@ -59,6 +59,7 @@ document をページ破棄として扱うようになったためで、サイ�
 ```sh
 for v in 1.13.3 1.13.4 1.13.5 1.13.6; do
   url=$(npm view @firebase/auth@$v dist.tarball)
+  rm -rf "auth-$v" && mkdir -p "auth-$v"
   curl -sL "$url" | tar xz -C "auth-$v" --strip-components=1
   grep -rl --include='*.js' "isHiding" "auth-$v/dist" | wc -l
 done
