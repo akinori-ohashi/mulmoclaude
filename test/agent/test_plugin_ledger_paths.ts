@@ -31,9 +31,11 @@ describe("toContainerConfigPath", () => {
     assert.equal(toContainerConfigPath(`${POSIX_CONFIG_DIR}/`, `${POSIX_CONFIG_DIR}/plugins/x`, POSIX_SEP), `${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/x`);
   });
 
-  // A marketplace added from a local path lives outside the config dir. Its tree
-  // is not mounted at all, so no spelling helps — the value must survive as it is
-  // rather than be rewritten into a path that exists but holds something else.
+  // This function carries the config mapping ALONE, so a path outside it is
+  // under none of the roots it knows and must survive as it is rather than be
+  // rewritten into a path that exists but holds something else. Such a tree can
+  // still be mounted and translated — that is `toContainerPath` with the mapping
+  // for it (#3198), not this single-mapping case.
   it("refuses a path outside the config dir", () => {
     assert.equal(toContainerConfigPath(POSIX_CONFIG_DIR, "/Users/someone/dev/my-plugin", POSIX_SEP), null);
   });
@@ -120,9 +122,10 @@ describe("rewriteKnownMarketplaces", () => {
       installLocation: `${POSIX_CONFIG_DIR}/plugins/marketplaces/in-config`,
       lastUpdated: "x",
     },
-    // A marketplace added from a local path. Its tree is not bind-mounted, so no
+    // A marketplace whose tree is under none of the mappings given here, so no
     // spelling reaches it — it must survive verbatim rather than be dropped,
-    // which would uninstall it.
+    // which would uninstall it. With a mapping for that tree it translates; the
+    // fixture withholds one deliberately, to pin the leave-it-alone path.
     external: { source: { source: "local", path: "/elsewhere/mp" }, installLocation: "/elsewhere/mp" },
   };
 

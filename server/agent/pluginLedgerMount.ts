@@ -377,10 +377,10 @@ function mountArg(outputDir: string, file: string, platform: Platform): string[]
  * Docker mount arguments that overlay container-shaped copies of the two plugin
  * ledgers.
  *
- * Returns no arguments when there is nothing to translate, so a user with no
- * plugins — or with all of them installed outside the config dir — runs exactly
- * the argv they ran before. Never throws: a sandbox that starts without plugins
- * beats one that does not start.
+ * Returns no arguments when there is nothing to translate — a user with no
+ * plugins, or one whose recorded paths all name somewhere we will not mount —
+ * so that turn runs exactly the argv it ran before. Never throws: a sandbox that
+ * starts without plugins beats one that does not start.
  *
  * The caller MUST pass `stagingDir` to `removePluginLedgerStaging` once the
  * container has exited, INCLUDING when the spawn it was built for never
