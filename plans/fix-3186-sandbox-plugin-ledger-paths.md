@@ -13,10 +13,10 @@ which #3184 hypothesised but could not confirm.
 `buildDockerSpawnArgs` sets `HOME=/home/node`. The CLI's two plugin ledgers store
 **host absolute paths**:
 
-| file | key |
-|---|---|
+| file                                                | key               |
+| --------------------------------------------------- | ----------------- |
 | `<claudeConfigDir>/plugins/known_marketplaces.json` | `installLocation` |
-| `<claudeConfigDir>/plugins/installed_plugins.json` | `installPath` |
+| `<claudeConfigDir>/plugins/installed_plugins.json`  | `installPath`     |
 
 Neither path exists under the container's `HOME`, so every marketplace resolves as
 `cache-miss` and every plugin with it. Nothing translates the prefix — the sandbox
@@ -43,11 +43,11 @@ its **own host path** inside the container, so the stored paths resolve verbatim
 
 It was rejected. It changes the marker the CLI writes into the plugin cache:
 
-| | plugins load | cache marker |
-|---|---|---|
-| host (ground truth) | yes | `.in_use` |
-| mirror mount (`:ro` and rw alike) | yes | `.orphaned_at` |
-| ledger rewrite | yes | `.in_use` — matches the host |
+|                                   | plugins load | cache marker                 |
+| --------------------------------- | ------------ | ---------------------------- |
+| host (ground truth)               | yes          | `.in_use`                    |
+| mirror mount (`:ro` and rw alike) | yes          | `.orphaned_at`               |
+| ledger rewrite                    | yes          | `.in_use` — matches the host |
 
 `.orphaned_at` is the CLI's "this cache entry may be swept" marker: the real config dir
 carries `.last_inuse_sweep`, `.in_use` on every current install, and `.orphaned_at` only
@@ -84,6 +84,7 @@ is rejected outright and takes the whole `docker run` down with it.
    the mirror-image limit — it cannot carry `,`, a bare `"`, or a control character — so
    a staging path holding one of those skips translation instead, costing the plugins
    rather than the container.
+
 3. **`server/agent/backend/claude-code.ts`** splices those args in beside
    `refDirArgs` — the channel reference dirs already use. The overlay must come after
    the `.claude` directory mount, which that ordering gives.
@@ -93,9 +94,16 @@ container-shaped paths back into the host's ledger.
 
 ## Not fixed here (state in the PR)
 
-- A marketplace added from a local path **outside** the config dir still does not load —
-  its tree is not mounted at all. Measured: mirror mount and rewrite fail identically, so
+- A marketplace added from a local path **outside** the config dir still does not load,
+  because its tree is not mounted. Measured: mirror mount and rewrite fail identically, so
   this is neither caused nor worsened here. Separate issue.
+
+  > **Superseded by #3198.** As written this said the tree "is not mounted at all", and
+  > the PR for this plan turned that into "cannot be made to work". It can: mount the
+  > tree and translate the ledger to it, and the plugin loads end to end. The wording
+  > above is corrected to describe the state at the time rather than a limit, because
+  > the claim as it stood is what kept the real fix unattempted through two PRs.
+
 - The read-only ledger copies mean an in-container `/plugin install` or marketplace
   refresh cannot update the ledger.
 - Every other `-v` the sandbox builds folds backslashes unconditionally and splits on
@@ -123,10 +131,11 @@ the `init` event compared against the host baseline.
 
 - `docs/claude-docker-boundary.md` — a section on where plugins run, why the ledgers are
   translated, and the two debugging notes (`claude plugin list` is not the success
-  signal; a plugin outside the config dir does not load).
+  signal; a plugin outside the config dir does not load — which #3198 later fixed, so
+  that doc now describes the mount rather than the limitation).
 - **No `error-recovery.md` entry**, decided during implementation rather than as
-  planned above: that file is what the agent reads *before asking a clarifying question
-  on a tool failure*, and this failure produces no tool error — the plugins are simply
+  planned above: that file is what the agent reads _before asking a clarifying question
+  on a tool failure_, and this failure produces no tool error — the plugins are simply
   absent, so the agent never sees anything to recover from. Adding a section would also
   require an `@mulmoclaude/core` bump plus the declared-range sweep, which belongs to a
   release-shaped PR rather than this one.

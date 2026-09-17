@@ -55,11 +55,11 @@ stdio-shaped hole. This is the "bypass" people describe.
 
 ### User-defined MCP (added in the Settings UI)
 
-| Kind | Docker-mode routing |
-|---|---|
-| **HTTP** | URL rewritten so `localhost` → `host.docker.internal` (`rewriteLocalhostForDocker` in `config.ts:116`). Claude in the container connects over HTTP; the server itself runs on the **host** where the user configured it. |
-| **stdio** (default) | **Dropped.** The `node:22-slim` sandbox image can't host arbitrary stdio runtimes ([#162](https://github.com/receptron/mulmoclaude/issues/162), [#1334](https://github.com/receptron/mulmoclaude/issues/1334)). The Settings UI surfaces this before you save. |
-| **stdio + `hostExecInDocker: true`** ([#1421 Phase B](https://github.com/receptron/mulmoclaude/issues/1421)) | Explicit opt-in. MulmoClaude starts the stdio server on the **host** behind a `stdio ↔ HTTP` gateway and rewrites the config to `http` so the sandboxed Claude can reach it (`config.ts:186`). |
+| Kind                                                                                                         | Docker-mode routing                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **HTTP**                                                                                                     | URL rewritten so `localhost` → `host.docker.internal` (`rewriteLocalhostForDocker` in `config.ts:116`). Claude in the container connects over HTTP; the server itself runs on the **host** where the user configured it.                                       |
+| **stdio** (default)                                                                                          | **Dropped.** The `node:22-slim` sandbox image can't host arbitrary stdio runtimes ([#162](https://github.com/receptron/mulmoclaude/issues/162), [#1334](https://github.com/receptron/mulmoclaude/issues/1334)). The Settings UI surfaces this before you save. |
+| **stdio + `hostExecInDocker: true`** ([#1421 Phase B](https://github.com/receptron/mulmoclaude/issues/1421)) | Explicit opt-in. MulmoClaude starts the stdio server on the **host** behind a `stdio ↔ HTTP` gateway and rewrites the config to `http` so the sandboxed Claude can reach it (`config.ts:186`).                                                                 |
 
 ## Claude Code plugins (`/plugin install`)
 
@@ -69,10 +69,10 @@ the ledgers get translated on the way in.
 The CLI records where each marketplace and each plugin lives as an absolute
 path on the machine that installed them:
 
-| file | key |
-|---|---|
+| file                                                | key               |
+| --------------------------------------------------- | ----------------- |
 | `<claudeConfigDir>/plugins/known_marketplaces.json` | `installLocation` |
-| `<claudeConfigDir>/plugins/installed_plugins.json` | `installPath` |
+| `<claudeConfigDir>/plugins/installed_plugins.json`  | `installPath`     |
 
 Those are HOST paths (`/Users/you/.claude/...`) pointing into whatever
 `claudeConfigDir()` resolves to — `~/.claude`, or the directory
@@ -94,10 +94,27 @@ Two things to know when debugging this:
   while the agent still receives nothing. Read the `init` event of
   `claude -p --output-format stream-json --verbose` instead: it carries the
   session's slash commands, tools and `mcp_servers`.
-- **A plugin installed OUTSIDE the config dir does not load.**
-  `plugin marketplace add <local path>` is a supported shape, but that tree is
-  not bind-mounted, so no amount of path translation reaches it. Such entries
-  are deliberately passed through untouched rather than rewritten.
+- **A plugin registered from OUTSIDE the config dir is mounted too** (#3198).
+  `plugin marketplace add <local path>` is the plugin author's ordinary
+  workflow, and that tree is carried by no other mount — so it gets its own,
+  read-only, at `/mnt/plugin-src/<name>-<hash>`, and the ledger is translated to
+  point there. **What is bound is the RESOLVED path**, and the blocklist runs on
+  that: Docker follows a symlinked source and exposes its target, so checking
+  the ledger's spelling and binding the ledger's spelling would let
+  `~/dev/mp -> ~/.ssh` walk straight in. The rule is the one reference
+  directories use (`server/utils/sensitiveMountPaths.ts`) — `$HOME` itself,
+  `.ssh`, `.aws`, `.gnupg`, `.config/gh`, `.kube`, `.docker`, the system
+  directories and the filesystem root — and a refused entry is left untranslated
+  rather than mounted. That helper is LEXICAL by contract; a caller that mounts
+  a user-supplied path must resolve it first.
+
+  **What gets mounted and what gets translated are two different lists.** A
+  recorded spelling need not sit AT a mount root: it can resolve BELOW one (it
+  then maps to that root's container path plus the offset, and adds no mount —
+  two overlapping mounts let the inner one shadow the outer's files), or it can
+  resolve INTO the config dir, which is already mounted (it then maps into that
+  mount, because a second mount of the config dir would put
+  `.credentials.json` at a second container path).
 
 ## How a host path becomes a mount argument
 
@@ -107,7 +124,7 @@ which exists because two things about host paths are easy to get wrong (#3191):
 - **The separator conversion is a Windows rule.** Docker wants `/` and a Windows
   path spells them `\`. On POSIX a backslash is an ordinary filename character,
   so converting there hands Docker a path that does not exist — and Docker
-  answers that by creating an empty directory and mounting *that*, silently. A
+  answers that by creating an empty directory and mounting _that_, silently. A
   workspace with a backslash in its path used to appear empty to the agent while
   its writes went to a phantom directory on the host.
 - **`-v` and `--mount` are complementary, not ranked.** `-v` splits its fields on
@@ -136,18 +153,18 @@ acts on it, rather than a human who can go and look.
 
 ## Where-what summary
 
-| What | Where it runs |
-|---|---|
-| `claude -p` CLI itself | **container** |
-| Claude built-in `Bash` / `Read` / `Write` / `Edit` / `Grep` / `Glob` | **container** |
-| mulmoclaude MCP stdio subprocess (bridge proxy) | container |
-| mulmoclaude MCP tool **implementation** | **host** (Express) |
-| User HTTP MCP | **host** (URL rewritten to reach it) |
-| User stdio MCP (default) | *not called* |
-| User stdio MCP (`hostExecInDocker: true`) | **host** (via stdio↔HTTP gateway) |
-| Claude Code plugins (skills / commands / hooks) | **container** (ledgers translated) |
-| A plugin's own MCP server | **container** (spawned from the mounted plugin tree) |
-| Anthropic API traffic | container (outbound directly) |
+| What                                                                 | Where it runs                                        |
+| -------------------------------------------------------------------- | ---------------------------------------------------- |
+| `claude -p` CLI itself                                               | **container**                                        |
+| Claude built-in `Bash` / `Read` / `Write` / `Edit` / `Grep` / `Glob` | **container**                                        |
+| mulmoclaude MCP stdio subprocess (bridge proxy)                      | container                                            |
+| mulmoclaude MCP tool **implementation**                              | **host** (Express)                                   |
+| User HTTP MCP                                                        | **host** (URL rewritten to reach it)                 |
+| User stdio MCP (default)                                             | _not called_                                         |
+| User stdio MCP (`hostExecInDocker: true`)                            | **host** (via stdio↔HTTP gateway)                    |
+| Claude Code plugins (skills / commands / hooks)                      | **container** (ledgers translated)                   |
+| A plugin's own MCP server                                            | **container** (spawned from the mounted plugin tree) |
+| Anthropic API traffic                                                | container (outbound directly)                        |
 
 ## Consequences
 
