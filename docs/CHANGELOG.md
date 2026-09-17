@@ -8,6 +8,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-09-17
+
+**Claude Code plugins work in the sandbox at last — their skills are discovered and addressable — and the five ways the sandbox mishandled host paths are closed.**
+
+### Highlights
+
+#### Skills shipped by an installed plugin are discovered (#3175, #3184)
+
+Claude Code installs skills two ways: loose directories under `~/.claude/skills/`, and a
+marketplace plugin whose tree carries its own `skills/`. Only the first was ever scanned.
+Plugin skills now appear as a third scope, named `<plugin>:<skill>` exactly the way the CLI
+addresses them — not cosmetic, because the manageSkills **Run** button dispatches
+`/${skill.name}`, so a differently-named row would be clickable and dead.
+
+Precedence is **project > user > claude-plugin**, so a plugin can never shadow a skill you
+wrote, and the sidebar lists plugin skills after your own so the selection does not jump the
+moment one is installed. A plugin set to `false` in `settings.json` contributes nothing. The
+two by-name lookups skip the plugin scan unless the name is namespaced, which is what keeps a
+user-skill invocation from paying the scan mid-turn.
+
+#### The sandbox stopped mishandling host paths — in five different ways (#3186, #3191, #3194, #3198, #3200)
+
+`#3184` could not confirm why `Skill` invocations were zero under Docker. `#3186` is the
+answer, and it was worse than skills: **every** installed plugin was inert in the sandbox —
+skills, slash commands, MCP servers and hooks — with no error and no warning. The CLI's two
+ledgers record host absolute paths, which do not exist under the container's `HOME`.
+
+The other four are the same mistake in different places, each one a rule applied to a path's
+_spelling_ rather than to what the path actually is:
+
+- a workspace path containing a backslash mounted an empty directory, and the agent's writes
+  went to a phantom host directory (**#3191**);
+- the system prompt told the agent it could read reference directories that were never
+  mounted (**#3194**);
+- a plugin registered from outside the config dir worked on the host and was inert in the
+  sandbox, because no mount carried its tree (**#3198**);
+- **a reference directory could be a symlink to a blocked location** — `~/notes -> ~/.ssh` was
+  mounted into the container and served through `@ref/notes/…`, because the blocklist is
+  lexical while Docker and the file API both follow the link (**#3200**).
+
+Every Docker claim behind these was measured against the daemon rather than reasoned about.
+The blocklist now lives in one place, `server/utils/sensitiveMountPaths.ts`, shared by plugin
+trees and reference directories, and its contract states that it is **lexical** — so a future
+caller that mounts a user-supplied path knows it must resolve first.
+
 ### Added
 
 #### `@mulmoclaude/shapescript-plugin@6.0.0` — `manageShapeScript` asks for the gallery's CC BY 4.0 agreement
