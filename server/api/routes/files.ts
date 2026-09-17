@@ -15,7 +15,7 @@ import { respondWithWrittenFile, validateWriteRequestOr400, type WriteContentRes
 import { getOptionalStringQuery } from "../../utils/request.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { GitignoreFilter } from "../../utils/gitignore.js";
-import { getCachedReferenceDirs } from "../../workspace/reference-dirs.js";
+import { getCachedReferenceDirs, resolveReferenceDir } from "../../workspace/reference-dirs.js";
 import { classifyAsWikiPage, writeWikiPage } from "../../workspace/wiki-pages/io.js";
 import { log } from "../../system/logger/index.js";
 import { previewSnippet } from "../../utils/logPreview.js";
@@ -339,12 +339,13 @@ function resolveRefPath(prefixedPath: string): string | null {
   const entry = entries.find((refEntry) => refEntry.label === label);
   if (!entry) return null;
 
-  let rootReal: string;
-  try {
-    rootReal = realpathSync(entry.hostPath);
-  } catch {
-    return null;
-  }
+  // Not a bare realpath: the same resolution the sandbox mount uses, so a
+  // reference directory that points at a blocked tree is refused here too.
+  // This route serves its CONTENT, so without the check `@ref/notes/...` reads
+  // out of `~/.ssh` whether or not Docker is in play (#3200).
+  const target = resolveReferenceDir(entry.hostPath);
+  if (target.kind !== "ok") return null;
+  const rootReal = target.realPath;
 
   // For root of the reference dir (no remainder), return the dir itself
   if (!remainder) return rootReal;
@@ -1322,6 +1323,9 @@ router.get(API_ROUTES.files.refRoots, async (_req: Request, res: Response<TreeNo
   for (const entry of entries) {
     const stat = await statSafeAsync(entry.hostPath);
     if (!stat || !stat.isDirectory()) continue;
+    // Same rule as `resolveRefPath`, so the explorer never lists a root whose
+    // every child it would then refuse to open.
+    if (resolveReferenceDir(entry.hostPath).kind !== "ok") continue;
     nodes.push({
       name: entry.label,
       path: `${REF_PREFIX}${entry.label}`,
