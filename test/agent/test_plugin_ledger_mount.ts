@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { externalPluginTrees, pluginLedgerMountArgs, removePluginLedgerStaging, withPluginLedgerCleanup } from "../../server/agent/pluginLedgerMount.ts";
+import { externalPluginMounts, pluginLedgerMountArgs, removePluginLedgerStaging, withPluginLedgerCleanup } from "../../server/agent/pluginLedgerMount.ts";
 import { CONTAINER_CLAUDE_CONFIG_DIR } from "../../server/agent/pluginLedgerPaths.ts";
 
 const PLATFORM = "linux";
@@ -323,9 +323,10 @@ describe("withPluginLedgerCleanup", () => {
 // — so nothing carries it into the container and the plugin is inert in the
 // sandbox while working on the host (#3198). Mounting the tree and pointing the
 // ledger at the mount is what fixes it.
-describe("externalPluginTrees — what has to be mounted beyond the config dir", () => {
+describe("externalPluginMounts — what has to be mounted beyond the config dir", () => {
   const HOME = "/Users/fake";
   const CONFIG = `${HOME}/.claude`;
+  const CONTAINER_CONFIG = "/home/node/.claude";
 
   // Every candidate here is an imaginary path, so the real `realpathSync` would
   // reject the lot. `links` names the ones that are symlinks; everything else
@@ -335,10 +336,12 @@ describe("externalPluginTrees — what has to be mounted beyond the config dir",
     (hostPath: string): string | null =>
       missing.includes(hostPath) ? null : (links[hostPath] ?? hostPath);
 
-  const treesOf = (candidates: string[], links?: Record<string, string>, missing?: readonly string[]) =>
-    externalPluginTrees(candidates, CONFIG, "/", PLATFORM, { home: HOME, resolveRealPath: resolver(links, missing) });
+  const plan = (candidates: string[], links?: Record<string, string>, missing?: readonly string[]) =>
+    externalPluginMounts(candidates, CONFIG, "/", PLATFORM, { home: HOME, resolveRealPath: resolver(links, missing) });
   const roots = (candidates: string[], links?: Record<string, string>, missing?: readonly string[]): string[] =>
-    treesOf(candidates, links, missing).map((tree) => tree.mountSource);
+    plan(candidates, links, missing).mounts.map((mount) => mount.hostPath);
+  const mappingFor = (result: ReturnType<typeof plan>, alias: string): string | undefined =>
+    result.mappings.find((mapping) => mapping.hostRoot === alias)?.containerRoot;
 
   it("ignores a path already carried by the config-dir mount", () => {
     assert.deepEqual(roots([`${CONFIG}/plugins/marketplaces/mp`]), []);
@@ -396,23 +399,53 @@ describe("externalPluginTrees — what has to be mounted beyond the config dir",
     });
 
     it("mounts the RESOLVED path, so the bind cannot be redirected after the check", () => {
-      const trees = treesOf([`${HOME}/dev/link`], { [`${HOME}/dev/link`]: `${HOME}/real/tree` });
-      assert.equal(trees[0]?.mountSource, `${HOME}/real/tree`);
+      assert.deepEqual(roots([`${HOME}/dev/link`], { [`${HOME}/dev/link`]: `${HOME}/real/tree` }), [`${HOME}/real/tree`]);
     });
 
     // The ledger records whichever spelling the CLI saw, so both have to
     // translate — they are one directory.
-    it("keeps the ledger's own spelling as an alias of the resolved tree", () => {
-      const trees = treesOf([`${HOME}/dev/link`], { [`${HOME}/dev/link`]: `${HOME}/real/tree` });
-      assert.deepEqual(trees[0]?.aliases, [`${HOME}/dev/link`]);
+    it("keeps the ledger's own spelling as a mapping onto the resolved tree", () => {
+      const result = plan([`${HOME}/dev/link`], { [`${HOME}/dev/link`]: `${HOME}/real/tree` });
+      assert.equal(mappingFor(result, `${HOME}/dev/link`), result.mounts[0]?.containerPath);
     });
 
-    it("gives two symlinks to one tree a single mount with both aliases", () => {
+    it("gives two symlinks to one tree a single mount and a mapping each", () => {
       const links = { [`${HOME}/dev/a`]: `${HOME}/real/tree`, [`${HOME}/dev/b`]: `${HOME}/real/tree` };
-      const trees = treesOf([`${HOME}/dev/a`, `${HOME}/dev/b`], links);
-      assert.equal(trees.length, 1, "one directory is one mount");
-      assert.deepEqual(trees[0]?.aliases, [`${HOME}/dev/a`, `${HOME}/dev/b`]);
+      const result = plan([`${HOME}/dev/a`, `${HOME}/dev/b`], links);
+      assert.equal(result.mounts.length, 1, "one directory is one mount");
+      assert.equal(mappingFor(result, `${HOME}/dev/a`), result.mounts[0]?.containerPath);
+      assert.equal(mappingFor(result, `${HOME}/dev/b`), result.mounts[0]?.containerPath);
     });
+  });
+
+  // A spelling does not have to sit AT a mount root. Dropping a nested tree
+  // without carrying its spelling across left a ledger value pointing at a host
+  // path, inside a container that does carry the bytes.
+  it("maps a spelling nested BELOW a mounted root to its offset inside that mount", () => {
+    const result = plan([`${HOME}/dev/mp`, `${HOME}/linked-plugin`], {
+      [`${HOME}/dev/mp`]: `${HOME}/real/mp`,
+      [`${HOME}/linked-plugin`]: `${HOME}/real/mp/plugins/p`,
+    });
+
+    assert.deepEqual(
+      result.mounts.map((mount) => mount.hostPath),
+      [`${HOME}/real/mp`],
+      "the parent alone is mounted",
+    );
+    assert.equal(mappingFor(result, `${HOME}/linked-plugin`), `${result.mounts[0]?.containerPath}/plugins/p`);
+  });
+
+  // The config dir is ALREADY bind-mounted. Mounting it again because a symlink
+  // named it would put the user's credentials at a second container path.
+  it("translates a spelling that resolves into the config dir without mounting it again", () => {
+    const result = plan([`${HOME}/sneaky`, `${HOME}/sneaky-deep`], {
+      [`${HOME}/sneaky`]: CONFIG,
+      [`${HOME}/sneaky-deep`]: `${CONFIG}/plugins/marketplaces/mp`,
+    });
+
+    assert.deepEqual(result.mounts, [], "the config dir is already mounted; a second mount exposes it twice");
+    assert.equal(mappingFor(result, `${HOME}/sneaky`), CONTAINER_CONFIG);
+    assert.equal(mappingFor(result, `${HOME}/sneaky-deep`), `${CONTAINER_CONFIG}/plugins/marketplaces/mp`);
   });
 
   // Windows filesystems are case-insensitive, so these name ONE directory.
@@ -420,27 +453,32 @@ describe("externalPluginTrees — what has to be mounted beyond the config dir",
   // "inside" the other — and the nesting filter dropped BOTH, mounting nothing.
   it("keeps one representative when two Windows spellings differ only in case", () => {
     const winHome = "C:\\Users\\fake";
-    const trees = externalPluginTrees(["C:\\Dev\\MP", "c:\\dev\\mp"], `${winHome}\\.claude`, "\\", "win32", {
+    const result = externalPluginMounts(["C:\\Dev\\MP", "c:\\dev\\mp"], `${winHome}\\.claude`, "\\", "win32", {
       home: winHome,
       resolveRealPath: (hostPath: string) => hostPath,
     });
-    assert.equal(trees.length, 1, "two spellings of one tree must still be mounted");
-    assert.deepEqual(trees[0]?.aliases, ["C:\\Dev\\MP", "c:\\dev\\mp"], "both spellings must translate");
+
+    assert.equal(result.mounts.length, 1, "two spellings of one tree must still be mounted");
+    assert.deepEqual(
+      result.mappings.map((mapping) => mapping.hostRoot),
+      ["C:\\Dev\\MP", "c:\\dev\\mp"],
+      "both spellings must translate",
+    );
   });
 
   it("gives each tree a stable, collision-free container root", () => {
-    const first = treesOf([`${HOME}/dev/a`, `${HOME}/other/a`]);
-    const again = treesOf([`${HOME}/dev/a`]);
+    const first = plan([`${HOME}/dev/a`, `${HOME}/other/a`]).mounts;
+    const again = plan([`${HOME}/dev/a`]).mounts;
 
-    assert.equal(new Set(first.map((tree) => tree.containerRoot)).size, 2, "same basename, different tree — must not collide");
-    assert.equal(first[0]?.containerRoot, again[0]?.containerRoot, "the same host path must map to the same place every turn");
-    first.forEach((tree) => assert.match(tree.containerRoot, /^\/mnt\/plugin-src\/[A-Za-z0-9._-]+$/));
+    assert.equal(new Set(first.map((mount) => mount.containerPath)).size, 2, "same basename, different tree — must not collide");
+    assert.equal(first[0]?.containerPath, again[0]?.containerPath, "the same host path must map to the same place every turn");
+    first.forEach((mount) => assert.match(mount.containerPath, /^\/mnt\/plugin-src\/[A-Za-z0-9._-]+$/));
   });
 
   // The readable half is decoration; the hash carries uniqueness. Letting the
   // host path's punctuation through would put it in a mount TARGET.
   it("keeps the host path's punctuation out of the container root", () => {
-    const trees = treesOf([`${HOME}/dev/we:ird,name`]);
-    assert.match(trees[0]?.containerRoot ?? "", /^\/mnt\/plugin-src\/we_ird_name-[0-9a-f]{8}$/);
+    const result = plan([`${HOME}/dev/we:ird,name`]);
+    assert.match(result.mounts[0]?.containerPath ?? "", /^\/mnt\/plugin-src\/we_ird_name-[0-9a-f]{8}$/);
   });
 });

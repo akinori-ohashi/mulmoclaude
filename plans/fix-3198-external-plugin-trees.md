@@ -28,13 +28,24 @@ both slash commands, the skill, the `SessionStart` hook.
    from one root to several. The **longest** matching root wins, so the caller
    cannot get the order wrong. `toContainerConfigPath` remains as the
    single-mapping case, which is what keeps its existing tests meaningful.
-3. **`externalPluginTrees(...)`** collects the ledger's recorded paths, keeps the
-   ones that are absolute, traversal-free, outside the config dir, resolvable,
-   and not sensitive ONCE RESOLVED, drops any nested inside another kept one,
-   and assigns each a container root `/mnt/plugin-src/<safe-basename>-<hash>`.
-   A tree carries its `aliases` (the ledger spellings) separately from its
-   `mountSource` (the resolved path), because the two ledgers may spell one
-   directory differently and both have to translate.
+3. **`externalPluginMounts(...)`** collects the ledger's recorded paths, keeps
+   the ones that are absolute, traversal-free, outside the config dir,
+   resolvable, and not sensitive ONCE RESOLVED, and returns two things that are
+   deliberately NOT the same list:
+   - **`mounts`** — the smallest set of directories whose bind mounts carry
+     every kept path: one that nothing else contains, plus one representative
+     per set of mutually contained spellings. Each gets
+     `/mnt/plugin-src/<safe-basename>-<hash>`.
+   - **`mappings`** — where each recorded SPELLING now lives, computed at
+     whatever offset it lands.
+
+   Keeping them apart is the correction review forced. A spelling does not have
+   to sit AT a mount root: it can be nested below one, or resolve into the
+   config dir the sandbox already mounts. An earlier shape returned "trees with
+   aliases", which silently required every spelling to be a root — so a nested
+   one was dropped along with the tree, and a config-dir one mounted that
+   directory a second time.
+
 4. **`pluginLedgerMountArgs`** reads BOTH ledgers before translating either,
    because the trees to mount are a property of the pair: a marketplace's
    `installLocation` and its plugins' `installPath`s live in different files and
@@ -95,8 +106,23 @@ Mounting a host path the user chose, read-only. Not a new class:
   `.aws`, `.gnupg`, `.config/gh`, `.kube`, `.docker`, the system directories, and
   the filesystem root
 
-## Two things found while building it
+## Found while building it, and in review
 
+The first two came from review of this PR; the rest were found by trying to
+write the tests for them. Each is the same shape: a rule applied to the SPELLING
+of a path rather than to what that path actually is.
+
+- **A spelling nested below a mounted root was dropped with the tree.** Raised
+  by Codex in round 2. Two overlapping mounts is a real hazard, so the inner
+  tree is still not mounted — but its SPELLING has to survive, mapped to the
+  parent's container path plus the offset, or a ledger value points at a host
+  path inside a container that does carry the bytes.
+- **A symlink resolving onto the config dir mounted it a second time.** Found by
+  my own audit of the same filter, not raised by either reviewer. The config-dir
+  check was lexical in exactly the way the blocklist was: a spelling outside it
+  can resolve inside it. Such a spelling now maps into the config mount and
+  adds no mount of its own — the alternative puts `.credentials.json` at a
+  second container path.
 - **Two Windows spellings of one tree annihilated each other.** Containment is
   case-insensitive on Windows, so `C:\Dev\MP` and `c:\dev\mp` each read as
   "inside" the other and the nesting filter dropped BOTH — the tree was never
@@ -130,7 +156,9 @@ Mounting a host path the user chose, read-only. Not a new class:
   mount ordering, a sensitive tree refused, dedup and nesting, container-root
   stability and collision-freedom, a tree that is not on the host, a symlink to
   each blocked class refused, the resolved path being what is bound, two
-  symlinks to one tree sharing a mount, and the Windows case-variant pair.
+  symlinks to one tree sharing a mount, the Windows case-variant pair, a
+  spelling nested below a root mapping to its offset, and a spelling resolving
+  into the config dir translating without a second mount.
 
 One existing test **inverted**: it asserted that an external-only ledger produces
 no mounts. That was the limitation this change removes, encoded as an
@@ -140,15 +168,19 @@ expectation — worth saying plainly rather than quietly editing.
 
 Against the real daemon, through the argv this code builds: an external
 marketplace loads with its MCP server `connected`, its commands, its skill and
-its hook. A ledger pointing at a symlink to the real `~/.ssh` produces no mount
-at all, with a warning naming the resolved target. The user's real `~/.claude`
-still produces exactly two mounts and all four of their plugins, so the
-in-config path is unchanged.
+its hook — and it still does when the two ledgers spell that one tree
+differently, a symlink in the marketplace ledger and the real path in the plugin
+ledger, which is the case the mapping split exists for. A ledger pointing at a
+symlink to the real `~/.ssh` produces no mount at all, with a warning naming the
+resolved target. The user's real `~/.claude` still produces exactly two mounts
+and all four of their plugins, so the in-config path is unchanged.
 
 Each fix is break-verified by mutation, restoring from a pristine copy between
 cases and confirming the tree is clean again at the end: checking only the alias,
-binding the alias instead of the resolved path, grouping by exact string, and a
-platform-blind `isAbsolute` each turn tests red.
+binding the alias instead of the resolved path, grouping by exact string, a
+platform-blind `isAbsolute`, a non-aborting tree mount, mapping only spellings
+that sit AT a root, not special-casing the config dir, and keeping nested trees
+as their own mounts each turn tests red.
 
 The blocklist extraction's behaviour-preservation claim is proved by running the
 pre-change `isSensitivePath`, copied verbatim, beside the extracted one over

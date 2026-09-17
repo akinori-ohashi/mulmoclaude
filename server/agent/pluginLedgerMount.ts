@@ -128,15 +128,20 @@ function realPathOrNull(hostPath: string): string | null {
   }
 }
 
-export interface ExternalPluginTree {
-  /** Every ledger spelling that names this tree. Each becomes its own mapping,
-   *  so a ledger recording the symlink and one recording the target both
-   *  translate — they are the same directory. */
-  aliases: string[];
-  /** What Docker binds: the RESOLVED path. Binding the alias instead is what
-   *  lets a symlink named `~/dev/mp` hand the container `~/.ssh`. */
-  mountSource: string;
-  containerRoot: string;
+export interface ExternalPluginMount {
+  /** The RESOLVED host path. Binding the ledger's spelling instead is what lets
+   *  a symlink named `~/dev/mp` hand the container `~/.ssh`. */
+  hostPath: string;
+  containerPath: string;
+}
+
+export interface ExternalPluginMounts {
+  /** One bind mount per tree nothing else already carries. */
+  mounts: ExternalPluginMount[];
+  /** Where each ledger spelling now lives in the container. A spelling need not
+   *  sit AT a mount root: it can be nested below one, or inside the config dir
+   *  the sandbox already mounts, and both still have to translate. */
+  mappings: HostPathMapping[];
 }
 
 interface ResolvedCandidate {
@@ -162,18 +167,28 @@ function resolveCandidate(alias: string, resolveRealPath: RealPathResolver, opti
   return { alias, mountSource };
 }
 
-/** One entry per distinct tree, carrying every spelling that named it. */
-function groupByTree(resolved: readonly ResolvedCandidate[], sep: string): Omit<ExternalPluginTree, "containerRoot">[] {
-  return resolved.reduce<Omit<ExternalPluginTree, "containerRoot">[]>((groups, candidate) => {
-    const existing = groups.find((group) => sameTree(group.mountSource, candidate.mountSource, sep));
-    if (existing === undefined) return [...groups, { mountSource: candidate.mountSource, aliases: [candidate.alias] }];
-    return groups.map((group) => (group === existing ? { ...group, aliases: [...group.aliases, candidate.alias] } : group));
-  }, []);
+/** The smallest set of directories whose mounts carry every resolved path: one
+ *  that nothing else contains, and one representative per set of mutually
+ *  contained spellings (Windows case variants naming one directory). */
+function mountRoots(resolved: readonly ResolvedCandidate[], sep: string): string[] {
+  const sources = [...new Set(resolved.map((candidate) => candidate.mountSource))];
+  const outermost = sources.filter((source) => !sources.some((other) => other !== source && isUnder(source, other, sep) && !isUnder(other, source, sep)));
+  return outermost.reduce<string[]>((kept, source) => (kept.some((keeper) => sameTree(keeper, source, sep)) ? kept : [...kept, source]), []);
+}
+
+/** Where one ledger spelling lands, given the roots being mounted. The offset
+ *  matters: a candidate nested BELOW a root maps to that root's container path
+ *  plus the relative part, which is what makes a dropped child tree still
+ *  translatable through its surviving parent. */
+function mappingUnderRoots(candidate: ResolvedCandidate, roots: readonly HostPathMapping[], sep: string): HostPathMapping[] {
+  const containerPath = toContainerPath(roots, candidate.mountSource, sep);
+  return containerPath === null ? [] : [{ hostRoot: candidate.alias, containerRoot: containerPath }];
 }
 
 /**
  * The host trees that must be mounted for the ledgers to resolve, beyond the
- * config dir the sandbox already carries.
+ * config dir the sandbox already carries, and where every recorded spelling
+ * then lives.
  *
  * A path qualifies only when it is absolute, free of `.`/`..` segments, outside
  * the config dir, resolvable, and NOT sensitive once resolved. The blocklist is
@@ -185,13 +200,13 @@ function groupByTree(resolved: readonly ResolvedCandidate[], sep: string): Omit<
  * mounts `~/.claude`, credentials included. A plugin tree is also code the agent
  * already runs when it lives in the config dir, so this is not a new class.
  */
-export function externalPluginTrees(
+export function externalPluginMounts(
   candidates: readonly string[],
   hostConfigDir: string,
   sep: string,
   platform: Platform,
   options: ExternalTreeOptions = {},
-): ExternalPluginTree[] {
+): ExternalPluginMounts {
   const outside = candidates.filter((candidate) => {
     if (!pathRules(platform).isAbsolute(candidate) || hasTraversalSegment(candidate)) return false;
     return toContainerConfigPath(hostConfigDir, candidate, sep) === null;
@@ -199,10 +214,21 @@ export function externalPluginTrees(
   const resolveRealPath = options.resolveRealPath ?? realPathOrNull;
   const sensitivity: SensitivePathOptions = { home: options.home, platform, systemBlocked: options.systemBlocked };
   const resolved = [...new Set(outside)].flatMap((alias) => resolveCandidate(alias, resolveRealPath, sensitivity) ?? []);
-  const trees = groupByTree(resolved, sep);
-  return trees
-    .filter((tree) => !trees.some((other) => other !== tree && isUnder(tree.mountSource, other.mountSource, sep)))
-    .map((tree) => ({ ...tree, containerRoot: externalContainerRoot(tree.mountSource, platform) }));
+
+  // A spelling whose REAL location is inside the config dir needs no mount of
+  // its own — that directory is already bind-mounted, and mounting it again
+  // would put the user's credentials at a second container path. Only the
+  // spelling has to be translated.
+  const configMapping: HostPathMapping = { hostRoot: hostConfigDir, containerRoot: CONTAINER_CLAUDE_CONFIG_DIR };
+  const landsInConfig = (candidate: ResolvedCandidate): boolean => toContainerConfigPath(hostConfigDir, candidate.mountSource, sep) !== null;
+  const configMappings = resolved.filter(landsInConfig).flatMap((candidate) => mappingUnderRoots(candidate, [configMapping], sep));
+  const external = resolved.filter((candidate) => !landsInConfig(candidate));
+
+  const roots = mountRoots(external, sep).map((hostPath) => ({ hostRoot: hostPath, containerRoot: externalContainerRoot(hostPath, platform) }));
+  return {
+    mounts: roots.map(({ hostRoot, containerRoot }) => ({ hostPath: hostRoot, containerPath: containerRoot })),
+    mappings: [...configMappings, ...external.flatMap((candidate) => mappingUnderRoots(candidate, roots, sep))],
+  };
 }
 
 export interface PluginLedgerMountParams {
@@ -300,7 +326,7 @@ interface LedgerPlan {
   staged: StagedLedger[];
   /** Trees outside the config dir that the translated ledgers now point into,
    *  so the caller can mount them. */
-  externalTrees: ExternalPluginTree[];
+  externalMounts: ExternalPluginMount[];
 }
 
 // Deciding WHAT to stage before creating anywhere to put it: a user with no
@@ -313,21 +339,16 @@ interface LedgerPlan {
 function planLedgers(hostConfigDir: string, sep: string, params: PluginLedgerMountParams): LedgerPlan {
   const read = LEDGERS.map((spec) => ({ spec, ledger: readLedgerTolerant(join(hostConfigDir, "plugins", spec.file)) }));
   const recorded = read.flatMap(({ spec, ledger }) => (ledger === null ? [] : spec.recordedPaths(ledger)));
-  const externalTrees = externalPluginTrees(recorded, hostConfigDir, sep, params.platform, {
+  const external = externalPluginMounts(recorded, hostConfigDir, sep, params.platform, {
     home: params.home,
     systemBlocked: params.systemBlocked,
     resolveRealPath: params.resolveRealPath,
   });
 
-  // One mapping per ALIAS, not per tree: the two ledgers may spell the same
-  // directory differently (a symlink in one, its target in the other), and both
-  // spellings have to land on the container root that tree was mounted at.
-  const mappings: HostPathMapping[] = [
-    { hostRoot: hostConfigDir, containerRoot: CONTAINER_CLAUDE_CONFIG_DIR },
-    ...externalTrees.flatMap(({ aliases, mountSource, containerRoot }) =>
-      [...new Set([...aliases, mountSource])].map((hostRoot) => ({ hostRoot, containerRoot })),
-    ),
-  ];
+  // One mapping per recorded SPELLING, not per mount: the two ledgers may spell
+  // one directory differently (a symlink in one, its target in the other), and a
+  // spelling may sit BELOW a mount root rather than at it.
+  const mappings: HostPathMapping[] = [{ hostRoot: hostConfigDir, containerRoot: CONTAINER_CLAUDE_CONFIG_DIR }, ...external.mappings];
 
   const staged = read.flatMap(({ spec, ledger }) => {
     if (ledger === null) return [];
@@ -340,7 +361,7 @@ function planLedgers(hostConfigDir: string, sep: string, params: PluginLedgerMou
   });
 
   // A tree is only worth mounting if a staged ledger actually points into it.
-  return staged.length === 0 ? { staged: [], externalTrees: [] } : { staged, externalTrees };
+  return staged.length === 0 ? { staged: [], externalMounts: [] } : { staged, externalMounts: external.mounts };
 }
 
 // Mount arguments come from the shared `dockerMount` helper so the staging path
@@ -371,7 +392,7 @@ function mountArg(outputDir: string, file: string, platform: Platform): string[]
 export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLedgerMounts {
   const hostConfigDir = params.hostConfigDir ?? claudeConfigDir();
   const sep = params.platform === "win32" ? "\\" : "/";
-  const { staged, externalTrees } = planLedgers(hostConfigDir, sep, params);
+  const { staged, externalMounts } = planLedgers(hostConfigDir, sep, params);
   if (staged.length === 0) return { args: [], stagingDir: null };
 
   // One directory per SPAWN, not per session: a turn then owns its staging
@@ -383,8 +404,8 @@ export function pluginLedgerMountArgs(params: PluginLedgerMountParams): PluginLe
   // A tree the ledger now points into but that cannot be expressed as a mount
   // would leave the CLI chasing a container path nothing carries — worse than
   // not translating it, because the host path at least existed. All or nothing.
-  const treeMounts = externalTrees.map((tree) => {
-    const mount = dockerMountArgs({ hostPath: tree.mountSource, containerPath: tree.containerRoot, readOnly: true }, params.platform);
+  const treeMounts = externalMounts.map((tree) => {
+    const mount = dockerMountArgs({ hostPath: tree.hostPath, containerPath: tree.containerPath, readOnly: true }, params.platform);
     return mount.kind === "args" ? mount.args : null;
   });
   if ([...mounts, ...treeMounts].some((mount) => mount === null)) {
