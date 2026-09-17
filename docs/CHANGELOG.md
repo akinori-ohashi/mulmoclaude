@@ -8,6 +8,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Fixed
+
+#### The `firebase` pin from the sign-in regression is lifted (#2835)
+
+`firebase` was pinned to an exact version, caret deliberately removed, because
+`@firebase/auth` 1.13.4 made `IndexedDBLocalPersistence` treat a hidden document as page
+teardown — the sign-in popup backgrounds the opener, so the credential write on return threw
+`Database is closing/hidden` with no retry path. Upstream has published the fix: the marker
+the regression introduced is present in 1.13.4's `dist` and absent from 1.13.3, 1.13.5 and
+1.13.6 alike, and in the version installed here the persistence registers `pagehide` /
+`pageshow` only, opens the database unconditionally, and retries.
+
+`firebase` had already moved to that line during a routine dependency sweep, so the range is
+what changes: an exact pin back to a caret, in the root and in the launcher alike, since
+`server/remoteHost/` resolves `firebase` from the launcher at runtime. The resolved version
+does not move — `yarn install --frozen-lockfile` answers the same `firebase` and
+`@firebase/auth` before and after.
+
+`src/config/firebase.ts` keeps the SDK's default persistence; the `inMemoryPersistence`
+switch the report proposed was a way around the regression, not something the fixed SDK
+needs.
+
 ## [1.18.0] - 2026-09-17
 
 **Claude Code plugins work in the sandbox at last — their skills are discovered and addressable — and the five ways the sandbox mishandled host paths are closed.**
