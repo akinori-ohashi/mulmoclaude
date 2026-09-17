@@ -25,3 +25,25 @@ export const makeTempDir = (prefix: string): string => {
   created.push(dir);
   return dir;
 };
+
+// On macOS `tmpdir()` is `/var/folders/...`, and `/var` is on the sandbox's
+// sensitive-path blocklist — so a fixture there is refused for a reason the test
+// is usually not about. The only way out used to be writing under `$HOME`, and a
+// sandboxed reviewer gets EPERM on that, which makes the suite unrunnable for
+// the second pair of eyes (#3196).
+//
+// `/tmp` resolves to `/private/tmp`, which is NOT on the list. Elsewhere
+// `tmpdir()` is already fine: Linux gives `/tmp`, and Windows gives a directory
+// under the user profile, where only the profile root itself is blocked.
+const UNBLOCKED_TMP_BASE = process.platform === "darwin" ? "/tmp" : tmpdir();
+
+/** A temp directory the REAL sensitive-path blocklist accepts.
+ *
+ *  Use this — not `makeTempDir` — whenever the code under test resolves the
+ *  fixture and asks `isSensitiveMountPath` about it with no injected seam. */
+export const makeUnblockedTempDir = (prefix: string): string => {
+  installExitHook();
+  const dir = mkdtempSync(join(UNBLOCKED_TMP_BASE, prefix));
+  created.push(dir);
+  return dir;
+};

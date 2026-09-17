@@ -4,9 +4,9 @@
 // as the literal "[object Object]" — usable as a label, and echoed back in the
 // error text as if the user had typed it.
 
-import { describe, it, after } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import path from "path";
 import { homedir } from "os";
 import {
@@ -18,7 +18,7 @@ import {
   validateReferenceDirs,
 } from "../../server/workspace/reference-dirs.ts";
 import { log } from "../../server/system/logger/index.ts";
-import { makeTempDir } from "../helpers/tempDir.js";
+import { makeTempDir, makeUnblockedTempDir } from "../helpers/tempDir.js";
 
 function tmpRoot(): string {
   const dir = makeTempDir("reference-dirs-");
@@ -30,32 +30,23 @@ function writeConfig(root: string, data: unknown): void {
   writeFileSync(path.join(root, "config", "reference-dirs.json"), JSON.stringify(data), "utf-8");
 }
 
-const targets: string[] = [];
-
 /** A real, mountable directory — entries pointing at one survive validation.
- *  Created under $HOME, not `tmpdir()`: on macOS that resolves under `/var`,
- *  which `SYSTEM_BLOCKED_PREFIXES` rejects, so every entry would be dropped for
- *  the wrong reason. */
+ *  NOT under `tmpdir()`, which on macOS resolves below `/var` and is rejected
+ *  for the wrong reason; and no longer under `$HOME` either, because a
+ *  sandboxed reviewer gets EPERM there and the whole file stops running for
+ *  them (#3196). `makeUnblockedTempDir` owns that choice now. */
 function realDir(): string {
-  const dir = mkdtempSync(path.join(homedir(), ".mulmoclaude-test-ref-"));
-  targets.push(dir);
-  return dir;
+  return makeUnblockedTempDir("mulmoclaude-test-ref-");
 }
 
-/** A symlink whose own PATH is unblocked, so only its target can reject it.
- *  Under $HOME for the same reason `realDir` is: a temp directory resolves
- *  under `/var` on macOS, which the real blocklist rejects — and the validator
- *  takes no seam, by design, because it is the rule the server enforces. */
+/** A symlink whose own PATH is unblocked, so only its TARGET can reject it.
+ *  The validator takes no seam, by design — it is the rule the server enforces —
+ *  so the fixture has to satisfy the real blocklist rather than an injected one. */
 function realSymlinkTo(target: string): string {
-  const link = path.join(mkdtempSync(path.join(homedir(), ".mulmoclaude-test-ref-link-")), "innocent-notes");
-  targets.push(path.dirname(link));
+  const link = path.join(makeUnblockedTempDir("mulmoclaude-test-ref-link-"), "innocent-notes");
   symlinkSync(target, link);
   return link;
 }
-
-after(() => {
-  for (const dir of targets) rmSync(dir, { recursive: true, force: true });
-});
 
 describe("loadReferenceDirs — non-string fields", () => {
   it("falls back to the basename when label is an object", () => {

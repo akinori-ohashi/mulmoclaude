@@ -12,15 +12,15 @@ Filed while fixing #3198, which had the identical defect in plugin trees.
 ## Root cause — one rule applied to the wrong string
 
 `isSensitiveMountPath` is **lexical by contract**: it never touches the
-filesystem, so it answers about the path's *spelling*. Everything that consumes
-a reference directory *follows the symlink*:
+filesystem, so it answers about the path's _spelling_. Everything that consumes
+a reference directory _follows the symlink_:
 
-| consumer | what it does with the entry |
-|---|---|
-| `planReferenceDirs` → docker argv | binds `entry.hostPath`; Docker resolves the source itself |
+| consumer                            | what it does with the entry                                   |
+| ----------------------------------- | ------------------------------------------------------------- |
+| `planReferenceDirs` → docker argv   | binds `entry.hostPath`; Docker resolves the source itself     |
 | `planReferenceDirs` → system prompt | names the host path to the agent, whose reads follow the link |
-| `resolveRefPath` (file API) | `realpathSync` then serves content under it |
-| `ref-roots` listing | lists it in the explorer |
+| `resolveRefPath` (file API)         | `realpathSync` then serves content under it                   |
+| `ref-roots` listing                 | lists it in the explorer                                      |
 
 So the check ran on `~/notes` and the use ran on `~/.ssh`.
 
@@ -46,7 +46,7 @@ way:
 1. **The entry keeps the user's spelling; resolution happens at every use.**
    Storing the target would freeze it — an entry could no longer follow a
    symlink the user repoints deliberately — and it would rewrite a config the
-   user hand-wrote. Resolving per use also means a symlink repointed *after*
+   user hand-wrote. Resolving per use also means a symlink repointed _after_
    the entry was saved is re-checked, which storing cannot do. The container
    path stays hashed from the spelling, so the agent keeps reading the same
    place across a deliberate repoint.
@@ -90,6 +90,27 @@ Fixtures use the injected blocklist so they live in a temp directory (#3196).
 Three pre-existing plan tests needed the same seam once the plan started
 resolving — on macOS a temp directory resolves under `/private/var`, which the
 real list blocks, so they were failing for the one reason they are not about.
+
+### The harness could not be run by a sandboxed reviewer, and this PR made it worse
+
+Found by the review loop's own pre-flight, before round 1: the suite exits 1 for
+a reviewer with no `$HOME` write access, because `realDir` used
+`mkdtemp` under `$HOME` — and the symlink fixture this PR ADDED did the same,
+taking it from three unrunnable tests to four.
+
+```
+Error: EPERM: operation not permitted, mkdtemp '/Users/…/.mulmoclaude-test-ref-XXXXXX'
+ℹ tests 31   ℹ pass 26   ℹ fail 4
+```
+
+`makeUnblockedTempDir` now owns that choice in one place: `/tmp` on macOS, which
+resolves to `/private/tmp` and is NOT on the blocklist, against `os.tmpdir()`'s
+`/var/folders/…` which is; and `os.tmpdir()` everywhere else, where it already
+works. Nothing in `test/` or `e2e/` creates anything under `$HOME` any more.
+
+This is #3196, which had been closed _by accident_ — #3199's body said "This
+does not close #3196" and GitHub's parser matched the substring `close #3196`,
+ignoring the negation. It was marked complete while still broken. It is true now.
 
 **One test initially passed for the wrong reason.** The save-time case put its
 symlink in a temp directory, which the lexical check already rejects for being
