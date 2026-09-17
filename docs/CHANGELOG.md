@@ -22,9 +22,20 @@ the regression introduced is present in 1.13.4's `dist` and absent from 1.13.3, 
 
 `firebase` had already moved to that line during a routine dependency sweep, so the range is
 what changes: an exact pin back to a caret, in the root and in the launcher alike, since
-`server/remoteHost/` resolves `firebase` from the launcher at runtime. The resolved version
-does not move — `yarn install --frozen-lockfile` answers the same `firebase` and
-`@firebase/auth` before and after.
+`server/remoteHost/` resolves `firebase` from the launcher at runtime. It was the last
+caret-less pin in either manifest, so the change also brings `firebase` in line with how
+every other dependency here is declared.
+
+**What the caret admits is worth stating rather than implying.** Against the committed
+lockfile nothing moves: `yarn install --frozen-lockfile` answers the same `firebase` and
+`@firebase/auth` before and after. An install that regenerates the lockfile, and a fresh
+`npm install mulmoclaude` — which has no lockfile at all — instead take whichever 12.x
+satisfies the range at install time. That third case is the substance of the change: from
+the next `firebase` release on, npm users receive it without it passing through a PR here,
+which the exact pin prevented. **Nothing in CI would catch a repeat of this regression
+class**; that needs a live sign-in or a dependency canary. The trade is taken deliberately,
+because an exact pin withholds upgrades silently and the rest of this repo's dependencies
+float.
 
 `src/config/firebase.ts` keeps the SDK's default persistence; the `inMemoryPersistence`
 switch the report proposed was a way around the regression, not something the fixed SDK
