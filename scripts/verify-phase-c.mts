@@ -110,7 +110,7 @@ async function main(): Promise<void> {
   page.on("pageerror", (err) => errors.push(err.message));
 
   console.log(`navigating to ${URL}`);
-  const resp = await page.goto(URL, { waitUntil: "networkidle", timeout: 20000 });
+  const resp = await page.goto(URL, { waitUntil: "load", timeout: 20000 });
   console.log(`status: ${resp?.status()}`);
   await page.waitForTimeout(2000);
 
