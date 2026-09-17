@@ -162,6 +162,28 @@ write is refused, not lost — so update the plugin before, or with, that deploy
 
 ### Fixed
 
+#### `@mulmoclaude/shapescript-plugin@6.2.0` — the render page's navigation no longer inherits Puppeteer's default (#3201)
+
+`renderShapeScriptSheet` gave the browser launch and the rasterisation each an explicit budget and
+left the render page's NAVIGATION on Puppeteer's 30 s default — the one number
+`LAUNCH_TIMEOUT_MS`'s own comment says the others are explicit in order not to inherit. On a loaded
+CI runner that page load does not always finish inside it: five of the last twelve Windows daily
+runs downstream, and a required pull-request check, failing only as `TimeoutError: Navigation
+timeout of 30000 ms exceeded` with nothing naming this package (receptron/mulmoterminal#2095).
+
+It is not a network wait. `serveRenderAssets` answers every request from disk through interception,
+so what the page load waits for is Chromium parsing and evaluating three.js under software GL —
+about a second on a developer machine.
+
+`NAVIGATION_TIMEOUT_MS` is now passed to `page.goto` and exported, and `RENDER_BUDGET_MS` becomes
+launch + navigation + render. That second half is part of the fix rather than bookkeeping: a phase
+missing from the sum is a host transport sized to less than the work it waits for, which is what
+the constant exists to prevent. `RENDER_TOOL_TIMEOUT_MS` and `MANAGE_TOOL_TIMEOUT_MS` derive from
+it and move with it.
+
+A host could not work around this — `RenderShapeScriptOptions` carries no timeout, so MulmoTerminal's
+only lever was retrying the whole render (receptron/mulmoterminal#2096, a bridge until this ships).
+
 #### `@mulmoclaude/collection-plugin@4.7.0` — a Canvas card could not keep a custom collection view (#3061)
 
 Picking a custom view on a `presentCollection` card held until the card next mounted —
@@ -198,7 +220,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@6.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@6.2.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 

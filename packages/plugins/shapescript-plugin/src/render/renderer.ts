@@ -42,13 +42,27 @@ export const RENDER_TIMEOUT_MS = 60 * ONE_SECOND_MS;
  *  numbers this file controls instead of one it would silently inherit. */
 export const LAUNCH_TIMEOUT_MS = 30 * ONE_SECOND_MS;
 
-/** Worst case for one call, launch plus render. The MCP bridge must outlast
+/** How long the render page may take to LOAD, once the browser is up.
+ *
+ *  Not a network wait: every request the page makes is answered from disk through
+ *  interception (`serveRenderAssets`), so this is Chromium parsing and evaluating three.js under
+ *  software GL. That is fast on a developer machine and not always fast on a loaded CI runner —
+ *  and this was the one phase left on Puppeteer's own 30 s default, which is exactly what the
+ *  comment above says the others avoid. It timed out on about 40% of one host's Windows runs and
+ *  on a required pull-request check (receptron/mulmoterminal#2095), reported only as
+ *  `TimeoutError: Navigation timeout of 30000 ms exceeded` with nothing naming this package. */
+export const NAVIGATION_TIMEOUT_MS = 60 * ONE_SECOND_MS;
+
+/** Worst case for one call: launch, page load, then render. The MCP bridge must outlast
  *  THIS, not just the render — a slow launch followed by a full render is
  *  inside budget, and a bridge sized to the render alone aborts it in transit
  *  while the server carries on and saves an image nobody is waiting for
  *  (CodeRabbit on #3056). Callers add their own headroom for the work either
- *  side of it: serialising the scene, and writing the PNG. */
-export const RENDER_BUDGET_MS = LAUNCH_TIMEOUT_MS + RENDER_TIMEOUT_MS;
+ *  side of it: serialising the scene, and writing the PNG.
+ *
+ *  Every phase this file waits on belongs in this sum. A phase left out is a host transport sized
+ *  to less than the work it is waiting for, which is the failure above by another route. */
+export const RENDER_BUDGET_MS = LAUNCH_TIMEOUT_MS + NAVIGATION_TIMEOUT_MS + RENDER_TIMEOUT_MS;
 
 /** The install step a missing browser needs. Repeated verbatim in
  *  `error-recovery.md` — the agent reads that file before asking the user. */
@@ -274,7 +288,7 @@ export async function renderShapeScriptSheet(options: RenderShapeScriptOptions):
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await serveRenderAssets(page, html);
-    await page.goto(PAGE_URL, { waitUntil: "load" });
+    await page.goto(PAGE_URL, { waitUntil: "load", timeout: NAVIGATION_TIMEOUT_MS });
     try {
       await page.waitForFunction("typeof window.__shapeSheet === 'string'", { timeout: RENDER_TIMEOUT_MS });
     } catch (err) {
