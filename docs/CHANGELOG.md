@@ -8,6 +8,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-09-17
+
+**Claude Code plugins work in the sandbox at last — their skills are discovered and addressable — and the five ways the sandbox mishandled host paths are closed.**
+
+### Highlights
+
+#### Skills shipped by an installed plugin are discovered (#3175, #3184)
+
+Claude Code installs skills two ways: loose directories under `~/.claude/skills/`, and a
+marketplace plugin whose tree carries its own `skills/`. Only the first was ever scanned.
+Plugin skills now appear as a third scope, named `<plugin>:<skill>` exactly the way the CLI
+addresses them — not cosmetic, because the manageSkills **Run** button dispatches
+`/${skill.name}`, so a differently-named row would be clickable and dead.
+
+Precedence is **project > user > claude-plugin**, so a plugin can never shadow a skill you
+wrote, and the sidebar lists plugin skills after your own so the selection does not jump the
+moment one is installed. A plugin set to `false` in `settings.json` contributes nothing. The
+two by-name lookups skip the plugin scan unless the name is namespaced, which is what keeps a
+user-skill invocation from paying the scan mid-turn.
+
+#### The sandbox stopped mishandling host paths — in five different ways (#3186, #3191, #3194, #3198, #3200)
+
+`#3184` could not confirm why `Skill` invocations were zero under Docker. `#3186` is the
+answer, and it was worse than skills: **every** installed plugin was inert in the sandbox —
+skills, slash commands, MCP servers and hooks — with no error and no warning. The CLI's two
+ledgers record host absolute paths, which do not exist under the container's `HOME`.
+
+The other four are the same mistake in different places, each one a rule applied to a path's
+_spelling_ rather than to what the path actually is:
+
+- a workspace path containing a backslash mounted an empty directory, and the agent's writes
+  went to a phantom host directory (**#3191**);
+- the system prompt told the agent it could read reference directories that were never
+  mounted (**#3194**);
+- a plugin registered from outside the config dir worked on the host and was inert in the
+  sandbox, because no mount carried its tree (**#3198**);
+- **a reference directory could be a symlink to a blocked location** — `~/notes -> ~/.ssh` was
+  mounted into the container and served through `@ref/notes/…`, because the blocklist is
+  lexical while Docker and the file API both follow the link (**#3200**).
+
+Every Docker claim behind these was measured against the daemon rather than reasoned about.
+The blocklist now lives in one place, `server/utils/sensitiveMountPaths.ts`, shared by plugin
+trees and reference directories, and its contract states that it is **lexical** — so a future
+caller that mounts a user-supplied path knows it must resolve first.
+
 ### Added
 
 #### `@mulmoclaude/shapescript-plugin@6.0.0` — `manageShapeScript` asks for the gallery's CC BY 4.0 agreement
@@ -162,6 +207,25 @@ write is refused, not lost — so update the plugin before, or with, that deploy
 
 ### Fixed
 
+#### Docker サンドボックス — ホストパスの扱い5件（#3186 #3191 #3194 #3198 #3200）
+
+サンドボックスがホストのパスを「綴りのまま」扱っていたことに起因する一連の不具合。どれも
+`server/` の変更なので、**npm 利用者には launcher の publish 経由でしか届かない**。
+
+| #     | 症状                                                                                                                                | 原因                                                                                                                                                              |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #3186 | サンドボックスで**すべての**プラグインが無効 — skill・コマンド・MCP・hook が警告もなく全滅                                          | CLI の 2 つの台帳がホスト絶対パスを持ち、コンテナの `HOME` では ENOENT になる。台帳をコンテナ表記に翻訳して read-only で被せる                                    |
+| #3191 | ワークスペースのパスにバックスラッシュがあると、agent の書き込みがホスト上の幻のディレクトリへ                                      | 全マウントが `\` を無条件に畳み、`:` で分割していた。`-v` と `--mount` は**相補的**（前者は `,` `"` を運べるが `:` を運べず、後者はその逆）なので、パスごとに選ぶ |
+| #3194 | 参照ディレクトリがマウントされていないのに、システムプロンプトが agent に「読める」と告げていた                                     | マウント引数とプロンプトが同じ入力から別々に導出されていた。判定を 1 箇所に集約                                                                                   |
+| #3198 | `plugin marketplace add <ローカルパス>` で入れたプラグインが、ホストでは動くのにサンドボックスで無効                                | 設定ディレクトリ外のツリーはどのマウントにも載っていなかった。`/mnt/plugin-src` に read-only で載せ、台帳をそこへ翻訳                                             |
+| #3200 | **参照ディレクトリの symlink で遮断対象をマウント・閲覧できた** — `~/notes -> ~/.ssh` がコンテナに渡り、`@ref/notes/…` からも読めた | ブロックリストは字面判定（contract 上 lexical）なのに、Docker もファイル API も symlink を辿る。解決後のパスで判定し、解決後のパスを bind する                    |
+
+#3200 と #3198 は同じ形の不具合で、いずれも実機の daemon で再現を確認したうえで修正している
+（`-v <symlink>:/mnt/…:ro` がリンク先の中身をコンテナに出すことを計測）。ブロックリストは
+`server/utils/sensitiveMountPaths.ts` に集約され、プラグインツリーと参照ディレクトリの両方が
+同じ規則を使う。この helper は **lexical** であることを contract として明記してあるので、
+今後マウントする呼び出し側は必ず自分で解決してから問い合わせること。
+
 #### `@mulmoclaude/shapescript-plugin@6.2.0` — the render page's navigation no longer inherits Puppeteer's default (#3201)
 
 `renderShapeScriptSheet` gave the browser launch and the rasterisation each an explicit budget and
@@ -283,11 +347,11 @@ publish 済みの manifest が、その後に動いた依存レンジを反映�
 だけなので clean のまま据え置き）。適用は `scripts/packages/bump-pending-releases.mjs`、
 公開は `scripts/packages/publish-pending.mjs` が依存順に回す。
 
-| 種類 | パッケージ | 中身 |
-| --- | --- | --- |
-| 版が先行済み | `client@1.3.0` `chat-service@1.2.0` `telegram@1.2.0` | src が動いていて版だけ上がっていた。**`client` が未公開のまま 28 ブリッジが `^1.3.0` を宣言していた**ので、これを先頭に出す |
-| patch（ブリッジ 26 本） | `bluesky` `chatwork` `discord` `email` `google-chat` `irc` `line` `line-works` `mastodon` `matrix` `mattermost` `messenger` `nostr` `rocketchat` `signal` `slack` `teams` `twilio-sms` `viber` `webhook` `whatsapp` `xmpp` `zulip` `cli` `mock-server` `relay` | `@mulmobridge/client` のレンジ `^1.2.0` → `^1.3.0`。`email` は `imapflow` `nodemailer` の major も、`mock-server` は README も反映 |
-| patch（プラグイン 8 本） | `accounting@3.0.2` `chart@3.0.2` `collection@4.7.1` `email@2.0.2` `google@3.0.2` `html@4.0.2` `mulmoscript@4.8.2` `shapescript@5.1.1` | `@mulmoclaude/core` のレンジ（`^4.9.2` / `^4.9.3` → `^4.9.4`）。`collection` は `zod`、`email-plugin` は imapflow 2 への型追従と、日付が壊れていても list が落ちない `envelopeDateIso`（公開 entry からは出ていないので patch） |
+| 種類                     | パッケージ                                                                                                                                                                                                                                                     | 中身                                                                                                                                                                                                                            |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 版が先行済み             | `client@1.3.0` `chat-service@1.2.0` `telegram@1.2.0`                                                                                                                                                                                                           | src が動いていて版だけ上がっていた。**`client` が未公開のまま 28 ブリッジが `^1.3.0` を宣言していた**ので、これを先頭に出す                                                                                                     |
+| patch（ブリッジ 26 本）  | `bluesky` `chatwork` `discord` `email` `google-chat` `irc` `line` `line-works` `mastodon` `matrix` `mattermost` `messenger` `nostr` `rocketchat` `signal` `slack` `teams` `twilio-sms` `viber` `webhook` `whatsapp` `xmpp` `zulip` `cli` `mock-server` `relay` | `@mulmobridge/client` のレンジ `^1.2.0` → `^1.3.0`。`email` は `imapflow` `nodemailer` の major も、`mock-server` は README も反映                                                                                              |
+| patch（プラグイン 8 本） | `accounting@3.0.2` `chart@3.0.2` `collection@4.7.1` `email@2.0.2` `google@3.0.2` `html@4.0.2` `mulmoscript@4.8.2` `shapescript@5.1.1`                                                                                                                          | `@mulmoclaude/core` のレンジ（`^4.9.2` / `^4.9.3` → `^4.9.4`）。`collection` は `zod`、`email-plugin` は imapflow 2 への型追従と、日付が壊れていても list が落ちない `envelopeDateIso`（公開 entry からは出ていないので patch） |
 
 launcher (`mulmoclaude`) の `version` は `chore(release)` では触らない規則どおり据え置き。
 アプリ本体（`server/` / `src/`）が npm 利用者に届くのは `/publish-mulmoclaude` 経由なので、
