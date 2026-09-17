@@ -44,6 +44,26 @@ only lever is retrying the whole render, which costs another Chromium.
   prevent (CodeRabbit on #3056) — so this is part of the fix rather than bookkeeping.
 - Exported from `./render` beside the other two, since it is now part of the same contract.
 
+## The version moves with the source (#3202 round 1, Codex)
+
+This package is published, and this repo's convention is that the commit which changes a package's
+source bumps its version — `c8d372ccb` did exactly that for 6.1.0. Left at 6.1.0 the branch is
+"code drift" against a version npm already serves, `publish-pending` would not publish it, and
+MulmoTerminal could never consume the fix.
+
+**6.2.0, a minor**, because this ADDS an export (`NAVIGATION_TIMEOUT_MS`). The precedent is
+`4ee3f67ac`, "bump to 5.2.0 for the new license exports". The value of `RENDER_BUDGET_MS` changes
+too, but a larger budget is compatible for a consumer that derives its transport from it.
+
+Sites: the package's own `version`, the local consumer's range in `packages/mulmoclaude/package.json`,
+and the `### Package releases` roster under `[Unreleased]` in `docs/CHANGELOG.md` — plus a changelog
+entry under `### Fixed`. **Not** `yarn.lock`: workspace packages are linked rather than locked, and
+the lockfile has no entry for this package at all (checked; Codex's finding named it as a site).
+
+Verified with the repo's own instrument, the one the finding came from:
+`node scripts/packages/audit-releases.mjs --code-only` now reports `6.2.0 / 6.1.0 / code drift …
+version ahead of npm` for this package, which is what a ready-to-publish change looks like.
+
 ## Not doing
 
 - **An injectable launcher so the renderer can be tested without a browser.** It would let a fake
