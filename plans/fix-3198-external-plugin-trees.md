@@ -85,10 +85,14 @@ own `NAME_MAX`, and appending the hash pushes the target past it — while
 has no reason to reject it. So the budget is enforced where the name is BUILT,
 in `externalContainerRoot`, and the readable half is truncated to fit.
 
-Truncation cannot cause a collision, which is the property that makes it safe:
-the hash is taken from the FULL host path, so two trees sharing a truncated
-prefix still differ in it. Both directions measured against the daemon — the
-overlong target kills the container, the capped one mounts.
+Truncation adds no collision mode of its own, which is the property that makes
+it safe: the hash is taken from the FULL host path, so two trees sharing a
+truncated prefix still differ in the half that carries uniqueness. That is a
+narrower claim than "collision-free", deliberately — uniqueness rests on 32 bits
+of the digest, which is negligible risk across the handful of trees one config
+holds and not a guarantee, and nothing here detects a collision. Both directions
+measured against the daemon — the overlong target kills the container, the
+capped one mounts.
 
 ## Security
 
@@ -178,7 +182,7 @@ of a path rather than to what that path actually is.
   of caller order, traversal below a matched root.
 - `test_plugin_ledger_mount.ts` — a tree mounted and the ledger pointed into it,
   mount ordering, a sensitive tree refused, dedup and nesting, container-root
-  stability and collision-freedom, a tree that is not on the host, a symlink to
+  stability and distinctness, a tree that is not on the host, a symlink to
   each blocked class refused, the resolved path being what is bound, two
   symlinks to one tree sharing a mount, the Windows case-variant pair, a
   spelling nested below a root mapping to its offset, a spelling resolving into

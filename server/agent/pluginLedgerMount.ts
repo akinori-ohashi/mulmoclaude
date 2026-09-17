@@ -64,8 +64,11 @@ function pathRules(platform: Platform): typeof posixPath {
   return platform === "win32" ? win32Path : posixPath;
 }
 
-/** Enough hex for collision-freedom across one user's plugin trees without
- *  spending the name budget below on it. */
+/** 32 bits of the digest — enough that a collision across the handful of plugin
+ *  trees one config holds is negligible, without spending the name budget below
+ *  on it. Negligible is not impossible: nothing here DETECTS a collision, and
+ *  two trees that did collide would share a mount point. Widen this before
+ *  using the helper for anything that enumerates more than a user's plugins. */
 const CONTAINER_ROOT_HASH_CHARS = 8;
 
 /** `NAME_MAX` on the filesystems the sandbox image uses.
@@ -82,14 +85,15 @@ const CONTAINER_ROOT_HASH_CHARS = 8;
  *  `dockerMountArgs`, which sees a string it has no reason to reject. */
 const MAX_MOUNT_TARGET_NAME_BYTES = 255;
 
-/** A stable, collision-free container directory for one host tree. The hash is
- *  what makes it stable across turns and unique across trees; the basename is
- *  decoration, reduced to a safe set so the host path's punctuation cannot
- *  reach the mount target — and truncated so the two together stay nameable.
+/** A stable container directory for one host tree. The hash is what makes it
+ *  stable across turns and distinct across trees; the basename is decoration,
+ *  reduced to a safe set so the host path's punctuation cannot reach the mount
+ *  target — and truncated so the two together stay nameable.
  *
- *  Truncating the readable half cannot cause a collision: the hash is taken
- *  from the FULL host path, so two trees sharing a truncated prefix still
- *  differ in it. */
+ *  Truncating the readable half adds no collision mode of its own: the hash is
+ *  taken from the FULL host path, so two trees sharing a truncated prefix still
+ *  differ in the half that carries uniqueness. What uniqueness rests on is that
+ *  hash, and its strength is the constant above rather than a guarantee. */
 function externalContainerRoot(hostRoot: string, platform: Platform): string {
   const hash = createHash("sha256").update(hostRoot).digest("hex").slice(0, CONTAINER_ROOT_HASH_CHARS);
   const sanitized = [...pathRules(platform).basename(hostRoot)].map((character) => (/[A-Za-z0-9._-]/.test(character) ? character : "_")).join("");

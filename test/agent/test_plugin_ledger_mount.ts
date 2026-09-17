@@ -466,11 +466,11 @@ describe("externalPluginMounts — what has to be mounted beyond the config dir"
     );
   });
 
-  it("gives each tree a stable, collision-free container root", () => {
+  it("gives each tree a stable, distinct container root", () => {
     const first = plan([`${HOME}/dev/a`, `${HOME}/other/a`]).mounts;
     const again = plan([`${HOME}/dev/a`]).mounts;
 
-    assert.equal(new Set(first.map((mount) => mount.containerPath)).size, 2, "same basename, different tree — must not collide");
+    assert.equal(new Set(first.map((mount) => mount.containerPath)).size, 2, "same basename, different tree — the hash must separate them");
     assert.equal(first[0]?.containerPath, again[0]?.containerPath, "the same host path must map to the same place every turn");
     first.forEach((mount) => assert.match(mount.containerPath, /^\/mnt\/plugin-src\/[A-Za-z0-9._-]+$/));
   });
