@@ -151,6 +151,19 @@ the first three (`planConfigMounts`) and `#3194` the fourth (`planReferenceDirs`
 The prompt is the one that matters most, because it misleads the **agent**, which
 acts on it, rather than a human who can go and look.
 
+**A reference directory is resolved before it is used, and the blocklist runs on
+what it resolves to** (#3200). The same rule as a plugin tree, and for the same
+measured reason: Docker binds a symlink's target, so a directory named
+`~/notes` pointing at `~/.ssh` passed a check on its spelling and mounted the
+target. `resolveReferenceDir` in `server/workspace/reference-dirs.ts` is the one
+place that decides this, and every consumer routes through it — the mount args,
+the prompt, `@ref/<label>/…` in the file API and the `ref-roots` listing. The
+entry keeps the user's own spelling, so the container path stays put when a
+symlink is repointed deliberately; only what is bound and read follows the link.
+Without Docker there is no mount and the hole is the same size, because the
+prompt hands the agent that host path and the agent's own reads follow the link
+— which is why the check runs before the Docker branch, not inside it.
+
 ## Where-what summary
 
 | What                                                                 | Where it runs                                        |

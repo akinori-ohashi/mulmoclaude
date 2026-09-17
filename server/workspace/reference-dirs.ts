@@ -7,13 +7,14 @@
 // Non-Docker mode: prompt-based restriction only.
 
 import { createHash } from "crypto";
+import { realpathSync } from "fs";
 import path from "path";
 import { homedir } from "os";
 import { log } from "../system/logger/index.js";
 import { readReferenceDirsJson, writeReferenceDirsJson, isExistingDirectory } from "../utils/files/reference-dirs-io.js";
 import { hasStringProp, isRecord } from "../utils/types.js";
 import { validateEntryList, type EntryListResult } from "../utils/validateEntryList.js";
-import { isSensitiveMountPath } from "../utils/sensitiveMountPaths.js";
+import { isSensitiveMountPath, type SensitivePathOptions } from "../utils/sensitiveMountPaths.js";
 import { dockerMountArgs } from "../agent/dockerMount.js";
 import type { Platform } from "../agent/config.js";
 
@@ -51,6 +52,50 @@ function hasTraversalSegment(inputPath: string): boolean {
   return inputPath.split(path.sep).some((segment) => segment === "..");
 }
 
+// ── Where a reference directory really is ───────────────────────
+
+/** `missing` covers "gone" and "not resolvable" alike — both mean the same
+ *  thing to every caller. `blocked` carries the real path because that is what
+ *  the log has to name: the entry's own spelling looks innocent, which is the
+ *  whole problem. */
+export type ReferenceDirTarget = { kind: "ok"; realPath: string } | { kind: "missing" } | { kind: "blocked"; realPath: string };
+
+export interface ReferenceDirResolveOptions {
+  /** Defaults to the real `realpathSync`. Injected by tests. */
+  resolveRealPath?: ((hostPath: string) => string) | undefined;
+  /** Seams for the blocklist. macOS `tmpdir()` sits under `/var`, which the
+   *  real list blocks, so a fixture cannot live in a temp directory without
+   *  this (#3196). */
+  sensitive?: SensitivePathOptions | undefined;
+}
+
+/**
+ * Where a reference directory actually is, for the callers that act on it.
+ *
+ * `isSensitiveMountPath` is LEXICAL by contract — it never touches the
+ * filesystem — so asking it about the entry's own spelling says nothing about
+ * what a symlink points at. Everything that consumes a reference directory
+ * follows that symlink: Docker binds the target, and the file API realpaths
+ * before serving. Checking the spelling and using the target is how
+ * `~/notes -> ~/.ssh` gets mounted and browsed (#3200).
+ *
+ * Resolved on every use rather than stored on the entry, for two reasons: a
+ * symlink can be repointed after the entry was saved, and storing the target
+ * would stop an entry following a symlink the user repoints deliberately.
+ */
+export function resolveReferenceDir(hostPath: string, options: ReferenceDirResolveOptions = {}): ReferenceDirTarget {
+  const resolve = options.resolveRealPath ?? realpathSync;
+  const realPath = ((): string | null => {
+    try {
+      return resolve(hostPath);
+    } catch {
+      return null;
+    }
+  })();
+  if (realPath === null) return { kind: "missing" };
+  return isSensitiveMountPath(realPath, options.sensitive ?? {}) ? { kind: "blocked", realPath } : { kind: "ok", realPath };
+}
+
 function validateEntry(raw: unknown): ReferenceDirEntry | null {
   if (!isRecord(raw)) return null;
 
@@ -71,6 +116,20 @@ function validateEntry(raw: unknown): ReferenceDirEntry | null {
   // Block sensitive directories
   if (isSensitiveMountPath(absPath)) {
     log.warn("reference-dirs", "blocked sensitive path", { path: absPath });
+    return null;
+  }
+
+  // And block one that merely POINTS at a sensitive directory, so the API says
+  // no at save time rather than accepting it and silently never mounting it.
+  //
+  // A path that does not resolve is NOT rejected here: an entry may legitimately
+  // name a directory that is absent right now — an external drive, a network
+  // share — and `planReferenceDirs` already skips those per turn. Requiring
+  // resolution would turn "not plugged in today" into "cannot be configured".
+  // This check is point-in-time either way; the authoritative ones run where the
+  // path is used.
+  if (resolveReferenceDir(absPath).kind === "blocked") {
+    log.warn("reference-dirs", "blocked path resolving to a sensitive directory", { path: absPath });
     return null;
   }
 
@@ -179,9 +238,10 @@ export interface ReferenceDirPlan {
    *  name. */
   available: ReferenceDirEntry[];
   /** `missing` is ordinary — a directory the user removed. `unmountable` is a
-   *  configuration problem that will never resolve on its own, so the two carry
-   *  different log levels. */
-  skipped: { entry: ReferenceDirEntry; reason: string; kind: "missing" | "unmountable" }[];
+   *  configuration problem that will never resolve on its own, and `blocked` is
+   *  a path now pointing somewhere the sandbox must never see, so the three
+   *  carry different log levels. */
+  skipped: { entry: ReferenceDirEntry; reason: string; kind: "missing" | "unmountable" | "blocked" }[];
 }
 
 /**
@@ -196,20 +256,40 @@ export interface ReferenceDirPlan {
  * Pure apart from the existence check, and deliberately silent: the prompt is
  * rebuilt every turn, so the warning belongs to the spawn path alone.
  */
-export function planReferenceDirs(entries: readonly ReferenceDirEntry[], useDocker: boolean, platform: Platform = process.platform): ReferenceDirPlan {
+export function planReferenceDirs(
+  entries: readonly ReferenceDirEntry[],
+  useDocker: boolean,
+  platform: Platform = process.platform,
+  options: ReferenceDirResolveOptions = {},
+): ReferenceDirPlan {
   const plan: ReferenceDirPlan = { args: [], available: [], skipped: [] };
   entries.forEach((entry) => {
     if (!isExistingDirectory(entry.hostPath)) {
       plan.skipped.push({ entry, reason: "not found or not a directory", kind: "missing" });
       return;
     }
+    // Resolved BEFORE the Docker branch below, because the escape is not about
+    // mounting: without Docker the prompt hands the agent this host path and the
+    // agent's own reads follow the symlink just as Docker would (#3200).
+    const target = resolveReferenceDir(entry.hostPath, options);
+    if (target.kind === "missing") {
+      plan.skipped.push({ entry, reason: "not found or not a directory", kind: "missing" });
+      return;
+    }
+    if (target.kind === "blocked") {
+      plan.skipped.push({ entry, reason: `resolves to ${target.realPath}, which the sandbox must never see`, kind: "blocked" });
+      return;
+    }
     // Without Docker there is no mount: the agent reads the host path directly,
-    // so existing is the whole of being reachable.
+    // so resolving to something allowed is the whole of being reachable.
     if (!useDocker) {
       plan.available.push(entry);
       return;
     }
-    const mount = dockerMountArgs({ hostPath: entry.hostPath, containerPath: containerPath(entry), readOnly: true }, platform);
+    // The RESOLVED path is what gets bound, for the same reason it is what gets
+    // checked: binding the entry's spelling lets a symlink redirect the mount
+    // after the blocklist has passed it.
+    const mount = dockerMountArgs({ hostPath: target.realPath, containerPath: containerPath(entry), readOnly: true }, platform);
     if (mount.kind === "args") {
       plan.args.push(...mount.args);
       plan.available.push(entry);
@@ -223,13 +303,19 @@ export function planReferenceDirs(entries: readonly ReferenceDirEntry[], useDock
   return plan;
 }
 
-export function referenceDirMountArgs(entries: readonly ReferenceDirEntry[], platform: Platform = process.platform): string[] {
-  const plan = planReferenceDirs(entries, true, platform);
+export function referenceDirMountArgs(
+  entries: readonly ReferenceDirEntry[],
+  platform: Platform = process.platform,
+  options: ReferenceDirResolveOptions = {},
+): string[] {
+  const plan = planReferenceDirs(entries, true, platform, options);
   plan.skipped.forEach(({ entry, reason, kind }) => {
     // A directory that went away is ordinary; a path no docker flag can carry is
     // a configuration problem that will not resolve until the user renames it,
-    // and it kept its `warn` from before this was one code path.
-    const write = kind === "unmountable" ? log.warn : log.info;
+    // and it kept its `warn` from before this was one code path. A path that now
+    // RESOLVES somewhere blocked is the loudest of the three — it is the shape a
+    // symlink escape takes, so it must not read as routine.
+    const write = kind === "missing" ? log.info : log.warn;
     write("reference-dirs", "skipped (not mounted, and not offered to the agent)", { path: entry.hostPath, reason });
   });
   return plan.args;
@@ -237,11 +323,16 @@ export function referenceDirMountArgs(entries: readonly ReferenceDirEntry[], pla
 
 // ── System prompt snippet ───────────────────────────────────────
 
-export function buildReferenceDirsPrompt(entries: readonly ReferenceDirEntry[], useDocker: boolean, platform: Platform = process.platform): string {
+export function buildReferenceDirsPrompt(
+  entries: readonly ReferenceDirEntry[],
+  useDocker: boolean,
+  platform: Platform = process.platform,
+  options: ReferenceDirResolveOptions = {},
+): string {
   // Only what is actually reachable. Naming a directory the agent cannot open
   // is worse than omitting it: it reads the empty container path and can
   // conclude the user's reference material is empty (#3194).
-  const { available } = planReferenceDirs(entries, useDocker, platform);
+  const { available } = planReferenceDirs(entries, useDocker, platform, options);
   if (available.length === 0) return "";
 
   const lines = [

@@ -4,9 +4,9 @@
 // as the literal "[object Object]" — usable as a label, and echoed back in the
 // error text as if the user had typed it.
 
-import { describe, it, after } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import path from "path";
 import { homedir } from "os";
 import {
@@ -14,10 +14,11 @@ import {
   loadReferenceDirs,
   planReferenceDirs,
   referenceDirMountArgs,
+  resolveReferenceDir,
   validateReferenceDirs,
 } from "../../server/workspace/reference-dirs.ts";
 import { log } from "../../server/system/logger/index.ts";
-import { makeTempDir } from "../helpers/tempDir.js";
+import { makeTempDir, makeUnblockedTempDir } from "../helpers/tempDir.js";
 
 function tmpRoot(): string {
   const dir = makeTempDir("reference-dirs-");
@@ -29,21 +30,23 @@ function writeConfig(root: string, data: unknown): void {
   writeFileSync(path.join(root, "config", "reference-dirs.json"), JSON.stringify(data), "utf-8");
 }
 
-const targets: string[] = [];
-
 /** A real, mountable directory — entries pointing at one survive validation.
- *  Created under $HOME, not `tmpdir()`: on macOS that resolves under `/var`,
- *  which `SYSTEM_BLOCKED_PREFIXES` rejects, so every entry would be dropped for
- *  the wrong reason. */
+ *  NOT under `tmpdir()`, which on macOS resolves below `/var` and is rejected
+ *  for the wrong reason; and no longer under `$HOME` either, because a
+ *  sandboxed reviewer gets EPERM there and the whole file stops running for
+ *  them (#3196). `makeUnblockedTempDir` owns that choice now. */
 function realDir(): string {
-  const dir = mkdtempSync(path.join(homedir(), ".mulmoclaude-test-ref-"));
-  targets.push(dir);
-  return dir;
+  return makeUnblockedTempDir("mulmoclaude-test-ref-");
 }
 
-after(() => {
-  for (const dir of targets) rmSync(dir, { recursive: true, force: true });
-});
+/** A symlink whose own PATH is unblocked, so only its TARGET can reject it.
+ *  The validator takes no seam, by design — it is the rule the server enforces —
+ *  so the fixture has to satisfy the real blocklist rather than an injected one. */
+function realSymlinkTo(target: string): string {
+  const link = path.join(makeUnblockedTempDir("mulmoclaude-test-ref-link-"), "innocent-notes");
+  symlinkSync(target, link);
+  return link;
+}
 
 describe("loadReferenceDirs — non-string fields", () => {
   it("falls back to the basename when label is an object", () => {
@@ -202,6 +205,12 @@ function capCandidates(count: number): unknown[] {
 describe("planReferenceDirs — the prompt may only name what is reachable", () => {
   const scratch = (): string => makeTempDir("reference-dirs-plan-");
 
+  // These fixtures live in a temp directory, which on macOS resolves under
+  // `/private/var` — on the real blocklist. The plan resolves every entry now
+  // (#3200), so without this seam every case here would be dropped for the one
+  // reason it is not about (#3196).
+  const NO_SYSTEM_BLOCK = { sensitive: { systemBlocked: [] } };
+
   const promptLines = (prompt: string): string[] => prompt.split("\n").filter((line) => line.startsWith("- "));
 
   it("under Docker, an inexpressible path is neither mounted nor offered", () => {
@@ -216,7 +225,7 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
       { hostPath: inexpressible, label: "bad" },
     ];
 
-    const plan = planReferenceDirs(entries, true, "linux");
+    const plan = planReferenceDirs(entries, true, "linux", NO_SYSTEM_BLOCK);
     assert.deepEqual(
       plan.available.map((entry) => entry.label),
       ["ok"],
@@ -226,7 +235,7 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
       ["bad"],
     );
 
-    const lines = promptLines(buildReferenceDirsPrompt(entries, true, "linux"));
+    const lines = promptLines(buildReferenceDirsPrompt(entries, true, "linux", NO_SYSTEM_BLOCK));
     assert.equal(lines.length, 1, "the agent is told about exactly the one that mounted");
     assert.match(lines[0] ?? "", /— ok$/);
   });
@@ -234,8 +243,8 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
   it("under Docker, a directory that no longer exists is neither mounted nor offered", () => {
     const root = scratch();
     const entries = [{ hostPath: path.join(root, "gone"), label: "gone" }];
-    assert.deepEqual(planReferenceDirs(entries, true, "linux").available, []);
-    assert.equal(buildReferenceDirsPrompt(entries, true, "linux"), "", "no section at all when nothing is reachable");
+    assert.deepEqual(planReferenceDirs(entries, true, "linux", NO_SYSTEM_BLOCK).available, []);
+    assert.equal(buildReferenceDirsPrompt(entries, true, "linux", NO_SYSTEM_BLOCK), "", "no section at all when nothing is reachable");
   });
 
   it("the mount arguments and the prompt agree entry for entry", () => {
@@ -249,10 +258,10 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
     ];
     mkdirSync(path.join(root, "bad:with,both"), { recursive: true });
 
-    const plan = planReferenceDirs(entries, true, "linux");
+    const plan = planReferenceDirs(entries, true, "linux", NO_SYSTEM_BLOCK);
     const mountedTargets = plan.args.filter((arg) => arg !== "-v" && arg !== "--mount").length;
     assert.equal(mountedTargets, plan.available.length, "one mount per available entry");
-    assert.equal(promptLines(buildReferenceDirsPrompt(entries, true, "linux")).length, plan.available.length);
+    assert.equal(promptLines(buildReferenceDirsPrompt(entries, true, "linux", NO_SYSTEM_BLOCK)).length, plan.available.length);
   });
 
   // The two skips are not the same news. A directory the user deleted is
@@ -267,7 +276,7 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
       { hostPath: unmountable, label: "bad" },
     ];
 
-    const { skipped } = planReferenceDirs(entries, true, "linux");
+    const { skipped } = planReferenceDirs(entries, true, "linux", NO_SYSTEM_BLOCK);
     assert.deepEqual(
       skipped.map(({ entry, kind }) => [entry.label, kind]),
       [
@@ -297,7 +306,7 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
     log.info = (_namespace, _message, data) => void info.push(String((data as { path?: string } | undefined)?.path ?? ""));
     log.warn = (_namespace, _message, data) => void warn.push(String((data as { path?: string } | undefined)?.path ?? ""));
     try {
-      referenceDirMountArgs(entries, "linux");
+      referenceDirMountArgs(entries, "linux", NO_SYSTEM_BLOCK);
     } finally {
       log.info = originalInfo;
       log.warn = originalWarn;
@@ -316,16 +325,189 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
     const entries = [{ hostPath: awkward, label: "awkward" }];
 
     assert.deepEqual(
-      planReferenceDirs(entries, false, "linux").available.map((entry) => entry.label),
+      planReferenceDirs(entries, false, "linux", NO_SYSTEM_BLOCK).available.map((entry) => entry.label),
       ["awkward"],
     );
-    assert.equal(promptLines(buildReferenceDirsPrompt(entries, false, "linux")).length, 1);
+    assert.equal(promptLines(buildReferenceDirsPrompt(entries, false, "linux", NO_SYSTEM_BLOCK)).length, 1);
   });
 
   it("without Docker, a directory that no longer exists is still dropped", () => {
     const root = scratch();
     const entries = [{ hostPath: path.join(root, "gone"), label: "gone" }];
-    assert.deepEqual(planReferenceDirs(entries, false, "linux").available, []);
-    assert.equal(buildReferenceDirsPrompt(entries, false, "linux"), "");
+    assert.deepEqual(planReferenceDirs(entries, false, "linux", NO_SYSTEM_BLOCK).available, []);
+    assert.equal(buildReferenceDirsPrompt(entries, false, "linux", NO_SYSTEM_BLOCK), "");
+  });
+});
+
+// A reference directory is validated by its SPELLING and then used by following
+// it. `isSensitiveMountPath` is lexical by contract, so it cannot see through a
+// symlink — while Docker binds the target and the file API serves out of it.
+// Measured against the daemon before fixing: `-v <symlink>:/mnt/readonly/x:ro`
+// printed the blocked directory's contents inside the container (#3200).
+describe("resolveReferenceDir — the blocklist must see what the path POINTS AT", () => {
+  /** A fixture tree with `link` -> `secrets`, plus a plain directory.
+   *
+   *  Two properties make these tests mean something, and both are enforced here
+   *  rather than left to each call site — three separate assertions in this PR
+   *  passed for the wrong reason before they were:
+   *
+   *  1. The tree sits somewhere the REAL blocklist ALLOWS, asserted below. So a
+   *     call that forgets the injected options OFFERS the entry and the test goes
+   *     red. The old fixture sat in `tmpdir()`, which is `/var/...` on macOS and
+   *     blocked outright — every assertion passed whether or not the rule under
+   *     test worked, and the same test failed on Linux where `/tmp` is allowed.
+   *  2. The injected list holds the REALPATH of `secrets`, because the rule
+   *     compares resolved paths and macOS resolves `/tmp` to `/private/tmp`.
+   *
+   *  `plan` / `prompt` / `resolve` are returned pre-bound so the seam cannot be
+   *  dropped by accident — which is what happened, twice. */
+  const fixture = () => {
+    const root = makeUnblockedTempDir("reference-dirs-symlink-");
+    const secrets = path.join(root, "secrets");
+    const plain = path.join(root, "plain");
+    mkdirSync(secrets, { recursive: true });
+    mkdirSync(plain, { recursive: true });
+    const link = path.join(root, "innocent-notes");
+    symlinkSync(secrets, link);
+    const options = { sensitive: { home: path.join(root, "home"), platform: "linux" as const, systemBlocked: [realpathSync(secrets)] } };
+
+    assert.equal(
+      resolveReferenceDir(link).kind,
+      "ok",
+      "the fixture must be ALLOWED by the real blocklist, or a test that drops the injected options passes without exercising anything",
+    );
+
+    return {
+      link,
+      plain,
+      realSecrets: realpathSync(secrets),
+      options,
+      plan: (entries: { hostPath: string; label: string }[], useDocker: boolean) => planReferenceDirs(entries, useDocker, "linux", options),
+      prompt: (entries: { hostPath: string; label: string }[], useDocker: boolean) => buildReferenceDirsPrompt(entries, useDocker, "linux", options),
+    };
+  };
+
+  /** Same shape with nothing blocked, for the cases about resolution itself. */
+  const allowAll = (root: string) => ({ sensitive: { home: path.join(root, "home"), platform: "linux" as const, systemBlocked: [] } });
+
+  it("reports the real location of an ordinary directory", () => {
+    const { plain, options } = fixture();
+    assert.deepEqual(resolveReferenceDir(plain, options), { kind: "ok", realPath: realpathSync(plain) });
+  });
+
+  it("refuses a name whose target is blocked, and names the target", () => {
+    const { link, realSecrets, options } = fixture();
+    const target = resolveReferenceDir(link, options);
+
+    assert.equal(target.kind, "blocked");
+    // The real path has to travel with the verdict: the entry's own spelling
+    // looks innocent, so a log naming only that would say nothing useful.
+    assert.equal(target.kind === "blocked" ? target.realPath : "", realSecrets);
+  });
+
+  it("reports a path that does not resolve as missing", () => {
+    const { plain, options } = fixture();
+    assert.deepEqual(resolveReferenceDir(path.join(plain, "gone"), options), { kind: "missing" });
+  });
+
+  describe("planReferenceDirs", () => {
+    it("neither mounts nor offers a directory that resolves somewhere blocked", () => {
+      const { link, plan } = fixture();
+      const result = plan([{ hostPath: link, label: "notes" }], true);
+
+      assert.deepEqual(result.args, [], "nothing may be bound");
+      assert.deepEqual(result.available, [], "and the agent must not be told it is readable");
+      assert.equal(result.skipped[0]?.kind, "blocked");
+    });
+
+    // WITHOUT Docker there is no mount to get wrong — and the hole is the same
+    // size, because the prompt hands the agent this host path and the agent's
+    // own reads follow the symlink exactly as Docker would.
+    it("does not offer it without Docker either", () => {
+      const { link, plan, prompt } = fixture();
+      const entries = [{ hostPath: link, label: "notes" }];
+
+      assert.deepEqual(plan(entries, false).available, []);
+      assert.equal(prompt(entries, false), "", "and no prompt section names it");
+    });
+
+    // Binding the entry's own spelling is what let the symlink redirect the
+    // mount after the blocklist had passed it.
+    it("binds the RESOLVED path for a directory it does allow", () => {
+      const root = makeTempDir("reference-dirs-allowed-link-");
+      const real = path.join(root, "real-notes");
+      const link = path.join(root, "notes-link");
+      mkdirSync(real, { recursive: true });
+      symlinkSync(real, link);
+
+      const plan = planReferenceDirs([{ hostPath: link, label: "notes" }], true, "linux", allowAll(root));
+      const source = plan.args[1]?.split(":")[0];
+
+      assert.equal(source, realpathSync(real), "the bind source must be what the link points at");
+      assert.equal(plan.available.length, 1, "an allowed target still mounts");
+    });
+
+    it("keeps the container path stable when the link is repointed", () => {
+      const root = makeTempDir("reference-dirs-repoint-");
+      const first = path.join(root, "a");
+      const second = path.join(root, "b");
+      const link = path.join(root, "current");
+      mkdirSync(first, { recursive: true });
+      mkdirSync(second, { recursive: true });
+      symlinkSync(first, link);
+      const entries = [{ hostPath: link, label: "current" }];
+
+      const beforeRepoint = planReferenceDirs(entries, true, "linux", allowAll(root)).args[1]?.split(":")[1];
+      rmSync(link);
+      symlinkSync(second, link);
+      const afterRepoint = planReferenceDirs(entries, true, "linux", allowAll(root)).args[1]?.split(":")[1];
+
+      // The container path is hashed from the entry's own spelling, so the agent
+      // keeps reading the same place when the user repoints the link on purpose.
+      assert.equal(beforeRepoint, afterRepoint);
+      assert.ok(beforeRepoint, "and it is actually mounted");
+    });
+
+    // `missing` is routine; `blocked` is the shape a symlink escape takes and
+    // must not read as routine in the log.
+    it("classifies a blocked path as its own kind, not as missing", () => {
+      const { link, plan } = fixture();
+      const result = plan([{ hostPath: link, label: "notes" }], true);
+
+      assert.equal(result.skipped[0]?.kind, "blocked");
+      assert.notEqual(result.skipped[0]?.kind, "missing", "it must not be dispatched to the quiet log level");
+      assert.match(result.skipped[0]?.reason ?? "", /resolves to .*must never see/);
+    });
+  });
+
+  describe("validateReferenceDirs — save time", () => {
+    // The real blocklist applies here: validateEntry takes no seam by design,
+    // because it is the rule the running server enforces. `/etc` is on it.
+    it("refuses an entry pointing at a blocked directory", (ctx) => {
+      if (process.platform === "win32") {
+        ctx.skip("POSIX /etc only");
+        return;
+      }
+      // The LINK sits somewhere unblocked, so the lexical check on its own
+      // spelling passes and only the resolved check can reject it. A fixture in
+      // a temp directory would be refused for being under `/var`, which is the
+      // wrong reason and leaves this assertion green with the fix removed.
+      const link = realSymlinkTo("/etc");
+      const control = validateReferenceDirs([{ hostPath: path.dirname(link), label: "ctl" }]);
+      assert.ok(!("error" in control), "the fixture's own location must not be blocked, or this proves nothing");
+
+      const result = validateReferenceDirs([{ hostPath: link, label: "notes" }]);
+      assert.ok("error" in result, `expected a symlink to /etc to be refused, got ${JSON.stringify(result)}`);
+    });
+
+    // A directory can legitimately be absent right now — an external drive, a
+    // network share. Requiring resolution would turn "not plugged in today" into
+    // "cannot be configured", and `planReferenceDirs` already skips it per turn.
+    it("still accepts a path that does not exist yet", () => {
+      const absent = path.join(path.sep, "opt", "mulmoclaude-absent-fixture");
+      const result = validateReferenceDirs([{ hostPath: absent, label: "later" }]);
+
+      assert.ok(!("error" in result), `expected an absent path to validate, got ${JSON.stringify(result)}`);
+    });
   });
 });
