@@ -112,11 +112,25 @@ This is #3196, which had been closed _by accident_ — #3199's body said "This
 does not close #3196" and GitHub's parser matched the substring `close #3196`,
 ignoring the negation. It was marked complete while still broken. It is true now.
 
-**One test initially passed for the wrong reason.** The save-time case put its
-symlink in a temp directory, which the lexical check already rejects for being
-under `/var` — so it was green with the new check deleted. The fixture now sits
-somewhere unblocked, and asserts that first, so only the resolved check can
-reject it.
+### Three assertions passed for the wrong reason, so the rule is inverted
+
+The same shape three times, which is the signal to stop patching cases:
+
+1. The save-time case put its symlink in a temp directory, which the lexical
+   check already rejects for being under `/var` — green with the new check
+   deleted.
+2. The whole suite was unrunnable for a sandboxed reviewer (above).
+3. The non-Docker prompt assertion dropped the injected options, so it fell back
+   to the real blocklist and passed on macOS for the `/var` reason — and **failed
+   on Linux**, where `/tmp` is allowed. Raised by Codex; reproduced by pointing
+   the fixture at an unblocked directory, which turns it red here too.
+
+So the fixture now enforces both properties instead of each call site
+remembering them. It sits somewhere the REAL blocklist ALLOWS and asserts that
+before anything else — so a call that forgets the seam OFFERS the entry and goes
+red — and it returns `plan` / `prompt` pre-bound so the seam cannot be dropped.
+Putting the fixture back in a blocked temp directory now fails six tests at the
+precondition rather than passing all of them silently.
 
 ## Verification
 

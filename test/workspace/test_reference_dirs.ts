@@ -347,23 +347,43 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
 describe("resolveReferenceDir — the blocklist must see what the path POINTS AT", () => {
   /** A fixture tree with `link` -> `secrets`, plus a plain directory.
    *
-   *  The injected blocklist holds the REALPATH of `secrets`: the rule compares
-   *  resolved paths, and on macOS a temp directory resolves from `/var/...` to
-   *  `/private/var/...`. Injecting it at all is what lets the fixture live in a
-   *  temp directory, which the real list blocks (#3196). */
+   *  Two properties make these tests mean something, and both are enforced here
+   *  rather than left to each call site — three separate assertions in this PR
+   *  passed for the wrong reason before they were:
+   *
+   *  1. The tree sits somewhere the REAL blocklist ALLOWS, asserted below. So a
+   *     call that forgets the injected options OFFERS the entry and the test goes
+   *     red. The old fixture sat in `tmpdir()`, which is `/var/...` on macOS and
+   *     blocked outright — every assertion passed whether or not the rule under
+   *     test worked, and the same test failed on Linux where `/tmp` is allowed.
+   *  2. The injected list holds the REALPATH of `secrets`, because the rule
+   *     compares resolved paths and macOS resolves `/tmp` to `/private/tmp`.
+   *
+   *  `plan` / `prompt` / `resolve` are returned pre-bound so the seam cannot be
+   *  dropped by accident — which is what happened, twice. */
   const fixture = () => {
-    const root = makeTempDir("reference-dirs-symlink-");
+    const root = makeUnblockedTempDir("reference-dirs-symlink-");
     const secrets = path.join(root, "secrets");
     const plain = path.join(root, "plain");
     mkdirSync(secrets, { recursive: true });
     mkdirSync(plain, { recursive: true });
     const link = path.join(root, "innocent-notes");
     symlinkSync(secrets, link);
+    const options = { sensitive: { home: path.join(root, "home"), platform: "linux" as const, systemBlocked: [realpathSync(secrets)] } };
+
+    assert.equal(
+      resolveReferenceDir(link).kind,
+      "ok",
+      "the fixture must be ALLOWED by the real blocklist, or a test that drops the injected options passes without exercising anything",
+    );
+
     return {
       link,
       plain,
       realSecrets: realpathSync(secrets),
-      options: { sensitive: { home: path.join(root, "home"), platform: "linux" as const, systemBlocked: [realpathSync(secrets)] } },
+      options,
+      plan: (entries: { hostPath: string; label: string }[], useDocker: boolean) => planReferenceDirs(entries, useDocker, "linux", options),
+      prompt: (entries: { hostPath: string; label: string }[], useDocker: boolean) => buildReferenceDirsPrompt(entries, useDocker, "linux", options),
     };
   };
 
@@ -392,23 +412,23 @@ describe("resolveReferenceDir — the blocklist must see what the path POINTS AT
 
   describe("planReferenceDirs", () => {
     it("neither mounts nor offers a directory that resolves somewhere blocked", () => {
-      const { link, options } = fixture();
-      const plan = planReferenceDirs([{ hostPath: link, label: "notes" }], true, "linux", options);
+      const { link, plan } = fixture();
+      const result = plan([{ hostPath: link, label: "notes" }], true);
 
-      assert.deepEqual(plan.args, [], "nothing may be bound");
-      assert.deepEqual(plan.available, [], "and the agent must not be told it is readable");
-      assert.equal(plan.skipped[0]?.kind, "blocked");
+      assert.deepEqual(result.args, [], "nothing may be bound");
+      assert.deepEqual(result.available, [], "and the agent must not be told it is readable");
+      assert.equal(result.skipped[0]?.kind, "blocked");
     });
 
     // WITHOUT Docker there is no mount to get wrong — and the hole is the same
     // size, because the prompt hands the agent this host path and the agent's
     // own reads follow the symlink exactly as Docker would.
     it("does not offer it without Docker either", () => {
-      const { link, options } = fixture();
+      const { link, plan, prompt } = fixture();
       const entries = [{ hostPath: link, label: "notes" }];
 
-      assert.deepEqual(planReferenceDirs(entries, false, "linux", options).available, []);
-      assert.equal(buildReferenceDirsPrompt(entries, false, "linux"), "", "and no prompt section names it");
+      assert.deepEqual(plan(entries, false).available, []);
+      assert.equal(prompt(entries, false), "", "and no prompt section names it");
     });
 
     // Binding the entry's own spelling is what let the symlink redirect the
@@ -451,12 +471,12 @@ describe("resolveReferenceDir — the blocklist must see what the path POINTS AT
     // `missing` is routine; `blocked` is the shape a symlink escape takes and
     // must not read as routine in the log.
     it("classifies a blocked path as its own kind, not as missing", () => {
-      const { link, options } = fixture();
-      const plan = planReferenceDirs([{ hostPath: link, label: "notes" }], true, "linux", options);
+      const { link, plan } = fixture();
+      const result = plan([{ hostPath: link, label: "notes" }], true);
 
-      assert.equal(plan.skipped[0]?.kind, "blocked");
-      assert.notEqual(plan.skipped[0]?.kind, "missing", "it must not be dispatched to the quiet log level");
-      assert.match(plan.skipped[0]?.reason ?? "", /resolves to .*must never see/);
+      assert.equal(result.skipped[0]?.kind, "blocked");
+      assert.notEqual(result.skipped[0]?.kind, "missing", "it must not be dispatched to the quiet log level");
+      assert.match(result.skipped[0]?.reason ?? "", /resolves to .*must never see/);
     });
   });
 
