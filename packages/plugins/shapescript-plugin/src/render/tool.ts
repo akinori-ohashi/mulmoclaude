@@ -24,9 +24,11 @@ const MIN_TILE = 160;
 const TOP_ELEVATION = 85;
 
 /** Milliseconds a host must allow this tool before its own transport gives up.
- *  Covers launch plus render, plus room for the work either side — serialising
- *  the scene and writing the PNG. A transport sized to the render alone aborts a
- *  call that was about to succeed. */
+ *  Covers whatever RENDER_BUDGET_MS covers — launch, page load and render — plus
+ *  room for the work either side, serialising the scene and writing the PNG. It
+ *  names the constant rather than the phases so that a phase added to the budget
+ *  cannot leave this sentence describing a smaller one. A transport sized to the
+ *  render alone aborts a call that was about to succeed. */
 export const RENDER_TOOL_TIMEOUT_MS = RENDER_BUDGET_MS + 30_000;
 
 /** Milliseconds a host must allow `manageShapeScript` (publish / update): the thumbnail render
