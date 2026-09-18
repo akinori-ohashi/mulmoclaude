@@ -8,67 +8,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
-`@mulmoclaude/core` moves to 4.10.0 for the new `customViewSendsChat` export, and
-`@mulmoclaude/collection-plugin` to 4.8.0 for the host side of it — the draft-vs-send branch and
-the guard that stops a navigated frame acting as the view. Every declared range on both is swept
-to match. The launcher's own version is untouched — that field belongs to the publish flow.
+## [1.19.0] - 2026-09-18
+
+**A custom collection view's button can start the work, not just draft it — and the last exact dependency pin in either manifest is gone.**
+
+### Highlights
+
+#### A custom view's button runs the chat (#3062, #3208)
+
+`__MC_VIEW.startChat(prompt)` has always put its text in the composer for you to read and send.
+That gate was real in this app and only here: MulmoTerminal collapses the draft to a single line
+before pasting it into the TUI, and the phone runtimes of both hosts have always sent the prompt
+outright, because a phone has no Enter key to press.
+
+A `views[]` entry may now declare `allowSendChat: true`, and that view's buttons run the turn on
+press. Absent — as in every view shipped so far — the prompt is still a draft, so upgrading changes
+nothing about what an existing view does. The host reads the declaration from the schema, never
+from the message the sandboxed iframe posts up: the view's code composes the prompt, and letting it
+also decide whether that prompt runs unreviewed would put both halves of the decision inside the
+sandbox.
+
+Two things came out of reviewing it that are worth naming on their own. **A view that navigates
+its frame away no longer keeps the view's privileges** — nothing in the sandbox or the CSP stops a
+view setting `location`, and the replacement document kept the frame's `contentWindow`, so a
+foreign page could start an agent turn. Reproduced, then closed by counting the documents the frame
+has loaded. **A view now reloads when its declaration changes**, not merely when its id does, so an
+in-place schema edit cannot govern the previously-built document with the new policy.
+
+One case remains open and is stated in the code: a redirect that runs while the view is still
+PARSING is not caught, because that document's own load never fires. Closing it needs the action
+message to prove which document sent it, which spans the three bootstrap copies and a protocol
+bump. Both navigation cases require the view's own document to perform the redirect, and a view
+that declares `allowSendChat` can call `startChat` directly, so this is containment after the frame
+stops being the view rather than a boundary the declaration did not already cross.
+
+#### The `firebase` pin from the sign-in regression is lifted (#2835, #3207)
+
+`firebase` was pinned to an exact version, caret deliberately removed, because `@firebase/auth`
+1.13.4 made `IndexedDBLocalPersistence` treat a hidden document as page teardown — the sign-in
+popup backgrounds the opener, so the credential write on return threw with no retry path. Upstream
+published the fix, and `firebase` had already moved to that line during a routine dependency sweep,
+so the range is what changes. It was the last caret-less pin in either manifest.
+
+Against the committed lockfile nothing moves. What the caret admits is an install that regenerates
+the lockfile — and a fresh `npm install mulmoclaude`, which has no lockfile at all — taking
+whichever 12.x satisfies the range. That third case is the substance: from the next `firebase`
+release on, npm users receive it without it passing through a PR here.
+
+#### Dependency refresh and steadier end-to-end tests (#3205)
+
+Application, plugin, tooling and Cloudflare dev dependencies were refreshed across the workspace.
+Alongside it, several browser tests stopped depending on network-idle timing: route checks now fail
+promptly when an error banner appears, the Settings tests synchronise on the configuration response
+rather than racing the modal, and the phase-C verification script navigates on `load` for pages
+that never reach idle.
+
+#### Published manifests caught up with their sources
+
+`@mulmoclaude/core@4.10.0` and `@mulmoclaude/collection-plugin@4.8.0` carry the feature above.
+`@mulmobridge/email@1.1.2` and `@mulmoclaude/email-plugin@2.0.3` are manifest-only patches: their
+`imapflow` / `mailparser` / `nodemailer` ranges had moved in a dependency sweep without either
+package being republished, so npm still advertised the old ones.
+
+Note for anyone reading version history: the root `package.json` was left at 1.17.0 when 1.18.0
+shipped. Both are 1.19.0 here, which is the lockstep the release flow expects.
 
 Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.8.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.10.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@6.2.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
-
-### Added
-
-#### A custom view's button can run the chat, not just draft it (#3062)
-
-`__MC_VIEW.startChat(prompt)` has always left its text in the composer for the user to read and
-send. That gate is real on the MulmoClaude app — and only there. MulmoTerminal's desktop draft is
-collapsed to a single line before it is pasted into the TUI, so there is nothing legible to review;
-and the phone has no Enter key to press, so both hosts' remote runtimes have always sent the prompt
-outright. "The user presses Enter" was a rule that held on one surface out of three.
-
-A `views[]` entry may now declare `allowSendChat: true`, and that view's `startChat` buttons run the
-turn on press. Absent — as in every view shipped so far — the prompt is still a draft, so upgrading
-the host changes nothing about what an existing view does. The flag is read off the schema by the
-host, never from the message the sandboxed iframe posts up: the view's code composes the prompt, and
-letting it also decide whether that prompt runs unreviewed would put both halves of the decision
-inside the sandbox.
-
-The phone runtime does not consult the flag (it sends either way); the desktop phone-frame preview
-does, so declaring it is also what makes the preview behave the way the phone will. The
-`custom-view.md` / `custom-view-remote.md` authoring contracts, which described the old rule as
-absolute, now state what each surface actually does.
-
-### Fixed
-
-#### The `firebase` pin from the sign-in regression is lifted (#2835)
-
-`firebase` was pinned to an exact version, caret deliberately removed, because
-`@firebase/auth` 1.13.4 made `IndexedDBLocalPersistence` treat a hidden document as page
-teardown — the sign-in popup backgrounds the opener, so the credential write on return threw
-`Database is closing/hidden` with no retry path. Upstream has published the fix: the marker
-the regression introduced is present in 1.13.4's `dist` and absent from 1.13.3, 1.13.5 and
-1.13.6 alike, and in the version installed here the persistence registers `pagehide` /
-`pageshow` only, opens the database unconditionally, and retries.
-
-`firebase` had already moved to that line during a routine dependency sweep, so the range is
-what changes: an exact pin back to a caret, in the root and in the launcher alike, since
-`server/remoteHost/` resolves `firebase` from the launcher at runtime. It was the last
-caret-less pin in either manifest, so the change also brings `firebase` in line with how
-every other dependency here is declared.
-
-**What the caret admits is worth stating rather than implying.** Against the committed
-lockfile nothing moves: `yarn install --frozen-lockfile` answers the same `firebase` and
-`@firebase/auth` before and after. An install that regenerates the lockfile, and a fresh
-`npm install mulmoclaude` — which has no lockfile at all — instead take whichever 12.x
-satisfies the range at install time. That third case is the substance of the change: from
-the next `firebase` release on, npm users receive it without it passing through a PR here,
-which the exact pin prevented. **Nothing in CI would catch a repeat of this regression
-class**; that needs a live sign-in or a dependency canary. The trade is taken deliberately,
-because an exact pin withholds upgrades silently and the rest of this repo's dependencies
-float.
-
-`src/config/firebase.ts` keeps the SDK's default persistence; the `inMemoryPersistence`
-switch the report proposed was a way around the regression, not something the fixed SDK
-needs.
 
 ## [1.18.0] - 2026-09-17
 
