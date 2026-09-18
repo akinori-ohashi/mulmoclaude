@@ -8,6 +8,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Fixed
+
+#### The `firebase` pin from the sign-in regression is lifted (#2835)
+
+`firebase` was pinned to an exact version, caret deliberately removed, because
+`@firebase/auth` 1.13.4 made `IndexedDBLocalPersistence` treat a hidden document as page
+teardown — the sign-in popup backgrounds the opener, so the credential write on return threw
+`Database is closing/hidden` with no retry path. Upstream has published the fix: the marker
+the regression introduced is present in 1.13.4's `dist` and absent from 1.13.3, 1.13.5 and
+1.13.6 alike, and in the version installed here the persistence registers `pagehide` /
+`pageshow` only, opens the database unconditionally, and retries.
+
+`firebase` had already moved to that line during a routine dependency sweep, so the range is
+what changes: an exact pin back to a caret, in the root and in the launcher alike, since
+`server/remoteHost/` resolves `firebase` from the launcher at runtime. It was the last
+caret-less pin in either manifest, so the change also brings `firebase` in line with how
+every other dependency here is declared.
+
+**What the caret admits is worth stating rather than implying.** Against the committed
+lockfile nothing moves: `yarn install --frozen-lockfile` answers the same `firebase` and
+`@firebase/auth` before and after. An install that regenerates the lockfile, and a fresh
+`npm install mulmoclaude` — which has no lockfile at all — instead take whichever 12.x
+satisfies the range at install time. That third case is the substance of the change: from
+the next `firebase` release on, npm users receive it without it passing through a PR here,
+which the exact pin prevented. **Nothing in CI would catch a repeat of this regression
+class**; that needs a live sign-in or a dependency canary. The trade is taken deliberately,
+because an exact pin withholds upgrades silently and the rest of this repo's dependencies
+float.
+
+`src/config/firebase.ts` keeps the SDK's default persistence; the `inMemoryPersistence`
+switch the report proposed was a way around the regression, not something the fixed SDK
+needs.
+
 ## [1.18.0] - 2026-09-17
 
 **Claude Code plugins work in the sandbox at last — their skills are discovered and addressable — and the five ways the sandbox mishandled host paths are closed.**
