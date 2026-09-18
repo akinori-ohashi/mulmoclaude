@@ -8,6 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+`@mulmoclaude/core` moves to 4.10.0 for the new `customViewSendsChat` export; every declared
+range on it is swept to match. The launcher's own version is untouched — that field belongs to
+the publish flow.
+
+Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.10.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@6.2.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ### Added
 
 #### A custom view's button can run the chat, not just draft it (#3062)

@@ -311,7 +311,7 @@ export interface CollectionUi {
   /** Open a new chat with `prompt` prefilled in the composer as an editable DRAFT
    *  (NOT sent) — the user reviews / edits / sends it. Backs a custom view's
    *  `__MC_VIEW.startChat` by default, and the new-collection template cards.
-   *  `role` is optional and validated host-side (falls back to the general role). */
+   *  `role` is optional and validated host-side against the known roles. */
   startNewChatDraft: (prompt: string, role?: string) => void;
   /** The host's active i18n locale tag (e.g. "en", "ja"), read reactively — the
    *  plugin syncs its own self-contained i18n instance to it. */

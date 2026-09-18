@@ -48,8 +48,8 @@ const SEARCH_QUERY_DEBOUNCE_MS = 150;
  *    propose text and no capability is required. A view whose `views[]` entry
  *    declares `allowSendChat` is SENT instead; that decision is read off the
  *    schema by the parent, never from this message, so the sandbox cannot grant
- *    itself the send. `role` is optional and validated host-side (falls back to
- *    the general role). Sent to `v.origin`, no secret.
+ *    itself the send. `role` is optional and resolves to the general role when it
+ *    names no known one. Sent to `v.origin`, no secret.
  *  - `searchQuery` / `onSearchQueryChange(cb)`: the host relays the STANDARD
  *    table view's search text so a custom view can react to the one search box
  *    the user already sees instead of shipping a second one (#2959).

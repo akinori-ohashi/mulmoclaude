@@ -52,8 +52,9 @@ const emit = defineEmits<{
    *  host's shared modal. */
   openItem: [payload: { id: string; mode: "view" | "edit" }];
   /** The view called `__MC_VIEW.startChat(prompt, role)` — open a new chat with
-   *  `prompt` (host validates `role`). `send` carries the view's DECLARED intent
-   *  (`allowSendChat`): false ⇒ prefill it as an editable draft, true ⇒ run it. */
+   *  `prompt`; `role` resolves to the general role when it names no known one.
+   *  `send` carries the view's DECLARED intent (`allowSendChat`): false ⇒ prefill
+   *  it as an editable draft, true ⇒ run it. */
   startChat: [payload: { prompt: string; role?: string | undefined; send: boolean }];
 }>();
 
