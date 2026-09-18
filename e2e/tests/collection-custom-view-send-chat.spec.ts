@@ -26,8 +26,15 @@ const FOREIGN_PATH = "/e2e-foreign-page";
 const SLOW_IMAGE_PATH = "/e2e-slow-image";
 const SLOW_IMAGE_DELAY_MS = 1_500;
 const FOREIGN_PROMPT = "NAVIGATED DOCUMENT SPEAKING";
+// It announces the post AFTER making it, so the test waits on the attempt having
+// happened rather than on a clock — a negative assertion is only worth something
+// once the thing it denies has demonstrably been tried.
+const FOREIGN_POSTED_MARKER = "foreign-posted";
 const FOREIGN_HTML = `<!doctype html><html><head></head><body>foreign<script>
-setTimeout(function(){ parent.postMessage({type:'mc-start-chat',slug:'works',prompt:'${FOREIGN_PROMPT}'}, '*'); }, 50);
+window.addEventListener('load', function () {
+  parent.postMessage({type:'mc-start-chat',slug:'works',prompt:'${FOREIGN_PROMPT}'}, '*');
+  document.body.textContent = '${FOREIGN_POSTED_MARKER}';
+});
 </script></body></html>`;
 
 const DETAIL = {
@@ -120,9 +127,10 @@ test.describe("custom view startChat — draft by default, sent when declared", 
 
     await pressGo(page, DRAFT_VIEW.id);
 
+    // The composer filling IS the signal that the bridge round trip completed —
+    // it is the other arm of the same branch — so there is nothing left to wait
+    // for before denying the send.
     await expect(page.getByTestId("user-input")).toHaveValue(PROMPT);
-    // eslint-disable-next-line sonarjs/no-fixed-wait-in-tests -- negative assertion: an undeclared view must NOT auto-send; the absence of an /api/agent POST has no observable signal.
-    await page.waitForTimeout(0.25 * ONE_SECOND_MS);
     expect(agentRuns).toHaveLength(0);
   });
 
@@ -135,10 +143,16 @@ test.describe("custom view startChat — draft by default, sent when declared", 
     // The view replaces itself with a page the host never installed, which then
     // posts the host's own action message up.
     await page.frameLocator('[data-testid="collection-custom-view-iframe"]').locator("#leave").click();
-    await expect(page.frameLocator('[data-testid="collection-custom-view-iframe"]').locator("body")).toContainText("foreign");
-
-    // eslint-disable-next-line sonarjs/no-fixed-wait-in-tests -- negative assertion: the foreign page's post must reach nothing; its absence has no observable signal.
-    await page.waitForTimeout(ONE_SECOND_MS);
+    // The marker appears only after the foreign page has posted, so reaching this
+    // line means the attempt was made and the host declined it. If the host had
+    // ACCEPTED it, `startChat` would navigate the app to the new chat and take
+    // this frame off screen — hence the message, since that failure surfaces here
+    // rather than on the count below.
+    const frameBody = page.frameLocator('[data-testid="collection-custom-view-iframe"]').locator("body");
+    await expect(
+      frameBody,
+      "the foreign page should still be on screen with its marker; a missing frame means the host accepted its message and navigated away",
+    ).toContainText(FOREIGN_POSTED_MARKER);
     expect(agentRuns).toHaveLength(0);
   });
 
