@@ -110,7 +110,10 @@ let loadSeq = 0;
 // privileges.
 let frameDocuments = 0;
 
-function onFrameLoad(): void {
+function onFrameLoad(event: Event): void {
+  // Only THIS frame's loads count — see CollectionCustomView for why, and for
+  // why it is defensive rather than a fix for an observed bug.
+  if (event.target !== iframeEl.value) return;
   frameDocuments += 1;
 }
 

@@ -103,7 +103,14 @@ let searchState: SearchChannelState = "idle";
 // already cross.
 let frameDocuments = 0;
 
-function onFrameLoad(): void {
+function onFrameLoad(event: Event): void {
+  // Only THIS frame's loads count. Defensive rather than a fix for an observed
+  // bug: switching away mid-load destroys the old frame, so its pending `load`
+  // was never seen to arrive here — but if one ever did, after the reset below,
+  // it would take the new view straight to 2 and silently refuse its own
+  // buttons. Comparing the target costs nothing and removes the dependency on
+  // that teardown detail.
+  if (event.target !== iframeEl.value) return;
   frameDocuments += 1;
 }
 

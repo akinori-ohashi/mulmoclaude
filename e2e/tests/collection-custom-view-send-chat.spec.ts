@@ -20,6 +20,11 @@ const PROMPT = "Add a note to record a-1";
 // the frame's `contentWindow` — so without a guard it passes the host's
 // `event.source` check and inherits the view's declared privileges.
 const FOREIGN_PATH = "/e2e-foreign-page";
+// A deliberately slow subresource: an iframe fires `load` only once its
+// subresources settle, so a view holding this still has a PENDING load while the
+// user switches away from it.
+const SLOW_IMAGE_PATH = "/e2e-slow-image";
+const SLOW_IMAGE_DELAY_MS = 1_500;
 const FOREIGN_PROMPT = "NAVIGATED DOCUMENT SPEAKING";
 const FOREIGN_HTML = `<!doctype html><html><head></head><body>foreign<script>
 setTimeout(function(){ parent.postMessage({type:'mc-start-chat',slug:'works',prompt:'${FOREIGN_PROMPT}'}, '*'); }, 50);
@@ -51,7 +56,11 @@ const VIEW_HTML = `<!doctype html><html><head></head><body>
 <button id="leave" onclick="location.href='${FOREIGN_PATH}'">Leave</button>
 </body></html>`;
 
-async function setup(page: Page): Promise<string[]> {
+// Same buttons, plus the slow image — served for the DRAFT view when a test asks
+// for it, so switching away leaves that frame's load in flight.
+const SLOW_VIEW_HTML = VIEW_HTML.replace("</body>", `<img src="${SLOW_IMAGE_PATH}" alt="" /></body>`);
+
+async function setup(page: Page, options: { slowFirstView?: boolean } = {}): Promise<string[]> {
   await mockAllApis(page);
   await page.route(
     (url) => url.pathname === "/api/collections/works",
@@ -67,7 +76,17 @@ async function setup(page: Page): Promise<string[]> {
   );
   await page.route(
     (url) => url.pathname === "/api/collections/works/view-file",
-    (route) => route.fulfill({ contentType: "text/html", body: VIEW_HTML }),
+    (route) => {
+      const slow = options.slowFirstView === true && new URL(route.request().url()).searchParams.get("id") === DRAFT_VIEW.id;
+      return route.fulfill({ contentType: "text/html", body: slow ? SLOW_VIEW_HTML : VIEW_HTML });
+    },
+  );
+  await page.route(
+    (url) => url.pathname === SLOW_IMAGE_PATH,
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, SLOW_IMAGE_DELAY_MS));
+      return route.fulfill({ status: 404, body: "" });
+    },
   );
   await page.route(
     (url) => url.pathname === FOREIGN_PATH,
@@ -121,6 +140,22 @@ test.describe("custom view startChat — draft by default, sent when declared", 
     // eslint-disable-next-line sonarjs/no-fixed-wait-in-tests -- negative assertion: the foreign page's post must reach nothing; its absence has no observable signal.
     await page.waitForTimeout(ONE_SECOND_MS);
     expect(agentRuns).toHaveLength(0);
+  });
+
+  test("switching away from a still-loading view does not disarm the one switched to", async ({ page }) => {
+    const agentRuns = await setup(page, { slowFirstView: true });
+
+    await page.goto("/collections/works");
+    // The draft view's frame mounts but its load stays pending on the slow image.
+    await page.getByTestId(`collection-view-custom-${DRAFT_VIEW.id}`).click();
+    await expect(page.getByTestId("collection-custom-view-iframe")).toBeVisible();
+    // Switch while that load is in flight: its late `load` must not be counted
+    // against the frame that replaces it.
+    await page.getByTestId(`collection-view-custom-${SEND_VIEW.id}`).click();
+    await page.frameLocator('[data-testid="collection-custom-view-iframe"]').locator("#go").click();
+
+    await expect.poll(() => agentRuns.length, { timeout: 5 * ONE_SECOND_MS }).toBe(1);
+    expect(agentRuns[0]).toContain(PROMPT);
   });
 
   test("a view WITH allowSendChat runs the turn on one press", async ({ page }) => {
