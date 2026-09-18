@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { mockAllApis } from "../fixtures/api";
+import { mockAllApis, waitForConfigLoad } from "../fixtures/api";
 
 // Two Settings handlers read the element out of `event.target` and had no e2e
 // coverage at all, so a wrong narrowing in either type-checks and ships as a
@@ -54,9 +54,10 @@ async function mockConfig(page: Page, initial: ConfigState, getDelayMs = 0): Pro
 }
 
 async function openTab(page: Page, tabId: string): Promise<void> {
+  const configLoaded = waitForConfigLoad(page);
   await page.locator('[data-testid="settings-btn"]').click();
   await expect(page.locator('[data-testid="settings-modal"]')).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await configLoaded;
   await page.locator(`[data-testid="settings-tab-${tabId}"]`).click();
 }
 

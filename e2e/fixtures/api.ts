@@ -5,7 +5,7 @@
 // FIRST and specific routes AFTER, ensuring specific handlers take
 // priority.
 
-import type { Page, Route } from "@playwright/test";
+import type { Page, Response, Route } from "@playwright/test";
 import { SESSION_A, SESSION_B, makeSessionEntries, type SessionFixture } from "./sessions";
 
 function urlEndsWith(suffix: string): (url: URL) => boolean {
@@ -27,6 +27,13 @@ function parseDispatchAction(body: string | null): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Resolves when the Settings modal's `loadConfig()` GET lands. Arm it BEFORE the
+ *  click that opens the modal — a `fill()` that beats the response is silently
+ *  overwritten when it arrives. */
+export function waitForConfigLoad(page: Page): Promise<Response> {
+  return page.waitForResponse((response) => new URL(response.url()).pathname === "/api/config" && response.request().method() === "GET");
 }
 
 /** Flip the Files Explorer "show system files" toggle on before the

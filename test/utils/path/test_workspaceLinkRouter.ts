@@ -355,11 +355,11 @@ describe("classifyWorkspacePath", () => {
   // ── Null returns (external / invalid) ─────────────────────
 
   describe("returns null for non-workspace links", () => {
-    it("returns null for http URLs", () => {
+    it("returns null for https URLs", () => {
       assert.equal(classifyWorkspacePath("https://example.com"), null);
     });
 
-    it("returns null for http URLs", () => {
+    it("returns null for http URLs with a path", () => {
       assert.equal(classifyWorkspacePath("http://example.com/path"), null);
     });
 

@@ -21,7 +21,7 @@
     "sandbox-entrypoint.sh"
   ],
   "dependencies": {
-    "@google/genai": "^2.22.0",
+    "@google/genai": "^2.23.0",
     "@gui-chat-plugin/browse": "^2.0.0",
     "@gui-chat-plugin/camera": "^2.0.0",
     "@gui-chat-plugin/google-map": "^2.0.0",
