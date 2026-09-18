@@ -15,6 +15,16 @@ const SEND_VIEW = { id: "runner", label: "Runner", file: "views/runner.html", ca
 
 const PROMPT = "Add a note to record a-1";
 
+// The page the view navigates ITSELF to, and what that page then says. Nothing in
+// the sandbox or the CSP stops the navigation, and the replacement document keeps
+// the frame's `contentWindow` — so without a guard it passes the host's
+// `event.source` check and inherits the view's declared privileges.
+const FOREIGN_PATH = "/e2e-foreign-page";
+const FOREIGN_PROMPT = "NAVIGATED DOCUMENT SPEAKING";
+const FOREIGN_HTML = `<!doctype html><html><head></head><body>foreign<script>
+setTimeout(function(){ parent.postMessage({type:'mc-start-chat',slug:'works',prompt:'${FOREIGN_PROMPT}'}, '*'); }, 50);
+</script></body></html>`;
+
 const DETAIL = {
   collection: {
     slug: "works",
@@ -33,9 +43,13 @@ const DETAIL = {
   items: [{ id: "a-1" }],
 };
 
-// One button that hands the host a prompt. The same HTML is served for both
+// One button that hands the host a prompt, and one that navigates the frame AWAY
+// to a foreign page (see the navigation test). The same HTML is served for both
 // views — only the DECLARATION differs, which is the whole point of the flag.
-const VIEW_HTML = `<!doctype html><html><head></head><body><button id="go" onclick="window.__MC_VIEW.startChat('${PROMPT}')">Go</button></body></html>`;
+const VIEW_HTML = `<!doctype html><html><head></head><body>
+<button id="go" onclick="window.__MC_VIEW.startChat('${PROMPT}')">Go</button>
+<button id="leave" onclick="location.href='${FOREIGN_PATH}'">Leave</button>
+</body></html>`;
 
 async function setup(page: Page): Promise<string[]> {
   await mockAllApis(page);
@@ -54,6 +68,10 @@ async function setup(page: Page): Promise<string[]> {
   await page.route(
     (url) => url.pathname === "/api/collections/works/view-file",
     (route) => route.fulfill({ contentType: "text/html", body: VIEW_HTML }),
+  );
+  await page.route(
+    (url) => url.pathname === FOREIGN_PATH,
+    (route) => route.fulfill({ contentType: "text/html", body: FOREIGN_HTML }),
   );
   // The auto-send sink: registered after mockAllApis so it wins Playwright's
   // reverse-order route matching.
@@ -86,6 +104,22 @@ test.describe("custom view startChat — draft by default, sent when declared", 
     await expect(page.getByTestId("user-input")).toHaveValue(PROMPT);
     // eslint-disable-next-line sonarjs/no-fixed-wait-in-tests -- negative assertion: an undeclared view must NOT auto-send; the absence of an /api/agent POST has no observable signal.
     await page.waitForTimeout(0.25 * ONE_SECOND_MS);
+    expect(agentRuns).toHaveLength(0);
+  });
+
+  test("a foreign document the view navigated to does NOT inherit the send", async ({ page }) => {
+    const agentRuns = await setup(page);
+
+    await page.goto("/collections/works");
+    await page.getByTestId(`collection-view-custom-${SEND_VIEW.id}`).click();
+    await expect(page.getByTestId("collection-custom-view-iframe")).toBeVisible();
+    // The view replaces itself with a page the host never installed, which then
+    // posts the host's own action message up.
+    await page.frameLocator('[data-testid="collection-custom-view-iframe"]').locator("#leave").click();
+    await expect(page.frameLocator('[data-testid="collection-custom-view-iframe"]').locator("body")).toContainText("foreign");
+
+    // eslint-disable-next-line sonarjs/no-fixed-wait-in-tests -- negative assertion: the foreign page's post must reach nothing; its absence has no observable signal.
+    await page.waitForTimeout(ONE_SECOND_MS);
     expect(agentRuns).toHaveLength(0);
   });
 

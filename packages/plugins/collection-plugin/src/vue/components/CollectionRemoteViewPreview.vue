@@ -23,6 +23,7 @@
           :srcdoc="srcdoc"
           sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads"
           class="phone-screen"
+          @load="onFrameLoad"
         />
       </div>
       <!-- Numeric on purpose (no locale keys): the srcdoc's size against the
@@ -102,9 +103,21 @@ const cui = useCollectionUi();
 // Monotonic load id — same stale-load guard as CollectionCustomView.
 let loadSeq = 0;
 
+// See CollectionCustomView for why this is counted: the srcdoc is one document,
+// and anything past it is the view navigating ITSELF, which the sandbox does not
+// prevent. The replacement keeps the frame's `contentWindow`, so it would
+// otherwise read records, mutate them and start chats with this view's declared
+// privileges.
+let frameDocuments = 0;
+
+function onFrameLoad(): void {
+  frameDocuments += 1;
+}
+
 async function load(): Promise<void> {
   const seq = ++loadSeq;
   const stale = (): boolean => seq !== loadSeq;
+  frameDocuments = 0; // a fresh srcdoc is about to be installed
   loading.value = true;
   error.value = null;
   srcdoc.value = null;
@@ -175,6 +188,9 @@ async function onMutate(request: RemoteViewMutateRequest): Promise<RemoteViewMut
 function onWindowMessage(event: MessageEvent): void {
   const target = event.source;
   if (!target || target !== iframeEl.value?.contentWindow) return;
+  // The whole bridge is the view's privileges — reads, mutates and chats alike —
+  // so it belongs to the document the host installed, not to the frame.
+  if (frameDocuments > 1) return;
   void handleRemoteViewMessage(
     event.data,
     {

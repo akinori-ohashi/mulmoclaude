@@ -25,6 +25,7 @@
       :srcdoc="srcdoc"
       sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads"
       class="w-full h-full border-0"
+      @load="onFrameLoad"
     />
   </div>
 </template>
@@ -76,6 +77,25 @@ let searchPort: MessagePort | null = null;
 let frameReclaims = 0;
 let searchState: SearchChannelState = "idle";
 
+// How many documents this frame has loaded since the host installed its srcdoc.
+// The srcdoc is one; anything beyond it is the VIEW NAVIGATING ITSELF, which
+// nothing in the sandbox or the CSP prevents (the bootstrap's own docs say so).
+// The replacement document keeps the frame's `contentWindow`, so it still
+// passes the `event.source` check below and could drive the host with this
+// view's declared privileges — verified by loading a foreign page into the
+// frame and watching it start an agent turn. It is a different document from
+// the one the declaration authorises, so its actions are dropped.
+let frameDocuments = 0;
+
+function onFrameLoad(): void {
+  frameDocuments += 1;
+}
+
+/** False once the frame holds a document the host did not install. */
+function frameIsTheInstalledView(): boolean {
+  return frameDocuments <= 1;
+}
+
 function closeSearchPort(): void {
   searchPort?.close();
   searchPort = null;
@@ -116,6 +136,7 @@ let loadSeq = 0;
 async function load(): Promise<void> {
   clearRefresh();
   closeSearchPort(); // the frame this port belonged to is being replaced
+  frameDocuments = 0; // a fresh srcdoc is about to be installed
   // Non-connectable until the new srcdoc is actually installed: the awaits
   // below are network round trips, and the OLD document sits in the frame for
   // all of them. `exhausted` outranks this and is not cleared here.
@@ -325,8 +346,14 @@ function onWindowMessage(event: MessageEvent): void {
   if (event.source !== iframeEl.value?.contentWindow) return;
   const msg: unknown = event.data;
   if (!isBridgeMessage(msg) || msg.slug !== props.slug) return;
-  if (msg.type === "mc-view-ready") acceptSearchPort(event.ports[0]);
-  else if (msg.type === "mc-open-item") handleOpenItem({ id: msg.id, mode: msg.mode });
+  if (msg.type === "mc-view-ready") {
+    acceptSearchPort(event.ports[0]);
+    return;
+  }
+  // Actions are the view's PRIVILEGES, so they belong to the document the host
+  // installed and not merely to the frame it sits in.
+  if (!frameIsTheInstalledView()) return;
+  if (msg.type === "mc-open-item") handleOpenItem({ id: msg.id, mode: msg.mode });
   else if (msg.type === "mc-start-chat") handleStartChat({ prompt: msg.prompt, role: msg.role });
 }
 
