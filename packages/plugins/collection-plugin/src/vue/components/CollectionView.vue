@@ -1511,7 +1511,8 @@ function onCustomViewOpenItem(payload: { id: string; mode: "view" | "edit" }): v
 }
 
 /** The custom view called `__MC_VIEW.startChat(prompt, role)` — open a new chat
- *  seeded with the prompt. The host validates `role` (falls back to General).
+ *  seeded with the prompt. `role` is optional and resolves to General when it
+ *  names no known role, the same way a schema action's role does.
  *
  *  Draft by default: the view's code only PROPOSES text, and the user approves /
  *  edits / sends it, so no capability is required. A view whose `views[]` entry
@@ -1521,8 +1522,8 @@ function onCustomViewOpenItem(payload: { id: string; mode: "view" | "edit" }): v
 function onCustomViewStartChat(payload: { prompt: string; role?: string | undefined; send: boolean }): void {
   const prompt = payload.prompt.trim();
   if (!prompt) return;
-  // `startChat` needs a concrete role; the draft path takes an optional one and
-  // resolves it host-side. Both fall back to General on an unknown id.
+  // `startChat` needs a concrete role where the draft path takes an optional one,
+  // so an omitted role becomes General here rather than host-side.
   if (payload.send) cui.startChat(prompt, payload.role ?? cui.generalRoleId);
   else cui.startNewChatDraft(prompt, payload.role);
 }

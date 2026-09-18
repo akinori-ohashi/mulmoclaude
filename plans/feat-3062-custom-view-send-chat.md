@@ -67,5 +67,10 @@
 ## 検証
 
 - `yarn format` → `yarn build:packages` → `yarn typecheck` → `yarn lint` → `yarn build` → `yarn test`
-- 実機: `works` 相当のコレクションに `allowSendChat: true` のビューを置き、
-  ボタンでターンが走ること／宣言が無いビューは従来どおり下書きで止まることを確認。
+- **デスクトップのカスタムビュー**（と、同じ宣言に従う phone-frame preview）:
+  宣言のあるビューはボタンでターンが走り、宣言の無いビューは下書きで止まること。
+  e2e (`e2e/tests/collection-custom-view-send-chat.spec.ts`) が実際の sandboxed iframe と
+  postMessage bridge を通して両方向を押さえる。
+- **スマホ実機**: ここは `allowSendChat` を見ずに**常に送信**なので、「宣言が無ければ下書き」は
+  成立しない。実機で確認するのは「宣言の有無にかかわらず送信されること」＝従来どおり変わって
+  いないこと。

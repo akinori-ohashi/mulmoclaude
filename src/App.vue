@@ -1265,23 +1265,16 @@ async function isKnownCollectionSlug(slug: string): Promise<boolean> {
   return result.data.collections.some((collection) => collection.slug === slug);
 }
 
-// Resolve a role id that came from COLLECTION DATA — a schema's action entry or
-// a custom view's `startChat(prompt, role)` argument — to one that exists, else
-// General. `createNewSession` does not validate the id it is handed, and the
-// downstream role lookup falls back silently, so an unknown id would seat the
-// chat under a role label nothing backs.
-function collectionRoleId(roleId?: string): string {
-  return roleId && roles.value.some((role) => role.id === roleId) ? roleId : BUILTIN_ROLE_IDS.general;
-}
-
 // Like startNewChat, but prefills the composer with `message` as an editable
 // DRAFT instead of sending it — the user reviews / edits / sends (or clears) it.
 // Used by custom collection views (`__MC_VIEW.startChat`) so a view button can
 // propose a chat without the view's code triggering an agent run on its own.
-// When the draft is a collection slash command, the collection is presented in
-// the canvas up front (#1768) — presentCollection first, then the prefilled draft.
+// `roleId` is validated against the known roles and falls back to General
+// (createNewSession does not validate the id it is handed). When the draft is a
+// collection slash command, the collection is presented in the canvas up front
+// (#1768) — presentCollection first, then the prefilled draft.
 function startNewChatDraft(message: string, roleId?: string): void {
-  const rId = collectionRoleId(roleId);
+  const rId = roleId && roles.value.some((role) => role.id === roleId) ? roleId : BUILTIN_ROLE_IDS.general;
   createNewSession(rId);
   userInput.value = message;
   chatInputRef.value?.collapseSuggestions();
@@ -1308,7 +1301,7 @@ provideAppApi({
 // App-owned. Done here so it's set before any CollectionView (a descendant) mounts.
 const { entries: notifierEntries } = useNotifications();
 installCollectionAppBindings({
-  startChat: (prompt: string, role: string) => startNewChat(prompt, collectionRoleId(role)),
+  startChat: (prompt: string, role: string) => startNewChat(prompt, role),
   startNewChatDraft: (prompt: string, role?: string) => startNewChatDraft(prompt, role),
   notifiedSeverities: (slug: string) => collectionNotifiedSeverities(notifierEntries.value, slug),
 });
