@@ -32,7 +32,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { useCollectionI18n } from "../lang";
-import { errorMessage } from "@mulmoclaude/core/collection";
+import { customViewSendsChat, errorMessage } from "@mulmoclaude/core/collection";
 import type { CollectionCustomView } from "@mulmoclaude/core/collection";
 import { useCollectionUi } from "../scopedUi";
 import { decideSearchChannelClaim, type SearchChannelState } from "../searchChannelPolicy";
@@ -52,8 +52,9 @@ const emit = defineEmits<{
    *  host's shared modal. */
   openItem: [payload: { id: string; mode: "view" | "edit" }];
   /** The view called `__MC_VIEW.startChat(prompt, role)` — open a new chat with
-   *  `prompt` prefilled as an editable draft (host validates `role`). */
-  startChat: [payload: { prompt: string; role?: string | undefined }];
+   *  `prompt` (host validates `role`). `send` carries the view's DECLARED intent
+   *  (`allowSendChat`): false ⇒ prefill it as an editable draft, true ⇒ run it. */
+  startChat: [payload: { prompt: string; role?: string | undefined; send: boolean }];
 }>();
 
 const loading = ref(true);
@@ -286,7 +287,11 @@ function handleOpenItem(body: { id?: unknown; mode?: unknown }): void {
 function handleStartChat(body: { prompt?: unknown; role?: unknown }): void {
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt) return;
-  emit("startChat", { prompt, role: typeof body.role === "string" ? body.role : undefined });
+  // `send` comes from the SCHEMA, never from the message: the iframe composes the
+  // text, so letting it also choose whether that text runs unreviewed would put
+  // both halves of the decision inside the sandbox.
+  const send = customViewSendsChat(props.view);
+  emit("startChat", { prompt, role: typeof body.role === "string" ? body.role : undefined, send });
 }
 
 /** Anything the sandboxed view may post up. Every field stays `unknown` — the

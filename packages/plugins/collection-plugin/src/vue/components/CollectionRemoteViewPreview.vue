@@ -35,7 +35,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useCollectionI18n } from "../lang";
-import { errorMessage } from "@mulmoclaude/core/collection";
+import { customViewSendsChat, errorMessage } from "@mulmoclaude/core/collection";
 import type { CollectionCustomView } from "@mulmoclaude/core/collection";
 import {
   handleRemoteViewMessage,
@@ -55,9 +55,13 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  /** The view called `__MC_VIEW.startChat(prompt, role)` — open a new chat
-   *  with `prompt` prefilled as an editable draft (host validates `role`). */
-  startChat: [payload: { prompt: string; role?: string | undefined }];
+  /** The view called `__MC_VIEW.startChat(prompt, role)` — open a new chat with
+   *  `prompt` (host validates `role`). `send` carries the view's DECLARED intent
+   *  (`allowSendChat`): false ⇒ prefill it as an editable draft, true ⇒ run it.
+   *  The PHONE runtime always runs it (no Enter key to press there —
+   *  receptron/mulmoterminal#1253), so a declared view is the case where this
+   *  preview matches what the phone will do. */
+  startChat: [payload: { prompt: string; role?: string | undefined; send: boolean }];
 }>();
 
 const loading = ref(true);
@@ -172,7 +176,7 @@ function onWindowMessage(event: MessageEvent): void {
       slug: props.slug,
       getPage,
       onMutate,
-      onStartChat: (prompt, role) => emit("startChat", { prompt, role }),
+      onStartChat: (prompt, role) => emit("startChat", { prompt, role, send: customViewSendsChat(props.view) }),
     },
     // targetOrigin "*": the sandboxed document's origin is opaque, nothing
     // else can match; the page carries the user's own records to the user's

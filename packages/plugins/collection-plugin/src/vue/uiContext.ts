@@ -303,12 +303,15 @@ export interface CollectionUi {
   reconcileShortcuts: (kind: "collection" | "feed", live: CollectionShortcutInfo[]) => Promise<void>;
 
   // ── app integration ──
-  /** Start a new chat with a seed prompt + role (host: `useAppApi().startNewChat`). */
+  /** Start a new chat with a seed prompt + role, SENT (host:
+   *  `useAppApi().startNewChat`). Backs collection/record actions, and a custom
+   *  view's `__MC_VIEW.startChat` when its `views[]` entry declares
+   *  `allowSendChat`. */
   startChat: (prompt: string, role: string) => void;
   /** Open a new chat with `prompt` prefilled in the composer as an editable DRAFT
-   *  (NOT auto-sent) — the user reviews / edits / sends it. Backs a custom view's
-   *  `__MC_VIEW.startChat`. `role` is optional and validated host-side (falls back
-   *  to the general role). */
+   *  (NOT sent) — the user reviews / edits / sends it. Backs a custom view's
+   *  `__MC_VIEW.startChat` by default, and the new-collection template cards.
+   *  `role` is optional and validated host-side (falls back to the general role). */
   startNewChatDraft: (prompt: string, role?: string) => void;
   /** The host's active i18n locale tag (e.g. "en", "ja"), read reactively — the
    *  plugin syncs its own self-contained i18n instance to it. */

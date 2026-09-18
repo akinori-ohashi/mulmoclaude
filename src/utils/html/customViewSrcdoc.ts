@@ -12,8 +12,8 @@
 //      token + the absolute data URL the view reads, plus an `onChange(cb)`
 //      live-refresh subscription, an `openItem(id, mode)` helper that asks the
 //      host to open a record in its shared modal, a `startChat(prompt, role)`
-//      helper that asks the host to open a new chat with `prompt` prefilled for
-//      the user to approve, and the host search box's live text (see below).
+//      helper that asks the host to open a new chat seeded with `prompt`, and
+//      the host search box's live text (see below).
 
 import { buildCustomViewCsp, type CspExtraHosts } from "./previewCsp";
 
@@ -42,11 +42,14 @@ const SEARCH_QUERY_DEBOUNCE_MS = 150;
  *    modal is a user action through trusted UI, so it needs no `write`
  *    capability even for `mode: "edit"` — the save still goes through the host.
  *  - `startChat(prompt, role)`: posts a `{ type: "mc-start-chat", slug, prompt,
- *    role }` ping up to the parent, which opens a NEW chat session with `prompt`
- *    prefilled in the composer as an editable draft — it does NOT auto-send. The
- *    user reviews / edits / sends (or clears) it, so the view's code can only
- *    propose text; no capability is required. `role` is optional and validated
- *    host-side (falls back to the general role). Sent to `v.origin`, no secret.
+ *    role }` ping up to the parent, which opens a NEW chat session seeded with
+ *    `prompt`. By default it is prefilled in the composer as an editable draft —
+ *    the user reviews / edits / sends (or clears) it, so the view's code can only
+ *    propose text and no capability is required. A view whose `views[]` entry
+ *    declares `allowSendChat` is SENT instead; that decision is read off the
+ *    schema by the parent, never from this message, so the sandbox cannot grant
+ *    itself the send. `role` is optional and validated host-side (falls back to
+ *    the general role). Sent to `v.origin`, no secret.
  *  - `searchQuery` / `onSearchQueryChange(cb)`: the host relays the STANDARD
  *    table view's search text so a custom view can react to the one search box
  *    the user already sees instead of shipping a second one (#2959).

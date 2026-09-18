@@ -8,6 +8,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Added
+
+#### A custom view's button can run the chat, not just draft it (#3062)
+
+`__MC_VIEW.startChat(prompt)` has always left its text in the composer for the user to read and
+send. That gate is real on the MulmoClaude app — and only there. MulmoTerminal's desktop draft is
+collapsed to a single line before it is pasted into the TUI, so there is nothing legible to review;
+and the phone has no Enter key to press, so both hosts' remote runtimes have always sent the prompt
+outright. "The user presses Enter" was a rule that held on one surface out of three.
+
+A `views[]` entry may now declare `allowSendChat: true`, and that view's `startChat` buttons run the
+turn on press. Absent — as in every view shipped so far — the prompt is still a draft, so upgrading
+the host changes nothing about what an existing view does. The flag is read off the schema by the
+host, never from the message the sandboxed iframe posts up: the view's code composes the prompt, and
+letting it also decide whether that prompt runs unreviewed would put both halves of the decision
+inside the sandbox.
+
+The phone runtime does not consult the flag (it sends either way); the desktop phone-frame preview
+does, so declaring it is also what makes the preview behave the way the phone will. The
+`custom-view.md` / `custom-view-remote.md` authoring contracts, which described the old rule as
+absolute, now state what each surface actually does.
+
 ## [1.18.0] - 2026-09-17
 
 **Claude Code plugins work in the sandbox at last — their skills are discovered and addressable — and the five ways the sandbox mishandled host paths are closed.**

@@ -69,7 +69,7 @@ window.__MC_VIEW = {
   searchQuery: "", // live text in the app's own search box — see "One search box"
   onSearchQueryChange: (cb) => unsubscribe, // fires when the user types there
   openItem: (id, mode) => void, // open a record in the host's panel — see "Opening a record"
-  startChat: (prompt, role) => void, // draft a new chat for the user — see "Starting a chat"
+  startChat: (prompt, role) => void, // start a new chat — draft, or sent when the view declares allowSendChat; see "Starting a chat"
 };
 ```
 
@@ -401,11 +401,9 @@ view's summary, or whenever the user wants to edit but you don't want a
 
 Your view can't reach external services or run a skill on its own (the sandbox
 blocks it). Instead, hand the work to a chat: `startChat` opens a **new chat
-session with your prompt prefilled in the composer** — as an editable draft. It
-does **not** send. The user reads it, edits if they want, and presses Send (or
-clears it). The agent in that approved chat does the real work — file a GitHub
-issue and write the URL back, fetch a link's title/image and save them, or just
-start from a task record.
+session seeded with your prompt**. The agent in that chat does the real work —
+file a GitHub issue and write the URL back, fetch a link's title/image and save
+them, or just start from a task record.
 
 ```js
 const task = items.find((r) => r.id === id);
@@ -417,12 +415,35 @@ window.__MC_VIEW.startChat(`Create a GitHub issue for this task and write the UR
 - **`role`** _(optional second argument)_ — a built-in role id to preselect for
   the new session (e.g. `"office"`, `"investor"`); validated by the host. Omit it
   and the chat opens in **General** — which is what you usually want.
-- **No capability required.** Your view's code only _proposes text into an input
-  field_ — nothing is created, fetched, or written until the **user** presses
-  Send, at which point it's an ordinary agent run they authored. So a `["read"]`
-  view can offer "start work on this" buttons freely.
 - **Pair it with `onChange`.** When the chat's agent later writes back to a
   record, your `onChange` callback fires and a live view repaints.
+
+#### Draft or send — `allowSendChat`
+
+By default the prompt is **prefilled in the composer as an editable draft** and
+**not sent**. The user reads it, edits if they want, and presses Send (or clears
+it). Your view's code only _proposes text into an input field_, so a `["read"]`
+view can offer "start work on this" buttons freely — no capability required.
+
+When one press should actually run the turn, the **`views[]` entry** — not the
+view's code — says so:
+
+```jsonc
+{ "id": "board", "label": "Board", "file": "views/board.html", "allowSendChat": true }
+```
+
+Then every `startChat` from that view is **sent immediately**. Use it for a view
+whose buttons are the point (type a note, press it, the work starts); leave it
+off for a view that merely offers a head start on something the user will want
+to reword.
+
+- The host reads the declaration, never a flag your code posts up — so the
+  choice stays in the small file a person reads, not in the HTML.
+- Whatever you compose becomes an agent turn verbatim, with every tool
+  available. Build the prompt from your own records, and don't paste text you
+  fetched from somewhere else into it.
+- **On the phone (`target: "mobile"`) the prompt is always sent**, declared or
+  not: there is no Enter key to press, so a draft would simply strand the work.
 
 Use this — not a hidden flag the user has to reconcile later — whenever a button
 should _start backend work_: the user stays in the loop through trusted first-
