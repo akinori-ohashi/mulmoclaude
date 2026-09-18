@@ -23,6 +23,7 @@
           :srcdoc="srcdoc"
           sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads"
           class="phone-screen"
+          @load="onFrameLoad"
         />
       </div>
       <!-- Numeric on purpose (no locale keys): the srcdoc's size against the
@@ -35,7 +36,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useCollectionI18n } from "../lang";
-import { errorMessage } from "@mulmoclaude/core/collection";
+import { customViewSendsChat, errorMessage } from "@mulmoclaude/core/collection";
 import type { CollectionCustomView } from "@mulmoclaude/core/collection";
 import {
   handleRemoteViewMessage,
@@ -55,9 +56,14 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  /** The view called `__MC_VIEW.startChat(prompt, role)` — open a new chat
-   *  with `prompt` prefilled as an editable draft (host validates `role`). */
-  startChat: [payload: { prompt: string; role?: string | undefined }];
+  /** The view called `__MC_VIEW.startChat(prompt, role)` — open a new chat with
+   *  `prompt`; `role` resolves to the general role when it names no known one.
+   *  `send` carries the view's DECLARED intent (`allowSendChat`): false ⇒ prefill
+   *  it as an editable draft, true ⇒ run it.
+   *  The PHONE runtime always runs it (no Enter key to press there —
+   *  receptron/mulmoterminal#1253), so a declared view is the case where this
+   *  preview matches what the phone will do. */
+  startChat: [payload: { prompt: string; role?: string | undefined; send: boolean }];
 }>();
 
 const loading = ref(true);
@@ -97,9 +103,24 @@ const cui = useCollectionUi();
 // Monotonic load id — same stale-load guard as CollectionCustomView.
 let loadSeq = 0;
 
+// See CollectionCustomView for why this is counted: the srcdoc is one document,
+// and anything past it is the view navigating ITSELF, which the sandbox does not
+// prevent. The replacement keeps the frame's `contentWindow`, so it would
+// otherwise read records, mutate them and start chats with this view's declared
+// privileges.
+let frameDocuments = 0;
+
+function onFrameLoad(event: Event): void {
+  // Only THIS frame's loads count — see CollectionCustomView for why, and for
+  // why it is defensive rather than a fix for an observed bug.
+  if (event.target !== iframeEl.value) return;
+  frameDocuments += 1;
+}
+
 async function load(): Promise<void> {
   const seq = ++loadSeq;
   const stale = (): boolean => seq !== loadSeq;
+  frameDocuments = 0; // a fresh srcdoc is about to be installed
   loading.value = true;
   error.value = null;
   srcdoc.value = null;
@@ -127,8 +148,12 @@ async function load(): Promise<void> {
 }
 
 // Reload when the view / collection / app locale changes (the dict is picked
-// server-side per locale, like the desktop custom view).
-watch([() => props.slug, () => props.view.id, () => cui.localeTag()], () => void load(), { immediate: true });
+// server-side per locale, like the desktop custom view). The WHOLE declaration
+// for the same reason as there: the host bakes `file`, `editableFields` /
+// `allowDelete`, `imageFields` and the dict into the srcdoc, and `allowSendChat`
+// is re-read live by the bridge below — so an in-place schema edit must replace
+// the document, not just govern the one already mounted.
+watch([() => props.slug, () => JSON.stringify(props.view), () => cui.localeTag()], () => void load(), { immediate: true });
 
 // ── The parent side of the remote-view bridge ──
 // Answers ONLY what the phone parent answers — `getItems` pages and `startChat`
@@ -166,13 +191,16 @@ async function onMutate(request: RemoteViewMutateRequest): Promise<RemoteViewMut
 function onWindowMessage(event: MessageEvent): void {
   const target = event.source;
   if (!target || target !== iframeEl.value?.contentWindow) return;
+  // The whole bridge is the view's privileges — reads, mutates and chats alike —
+  // so it belongs to the document the host installed, not to the frame.
+  if (frameDocuments > 1) return;
   void handleRemoteViewMessage(
     event.data,
     {
       slug: props.slug,
       getPage,
       onMutate,
-      onStartChat: (prompt, role) => emit("startChat", { prompt, role }),
+      onStartChat: (prompt, role) => emit("startChat", { prompt, role, send: customViewSendsChat(props.view) }),
     },
     // targetOrigin "*": the sandboxed document's origin is opaque, nothing
     // else can match; the page carries the user's own records to the user's

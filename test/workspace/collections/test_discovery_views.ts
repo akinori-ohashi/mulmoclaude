@@ -76,6 +76,15 @@ describe("collection schema — custom views validation", () => {
     assert.equal(withViews([{ id: "phone", label: "Phone", file: "views/phone.html", target: "mobile", allowDelete: "yes" }]).success, false);
   });
 
+  it("accepts allowSendChat, rejects a non-boolean", () => {
+    const view = { id: "board", label: "Board", file: "views/board.html" };
+    assert.equal(withViews([{ ...view, allowSendChat: true }]).success, true);
+    assert.equal(withViews([{ ...view, allowSendChat: false }]).success, true);
+    assert.equal(withViews([view]).success, true); // absent ⇒ draft (default-deny)
+    assert.equal(withViews([{ ...view, allowSendChat: "yes" }]).success, false);
+    assert.equal(withViews([{ ...view, allowSendChat: 1 }]).success, false);
+  });
+
   it("accepts mobile imageFields / imageMaxEdge, rejects wrong types", () => {
     const gallery = { id: "gallery", label: "Gallery", file: "views/gallery.html", target: "mobile" as const };
     assert.equal(withViews([{ ...gallery, imageFields: ["photo"], imageMaxEdge: 384 }]).success, true);

@@ -8,6 +8,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+`@mulmoclaude/core` moves to 4.10.0 for the new `customViewSendsChat` export; every declared
+range on it is swept to match. The launcher's own version is untouched — that field belongs to
+the publish flow.
+
+Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.10.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@6.2.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+
+### Added
+
+#### A custom view's button can run the chat, not just draft it (#3062)
+
+`__MC_VIEW.startChat(prompt)` has always left its text in the composer for the user to read and
+send. That gate is real on the MulmoClaude app — and only there. MulmoTerminal's desktop draft is
+collapsed to a single line before it is pasted into the TUI, so there is nothing legible to review;
+and the phone has no Enter key to press, so both hosts' remote runtimes have always sent the prompt
+outright. "The user presses Enter" was a rule that held on one surface out of three.
+
+A `views[]` entry may now declare `allowSendChat: true`, and that view's `startChat` buttons run the
+turn on press. Absent — as in every view shipped so far — the prompt is still a draft, so upgrading
+the host changes nothing about what an existing view does. The flag is read off the schema by the
+host, never from the message the sandboxed iframe posts up: the view's code composes the prompt, and
+letting it also decide whether that prompt runs unreviewed would put both halves of the decision
+inside the sandbox.
+
+The phone runtime does not consult the flag (it sends either way); the desktop phone-frame preview
+does, so declaring it is also what makes the preview behave the way the phone will. The
+`custom-view.md` / `custom-view-remote.md` authoring contracts, which described the old rule as
+absolute, now state what each surface actually does.
+
 ### Fixed
 
 #### The `firebase` pin from the sign-in regression is lifted (#2835)

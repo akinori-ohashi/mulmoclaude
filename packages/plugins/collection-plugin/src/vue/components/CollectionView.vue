@@ -1511,13 +1511,21 @@ function onCustomViewOpenItem(payload: { id: string; mode: "view" | "edit" }): v
 }
 
 /** The custom view called `__MC_VIEW.startChat(prompt, role)` — open a new chat
- *  with the prompt prefilled as an editable draft. The host validates `role`
- *  (falls back to General). The view's code only proposes text; the user
- *  approves / edits / sends, so no capability is required. */
-function onCustomViewStartChat(payload: { prompt: string; role?: string | undefined }): void {
+ *  seeded with the prompt. `role` is optional and resolves to General when it
+ *  names no known role, the same way a schema action's role does.
+ *
+ *  Draft by default: the view's code only PROPOSES text, and the user approves /
+ *  edits / sends it, so no capability is required. A view whose `views[]` entry
+ *  declares `allowSendChat: true` sends instead — one press runs the turn (#3062).
+ *  That flag is read off the SCHEMA by the view components, never taken from the
+ *  iframe's message, so the sandbox cannot grant itself the send. */
+function onCustomViewStartChat(payload: { prompt: string; role?: string | undefined; send: boolean }): void {
   const prompt = payload.prompt.trim();
   if (!prompt) return;
-  cui.startNewChatDraft(prompt, payload.role);
+  // `startChat` needs a concrete role where the draft path takes an optional one,
+  // so an omitted role becomes General here rather than host-side.
+  if (payload.send) cui.startChat(prompt, payload.role ?? cui.generalRoleId);
+  else cui.startNewChatDraft(prompt, payload.role);
 }
 
 /** A calendar day cell was activated → open its popup on a clean slate
