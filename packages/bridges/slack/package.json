@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "start": "tsx src/index.ts",
     "prepack": "yarn build",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/test_*.ts",

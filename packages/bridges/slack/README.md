@@ -16,6 +16,7 @@ Slack bridge for [MulmoClaude](https://github.com/receptron/mulmoclaude). Uses *
 ### 2. Configure permissions
 
 **OAuth & Permissions** → add these Bot Token Scopes:
+
 - `chat:write` — send messages
 - `channels:history` — read messages in public channels
 - `groups:history` — read messages in private channels
@@ -30,6 +31,7 @@ Slack bridge for [MulmoClaude](https://github.com/receptron/mulmoclaude). Uses *
 ### 4. Enable Events
 
 **Event Subscriptions** → toggle **Enable Events** → subscribe to:
+
 - `message.channels`
 - `message.groups`
 - `message.im`
@@ -61,9 +63,59 @@ In Slack, invite the bot to a channel: `/invite @MulmoClaude`
 
 ---
 
+## Invocation and access control
+
+The legacy-compatible default is to process every non-bot text message visible to the app. For an agent that can use local files and tools, an explicit user + channel allowlist with mention-only invocation is safer:
+
+```bash
+SLACK_ALLOWED_USERS=U0123456789,U9876543210
+SLACK_ALLOWED_CHANNELS=C0123456789
+SLACK_INVOCATION_MODE=mention
+SLACK_DM_ACCESS=user
+SLACK_SESSION_GRANULARITY=thread
+```
+
+In this configuration:
+
+- Shared channels require both an allowed user ID and an allowed channel ID.
+- A 1:1 DM requires an allowed user ID but does not require its dynamic `D...` conversation ID in `SLACK_ALLOWED_CHANNELS`.
+- Every prompt, including replies in an existing thread and DMs, must contain the exact bot mention. The bridge removes that mention before sending the prompt to MulmoClaude.
+- A mention with no question gets a short usage reply without starting an agent run.
+- Rejected messages get no reply or reaction. Logs contain no message text or raw user IDs.
+
+`SLACK_DM_ACCESS=channel` is the default and preserves the old behaviour: when `SLACK_ALLOWED_CHANNELS` is non-empty, a DM's `D...` conversation ID must also be listed. `SLACK_DM_ACCESS=user` requires a non-empty `SLACK_ALLOWED_USERS` value and fails startup otherwise.
+
+### Windows auto-start from a source checkout
+
+After filling the repository's gitignored `.env`, verify the stack interactively:
+
+```powershell
+yarn slack:stack
+```
+
+Then register the current checkout for hidden startup at Windows logon:
+
+```powershell
+# Validate .env without changing Task Scheduler
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows\install-slack-task.ps1 -ValidateOnly
+
+# Register or update the logon task
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows\install-slack-task.ps1
+```
+
+The installer refuses incomplete or unsafe Slack settings, registers a non-overlapping task with failure restarts, and writes runtime output to `%LOCALAPPDATA%\MulmoClaude\logs\slack-stack.log`. Remove it with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows\install-slack-task.ps1 -Unregister
+```
+
+The task runs only while that Windows user is logged on. Keep the PC awake and connected to the internet for Slack access.
+
+---
+
 ## Session granularity (new!)
 
-> **What's a "session"?** In MulmoClaude, a *session* is one continuous conversation with the AI — it remembers what you said earlier and builds on it. Each Slack bridge setting below decides **how many sessions one Slack channel maps to**.
+> **What's a "session"?** In MulmoClaude, a _session_ is one continuous conversation with the AI — it remembers what you said earlier and builds on it. Each Slack bridge setting below decides **how many sessions one Slack channel maps to**.
 
 You pick the behaviour via the `SLACK_SESSION_GRANULARITY` environment variable. Three modes:
 
@@ -83,7 +135,7 @@ Everything posted in `#ai-help` counts as **one long conversation**, no matter w
 
 **When to use:** small teams or a private `@claude` DM where every message is part of the same running conversation.
 
-**Watch out:** after a few weeks, the session accumulates a lot of context. The AI starts pulling in stale details, and responses get slower / more expensive. Start a *new channel* if you want a fresh start.
+**Watch out:** after a few weeks, the session accumulates a lot of context. The AI starts pulling in stale details, and responses get slower / more expensive. Start a _new channel_ if you want a fresh start.
 
 ### 🧵 `thread` — one session per Slack thread (auto-created)
 
@@ -121,23 +173,23 @@ Works like `channel` for top-level posts but keeps thread-scoped sessions when u
 
 ### Quick comparison
 
-| Mode | Root post | Thread reply | Best for |
-|---|---|---|---|
-| `channel` *(default)* | → channel session (top-level reply) | → **channel session** (same conversation, threaded reply) | 1:1 DMs, small teams |
-| `thread` | → **auto-creates a thread** (new session per topic) | → thread session (new conversation) | Busy shared channels, multi-topic users |
-| `auto` | → channel session (top-level reply) | → thread session (new conversation) | Future-proof, opt-in threading |
+| Mode                  | Root post                                           | Thread reply                                              | Best for                                |
+| --------------------- | --------------------------------------------------- | --------------------------------------------------------- | --------------------------------------- |
+| `channel` _(default)_ | → channel session (top-level reply)                 | → **channel session** (same conversation, threaded reply) | 1:1 DMs, small teams                    |
+| `thread`              | → **auto-creates a thread** (new session per topic) | → thread session (new conversation)                       | Busy shared channels, multi-topic users |
+| `auto`                | → channel session (top-level reply)                 | → thread session (new conversation)                       | Future-proof, opt-in threading          |
 
 ### How to choose
 
-| You want… | Set it to… |
-|---|---|
-| "Keep it simple. All messages in one channel = one conversation." | `channel` (or just leave it unset) |
-| "Don't mix my question with other people's questions in the same channel." | `thread` |
-| "I'll leave it for the future. Pick a reasonable default for me." | `auto` |
+| You want…                                                                  | Set it to…                         |
+| -------------------------------------------------------------------------- | ---------------------------------- |
+| "Keep it simple. All messages in one channel = one conversation."          | `channel` (or just leave it unset) |
+| "Don't mix my question with other people's questions in the same channel." | `thread`                           |
+| "I'll leave it for the future. Pick a reasonable default for me."          | `auto`                             |
 
 ### Switching modes safely
 
-Changing the granularity **does not delete any existing sessions**. It only changes how *new* messages map to sessions. Your old conversations stay intact in the MulmoClaude UI.
+Changing the granularity **does not delete any existing sessions**. It only changes how _new_ messages map to sessions. Your old conversations stay intact in the MulmoClaude UI.
 
 That said, if you switch from `channel` → `thread`, messages that were previously part of one long channel session will — from this point on — spawn new thread sessions instead. The AI won't automatically "port" the old context into the new threads.
 
@@ -147,11 +199,11 @@ That said, if you switch from `channel` → `thread`, messages that were previou
 
 Add an emoji reaction to every inbound message the bridge processes, so the user gets an immediate "the bot saw me" signal — before the agent has finished thinking. Off by default; opt in with `SLACK_ACK_REACTION`.
 
-| `SLACK_ACK_REACTION` value | Behaviour |
-|---|---|
-| unset / empty / `0` / `false` / `off` / `no` | Off (default) |
-| `1` / `true` / `on` / `yes` | On, reacts with `:eyes:` |
-| Any other emoji shortcode (no colons) | On, reacts with that emoji |
+| `SLACK_ACK_REACTION` value                   | Behaviour                  |
+| -------------------------------------------- | -------------------------- |
+| unset / empty / `0` / `false` / `off` / `no` | Off (default)              |
+| `1` / `true` / `on` / `yes`                  | On, reacts with `:eyes:`   |
+| Any other emoji shortcode (no colons)        | On, reacts with that emoji |
 
 Emoji shortcode rules: lowercase letters, digits, `_`, `+`, `-`. No surrounding colons. Both standard emoji (`white_check_mark`, `thumbsup`) and custom workspace emoji (`my_bot_ack`) work.
 
@@ -170,17 +222,20 @@ SLACK_ACK_REACTION=my_bot_ack           # custom workspace emoji
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `SLACK_BOT_TOKEN` | Yes | `xoxb-...` Bot User OAuth Token |
-| `SLACK_APP_TOKEN` | Yes | `xapp-...` App-Level Token (connections:write) |
-| `SLACK_ALLOWED_CHANNELS` | No | CSV of channel IDs to restrict access (empty = all) |
-| `SLACK_SESSION_GRANULARITY` | No | `channel` *(default)* \| `thread` \| `auto`. See above. |
-| `SLACK_ACK_REACTION` | No | Off by default. `1` enables with 👀; any other emoji shortcode selects a custom emoji. Requires the `reactions:write` scope when enabled. See above. |
-| `SLACK_BRIDGE_DEFAULT_ROLE` | No | Role id to seed new bridge sessions with (e.g. `slack`, `coder`). Applied ONLY when a Slack session first appears — once the user switches role via `/role <id>` the session's own role wins. Unknown role ids silently fall back to the server's default with a warn log. |
-| `BRIDGE_DEFAULT_ROLE` | No | Same as above but shared across every bridge. Transport-specific `SLACK_BRIDGE_DEFAULT_ROLE` wins when both are set. |
-| `MULMOCLAUDE_API_URL` | No | Default `http://localhost:3001` |
-| `MULMOCLAUDE_AUTH_TOKEN` | No | Bearer token (auto-read from workspace if not set) |
+| Variable                    | Required | Description                                                                                                                                                                                                                                                                |
+| --------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SLACK_BOT_TOKEN`           | Yes      | `xoxb-...` Bot User OAuth Token                                                                                                                                                                                                                                            |
+| `SLACK_APP_TOKEN`           | Yes      | `xapp-...` App-Level Token (connections:write)                                                                                                                                                                                                                             |
+| `SLACK_ALLOWED_CHANNELS`    | No       | CSV of channel IDs to restrict access (empty = all)                                                                                                                                                                                                                        |
+| `SLACK_ALLOWED_USERS`       | No       | CSV of user IDs to restrict access (empty = all). Required and non-empty when `SLACK_DM_ACCESS=user`.                                                                                                                                                                      |
+| `SLACK_INVOCATION_MODE`     | No       | `all` _(default)_ processes visible text; `mention` requires an exact bot mention on every prompt.                                                                                                                                                                         |
+| `SLACK_DM_ACCESS`           | No       | `channel` _(default)_ applies the channel allowlist to DMs; `user` authorizes DMs by the user allowlist only.                                                                                                                                                              |
+| `SLACK_SESSION_GRANULARITY` | No       | `channel` _(default)_ \| `thread` \| `auto`. See above.                                                                                                                                                                                                                    |
+| `SLACK_ACK_REACTION`        | No       | Off by default. `1` enables with 👀; any other emoji shortcode selects a custom emoji. Requires the `reactions:write` scope when enabled. See above.                                                                                                                       |
+| `SLACK_BRIDGE_DEFAULT_ROLE` | No       | Role id to seed new bridge sessions with (e.g. `slack`, `coder`). Applied ONLY when a Slack session first appears — once the user switches role via `/role <id>` the session's own role wins. Unknown role ids silently fall back to the server's default with a warn log. |
+| `BRIDGE_DEFAULT_ROLE`       | No       | Same as above but shared across every bridge. Transport-specific `SLACK_BRIDGE_DEFAULT_ROLE` wins when both are set.                                                                                                                                                       |
+| `MULMOCLAUDE_API_URL`       | No       | Default `http://localhost:3001`                                                                                                                                                                                                                                            |
+| `MULMOCLAUDE_AUTH_TOKEN`    | No       | Bearer token (auto-read from workspace if not set)                                                                                                                                                                                                                         |
 
 ### Bridge options passthrough
 
@@ -234,7 +289,7 @@ Part of the [`@mulmobridge/*`](https://www.npmjs.com/~mulmobridge) package famil
 - [`@mulmobridge/nostr`](https://www.npmjs.com/package/@mulmobridge/nostr) — Nostr NIP-04 encrypted DMs
 - [`@mulmobridge/rocketchat`](https://www.npmjs.com/package/@mulmobridge/rocketchat) — Rocket.Chat
 - [`@mulmobridge/signal`](https://www.npmjs.com/package/@mulmobridge/signal) — Signal via signal-cli-rest-api
-- [`@mulmobridge/slack`](https://www.npmjs.com/package/@mulmobridge/slack) — Slack Socket Mode  ← **this package**
+- [`@mulmobridge/slack`](https://www.npmjs.com/package/@mulmobridge/slack) — Slack Socket Mode ← **this package**
 - [`@mulmobridge/teams`](https://www.npmjs.com/package/@mulmobridge/teams) — Microsoft Teams via Bot Framework
 - [`@mulmobridge/telegram`](https://www.npmjs.com/package/@mulmobridge/telegram) — Telegram bot
 - [`@mulmobridge/twilio-sms`](https://www.npmjs.com/package/@mulmobridge/twilio-sms) — SMS via Twilio Programmable Messaging

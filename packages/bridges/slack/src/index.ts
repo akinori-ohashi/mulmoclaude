@@ -9,6 +9,9 @@
 //
 // Optional:
 //   SLACK_ALLOWED_CHANNELS     — CSV of channel IDs (empty = allow all)
+//   SLACK_ALLOWED_USERS        — CSV of user IDs (empty = allow all)
+//   SLACK_INVOCATION_MODE      — "all" (default) | "mention"
+//   SLACK_DM_ACCESS            — "channel" (default) | "user"
 //   SLACK_SESSION_GRANULARITY  — "channel" (default) | "thread" | "auto"
 //                                Controls how a single Slack channel is split
 //                                into MulmoClaude sessions. See README.md.
@@ -26,6 +29,15 @@ import { createBridgeClient, formatAckReply } from "@mulmobridge/client";
 import { parseCsvSet } from "@mulmoclaude/common";
 import { buildExternalChatId, effectiveThreadTs, parseExternalChatId, parseGranularity } from "./sessionId.js";
 import { parseAckReaction } from "./ackReaction.js";
+import { chunkSlackMessage } from "./messageChunk.js";
+import {
+  decideMessage,
+  parseDmAccess,
+  parseInvocationMode,
+  validateMessagePolicyConfig,
+  type MessagePolicyConfig,
+  type SlackMessageEvent,
+} from "./messagePolicy.js";
 import { redactUser } from "./redactUser.js";
 
 const TRANSPORT_ID = "slack";
@@ -38,6 +50,7 @@ if (!botToken || !appToken) {
 }
 
 const allowedChannels = parseCsvSet(process.env.SLACK_ALLOWED_CHANNELS);
+const allowedUsers = parseCsvSet(process.env.SLACK_ALLOWED_USERS);
 const allowAll = allowedChannels.size === 0;
 
 // The explicit `T` return annotation is what lets TS see `process.exit`'s
@@ -52,6 +65,8 @@ function parseEnvOrExit<T>(parse: () => T): T {
 }
 
 const granularity = parseEnvOrExit(() => parseGranularity(process.env.SLACK_SESSION_GRANULARITY));
+const invocationMode = parseEnvOrExit(() => parseInvocationMode(process.env.SLACK_INVOCATION_MODE));
+const dmAccess = parseEnvOrExit(() => parseDmAccess(process.env.SLACK_DM_ACCESS));
 
 const ackEmoji = parseEnvOrExit(() => parseAckReaction(process.env.SLACK_ACK_REACTION));
 
@@ -79,16 +94,7 @@ client.onPush((pushEvent) => {
  *  parameter type. `thread_ts` / `channel_type` are consumed by
  *  `effectiveThreadTs`, which takes them as `unknown`. */
 interface SlackMessageEnvelope {
-  event: {
-    subtype?: unknown;
-    bot_id?: unknown;
-    user?: string;
-    channel: string;
-    text?: string;
-    ts?: unknown;
-    thread_ts?: unknown;
-    channel_type?: unknown;
-  };
+  event: SlackMessageEvent;
   ack: () => Promise<void>;
 }
 
@@ -101,23 +107,31 @@ socketMode.on("message", (envelope: SlackMessageEnvelope) => {
 async function onSocketMessage({ event, ack }: SlackMessageEnvelope): Promise<void> {
   await ack();
 
-  // Ignore bot's own messages, message_changed, etc.
-  if (event.subtype) return;
-  if (event.bot_id) return;
-  if (botUserId && event.user === botUserId) return;
-
-  const channelId: string = event.channel;
-  const threadTs = effectiveThreadTs(event, granularity);
-  const text: string = event.text ?? "";
-  if (!text.trim()) return;
-
-  if (!allowAll && !allowedChannels.has(channelId)) {
-    console.log(`[slack] denied channel=${channelId}`);
+  const policy: MessagePolicyConfig = {
+    invocationMode,
+    dmAccess,
+    allowedUsers,
+    allowedChannels,
+    botUserId,
+  };
+  const decision = decideMessage(event, policy);
+  if (decision.kind === "ignore") {
+    console.log(`[slack] ignored reason=${decision.reason} channel=${decision.channelId ?? "-"} user=${redactUser(decision.userId)}`);
     return;
   }
 
+  const { channelId } = decision;
+  const threadTs = effectiveThreadTs(event, granularity);
+  if (decision.kind === "usage") {
+    await sendChunked(channelId, threadTs, `Please include a question after <@${botUserId}>.`);
+    return;
+  }
+
+  const { text } = decision;
   const externalChatId = buildExternalChatId(channelId, threadTs, granularity);
-  console.log(`[slack] message channel=${channelId} thread_ts=${threadTs ?? "-"} session=${externalChatId} user=${redactUser(event.user)} len=${text.length}`);
+  console.log(
+    `[slack] message channel=${channelId} thread_ts=${threadTs ?? "-"} session=${externalChatId} user=${redactUser(decision.userId)} len=${text.length}`,
+  );
 
   sendAckReaction(channelId, event.ts);
 
@@ -140,18 +154,13 @@ function sendAckReaction(channel: string, eventTs: unknown): void {
 }
 
 async function sendChunked(channel: string, threadTs: string | undefined, text: string): Promise<void> {
-  // Slack's max message length is ~40,000 chars but we chunk at 4000
-  // for readability (matching Telegram's approach).
-  const MAX = 4000;
   const baseArgs = threadTs ? { channel, thread_ts: threadTs } : { channel };
-  if (text.length === 0) {
-    await web.chat.postMessage({ ...baseArgs, text: "(empty reply)" });
-    return;
-  }
-  for (let i = 0; i < text.length; i += MAX) {
+  // Slack's max message length is ~40,000 chars, but 4,000-character
+  // chunks are easier to read and match the Telegram bridge behavior.
+  for (const chunk of chunkSlackMessage(text)) {
     await web.chat.postMessage({
       ...baseArgs,
-      text: text.slice(i, i + MAX),
+      text: chunk,
     });
   }
 }
@@ -162,8 +171,19 @@ async function main(): Promise<void> {
   const rawUserId = authResult.user_id;
   botUserId = typeof rawUserId === "string" ? rawUserId : null;
 
+  validateMessagePolicyConfig({
+    invocationMode,
+    dmAccess,
+    allowedUsers,
+    allowedChannels,
+    botUserId,
+  });
+
   console.log("MulmoClaude Slack bridge");
   console.log(`Channels: ${allowAll ? "(all)" : [...allowedChannels].join(", ")}`);
+  console.log(`Users: ${allowedUsers.size === 0 ? "(all)" : [...allowedUsers].map(redactUser).join(", ")}`);
+  console.log(`Invocation mode: ${invocationMode}`);
+  console.log(`DM access: ${dmAccess}`);
   console.log(`Session granularity: ${granularity}`);
   console.log(`Ack reaction: ${ackEmoji ?? "(disabled)"}`);
 
