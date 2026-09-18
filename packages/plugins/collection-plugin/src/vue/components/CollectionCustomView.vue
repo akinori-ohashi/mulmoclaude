@@ -85,6 +85,22 @@ let searchState: SearchChannelState = "idle";
 // view's declared privileges — verified by loading a foreign page into the
 // frame and watching it start an agent turn. It is a different document from
 // the one the declaration authorises, so its actions are dropped.
+//
+// WHAT THIS DOES NOT CATCH, because counting cannot: a redirect that runs while
+// the srcdoc is still PARSING. The srcdoc's own load never fires, so the
+// foreign document's load is the first one and the count reads 1. Also verified.
+// Closing it needs the action message to prove which document sent it — either
+// carrying the injected `cspNonce`, which only the srcdoc can read, or
+// travelling over the MessageChannel port the bootstrap already creates (a port
+// is bound to its document, which is why the search channel uses one). Both are
+// changes to the three bootstrap copies plus a protocol bump, so they are a
+// follow-up rather than part of #3062.
+//
+// Note what both cases have in common: the VIEW'S OWN document has to perform
+// the navigation. A view that wanted to run turns could simply call `startChat`,
+// which its declaration already permits — so this is containment after the
+// frame stops being the view, not a trust boundary the declaration did not
+// already cross.
 let frameDocuments = 0;
 
 function onFrameLoad(): void {
