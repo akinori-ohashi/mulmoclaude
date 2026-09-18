@@ -132,8 +132,12 @@ async function load(): Promise<void> {
 }
 
 // Reload when the view / collection / app locale changes (the dict is picked
-// server-side per locale, like the desktop custom view).
-watch([() => props.slug, () => props.view.id, () => cui.localeTag()], () => void load(), { immediate: true });
+// server-side per locale, like the desktop custom view). The WHOLE declaration
+// for the same reason as there: the host bakes `file`, `editableFields` /
+// `allowDelete`, `imageFields` and the dict into the srcdoc, and `allowSendChat`
+// is re-read live by the bridge below — so an in-place schema edit must replace
+// the document, not just govern the one already mounted.
+watch([() => props.slug, () => JSON.stringify(props.view), () => cui.localeTag()], () => void load(), { immediate: true });
 
 // ── The parent side of the remote-view bridge ──
 // Answers ONLY what the phone parent answers — `getItems` pages and `startChat`

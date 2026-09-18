@@ -175,8 +175,19 @@ async function load(): Promise<void> {
 // back. `localeTag()` is documented as reactive (the binding doc on
 // `CollectionUi.localeTag`); reading it inside the watch source array lets
 // Vue track that dep transparently.
+//
+// The WHOLE declaration, not just its id: a schema refetch can replace this
+// entry in place, and everything the host derives from it is baked into the
+// document already in the frame — the HTML `file`, the minted token's
+// `capabilities`, the injected `dict`, and `allowSendChat`, which the message
+// handler below re-reads live. Keying on the id alone leaves the old document
+// mounted while the new policy governs it, so flipping an open view to
+// `allowSendChat: true` would let the PREVIOUS build's buttons send. Comparing
+// the serialized entry makes "the document in the frame was built from the
+// declaration being enforced" true by construction; the object is a handful of
+// scalar fields, so the stringify costs nothing.
 watch(
-  [() => props.slug, () => props.view.id, () => cui.localeTag()],
+  [() => props.slug, () => JSON.stringify(props.view), () => cui.localeTag()],
   () => {
     frameReclaims = 0;
     searchState = "idle";
