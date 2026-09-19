@@ -549,6 +549,8 @@ const deMessages = {
     openInOs: "Im Betriebssystem oeffnen",
     openingInOs: "Wird geoeffnet…",
     openInOsFailed: "Konnte nicht im Betriebssystem geoeffnet werden",
+    downloadFile: "Herunterladen",
+    downloadingFile: "Wird heruntergeladen…",
   },
   filesView: {
     chatPlaceholder: "Frage zu dieser Datei stellen…",

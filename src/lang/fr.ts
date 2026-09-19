@@ -545,6 +545,8 @@ const frMessages = {
     openInOs: "Ouvrir dans le système",
     openingInOs: "Ouverture…",
     openInOsFailed: "Échec de l'ouverture dans le système",
+    downloadFile: "Télécharger",
+    downloadingFile: "Téléchargement…",
   },
   filesView: {
     chatPlaceholder: "Posez une question sur ce fichier…",
