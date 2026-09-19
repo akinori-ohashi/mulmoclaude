@@ -541,6 +541,8 @@ const koMessages = {
     openInOs: "OS에서 열기",
     openingInOs: "여는 중…",
     openInOsFailed: "OS에서 열 수 없습니다",
+    downloadFile: "다운로드",
+    downloadingFile: "다운로드 중…",
   },
   filesView: {
     chatPlaceholder: "이 파일에 대해 질문하세요…",
