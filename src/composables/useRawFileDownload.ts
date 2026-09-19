@@ -28,9 +28,25 @@ export function useRawFileDownload(selectedPath: Ref<string | null>, failureMess
   const busy = ref(false);
   const error = ref<string | null>(null);
 
+  // A download outlives the selection that started it, and the two must not be
+  // allowed to cross: the response for file A arriving while file B is on
+  // screen would save A under A's name with B displayed, or write B's error and
+  // busy state from A's request. So each attempt takes a sequence number, every
+  // state write after an await checks it is still the current one, and a
+  // superseded request is aborted rather than left to finish into nothing.
+  let currentRequest = 0;
+  let inFlight: AbortController | null = null;
+
+  function supersede(): void {
+    currentRequest += 1;
+    inFlight?.abort();
+    inFlight = null;
+  }
+
   // Same reset-on-navigation contract as useOpenInOs: an error from file
   // A must not linger while file B is on screen.
   watch(selectedPath, () => {
+    supersede();
     busy.value = false;
     error.value = null;
   });
@@ -38,19 +54,29 @@ export function useRawFileDownload(selectedPath: Ref<string | null>, failureMess
   async function download(): Promise<void> {
     const path = selectedPath.value;
     if (!path) return;
+    supersede();
+    const request = currentRequest;
+    const controller = new AbortController();
+    inFlight = controller;
     busy.value = true;
     error.value = null;
     try {
-      const rawResponse = await apiFetchRaw(API_ROUTES.files.raw, { query: { path } });
+      const rawResponse = await apiFetchRaw(API_ROUTES.files.raw, { query: { path }, signal: controller.signal });
+      if (request !== currentRequest) return;
       if (!rawResponse.ok) {
         error.value = failureMessage();
         return;
       }
-      saveBlob(await rawResponse.blob(), workspaceBasename(path, FALLBACK_DOWNLOAD_NAME));
+      const bytes = await rawResponse.blob();
+      if (request !== currentRequest) return;
+      saveBlob(bytes, workspaceBasename(path, FALLBACK_DOWNLOAD_NAME));
     } catch {
+      // An abort is this composable superseding itself, not a failure the user
+      // should be told about — the request that replaced it owns the message.
+      if (request !== currentRequest) return;
       error.value = failureMessage();
     } finally {
-      busy.value = false;
+      if (request === currentRequest) busy.value = false;
     }
   }
 

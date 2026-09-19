@@ -13,6 +13,7 @@ import { useRawFileDownload } from "../../src/composables/useRawFileDownload.ts"
 // `Parameters<typeof fetch>` rather than the DOM lib's `RequestInfo`, which is
 // not in this project's ESLint globals (same reason src/utils/api.ts does it).
 type FetchInput = Parameters<typeof fetch>[0];
+type FetchInit = NonNullable<Parameters<typeof fetch>[1]>;
 
 interface SavedFile {
   filename: string;
@@ -24,6 +25,8 @@ let savedFiles: SavedFile[] = [];
 let nextStatus = 200;
 const SUBTITLE_BODY = "1\n00:00:01,000 --> 00:00:02,000\nhello\n";
 let shouldThrow: Error | null = null;
+/** When set, a request waits on it before responding — the seam a race needs. */
+let holdUntil: Promise<void> | null = null;
 
 const originalFetch = globalThis.fetch;
 const originalDocument = Reflect.get(globalThis, "document");
@@ -39,6 +42,7 @@ function installDomStubs(): void {
   savedFiles = [];
   nextStatus = 200;
   shouldThrow = null;
+  holdUntil = null;
 
   const blobsByUrl = new Map<string, Blob>();
   let nextUrlId = 0;
@@ -79,9 +83,17 @@ function installDomStubs(): void {
   // A real `Response` rather than a hand-shaped stub: the composable reads
   // `ok` and calls `blob()`, and undici's implementation of both is the thing
   // that actually runs in the browser.
-  globalThis.fetch = async (input: FetchInput): Promise<Response> => {
+  globalThis.fetch = async (input: FetchInput, init?: FetchInit): Promise<Response> => {
     fetchedUrls.push(String(input));
     if (shouldThrow) throw shouldThrow;
+    if (holdUntil) {
+      // Let a test navigate away while this request is still in flight, and
+      // reject on abort the way a real fetch does.
+      await new Promise<void>((resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        void holdUntil?.then(resolve);
+      });
+    }
     return new Response(SUBTITLE_BODY, { status: nextStatus });
   };
 }
@@ -173,5 +185,67 @@ describe("useRawFileDownload", () => {
     await download();
     assert.equal(error.value, null);
     assert.equal(savedFiles.length, 1);
+  });
+});
+
+describe("useRawFileDownload — a download must not outlive its selection", () => {
+  beforeEach(installDomStubs);
+  afterEach(restoreDomStubs);
+
+  it("does not save file A's bytes after the user has navigated to file B", async () => {
+    // Without the guard the response lands whenever it lands, and the browser
+    // saves `a.bin` while `b.bin` is the file on screen.
+    let release = (): void => {};
+    holdUntil = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const path = ref<string | null>("a.bin");
+    const { busy, error, download } = useRawFileDownload(path, () => "download failed");
+    const pending = download();
+
+    path.value = "b.bin";
+    await nextTick();
+    release();
+    await pending;
+
+    assert.equal(savedFiles.length, 0, "the superseded request must not save anything");
+    assert.equal(error.value, null, "an abort is not a failure the user should see");
+    assert.equal(busy.value, false);
+  });
+
+  it("does not resurrect busy or error on the new selection", async () => {
+    nextStatus = 500;
+    let release = (): void => {};
+    holdUntil = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const path = ref<string | null>("a.bin");
+    const { busy, error, download } = useRawFileDownload(path, () => "download failed");
+    const pending = download();
+
+    path.value = "b.bin";
+    await nextTick();
+    release();
+    await pending;
+
+    assert.equal(error.value, null, "file A's 500 must not appear under file B");
+    assert.equal(busy.value, false, "file B must not inherit file A's busy state");
+  });
+
+  it("a second download on the same file supersedes the first", async () => {
+    let release = (): void => {};
+    holdUntil = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const path = ref<string | null>("a.bin");
+    const { download } = useRawFileDownload(path, () => "download failed");
+    const first = download();
+
+    holdUntil = null;
+    await download();
+    release();
+    await first;
+
+    assert.equal(savedFiles.length, 1, "only the current request saves");
   });
 });

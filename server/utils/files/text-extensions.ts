@@ -12,21 +12,29 @@
 // would classify every source file in the workspace as a video stream.
 //
 // What stays OUT, and why:
-//   - Anything whose job is to hold a secret: `.env*`, `.pem`, `.key`,
-//     `.crt`, `.npmrc`, `.netrc`, `.htpasswd`, `.tfstate`, `.p12`, `.pfx`.
+//   - Anything whose job is to hold a secret: `.env*`, `.pem`, `.key`, `.crt`,
+//     `.npmrc`, `.netrc`, `.htpasswd`, and the Terraform and keystore formats.
 //     `.env` used to be in this set, which made `/files/content?path=.env`
-//     serve the workspace credentials as JSON text over an open CORS
-//     endpoint. `isSensitivePath` now refuses those by name as well.
-//   - Formats that are text only sometimes: `.plist` (a binary plist is
-//     also a plist), `.rtf` (control words, not prose), `.xlsx` / `.docx` /
-//     `.pptx` (zip containers, whatever the highlighter's alias list says).
-//     Those reach the user through the fallback's Download button instead.
+//     serve the workspace credentials as JSON text over an open CORS endpoint.
+//     Keeping one out of this set is only half the guard, because the raw route
+//     would still stream its bytes — `isSensitivePath` is the half that refuses
+//     them everywhere, and the two lists are meant to agree.
+//   - `.tfvars` specifically: it is Terraform syntax like `.tf` and would read
+//     as text fine, but it is where concrete variable VALUES live, which is
+//     where the tokens are.
+//   - Formats that are text only sometimes: `.plist` (a binary plist is also a
+//     plist), `.sub` (MicroDVD is text, VobSub is bitmap), `.rtf` (control
+//     words, not prose), `.xlsx` / `.docx` / `.pptx` (zip containers, whatever
+//     the highlighter's alias list says). Those reach the user through the
+//     fallback's Download button instead.
 
 const DOC_EXTENSIONS = [".md", ".markdown", ".mkd", ".mdx", ".txt", ".text", ".rst", ".adoc", ".asciidoc", ".tex", ".latex", ".bib", ".org", ".nfo", ".log"];
 
-// Every mainstream subtitle / caption / lyric container is plain UTF-8. `.srt`
-// is the one #3213 was reported against; the rest fail identically.
-const SUBTITLE_EXTENSIONS = [".srt", ".vtt", ".ass", ".ssa", ".sbv", ".sub", ".lrc"];
+// Subtitle / caption / lyric containers that are plain UTF-8. `.srt` is the one
+// #3213 was reported against; the rest fail identically. `.sub` is NOT here: a
+// `.sub` beside an `.idx` is VobSub, which is bitmap data, so previewing one
+// would show mojibake and saving an edit would replace the bitmap with text.
+const SUBTITLE_EXTENSIONS = [".srt", ".vtt", ".ass", ".ssa", ".sbv", ".lrc"];
 
 // Playlists and cue sheets — text files that sit beside the media they index.
 const PLAYLIST_EXTENSIONS = [".m3u", ".m3u8", ".pls", ".cue"];
@@ -202,7 +210,6 @@ const BUILD_EXTENSIONS = [
   ".bazel",
   ".nix",
   ".tf",
-  ".tfvars",
   ".hcl",
   ".jsonnet",
   ".libsonnet",

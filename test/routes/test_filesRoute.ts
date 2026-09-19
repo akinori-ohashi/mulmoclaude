@@ -205,7 +205,7 @@ describe("classify", () => {
   });
 
   it("classifies the whole subtitle family as text (#3213)", () => {
-    for (const name of ["talk.srt", "talk.vtt", "talk.ass", "talk.ssa", "talk.sbv", "talk.sub", "song.lrc", "TALK.SRT"]) {
+    for (const name of ["talk.srt", "talk.vtt", "talk.ass", "talk.ssa", "talk.sbv", "song.lrc", "TALK.SRT"]) {
       assert.equal(classify(name), "text", `expected text for ${name}`);
     }
   });
@@ -331,8 +331,21 @@ describe("classify", () => {
     }
   });
 
+  it("keeps VobSub `.sub` out of the text set — the name cannot tell it from MicroDVD", () => {
+    // A `.sub` beside an `.idx` is bitmap subtitle data. Classifying it text
+    // decodes the bitmap as UTF-8 in the preview, and a saved edit would write
+    // that back over the bitmap.
+    assert.equal(classify("movie.sub"), "binary");
+  });
+
   it("keeps real binaries out of the widened text set", () => {
     for (const name of ["book.xlsx", "deck.pptx", "report.docx", "archive.tar.gz", "installer.exe", "lib.so", "photo.heic"]) {
+      assert.equal(classify(name), "binary", `expected binary for ${name}`);
+    }
+  });
+
+  it("keeps the Terraform and keystore secret formats out of the text set", () => {
+    for (const name of ["prod.auto.tfvars", "terraform.tfstate", "client.p12", "client.pfx", "app.jks", "debug.keystore"]) {
       assert.equal(classify(name), "binary", `expected binary for ${name}`);
     }
   });
@@ -473,6 +486,21 @@ describe("isSensitivePath — blocks secret files", () => {
     assert.equal(isSensitivePath("credentials.json"), true);
     assert.equal(isSensitivePath(".npmrc"), true);
     assert.equal(isSensitivePath(".htpasswd"), true);
+  });
+
+  it("blocks `.env` as a SUFFIX, not only as a whole filename", () => {
+    // The two basename rules cover `.env` and `.env.local`. `prod.env` matched
+    // neither, so /files/content refused it as binary while /files/raw served
+    // the bytes — and the Files view now has a Download button on that branch.
+    for (const name of ["prod.env", "secrets.env", "config/staging.env", "PROD.ENV"]) {
+      assert.equal(isSensitivePath(name), true, `expected ${name} blocked`);
+    }
+  });
+
+  it("blocks the keystore and Terraform secret formats", () => {
+    for (const name of ["client.p12", "client.pfx", "app.jks", "debug.keystore", "terraform.tfstate", "prod.auto.tfvars"]) {
+      assert.equal(isSensitivePath(name), true, `expected ${name} blocked`);
+    }
   });
 
   it("blocks the extensionless credential files classify() would call text", () => {

@@ -131,7 +131,32 @@ const SENSITIVE_BASENAMES = new Set([
 // against `path.extname(...).toLowerCase()`. Note: `.env` is matched
 // separately below because `path.extname(".env")` returns "" —
 // dotfiles with no second extension don't carry an extname.
-const SENSITIVE_EXTENSIONS = new Set([".pem", ".key", ".crt"]);
+//
+// Keeping one of these out of `TEXT_EXTENSIONS` is only half a guard: it stops
+// the preview and the write gate, and `/api/files/raw` would still stream the
+// bytes to anything that asks. This list is the half that refuses them
+// everywhere — tree, dir, content and raw alike — so the two are meant to
+// agree, and `test_textExtensions.ts` pins that they do.
+const SENSITIVE_EXTENSIONS = new Set([
+  ".pem",
+  ".key",
+  ".crt",
+  // `.env` as a SUFFIX. The two basename rules below cover `.env` and
+  // `.env.local`, and covered nothing else: `prod.env` and `secrets.env` were
+  // neither sensitive nor text, which meant /files/content refused them and
+  // /files/raw streamed them anyway. Found while writing the test for the
+  // keystore entries, and it is the same hole.
+  ".env",
+  // PKCS#12 / Java keystores — a private key with a password on it.
+  ".p12",
+  ".pfx",
+  ".jks",
+  ".keystore",
+  // Terraform: `.tfstate` records every provider credential in plaintext by
+  // design, and `.tfvars` is where the concrete variable values live.
+  ".tfstate",
+  ".tfvars",
+]);
 
 // Decide whether `relPath` names a file whose contents should NEVER
 // be served by the file API. Applied in three places:
@@ -168,11 +193,31 @@ export function isSensitivePath(relPath: string): boolean {
 // Files view calling them "binary" was a gap rather than a policy. HEIC /
 // HEIF / TIFF stay out on purpose — no browser renders them, and they now
 // reach the user through the fallback's Download button.
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".avif", ".ico"]);
+export const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".avif", ".ico"]);
 
-const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".m4a", ".ogg", ".oga", ".flac", ".aac"]);
+export const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".m4a", ".ogg", ".oga", ".flac", ".aac"]);
 
-const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".m4v", ".ogv"]);
+export const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".m4v", ".ogv"]);
+
+/** Things a later double-click would execute. Refused on upload — a drop into
+ *  the workspace is for data, not for programs — and refused by the write gate
+ *  for the same reason: `/api/files/*` is exempt from bearer auth
+ *  (`server/index.ts`), so create and PUT are reachable by anything that can
+ *  talk to the loopback port, and "typed through one unauthenticated route" is
+ *  not a weaker capability than "dropped through another". PREVIEW is
+ *  deliberately unaffected — a `.sh` still renders as text, it just cannot be
+ *  written here. */
+export const BLOCKED_UPLOAD_EXTENSIONS = new Set([".exe", ".dll", ".so", ".dylib", ".bat", ".cmd", ".com", ".scr", ".msi", ".app", ".sh", ".ps1"]);
+
+/** The write gate for `POST /api/files/create` and `PUT /api/files/content`.
+ *  Narrower than "is it text" on purpose: `TEXT_EXTENSIONS` answers whether the
+ *  Files view can SHOW a file, which is a question about rendering, and the two
+ *  were the same predicate until an executable suffix was previewable and
+ *  writable at once. */
+export function isWritableTextFile(absPath: string): boolean {
+  if (classify(absPath) !== "text") return false;
+  return !BLOCKED_UPLOAD_EXTENSIONS.has(path.extname(absPath).toLowerCase());
+}
 
 const MIME_BY_EXT: Record<string, string> = {
   ".png": "image/png",
@@ -869,7 +914,7 @@ async function resolveExistingTextFile(relPathRaw: string): Promise<ResolvedText
   if (!existing.isFile()) return { ok: false, status: 400, message: "Not a file" };
   const absPath = resolveSafe(relPathRaw);
   if (!absPath) return { ok: false, status: 400, message: "Path outside workspace" };
-  if (classify(absPath) !== "text") return { ok: false, status: 400, message: "File type not editable" };
+  if (!isWritableTextFile(absPath)) return { ok: false, status: 400, message: "File type not editable" };
   return { ok: true, absPath };
 }
 
@@ -1037,7 +1082,7 @@ router.post(API_ROUTES.files.create, async (req: Request<object, unknown, WriteC
   }
   // Type policy lives with the caller: create/edit only accept editable text,
   // while `files.upload` deliberately writes arbitrary bytes.
-  if (classify(resolved.absPath) !== "text") {
+  if (!isWritableTextFile(resolved.absPath)) {
     badRequest(res, "File type not editable");
     return;
   }
@@ -1060,10 +1105,6 @@ router.post(API_ROUTES.files.create, async (req: Request<object, unknown, WriteC
  *  this handler never gets to enforce — express would reject a 40 MB file with
  *  a generic 413 first. 32 MB decoded is ~43 MB encoded, comfortably inside. */
 const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
-
-/** Refused on upload: things a later double-click would execute. A drop into
- *  the workspace is for data, not for programs. */
-const BLOCKED_UPLOAD_EXTENSIONS = new Set([".exe", ".dll", ".so", ".dylib", ".bat", ".cmd", ".com", ".scr", ".msi", ".app", ".sh", ".ps1"]);
 
 interface UploadFileBody {
   dir?: unknown;

@@ -68,17 +68,43 @@ credential-shaped extension does.
 so claiming `image` would render a broken `<img>`; they reach the user through
 the new Download button instead.
 
-### An extensionless-credential gap found while surveying
+### Two credential gaps found while surveying, and a widened denylist
 
 `classify` answers `text` for every name with no extname, so the basename
 denylist is the only thing standing between `/api/files/content` and a
 credential file that carries no extension. `.netrc`, its Windows spelling
-`_netrc`, and `.git-credentials` were not on it. They are now.
+`_netrc`, and `.git-credentials` were not on it.
 
-This is not part of #3213's symptom — it was found while establishing which
-extensions are safe to add — but it lives in the same denylist the survey had
-to read, and leaving it open while widening the text set next to it would have
-been the wrong order.
+Review then found the same hole in two more shapes, and the cause is that
+absence from `TEXT_EXTENSIONS` is only ever HALF a guard: it stops the preview
+and the write gate, and `/api/files/raw` streams the bytes regardless — which
+this PR turns into a button.
+
+- **Terraform and keystore formats.** `.tfvars` reads as text and is where the
+  concrete variable values live; `.tfstate` records provider credentials in
+  plaintext by design; `.p12` / `.pfx` / `.jks` / `.keystore` are private keys
+  with a password on them. All are now in `SENSITIVE_EXTENSIONS`, which refuses
+  them at tree, dir, content and raw alike.
+- **`.env` as a SUFFIX.** The two basename rules covered `.env` and
+  `.env.local` and nothing else, so `prod.env` matched neither and was not text
+  either — content refused it, raw served it. Now matched as an extension.
+
+A test asserts the two halves over one list, so a future addition cannot land
+in one and not the other.
+
+### The write gate is now narrower than the preview gate
+
+`/api/files/*` is exempt from bearer auth (`server/index.ts`), and the upload
+route already refuses `.exe` / `.bat` / `.ps1` / `.sh` and friends as "things a
+later double-click would execute". Those two facts had not been put together:
+`classify(...) === "text"` gated create and PUT, so the same server offered a
+second, unauthenticated way to author the files the first one refused — and
+`.sh` was in both lists *before* this PR, so the contradiction predates it.
+
+`isWritableTextFile()` now answers the write question and consults
+`BLOCKED_UPLOAD_EXTENSIONS`. Preview is deliberately untouched: a `.sh` still
+renders, which is the whole point of #3213. The cost is that the "New file"
+dialog no longer accepts `deploy.sh` — called out in the PR for a human.
 
 ### A download that needs nothing of the server's desktop
 
@@ -92,6 +118,11 @@ A `fetch` + blob rather than an `<a href download>` on purpose: the anchor form
 has no error channel, so a refusal (`413` past the raw size cap, `400` on a
 sensitive path) would be written to disk under the file's own name and arrive
 looking like the file.
+
+A download also outlives the selection that started it. Each attempt takes a
+sequence number, every state write after an `await` checks it is still current,
+and a superseded request is aborted — otherwise file A's bytes save themselves
+while file B is on screen, or A's error and busy state land on B.
 
 ## What this does not fix
 
@@ -116,6 +147,15 @@ looking like the file.
   preview).
 - `test/composables/test_useRawFileDownload.ts` covers the request URL, the
   saved basename, the refused-response path (asserting nothing is saved), the
-  thrown-request path and the reset-on-navigation transitions.
+  thrown-request path, the reset-on-navigation transitions, and the three race
+  cases — reverted to the pre-fix composable those three go red, which is how
+  they were checked rather than assumed.
+- The write gate and the credential denylist were break-verified by two
+  mutations run together (`isWritableTextFile` returning true unconditionally,
+  and the credential extensions taken back out of `SENSITIVE_EXTENSIONS`);
+  both turned tests red and the source was restored byte-identical after.
+- Route-level cases in `test_filesCreateRoute.ts` and `test_filesPutRoute.ts`
+  pin that create and PUT refuse every executable suffix the upload route
+  refuses, and that the file on disk is unchanged when they do.
 - The Files view was driven in a browser against a running server for both
   halves — see the PR for what was exercised.
