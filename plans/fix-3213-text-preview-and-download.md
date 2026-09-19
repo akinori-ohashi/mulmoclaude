@@ -68,6 +68,18 @@ credential-shaped extension does.
 so claiming `image` would render a broken `<img>`; they reach the user through
 the new Download button instead.
 
+### An extensionless-credential gap found while surveying
+
+`classify` answers `text` for every name with no extname, so the basename
+denylist is the only thing standing between `/api/files/content` and a
+credential file that carries no extension. `.netrc`, its Windows spelling
+`_netrc`, and `.git-credentials` were not on it. They are now.
+
+This is not part of #3213's symptom — it was found while establishing which
+extensions are safe to add — but it lives in the same denylist the survey had
+to read, and leaving it open while widening the text set next to it would have
+been the wrong order.
+
 ### A download that needs nothing of the server's desktop
 
 `src/composables/useRawFileDownload.ts` fetches the bytes from
@@ -86,10 +98,6 @@ looking like the file.
 - A file past the raw route's size cap still cannot be downloaded — the route
   answers 413 and the button reports the failure. Raising that cap is a
   separate decision about streaming to disk.
-- `.netrc` and `.git-credentials` are **not** in `SENSITIVE_BASENAMES`, and
-  `classify` treats every extensionless name as text — so they are readable
-  through `/api/files/content` today. Found while surveying; it predates this
-  change and is filed separately rather than folded in.
 - Content sniffing (no NUL bytes + valid UTF-8 ⇒ text) would remove the need to
   maintain a list at all for the read path. It cannot replace the list for the
   write gate, which classifies paths that do not exist yet, so it is a possible

@@ -474,6 +474,15 @@ describe("isSensitivePath — blocks secret files", () => {
     assert.equal(isSensitivePath(".npmrc"), true);
     assert.equal(isSensitivePath(".htpasswd"), true);
   });
+
+  it("blocks the extensionless credential files classify() would call text", () => {
+    // These have no extname, and classify() answers "text" for every such
+    // name — so the basename list is the only thing standing between them
+    // and /files/content. `_netrc` is the Windows spelling of `.netrc`.
+    for (const name of [".netrc", "_netrc", ".git-credentials", "home/.netrc", "SUB/.Git-Credentials"]) {
+      assert.equal(isSensitivePath(name), true, `expected ${name} blocked`);
+    }
+  });
 });
 
 describe("isSensitivePath — does not over-block", () => {

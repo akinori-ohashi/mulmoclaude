@@ -115,6 +115,12 @@ const SENSITIVE_BASENAMES = new Set([
   // exemption, so it must be blocked here (defense in depth).
   ".npmrc",
   ".htpasswd",
+  // Neither carries an extension, and `classify` answers "text" for every
+  // extensionless name — so without an entry here both were readable
+  // through `/files/content`. `_netrc` is the same file on Windows.
+  ".netrc",
+  "_netrc",
+  ".git-credentials",
   "id_rsa",
   "id_ecdsa",
   "id_ed25519",
