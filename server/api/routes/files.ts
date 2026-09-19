@@ -11,6 +11,7 @@ import { joinPosixRelPath, toPosixRelPath } from "@mulmoclaude/core/files";
 import { errorMessage } from "../../utils/errors.js";
 import { badRequest, notFound, sendError, serverError } from "../../utils/httpError.js";
 import { jsonSyntaxError, MAX_PREVIEW_BYTES } from "../../utils/files/content-write-validate.js";
+import { TEXT_EXTENSIONS } from "../../utils/files/text-extensions.js";
 import { respondWithWrittenFile, validateWriteRequestOr400, type WriteContentResponse } from "./filesWriteResponse.js";
 import { getOptionalStringQuery } from "../../utils/request.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
@@ -156,36 +157,12 @@ export function isSensitivePath(relPath: string): boolean {
   return false;
 }
 
-const TEXT_EXTENSIONS = new Set([
-  ".md",
-  ".markdown",
-  ".txt",
-  ".json",
-  ".jsonl",
-  ".ndjson",
-  ".yaml",
-  ".yml",
-  ".js",
-  ".ts",
-  ".jsx",
-  ".tsx",
-  ".vue",
-  ".html",
-  ".htm",
-  ".css",
-  ".csv",
-  ".log",
-  // `.env` intentionally removed — see `isSensitivePath` below.
-  // It used to be here, making `/files/content?path=.env` return
-  // the workspace credentials as JSON text over an open CORS
-  // endpoint. The file API now refuses sensitive paths outright;
-  // this set is kept for genuine plain-text previews only.
-  ".gitignore",
-  ".sh",
-  ".py",
-]);
-
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
+// `.bmp` / `.avif` / `.ico` are browser-renderable and this app already
+// stores the first two (attachment-store.ts names them on upload), so the
+// Files view calling them "binary" was a gap rather than a policy. HEIC /
+// HEIF / TIFF stay out on purpose — no browser renders them, and they now
+// reach the user through the fallback's Download button.
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".avif", ".ico"]);
 
 const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".m4a", ".ogg", ".oga", ".flac", ".aac"]);
 
@@ -198,6 +175,9 @@ const MIME_BY_EXT: Record<string, string> = {
   ".gif": "image/gif",
   ".webp": "image/webp",
   ".svg": "image/svg+xml",
+  ".bmp": "image/bmp",
+  ".avif": "image/avif",
+  ".ico": "image/x-icon",
   ".pdf": "application/pdf",
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",

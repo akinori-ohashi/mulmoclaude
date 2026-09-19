@@ -204,6 +204,107 @@ describe("classify", () => {
     }
   });
 
+  it("classifies the whole subtitle family as text (#3213)", () => {
+    for (const name of ["talk.srt", "talk.vtt", "talk.ass", "talk.ssa", "talk.sbv", "talk.sub", "song.lrc", "TALK.SRT"]) {
+      assert.equal(classify(name), "text", `expected text for ${name}`);
+    }
+  });
+
+  it("classifies the plain-text docs, config, source and script extensions as text", () => {
+    const names = [
+      "notes.mdx",
+      "notes.text",
+      "guide.rst",
+      "guide.adoc",
+      "guide.asciidoc",
+      "paper.tex",
+      "tsconfig.jsonc",
+      "conf.json5",
+      "pyproject.toml",
+      "setup.ini",
+      "tool.cfg",
+      "nginx.conf",
+      "app.properties",
+      "feed.xml",
+      "rows.tsv",
+      "bundle.mjs",
+      "bundle.cjs",
+      "types.mts",
+      "types.cts",
+      "Widget.svelte",
+      "page.astro",
+      "theme.scss",
+      "theme.sass",
+      "theme.less",
+      "main.rb",
+      "main.go",
+      "main.rs",
+      "Main.java",
+      "Main.kt",
+      "build.kts",
+      "main.c",
+      "main.h",
+      "main.cpp",
+      "main.cc",
+      "main.hpp",
+      "Main.cs",
+      "index.php",
+      "main.swift",
+      "Main.scala",
+      "init.lua",
+      "main.dart",
+      "script.pl",
+      "analysis.r",
+      "mod.ex",
+      "mod.exs",
+      "schema.sql",
+      "schema.graphql",
+      "schema.gql",
+      "run.bash",
+      "run.zsh",
+      "run.fish",
+      "run.ps1",
+      "run.bat",
+      "run.cmd",
+      "change.diff",
+      "change.patch",
+      "yarn.lock",
+      "sub.dockerignore",
+      "sub.editorconfig",
+      // Found by surveying a real workspace: both read as "binary" before.
+      "schema.xsd",
+      "bundle.js.map",
+      "firestore.rules",
+      "stonehenge.shape",
+      "scrape.utf8",
+      // Feeds, calendars and geo data — the workspace has a feeds/ tree and
+      // the product has calendar and maps features.
+      "feed.rss",
+      "feed.atom",
+      "subs.opml",
+      "site.webmanifest",
+      "trip.ics",
+      "card.vcf",
+      "track.gpx",
+      "places.kml",
+      "shape.geojson",
+      "notebook.ipynb",
+      "api.proto",
+      "page.hbs",
+      "page.ejs",
+      "page.pug",
+      "main.tf",
+      "config.nix",
+      "build.gradle",
+      "CMakeLists.cmake",
+      "list.m3u8",
+      "album.cue",
+    ];
+    for (const name of names) {
+      assert.equal(classify(name), "text", `expected text for ${name}`);
+    }
+  });
+
   it("treats files with no extension as text (README, LICENSE, etc.)", () => {
     assert.equal(classify("README"), "text");
     assert.equal(classify("LICENSE"), "text");
@@ -212,9 +313,37 @@ describe("classify", () => {
 
   it("classifies unknown extensions as binary", () => {
     assert.equal(classify("archive.zip"), "binary");
-    assert.equal(classify("image.bmp"), "binary");
     assert.equal(classify("data.bin"), "binary");
     assert.equal(classify("font.ttf"), "binary");
+  });
+
+  it("classifies the browser-renderable image formats the attachment store writes", () => {
+    for (const name of ["shot.bmp", "shot.avif", "favicon.ico"]) {
+      assert.equal(classify(name), "image", `expected image for ${name}`);
+    }
+  });
+
+  it("leaves the image formats no browser renders as binary", () => {
+    // Downloadable via the fallback, but there is nothing to preview them
+    // with, so claiming `image` would render a broken <img>.
+    for (const name of ["photo.heic", "photo.heif", "scan.tif", "scan.tiff"]) {
+      assert.equal(classify(name), "binary", `expected binary for ${name}`);
+    }
+  });
+
+  it("keeps real binaries out of the widened text set", () => {
+    for (const name of ["book.xlsx", "deck.pptx", "report.docx", "archive.tar.gz", "installer.exe", "lib.so", "photo.heic"]) {
+      assert.equal(classify(name), "binary", `expected binary for ${name}`);
+    }
+  });
+
+  it("keeps credential-shaped extensions out of the text set", () => {
+    // `isSensitivePath` refuses these before classify is consulted, but a
+    // stray entry in TEXT_EXTENSIONS would make them editable through the
+    // write routes, which gate on classify alone.
+    for (const name of ["server.pem", "server.key", "server.crt", "project.npmrc", "home.netrc"]) {
+      assert.equal(classify(name), "binary", `expected binary for ${name}`);
+    }
   });
 
   it("uses the LAST extension when multiple dots are present", () => {
