@@ -103,8 +103,14 @@ second, unauthenticated way to author the files the first one refused — and
 
 `isWritableTextFile()` now answers the write question and consults
 `BLOCKED_UPLOAD_EXTENSIONS`. Preview is deliberately untouched: a `.sh` still
-renders, which is the whole point of #3213. The cost is that the "New file"
-dialog no longer accepts `deploy.sh` — called out in the PR for a human.
+renders, which is the whole point of #3213.
+
+No UI path loses anything. The first draft of this note claimed the "New file"
+dialog would stop accepting `deploy.sh`; review disproved it. That dialog is
+whitelisted per folder with a FORCED extension (`src/config/createFilePolicy.ts`),
+and `normaliseNewFileSlug` strips whatever the user typed — `deploy.sh` under
+`artifacts/documents` was always going to be written as `deploy.md`. Only a
+direct API client is affected.
 
 ### A download that needs nothing of the server's desktop
 
