@@ -330,6 +330,48 @@ test.describe("collection calendar view", () => {
     await expect(page.getByTestId("collections-detail-title")).toHaveText("launch");
   });
 
+  // The day popup is `fixed inset-0`, so a chat started from the record it
+  // hosts would begin underneath it. Sending takes the popup down along with
+  // the detail (#3220), and the seed still names the record — the id is read
+  // off the open record before the close clears it.
+  test("record chat from the day popup closes the popup and keeps the record scope", async ({ page }) => {
+    await page.goto("/collections/events");
+    await page.getByTestId("collection-view-toggle-calendar").click();
+    const cell = page.getByTestId(`collection-calendar-day-${MID}`);
+    await cell.focus();
+    await cell.press("Enter");
+    await expect(page.getByTestId("collection-day-view")).toBeVisible();
+    await page.getByTestId("collection-day-view-allday-launch").click();
+    await expect(page.getByTestId("collection-day-view-detail")).toBeVisible();
+
+    await page.getByTestId("collections-detail-chat-input").fill("when is this?");
+    const agentPost = page.waitForRequest((req) => req.url().endsWith("/api/agent") && req.method() === "POST");
+    await page.getByTestId("collections-detail-chat-send").click();
+
+    expect((await agentPost).postDataJSON().message).toBe("/events id=launch when is this?");
+    await expect(page.getByTestId("collection-day-view")).toHaveCount(0);
+    await expect(page.getByTestId("collections-detail")).toHaveCount(0);
+  });
+
+  // The popup can now be dismissed by something that is not a close control —
+  // sending the record chat box — which removes the focused textarea out from
+  // under the user. Focus then sits on <body> and Tab restarts from the top of
+  // the document. CollectionRecordModal has always restored focus to whatever
+  // opened it; the day popup does too. Asserted on the X because it is the one
+  // dismissal that does not also navigate away from the page holding the cell.
+  test("closing the day popup returns focus to the day cell that opened it", async ({ page }) => {
+    await page.goto("/collections/events");
+    await page.getByTestId("collection-view-toggle-calendar").click();
+    const cell = page.getByTestId(`collection-calendar-day-${MID}`);
+    await cell.focus();
+    await cell.press("Enter");
+    await expect(page.getByTestId("collection-day-view")).toBeVisible();
+
+    await page.getByTestId("collection-day-view-close").click();
+    await expect(page.getByTestId("collection-day-view")).toHaveCount(0);
+    await expect(cell).toBeFocused();
+  });
+
   test("day view renders blocks, single lines, and the all-day strip from a time field", async ({ page }) => {
     await page.goto("/collections/agenda");
     await page.getByTestId("collection-view-toggle-calendar").click();
