@@ -131,4 +131,7 @@ change would do that, restructure the fixture instead.
 - The root `test/`, `e2e/` and `e2e-live/` trees — those already have their own
   typecheck jobs (`typecheck:test`, `typecheck:e2e`, `typecheck:e2e-live`).
 - Packages already including `test/**/*` (`core`, the plugins). Nothing to do.
-- Fixing type errors — there are none to fix.
+- Production source. The 104 errors are all in `test/`; `src/` was already
+  typechecked in every one of these packages and none of it changed here.
+  (This bullet used to say "there are none to fix" — written against the first,
+  wrong measurement, before `--pretty false` showed the real count.)
