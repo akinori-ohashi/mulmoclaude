@@ -346,7 +346,9 @@ describe("registerMetaWebhook", () => {
   it("acks before onBody finishes, so a slow agent can't trigger a Meta redelivery", async () => {
     // The ack must not wait on the handler. `release` is only called after the
     // response has been read, so a response that arrives at all proves ordering.
-    let releaseGate!: () => void;
+    let releaseGate: () => void = () => {
+      throw new Error("the gate was released before the promise armed it");
+    };
     const gatePromise = new Promise<void>((resolve) => {
       releaseGate = resolve;
     });

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatAckReply } from "../src/index.ts";
+import { formatAckReply, type MessageAck } from "../src/index.ts";
 
 describe("formatAckReply", () => {
   it("returns the reply on success", () => {
@@ -8,11 +8,18 @@ describe("formatAckReply", () => {
   });
 
   it("returns empty string when ok with no reply", () => {
-    // `{ ok: true, reply: undefined }` is not a separate case: formatAckReply
-    // reads `ack.reply ?? ""` and never asks whether the key is present, so an
-    // absent key and an explicit undefined reach the same branch. It is also
-    // not a shape the wire can produce — JSON carries absent or null.
     assert.equal(formatAckReply({ ok: true }), "");
+
+    // An own `reply` property whose value is undefined is a DIFFERENT object
+    // from one with no `reply` at all, and `formatAckReply` is exported, so a
+    // caller can hand it either. Today both reach `ack.reply ?? ""`; an
+    // implementation that switched to `"reply" in ack` would keep the case
+    // above green and break this one. Built with defineProperty because the
+    // literal spelling is what `exactOptionalPropertyTypes` rejects.
+    const ackWithUndefinedReply: MessageAck = { ok: true };
+    Object.defineProperty(ackWithUndefinedReply, "reply", { value: undefined, enumerable: true });
+    assert.ok("reply" in ackWithUndefinedReply, "fixture must carry an own reply key");
+    assert.equal(formatAckReply(ackWithUndefinedReply), "");
   });
 
   it("preserves an empty-string reply on success", () => {
