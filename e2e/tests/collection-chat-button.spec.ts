@@ -80,6 +80,26 @@ test.describe("collection + Chat button", () => {
     expect(body.roleId).toBe("general");
   });
 
+  // The per-record box is the collection's OTHER chat entry point, and it now
+  // closes the record's overlay on send the way this modal closes itself
+  // (#3220). Standalone, closing means dropping `?selected=` — a router.replace
+  // landing one tick before the new chat's own push. This pins that the two
+  // navigations don't tread on each other: the seed still carries `id=<record>`
+  // and the chat page is what the user ends up on.
+  test("the per-record chat box seeds `/<slug> id=<record> <message>` and leaves the collection page", async ({ page }) => {
+    await page.goto("/collections/reading-list");
+    await page.getByTestId("collections-row-first").click();
+    await expect(page.getByTestId("collections-detail")).toBeVisible();
+
+    await page.getByTestId("collections-detail-chat-input").fill("  summarize this one  ");
+    const agentPost = page.waitForRequest((req) => req.url().endsWith("/api/agent") && req.method() === "POST");
+    await page.getByTestId("collections-detail-chat-send").click();
+
+    expect((await agentPost).postDataJSON().message).toBe("/reading-list id=first summarize this one");
+    await expect(page).toHaveURL(/\/chat/);
+    await expect(page.getByTestId("collections-record-modal")).toHaveCount(0);
+  });
+
   test("Escape and Cancel both dismiss the modal without starting a chat", async ({ page }) => {
     await page.goto("/collections/reading-list");
 

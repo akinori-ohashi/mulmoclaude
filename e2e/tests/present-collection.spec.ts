@@ -165,6 +165,39 @@ test("saving an edit returns to the record's detail (does not close) in the embe
   expect(pageErrors, pageErrors.join("\n")).toHaveLength(0);
 });
 
+// The record's "chat about this record" box, on the card surface (#3220).
+//
+// The detail lives in a `fixed inset-0` overlay. Embedded, the chat it seeds is
+// sent into the session ALREADY RUNNING and rendered behind that overlay, so
+// leaving the modal up hid the very thing the button started — with an emptied
+// textarea as the only sign anything had happened. This is the surface the bug
+// was reported on, and the only one where a closed modal is this fix's doing:
+// the standalone page navigates to /chat and the overlay goes with it either
+// way (collection-chat-button.spec.ts covers that the seed survives the trip).
+test("chatting about a record sends into the session AND dismisses the modal", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (err) => pageErrors.push(`${err.message}\n${err.stack ?? ""}`));
+
+  await setup(page);
+  await page.goto(SESSION_PATH);
+
+  await expect(page.getByTestId("collections-detail")).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId("collections-detail-chat-input").fill("  who else is in this?  ");
+
+  const agentPost = page.waitForRequest((req) => req.url().endsWith("/api/agent") && req.method() === "POST");
+  await page.getByTestId("collections-detail-chat-send").click();
+
+  // Scoped to the open record: the `id=` selector is read off the record
+  // BEFORE the modal closes, so closing must not cost the agent its subject.
+  expect((await agentPost).postDataJSON().message).toBe("/watchlist id=avatar who else is in this?");
+
+  // The overlay is gone, so the chat that just started is on screen.
+  await expect(page.getByTestId("collections-record-modal")).toHaveCount(0);
+  await expect(page.getByTestId("present-collection")).toBeVisible();
+
+  expect(pageErrors, pageErrors.join("\n")).toHaveLength(0);
+});
+
 // ── Card viewState: the custom-view round trip (#3061) ────────────────
 //
 // The card persists its own view choice in the tool result's `viewState`
