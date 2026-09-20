@@ -9,6 +9,16 @@ import { createPushQueue } from "../src/push-queue.js";
 import type { RelayParams, RelayResult } from "../src/relay.js";
 import type { Logger } from "../src/types.js";
 
+/** `items[index]` is `T | undefined` under `noUncheckedIndexedAccess`. Asserting
+ *  states the precondition each case already relies on — the length was just
+ *  checked, or the collector was asked for exactly this many — and names the
+ *  failure instead of throwing on a property of undefined. */
+const elementAt = <T>(items: readonly T[], index: number): T => {
+  const item = items[index];
+  assert.ok(item !== undefined, `expected an element at index ${index}, but the list holds ${items.length}`);
+  return item;
+};
+
 const silentLogger: Logger = {
   error: () => {},
   warn: () => {},
@@ -124,9 +134,9 @@ describe("chat-service socket — no auth", () => {
 
     assert.deepEqual(ack, { ok: true, reply: "hello back" });
     assert.equal(harness.relayCalls.length, 1);
-    assert.equal(harness.relayCalls[0].transportId, "cli");
-    assert.equal(harness.relayCalls[0].externalChatId, "terminal");
-    assert.equal(harness.relayCalls[0].text, "hi");
+    assert.equal(elementAt(harness.relayCalls, 0).transportId, "cli");
+    assert.equal(elementAt(harness.relayCalls, 0).externalChatId, "terminal");
+    assert.equal(elementAt(harness.relayCalls, 0).text, "hi");
 
     client.disconnect();
   });
@@ -159,7 +169,7 @@ describe("chat-service socket — no auth", () => {
     assert.equal(disconnected, false, "the frame must not close the socket");
     assert.equal(ack?.ok, true);
     assert.equal(harness.relayCalls.at(-1)?.attachments?.length, 1);
-    assert.equal(harness.relayCalls.at(-1)?.attachments?.[0]?.data.length, data.length);
+    assert.equal(harness.relayCalls.at(-1)?.attachments?.at(0)?.data?.length, data.length);
 
     client.disconnect();
   });
@@ -177,7 +187,7 @@ describe("chat-service socket — no auth", () => {
     });
     assert.equal(ack.ok, true);
     assert.equal(harness.relayCalls.length, 1);
-    assert.deepEqual(harness.relayCalls[0].attachments, [{ path: "data/attachments/2026/05/x.png", mimeType: "image/png" }]);
+    assert.deepEqual(elementAt(harness.relayCalls, 0).attachments, [{ path: "data/attachments/2026/05/x.png", mimeType: "image/png" }]);
     client.disconnect();
   });
 
@@ -195,10 +205,10 @@ describe("chat-service socket — no auth", () => {
       ],
     });
     assert.equal(ack.ok, true);
-    const forwarded = harness.relayCalls[0].attachments ?? [];
+    const forwarded = elementAt(harness.relayCalls, 0).attachments ?? [];
     assert.equal(forwarded.length, 2);
-    assert.equal(forwarded[0].path, "data/attachments/2026/05/a.png");
-    assert.equal(forwarded[1].data, "AAAA");
+    assert.equal(elementAt(forwarded, 0).path, "data/attachments/2026/05/a.png");
+    assert.equal(elementAt(forwarded, 1).data, "AAAA");
     client.disconnect();
   });
 
@@ -216,7 +226,7 @@ describe("chat-service socket — no auth", () => {
     }
     const ack = await emitMessage(client, { externalChatId: "terminal", text: "cap", attachments: items });
     assert.equal(ack.ok, true);
-    const forwarded = harness.relayCalls[0].attachments ?? [];
+    const forwarded = elementAt(harness.relayCalls, 0).attachments ?? [];
     assert.equal(forwarded.length, 10, "MAX_ATTACHMENT_COUNT must cap at 10");
     client.disconnect();
   });
@@ -252,8 +262,8 @@ describe("chat-service socket — parseAttachments cap behavior", () => {
         { path: "data/attachments/2026/05/after-trip.png" },
       ]) ?? [];
     assert.equal(out.length, 2);
-    assert.equal(out[0].data?.length, elevenMB.length);
-    assert.equal(out[1].path, "data/attachments/2026/05/path-only.png");
+    assert.equal(elementAt(out, 0).data?.length, elevenMB.length);
+    assert.equal(elementAt(out, 1).path, "data/attachments/2026/05/path-only.png");
   });
 
   it("returns undefined when given a non-array", () => {

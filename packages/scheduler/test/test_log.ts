@@ -3,6 +3,16 @@ import assert from "node:assert/strict";
 import { appendLogEntry, queryLog, logFilePathFor, type LogDeps } from "../src/log.ts";
 import type { TaskLogEntry } from "../src/types.ts";
 
+/** `items[index]` is `T | undefined` under `noUncheckedIndexedAccess`. Asserting
+ *  states the precondition each case already relies on — the length was just
+ *  checked — and names the failure instead of throwing on a property of
+ *  undefined. */
+const elementAt = <T>(items: T[], index: number): T => {
+  const item = items[index];
+  assert.ok(item !== undefined, `expected an element at index ${index}, but the list holds ${items.length}`);
+  return item;
+};
+
 function inMemoryLogDeps(): LogDeps & { store: Map<string, string> } {
   const store = new Map<string, string>();
   return {
@@ -67,8 +77,8 @@ describe("queryLog", () => {
     await appendLogEntry("/logs", makeEntry({ taskId: "new", startedAt: "2026-04-17T09:00:00.000Z" }), deps);
     const testDate = new Date("2026-04-17T12:00:00Z");
     const entries = await queryLog("/logs", { date: testDate }, deps);
-    assert.equal(entries[0].taskId, "new");
-    assert.equal(entries[1].taskId, "old");
+    assert.equal(elementAt(entries, 0).taskId, "new");
+    assert.equal(elementAt(entries, 1).taskId, "old");
   });
 
   it("filters by taskId", async () => {
@@ -78,7 +88,7 @@ describe("queryLog", () => {
     const testDate = new Date("2026-04-17T12:00:00Z");
     const entries = await queryLog("/logs", { taskId: "a", date: testDate }, deps);
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].taskId, "a");
+    assert.equal(elementAt(entries, 0).taskId, "a");
   });
 
   it("respects limit", async () => {
@@ -98,7 +108,7 @@ describe("queryLog", () => {
     const testDate = new Date("2026-04-17T12:00:00Z");
     const entries = await queryLog("/logs", { since: "2026-04-17T08:00:00.000Z", date: testDate }, deps);
     assert.equal(entries.length, 1);
-    assert.equal(entries[0].taskId, "new");
+    assert.equal(elementAt(entries, 0).taskId, "new");
   });
 
   it("returns empty array when no log file exists", async () => {

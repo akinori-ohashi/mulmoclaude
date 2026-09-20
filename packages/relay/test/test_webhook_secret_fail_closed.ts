@@ -22,7 +22,11 @@ import "../src/webhooks/line.js";
 import "../src/webhooks/messenger.js";
 import "../src/webhooks/whatsapp.js";
 
-const envWith = (values: Record<string, unknown>): Env => ({ RELAY: null, RELAY_TOKEN: "t", ...values }) as Env;
+// `Env.RELAY` is a Workers DurableObjectNamespace: not constructible in a node
+// test, and never read by anything under test here — these paths only index
+// string secrets off the env. The two-step assertion says that out loud
+// instead of claiming `null` is a namespace, which is what TS rejected.
+const envWith = (values: Record<string, unknown>): Env => ({ RELAY_TOKEN: "t", ...values }) as unknown as Env;
 
 /** A request carrying a signature header — well-formed, so the only thing that
  *  can reject it is the secret read. */
@@ -46,24 +50,36 @@ describe("webhook signature verification fails closed on a misconfigured secret"
     // literal "[object Object]" and be used as the HMAC key.
     it(`${platform}: rejects a non-string ${secretKey} instead of keying HMAC on "[object Object]"`, async () => {
       const plugin = getPlatformByName(platform);
-      assert.ok(plugin, `${platform} plugin not registered`);
+      // `handleWebhook` is optional on PlatformPlugin, and narrowing a property
+      // access does not survive into the arrow function below — so bind it to a
+      // const, which also states the precondition these cases rely on.
+      if (!plugin?.handleWebhook) throw new Error(`${platform} plugin does not handle webhooks`);
+      const handleWebhook = plugin.handleWebhook.bind(plugin);
       await assert.rejects(
-        () => Promise.resolve(plugin.handleWebhook(signedRequest(header), "{}", envWith({ [secretKey]: { oops: true } }))),
+        () => Promise.resolve(handleWebhook(signedRequest(header), "{}", envWith({ [secretKey]: { oops: true } }))),
         new RegExp(`${secretKey} is not configured`),
       );
     });
 
     it(`${platform}: rejects an unset ${secretKey}`, async () => {
       const plugin = getPlatformByName(platform);
-      assert.ok(plugin, `${platform} plugin not registered`);
-      await assert.rejects(() => Promise.resolve(plugin.handleWebhook(signedRequest(header), "{}", envWith({}))), new RegExp(`${secretKey} is not configured`));
+      // `handleWebhook` is optional on PlatformPlugin, and narrowing a property
+      // access does not survive into the arrow function below — so bind it to a
+      // const, which also states the precondition these cases rely on.
+      if (!plugin?.handleWebhook) throw new Error(`${platform} plugin does not handle webhooks`);
+      const handleWebhook = plugin.handleWebhook.bind(plugin);
+      await assert.rejects(() => Promise.resolve(handleWebhook(signedRequest(header), "{}", envWith({}))), new RegExp(`${secretKey} is not configured`));
     });
 
     it(`${platform}: rejects a blank ${secretKey} rather than keying HMAC on ""`, async () => {
       const plugin = getPlatformByName(platform);
-      assert.ok(plugin, `${platform} plugin not registered`);
+      // `handleWebhook` is optional on PlatformPlugin, and narrowing a property
+      // access does not survive into the arrow function below — so bind it to a
+      // const, which also states the precondition these cases rely on.
+      if (!plugin?.handleWebhook) throw new Error(`${platform} plugin does not handle webhooks`);
+      const handleWebhook = plugin.handleWebhook.bind(plugin);
       await assert.rejects(
-        () => Promise.resolve(plugin.handleWebhook(signedRequest(header), "{}", envWith({ [secretKey]: "   " }))),
+        () => Promise.resolve(handleWebhook(signedRequest(header), "{}", envWith({ [secretKey]: "   " }))),
         new RegExp(`${secretKey} is not configured`),
       );
     });
