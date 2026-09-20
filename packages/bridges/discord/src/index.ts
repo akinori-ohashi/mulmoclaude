@@ -5,7 +5,11 @@
 //   DISCORD_BOT_TOKEN      — Bot token from Discord Developer Portal
 //
 // Optional:
-//   DISCORD_ALLOWED_CHANNELS — CSV of channel IDs (empty = allow all)
+//   DISCORD_ALLOWED_CHANNELS — CSV of channel IDs (empty = allow all).
+//                              A thread is admitted by its PARENT channel.
+//   DISCORD_SESSION_GRANULARITY — "thread" (default) | "channel"
+//                              Whether a thread is its own session or joins
+//                              its parent channel's. See README.md.
 //   MULMOCLAUDE_API_URL      — default: the port in <workspace>/.server-port.
 //                              With none published the client waits (#3078)
 //   MULMOCLAUDE_AUTH_TOKEN   — bearer token (or read from workspace)
@@ -15,6 +19,7 @@ import { Client, GatewayIntentBits, Partials, type Message } from "discord.js";
 import { createBridgeClient, installProcessGuards } from "@mulmobridge/client";
 import { parseCsvSet } from "@mulmoclaude/common";
 import { collectAttachments, resolveMessageText, type DiscordAttachmentLike } from "./attachments.js";
+import { buildExternalChatId, isChannelAllowed, parseGranularity, readChannelRef } from "./sessionId.js";
 
 const TRANSPORT_ID = "discord";
 
@@ -29,6 +34,19 @@ if (!token) {
 
 const allowedChannels = parseCsvSet(process.env.DISCORD_ALLOWED_CHANNELS);
 const allowAll = allowedChannels.size === 0;
+
+// The explicit `T` return annotation is what lets TS see `process.exit`'s
+// `never` and accept the catch branch as non-returning.
+function parseEnvOrExit<T>(parse: () => T): T {
+  try {
+    return parse();
+  } catch (err) {
+    console.error(`[discord] ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return process.exit(1);
+}
+
+const granularity = parseEnvOrExit(() => parseGranularity(process.env.DISCORD_SESSION_GRANULARITY));
 
 const discord = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
@@ -62,25 +80,28 @@ discord.on("messageCreate", (msg: Message) => {
 
 async function onMessageCreate(msg: Message): Promise<void> {
   if (msg.author.bot) return;
-  const { channelId } = msg;
+  const channelRef = readChannelRef(msg.channelId, msg.channel);
   // Checked before the attachment downloads so a denied channel never
   // makes the bridge fetch anything.
-  if (!allowAll && !allowedChannels.has(channelId)) return;
+  if (!isChannelAllowed(channelRef, allowedChannels)) return;
 
   const text = msg.content.trim();
   const files = [...msg.attachments.values()];
   if (text.length === 0 && files.length === 0) return;
 
-  console.log(`[discord] message channel=${channelId} user=${msg.author.tag} len=${text.length} attachments=${files.length}`);
+  const externalChatId = buildExternalChatId(channelRef, granularity);
+  console.log(
+    `[discord] message channel=${channelRef.channelId} parent=${channelRef.parentChannelId ?? "-"} session=${externalChatId} user=${msg.author.tag} len=${text.length} attachments=${files.length}`,
+  );
 
   try {
-    await relayMessage(msg, text, files);
+    await relayMessage(msg, externalChatId, text, files);
   } catch (err) {
     console.error(`[discord] message handling failed: ${err}`);
   }
 }
 
-async function relayMessage(msg: Message, text: string, files: DiscordAttachmentLike[]): Promise<void> {
+async function relayMessage(msg: Message, externalChatId: string, text: string, files: DiscordAttachmentLike[]): Promise<void> {
   const { attachments, dropped } = await collectAttachments(files, { fetchFn: fetch, log: console });
 
   // Nothing survived on a file-only post: say so instead of relaying a
@@ -90,7 +111,7 @@ async function relayMessage(msg: Message, text: string, files: DiscordAttachment
     return;
   }
 
-  const ack = await mulmo.send(msg.channelId, resolveMessageText(text, dropped), attachments.length > 0 ? attachments : undefined);
+  const ack = await mulmo.send(externalChatId, resolveMessageText(text, dropped), attachments.length > 0 ? attachments : undefined);
   if (ack.ok) {
     await sendChunked(msg, ack.reply ?? "");
   } else {
@@ -125,6 +146,7 @@ discord.once("ready", () => {
   console.log("MulmoClaude Discord bridge");
   console.log(`Logged in as ${discord.user?.tag}`);
   console.log(`Channels: ${allowAll ? "(all)" : [...allowedChannels].join(", ")}`);
+  console.log(`Session granularity: ${granularity}`);
 });
 
 discord.login(token).catch((err) => {

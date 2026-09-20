@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Added
+
+- **Discord threads work with the allowlist, and can hold their own session** (`@mulmobridge/discord`, #3217) — a thread is a channel of its own on Discord, with an id minted the moment someone opens it, so `DISCORD_ALLOWED_CHANNELS` and threads could not be used together: you pasted each new thread id into `.env` and restarted, or left the list empty and answered everywhere. A thread is now admitted by its **parent** channel, and listing a thread's own id still works. The new `DISCORD_SESSION_GRANULARITY` chooses what a thread maps to — `thread` (default, and what the bridge already did for any thread that reached it) gives each thread its own conversation; `channel` folds every thread into its parent channel's. It defaults differently from `SLACK_SESSION_GRANULARITY` on purpose, because a Slack thread is a facet of a channel while a Discord thread is a channel.
+
 ## [1.19.0] - 2026-09-18
 
 **A custom collection view's button can start the work, not just draft it — and the last exact dependency pin in either manifest is gone.**
