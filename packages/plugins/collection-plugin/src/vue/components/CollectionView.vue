@@ -126,7 +126,7 @@
           :show-detail="Boolean(viewing || editing)"
           @select="onCalendarSelect"
           @create-on="createOnDate"
-          @close="onDayClose"
+          @close="closeRecordSurfaces"
         >
           <template #detail>
             <CollectionRecordPanel
@@ -149,7 +149,7 @@
               @submit="saveEditor"
               @cancel="cancelEditor"
               @edit="editFromView"
-              @close="onDayClose"
+              @close="closeRecordSurfaces"
               @delete="viewing && confirmDelete(viewing)"
               @run-action="runAction"
               @item-chat="onItemChat"
@@ -732,7 +732,7 @@ const {
 // ── Chat entry points (header "chat about collection" + per-record chat box) ──
 // The modal open/close + the skill/feed chat-seed builder live in
 // `useCollectionChat`; the seed shape is core's `skillCommandSeed`.
-const { chatOpen, openChat, closeChat, submitChat, onItemChat } = useCollectionChat({ collection, viewing, cui, props, t });
+const { chatOpen, openChat, closeChat, submitChat, onItemChat } = useCollectionChat({ collection, viewing, cui, props, closeRecord: closeRecordSurfaces, t });
 
 // ── Related-collections pulldown ──────────────────────────────────────
 // Its whole markup AND its `useRelatedMenu` (open-state, click-outside ref,
@@ -1536,12 +1536,13 @@ function onOpenDay(day: Ymd): void {
   openDay.value = day;
 }
 
-/** Close the day popup: drop the open day, the selection, AND any in-progress
- *  draft together. Clearing `editing` matters because the shared record modal
- *  shows whenever `editing` is set and no day is open — so without this, an
- *  edit/create started inside the day popup would re-appear in the centred
- *  modal the instant the popup closed (Codex P2 on #1656). */
-function onDayClose(): void {
+/** Take down every full-screen surface the open record can sit in — the day
+ *  popup, any in-progress draft, and the detail itself. Clearing `editing`
+ *  matters because the shared record modal shows whenever `editing` is set and
+ *  no day is open — so without this, an edit/create started inside the day
+ *  popup would re-appear in the centred modal the instant the popup closed
+ *  (Codex P2 on #1656). */
+function closeRecordSurfaces(): void {
   openDay.value = null;
   if (editing.value) closeEditor();
   closeView();
