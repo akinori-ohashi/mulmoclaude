@@ -79,7 +79,7 @@ it without `src/index.ts` opening a Gateway connection on load:
 export type SessionGranularity = "channel" | "thread";
 export interface MessageChannelRef {
   channelId: string;
-  parentChannelId?: string;
+  parentChannel?: { id: string; sendable: boolean };
 }
 
 export function parseGranularity(raw: string | undefined): SessionGranularity;
@@ -93,6 +93,16 @@ holds the channel's own id, **or** when it holds the parent channel id.
 Accepting the own-id case keeps the thread-id-in-`.env` workaround
 working — it is what happens today, so dropping it would be a
 regression dressed as a cleanup.
+
+`sendable` rides along with the parent id because a FORUM parent must
+not be folded onto. `ForumChannel.isSendable()` is false — Discord has
+you open a post rather than post to the forum — so a session keyed by a
+forum id is one `onPushEvent` can never deliver into: its
+`isTextBased() && isSendable()` guard drops the target with a warn and
+the reply is lost. `channel` mode therefore folds only onto a parent
+that can actually receive a message, and an uncached parent (kind
+unknown) is treated the same way. The allow decision is deliberately
+NOT gated on this — a forum id is a perfectly good allowlist entry.
 
 `src/index.ts` keeps the ordering it has: the allow check still runs
 before any attachment is fetched, so a denied thread never makes the

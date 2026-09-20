@@ -91,7 +91,7 @@ async function onMessageCreate(msg: Message): Promise<void> {
 
   const externalChatId = buildExternalChatId(channelRef, granularity);
   console.log(
-    `[discord] message channel=${channelRef.channelId} parent=${channelRef.parentChannelId ?? "-"} session=${externalChatId} user=${msg.author.tag} len=${text.length} attachments=${files.length}`,
+    `[discord] message channel=${channelRef.channelId} parent=${channelRef.parentChannel?.id ?? "-"} session=${externalChatId} user=${msg.author.tag} len=${text.length} attachments=${files.length}`,
   );
 
   try {

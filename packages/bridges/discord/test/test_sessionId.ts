@@ -8,12 +8,24 @@ const THREAD = "222222222222222222";
 const CATEGORY = "333333333333333333";
 const DM_CHANNEL = "444444444444444444";
 const OTHER_CHANNEL = "555555555555555555";
+const FORUM = "777777777777777777";
 
-/** A thread: `parentId` is the parent TEXT channel. */
-const threadChannel = (parentId: string | null) => ({ isThread: () => true, parentId });
+/** A thread under a text channel: `parentId` is the parent TEXT channel, and
+ *  that parent is a place messages can be posted. */
+const threadChannel = (parentId: string | null) => ({
+  isThread: () => true,
+  parentId,
+  parent: parentId === null ? null : { isSendable: () => true },
+});
+/** A forum post. Also a thread, but its parent is a ForumChannel, which
+ *  discord.js reports as NOT sendable — you open a post, you do not post to
+ *  the forum itself. */
+const forumPost = (parentId: string) => ({ isThread: () => true, parentId, parent: { isSendable: () => false } });
+/** A thread whose parent is not in the channel cache, so its kind is unknown. */
+const threadWithUncachedParent = (parentId: string) => ({ isThread: () => true, parentId, parent: null });
 /** A plain guild text channel: `parentId` is the CATEGORY it sits in. */
 const guildTextChannel = (categoryId: string | null) => ({ isThread: () => false, parentId: categoryId });
-/** A DM channel has no `parentId` property at all. */
+/** A DM channel has neither `parentId` nor `parent`. */
 const dmChannel = () => ({ isThread: () => false });
 
 describe("parseGranularity", () => {
@@ -46,10 +58,24 @@ describe("parseGranularity", () => {
 });
 
 describe("readChannelRef", () => {
-  it("a thread carries its parent text channel", () => {
+  it("a thread carries its parent text channel, marked sendable", () => {
     assert.deepEqual(readChannelRef(THREAD, threadChannel(PARENT_CHANNEL)), {
       channelId: THREAD,
-      parentChannelId: PARENT_CHANNEL,
+      parentChannel: { id: PARENT_CHANNEL, sendable: true },
+    });
+  });
+
+  it("a forum post carries its forum, marked NOT sendable", () => {
+    assert.deepEqual(readChannelRef(THREAD, forumPost(FORUM)), {
+      channelId: THREAD,
+      parentChannel: { id: FORUM, sendable: false },
+    });
+  });
+
+  it("an uncached parent reads as not sendable rather than throwing", () => {
+    assert.deepEqual(readChannelRef(THREAD, threadWithUncachedParent(PARENT_CHANNEL)), {
+      channelId: THREAD,
+      parentChannel: { id: PARENT_CHANNEL, sendable: false },
     });
   });
 
@@ -68,7 +94,7 @@ describe("readChannelRef", () => {
     assert.deepEqual(readChannelRef(DM_CHANNEL, dmChannel()), { channelId: DM_CHANNEL });
   });
 
-  it("a thread whose parent is null omits parentChannelId rather than storing null", () => {
+  it("a thread whose parent is null omits parentChannel rather than storing null", () => {
     assert.deepEqual(readChannelRef(THREAD, threadChannel(null)), { channelId: THREAD });
   });
 });
@@ -77,22 +103,22 @@ describe("isChannelAllowed", () => {
   it("an empty allowlist admits everything", () => {
     const allowNone = new Set<string>();
     assert.equal(isChannelAllowed({ channelId: OTHER_CHANNEL }, allowNone), true);
-    assert.equal(isChannelAllowed({ channelId: THREAD, parentChannelId: PARENT_CHANNEL }, allowNone), true);
+    assert.equal(isChannelAllowed({ channelId: THREAD, parentChannel: { id: PARENT_CHANNEL, sendable: true } }, allowNone), true);
   });
 
   it("admits a thread whose PARENT is listed — the point of #3217", () => {
     const allowed = new Set([PARENT_CHANNEL]);
-    assert.equal(isChannelAllowed({ channelId: THREAD, parentChannelId: PARENT_CHANNEL }, allowed), true);
+    assert.equal(isChannelAllowed({ channelId: THREAD, parentChannel: { id: PARENT_CHANNEL, sendable: true } }, allowed), true);
   });
 
   it("still admits a thread listed by its OWN id — the pre-existing .env workaround", () => {
     const allowed = new Set([THREAD]);
-    assert.equal(isChannelAllowed({ channelId: THREAD, parentChannelId: PARENT_CHANNEL }, allowed), true);
+    assert.equal(isChannelAllowed({ channelId: THREAD, parentChannel: { id: PARENT_CHANNEL, sendable: true } }, allowed), true);
   });
 
   it("denies a thread when neither it nor its parent is listed", () => {
     const allowed = new Set([OTHER_CHANNEL]);
-    assert.equal(isChannelAllowed({ channelId: THREAD, parentChannelId: PARENT_CHANNEL }, allowed), false);
+    assert.equal(isChannelAllowed({ channelId: THREAD, parentChannel: { id: PARENT_CHANNEL, sendable: true } }, allowed), false);
   });
 
   it("admits a plain channel that is listed", () => {
@@ -111,10 +137,17 @@ describe("isChannelAllowed", () => {
   it("a DM is denied by a non-empty allowlist that does not name it", () => {
     assert.equal(isChannelAllowed({ channelId: DM_CHANNEL }, new Set([PARENT_CHANNEL])), false);
   });
+
+  // A forum channel is a fine allowlist entry even though nothing can be
+  // posted to it — the allow decision is about the id, not about sendability.
+  it("a forum post is admitted by its FORUM id, unsendable though that channel is", () => {
+    const ref = readChannelRef(THREAD, forumPost(FORUM));
+    assert.equal(isChannelAllowed(ref, new Set([FORUM])), true);
+  });
 });
 
 describe("buildExternalChatId", () => {
-  const inThread = { channelId: THREAD, parentChannelId: PARENT_CHANNEL };
+  const inThread = { channelId: THREAD, parentChannel: { id: PARENT_CHANNEL, sendable: true } };
   const notInThread = { channelId: OTHER_CHANNEL };
 
   it("thread mode: a thread keys its own session", () => {
@@ -135,6 +168,24 @@ describe("buildExternalChatId", () => {
 
   it("channel mode: a parentless thread falls back to its own id rather than producing nothing", () => {
     assert.equal(buildExternalChatId({ channelId: THREAD }, "channel"), THREAD);
+  });
+
+  // Keying a session by a forum id would strand every server-initiated push:
+  // onPushEvent drops a target that is not `isTextBased() && isSendable()`,
+  // and a ForumChannel is neither.
+  it("channel mode: a forum post does NOT fold onto its unsendable forum", () => {
+    const ref = readChannelRef(THREAD, forumPost(FORUM));
+    assert.equal(buildExternalChatId(ref, "channel"), THREAD);
+  });
+
+  it("channel mode: a thread with an uncached parent keeps its own, deliverable id", () => {
+    const ref = readChannelRef(THREAD, threadWithUncachedParent(PARENT_CHANNEL));
+    assert.equal(buildExternalChatId(ref, "channel"), THREAD);
+  });
+
+  it("thread mode: a forum post keys its own session, as every thread does", () => {
+    const ref = readChannelRef(THREAD, forumPost(FORUM));
+    assert.equal(buildExternalChatId(ref, "thread"), THREAD);
   });
 
   it("the two modes agree whenever the message is not in a thread", () => {

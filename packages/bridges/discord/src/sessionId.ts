@@ -9,19 +9,26 @@ export type SessionGranularity = "channel" | "thread";
 /** Where a Discord message arrived.
  *
  *  A Discord thread IS a channel — it carries its own snowflake, which is
- *  what `Message.channelId` holds. `parentChannelId` is therefore set only
+ *  what `Message.channelId` holds. `parentChannel` is therefore present only
  *  for threads, and always names the text/forum channel the thread hangs
- *  off, never a category. */
+ *  off, never a category.
+ *
+ *  `sendable` travels with the id because the two are only ever useful
+ *  together: a forum channel is a legitimate allowlist entry but not a place
+ *  a message can be posted, so folding a session onto it would strand the
+ *  reply. Pairing them makes it impossible to record the id without saying
+ *  which kind it is. */
 export interface MessageChannelRef {
   channelId: string;
-  parentChannelId?: string;
+  parentChannel?: { id: string; sendable: boolean };
 }
 
-/** The slice of `Message.channel` read here. `parentId` is optional because
- *  a DM channel has no such property at all. */
+/** The slice of `Message.channel` read here. Both parent fields are optional
+ *  because a DM channel has neither. */
 interface ChannelLike {
   isThread: () => boolean;
   parentId?: string | null;
+  parent?: { isSendable: () => boolean } | null;
 }
 
 /** Parse the DISCORD_SESSION_GRANULARITY env var into a safe enum value.
@@ -45,11 +52,15 @@ export function parseGranularity(raw: string | undefined): SessionGranularity {
  *  `GuildChannel`, `parentId` is the id of the CATEGORY the channel sits
  *  in, while on a `ThreadChannel` it is the parent text channel. Reading it
  *  ungated would hand a category id to the allowlist and to session
- *  keying. */
+ *  keying.
+ *
+ *  An uncached parent reads as not sendable, which costs only the fold in
+ *  `channel` mode — never the allow decision, which runs off the id alone. */
 export function readChannelRef(channelId: string, channel: ChannelLike): MessageChannelRef {
   if (!channel.isThread()) return { channelId };
-  const parentChannelId = channel.parentId ?? undefined;
-  return parentChannelId === undefined ? { channelId } : { channelId, parentChannelId };
+  const parentId = channel.parentId ?? undefined;
+  if (parentId === undefined) return { channelId };
+  return { channelId, parentChannel: { id: parentId, sendable: channel.parent?.isSendable() === true } };
 }
 
 /** Is this message's channel covered by DISCORD_ALLOWED_CHANNELS?
@@ -64,7 +75,7 @@ export function readChannelRef(channelId: string, channel: ChannelLike): Message
 export function isChannelAllowed(ref: MessageChannelRef, allowedChannels: ReadonlySet<string>): boolean {
   if (allowedChannels.size === 0) return true;
   if (allowedChannels.has(ref.channelId)) return true;
-  return ref.parentChannelId !== undefined && allowedChannels.has(ref.parentChannelId);
+  return ref.parentChannel !== undefined && allowedChannels.has(ref.parentChannel.id);
 }
 
 /** The externalChatId the server keys a session by. Two messages with
@@ -76,8 +87,14 @@ export function isChannelAllowed(ref: MessageChannelRef, allowedChannels: Readon
  *
  *  Both are plain snowflakes, so the push path needs no reverse parse: the
  *  id the server hands back resolves through `channels.fetch()` whether it
- *  names a thread or a text channel. */
+ *  names a thread or a text channel.
+ *
+ *  A thread under a FORUM never folds, whatever the mode. A forum channel
+ *  cannot be posted to — `isSendable()` is false — so its id would key a
+ *  session the server can never push a reply into, and the reply would be
+ *  dropped by the push guard with only a warn line. A forum post is its own
+ *  conversation anyway; there is no channel-level talk to fold it into. */
 export function buildExternalChatId(ref: MessageChannelRef, mode: SessionGranularity): string {
   if (mode === "thread") return ref.channelId;
-  return ref.parentChannelId ?? ref.channelId;
+  return ref.parentChannel?.sendable === true ? ref.parentChannel.id : ref.channelId;
 }
