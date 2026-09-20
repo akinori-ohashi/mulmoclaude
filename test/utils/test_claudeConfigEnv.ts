@@ -59,6 +59,11 @@ function isResolvedPaths(value: unknown): value is ResolvedPaths {
 // `dockerBindMountArgs` is included on purpose: it is the call site that turns
 // the two helpers into mounts, and it passes only `homeDir` — so a future edit
 // that hands one helper an override and not the other shows up here.
+//
+// The probe runs on the HOST's platform, so that is the platform it must declare:
+// `join` spells the path the host's way, while the separator rewrite only fires
+// for `win32`. Naming another platform makes the two disagree, and on Windows the
+// mount keeps its backslashes (#3218).
 function probeScript(): string {
   return `
     const { claudeConfigDir, claudeConfigJson } = await import(${JSON.stringify(CONFIG_PATH_URL)});
@@ -69,7 +74,7 @@ function probeScript(): string {
       workspacePath: "/ws",
       homeDir: ${JSON.stringify(HOME)},
       packagesMount: [],
-      platform: "linux",
+      platform: ${JSON.stringify(process.platform)},
     });
     process.stdout.write(JSON.stringify({
       dir: claudeConfigDir(${JSON.stringify(HOME)}),
