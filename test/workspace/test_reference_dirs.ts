@@ -18,7 +18,22 @@ import {
   validateReferenceDirs,
 } from "../../server/workspace/reference-dirs.ts";
 import { log } from "../../server/system/logger/index.ts";
+import { toDockerSource } from "../../server/agent/dockerMount.ts";
 import { makeTempDir, makeUnblockedTempDir } from "../helpers/tempDir.js";
+
+// The fixtures below are real directories, so the host spells them. The mount
+// helper rewrites separators and strips the drive letter for `win32` only, and
+// `isSensitiveMountPath` picks `path.win32` / `path.posix` from the same value —
+// so a fixed "linux" feeds Windows paths to POSIX rules, where `resolve()` treats
+// them as RELATIVE and prefixes the cwd. The blocklist then matches nothing and a
+// symlink escape reads as allowed (#3218). Production always passes
+// `process.platform`.
+const HOST_PLATFORM = process.platform;
+
+// A directory NAME holding a colon or a comma is ordinary on POSIX and forbidden
+// by NTFS, so these fixtures cannot be created on Windows — the rule they pin is
+// about POSIX filenames reaching a docker flag.
+const posixFilenamesOnly = { skip: process.platform === "win32" };
 
 function tmpRoot(): string {
   const dir = makeTempDir("reference-dirs-");
@@ -213,7 +228,7 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
 
   const promptLines = (prompt: string): string[] => prompt.split("\n").filter((line) => line.startsWith("- "));
 
-  it("under Docker, an inexpressible path is neither mounted nor offered", () => {
+  it("under Docker, an inexpressible path is neither mounted nor offered", posixFilenamesOnly, () => {
     const root = scratch();
     const ok = path.join(root, "ok");
     // Only a path holding BOTH a colon and a comma defeats every docker flag.
@@ -225,7 +240,7 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
       { hostPath: inexpressible, label: "bad" },
     ];
 
-    const plan = planReferenceDirs(entries, true, "linux", NO_SYSTEM_BLOCK);
+    const plan = planReferenceDirs(entries, true, HOST_PLATFORM, NO_SYSTEM_BLOCK);
     assert.deepEqual(
       plan.available.map((entry) => entry.label),
       ["ok"],
@@ -235,7 +250,7 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
       ["bad"],
     );
 
-    const lines = promptLines(buildReferenceDirsPrompt(entries, true, "linux", NO_SYSTEM_BLOCK));
+    const lines = promptLines(buildReferenceDirsPrompt(entries, true, HOST_PLATFORM, NO_SYSTEM_BLOCK));
     assert.equal(lines.length, 1, "the agent is told about exactly the one that mounted");
     assert.match(lines[0] ?? "", /— ok$/);
   });
@@ -243,11 +258,11 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
   it("under Docker, a directory that no longer exists is neither mounted nor offered", () => {
     const root = scratch();
     const entries = [{ hostPath: path.join(root, "gone"), label: "gone" }];
-    assert.deepEqual(planReferenceDirs(entries, true, "linux", NO_SYSTEM_BLOCK).available, []);
-    assert.equal(buildReferenceDirsPrompt(entries, true, "linux", NO_SYSTEM_BLOCK), "", "no section at all when nothing is reachable");
+    assert.deepEqual(planReferenceDirs(entries, true, HOST_PLATFORM, NO_SYSTEM_BLOCK).available, []);
+    assert.equal(buildReferenceDirsPrompt(entries, true, HOST_PLATFORM, NO_SYSTEM_BLOCK), "", "no section at all when nothing is reachable");
   });
 
-  it("the mount arguments and the prompt agree entry for entry", () => {
+  it("the mount arguments and the prompt agree entry for entry", posixFilenamesOnly, () => {
     const root = scratch();
     const ok = path.join(root, "ok");
     mkdirSync(ok, { recursive: true });
@@ -258,16 +273,16 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
     ];
     mkdirSync(path.join(root, "bad:with,both"), { recursive: true });
 
-    const plan = planReferenceDirs(entries, true, "linux", NO_SYSTEM_BLOCK);
+    const plan = planReferenceDirs(entries, true, HOST_PLATFORM, NO_SYSTEM_BLOCK);
     const mountedTargets = plan.args.filter((arg) => arg !== "-v" && arg !== "--mount").length;
     assert.equal(mountedTargets, plan.available.length, "one mount per available entry");
-    assert.equal(promptLines(buildReferenceDirsPrompt(entries, true, "linux", NO_SYSTEM_BLOCK)).length, plan.available.length);
+    assert.equal(promptLines(buildReferenceDirsPrompt(entries, true, HOST_PLATFORM, NO_SYSTEM_BLOCK)).length, plan.available.length);
   });
 
   // The two skips are not the same news. A directory the user deleted is
   // ordinary; a path no docker flag can carry will never work until it is
   // renamed, so it keeps the `warn` it had before both became one code path.
-  it("distinguishes a missing directory from an unmountable one", () => {
+  it("distinguishes a missing directory from an unmountable one", posixFilenamesOnly, () => {
     const root = scratch();
     const unmountable = path.join(root, "bad:with,both");
     mkdirSync(unmountable, { recursive: true });
@@ -276,7 +291,7 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
       { hostPath: unmountable, label: "bad" },
     ];
 
-    const { skipped } = planReferenceDirs(entries, true, "linux", NO_SYSTEM_BLOCK);
+    const { skipped } = planReferenceDirs(entries, true, HOST_PLATFORM, NO_SYSTEM_BLOCK);
     assert.deepEqual(
       skipped.map(({ entry, kind }) => [entry.label, kind]),
       [
@@ -290,7 +305,7 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
   // thing that regressed was the DISPATCH. A test over the discriminator stays
   // green if the log site is changed to always-info, which is exactly how the
   // regression got in. So assert the levels the spawn path actually writes.
-  it("writes unmountable at warn and missing at info", () => {
+  it("writes unmountable at warn and missing at info", posixFilenamesOnly, () => {
     const root = scratch();
     const unmountable = path.join(root, "bad:with,both");
     mkdirSync(unmountable, { recursive: true });
@@ -306,7 +321,7 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
     log.info = (_namespace, _message, data) => void info.push(String((data as { path?: string } | undefined)?.path ?? ""));
     log.warn = (_namespace, _message, data) => void warn.push(String((data as { path?: string } | undefined)?.path ?? ""));
     try {
-      referenceDirMountArgs(entries, "linux", NO_SYSTEM_BLOCK);
+      referenceDirMountArgs(entries, HOST_PLATFORM, NO_SYSTEM_BLOCK);
     } finally {
       log.info = originalInfo;
       log.warn = originalWarn;
@@ -318,24 +333,24 @@ describe("planReferenceDirs — the prompt may only name what is reachable", () 
 
   // Without Docker there is no mount at all: the agent reads the host path
   // directly, so a path docker could not express is perfectly reachable.
-  it("without Docker, a colon-and-comma path is still offered", () => {
+  it("without Docker, a colon-and-comma path is still offered", posixFilenamesOnly, () => {
     const root = scratch();
     const awkward = path.join(root, "fine:without,docker");
     mkdirSync(awkward, { recursive: true });
     const entries = [{ hostPath: awkward, label: "awkward" }];
 
     assert.deepEqual(
-      planReferenceDirs(entries, false, "linux", NO_SYSTEM_BLOCK).available.map((entry) => entry.label),
+      planReferenceDirs(entries, false, HOST_PLATFORM, NO_SYSTEM_BLOCK).available.map((entry) => entry.label),
       ["awkward"],
     );
-    assert.equal(promptLines(buildReferenceDirsPrompt(entries, false, "linux", NO_SYSTEM_BLOCK)).length, 1);
+    assert.equal(promptLines(buildReferenceDirsPrompt(entries, false, HOST_PLATFORM, NO_SYSTEM_BLOCK)).length, 1);
   });
 
   it("without Docker, a directory that no longer exists is still dropped", () => {
     const root = scratch();
     const entries = [{ hostPath: path.join(root, "gone"), label: "gone" }];
-    assert.deepEqual(planReferenceDirs(entries, false, "linux", NO_SYSTEM_BLOCK).available, []);
-    assert.equal(buildReferenceDirsPrompt(entries, false, "linux", NO_SYSTEM_BLOCK), "");
+    assert.deepEqual(planReferenceDirs(entries, false, HOST_PLATFORM, NO_SYSTEM_BLOCK).available, []);
+    assert.equal(buildReferenceDirsPrompt(entries, false, HOST_PLATFORM, NO_SYSTEM_BLOCK), "");
   });
 });
 
@@ -369,7 +384,7 @@ describe("resolveReferenceDir — the blocklist must see what the path POINTS AT
     mkdirSync(plain, { recursive: true });
     const link = path.join(root, "innocent-notes");
     symlinkSync(secrets, link);
-    const options = { sensitive: { home: path.join(root, "home"), platform: "linux" as const, systemBlocked: [realpathSync(secrets)] } };
+    const options = { sensitive: { home: path.join(root, "home"), platform: HOST_PLATFORM, systemBlocked: [realpathSync(secrets)] } };
 
     assert.equal(
       resolveReferenceDir(link).kind,
@@ -382,13 +397,17 @@ describe("resolveReferenceDir — the blocklist must see what the path POINTS AT
       plain,
       realSecrets: realpathSync(secrets),
       options,
-      plan: (entries: { hostPath: string; label: string }[], useDocker: boolean) => planReferenceDirs(entries, useDocker, "linux", options),
-      prompt: (entries: { hostPath: string; label: string }[], useDocker: boolean) => buildReferenceDirsPrompt(entries, useDocker, "linux", options),
+      plan: (entries: { hostPath: string; label: string }[], useDocker: boolean) => planReferenceDirs(entries, useDocker, HOST_PLATFORM, options),
+      prompt: (entries: { hostPath: string; label: string }[], useDocker: boolean) => buildReferenceDirsPrompt(entries, useDocker, HOST_PLATFORM, options),
     };
   };
 
   /** Same shape with nothing blocked, for the cases about resolution itself. */
-  const allowAll = (root: string) => ({ sensitive: { home: path.join(root, "home"), platform: "linux" as const, systemBlocked: [] } });
+  const allowAll = (root: string) => ({ sensitive: { home: path.join(root, "home"), platform: HOST_PLATFORM, systemBlocked: [] } });
+
+  /** The container half of a `-v host:container:ro` argument. Sliced off the
+   *  known source rather than split on ":", which a Windows drive letter carries. */
+  const containerHalf = (arg: string | undefined, source: string): string | undefined => arg?.slice(source.length + 1).replace(/:ro$/, "");
 
   it("reports the real location of an ordinary directory", () => {
     const { plain, options } = fixture();
@@ -440,10 +459,10 @@ describe("resolveReferenceDir — the blocklist must see what the path POINTS AT
       mkdirSync(real, { recursive: true });
       symlinkSync(real, link);
 
-      const plan = planReferenceDirs([{ hostPath: link, label: "notes" }], true, "linux", allowAll(root));
-      const source = plan.args[1]?.split(":")[0];
+      const plan = planReferenceDirs([{ hostPath: link, label: "notes" }], true, HOST_PLATFORM, allowAll(root));
+      const expectedSource = toDockerSource(realpathSync(real), HOST_PLATFORM);
 
-      assert.equal(source, realpathSync(real), "the bind source must be what the link points at");
+      assert.ok(plan.args[1]?.startsWith(`${expectedSource}:`), `the bind source must be what the link points at, got ${plan.args[1]}`);
       assert.equal(plan.available.length, 1, "an allowed target still mounts");
     });
 
@@ -457,10 +476,16 @@ describe("resolveReferenceDir — the blocklist must see what the path POINTS AT
       symlinkSync(first, link);
       const entries = [{ hostPath: link, label: "current" }];
 
-      const beforeRepoint = planReferenceDirs(entries, true, "linux", allowAll(root)).args[1]?.split(":")[1];
+      const beforeRepoint = containerHalf(
+        planReferenceDirs(entries, true, HOST_PLATFORM, allowAll(root)).args[1],
+        toDockerSource(realpathSync(first), HOST_PLATFORM),
+      );
       rmSync(link);
       symlinkSync(second, link);
-      const afterRepoint = planReferenceDirs(entries, true, "linux", allowAll(root)).args[1]?.split(":")[1];
+      const afterRepoint = containerHalf(
+        planReferenceDirs(entries, true, HOST_PLATFORM, allowAll(root)).args[1],
+        toDockerSource(realpathSync(second), HOST_PLATFORM),
+      );
 
       // The container path is hashed from the entry's own spelling, so the agent
       // keeps reading the same place when the user repoints the link on purpose.

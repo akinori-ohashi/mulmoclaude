@@ -6,8 +6,21 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { externalPluginMounts, pluginLedgerMountArgs, removePluginLedgerStaging, withPluginLedgerCleanup } from "../../server/agent/pluginLedgerMount.ts";
 import { CONTAINER_CLAUDE_CONFIG_DIR } from "../../server/agent/pluginLedgerPaths.ts";
+import { toDockerSource } from "../../server/agent/dockerMount.ts";
 
-const PLATFORM = "linux";
+// The fixtures below are real directories, so the host spells them. The module
+// picks its path separator from `platform` and only rewrites `\` for `win32`,
+// so a fixed "linux" leaves a Windows ledger unmatched by its own config dir and
+// nothing is ever staged (#3218). Production always passes `process.platform`.
+const HOST_PLATFORM = process.platform;
+
+/** The `-v` source the module builds for a host path, on this host. */
+const mountSource = (hostPath: string): string => toDockerSource(hostPath, HOST_PLATFORM);
+
+// A directory NAME holding a colon, a comma, a quote, a newline or a backslash is
+// ordinary on POSIX and impossible on NTFS, so these fixtures cannot exist on
+// Windows — the rule they pin is a POSIX-filename rule.
+const posixFilenamesOnly = { skip: process.platform === "win32" };
 
 function writeLedgers(configDir: string, marketplaces: unknown, plugins: unknown): void {
   mkdirSync(join(configDir, "plugins"), { recursive: true });
@@ -28,7 +41,7 @@ describe("pluginLedgerMountArgs", () => {
 
   it("stages nothing when the config dir has no plugin ledgers", () => {
     const root = makeRoot();
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: join(root, "cfg"), outputDir: join(root, "out") });
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: join(root, "cfg"), outputDir: join(root, "out") });
     assert.deepEqual(result.args, []);
     assert.equal(result.stagingDir, null);
   });
@@ -43,16 +56,18 @@ describe("pluginLedgerMountArgs", () => {
     mkdirSync(external, { recursive: true });
     writeLedgers(configDir, { ext: { installLocation: external } }, { version: 2, plugins: { "p@ext": [{ installPath: join(external, "plugins", "p") }] } });
 
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
 
     // The RESOLVED spelling is what gets bound, which is the point: a symlink
     // must not be able to redirect the bind after the blocklist has passed it.
     // On macOS this is visible even with no symlink of our own — `/var` is one,
     // so a tmpdir path resolves under `/private/var`.
-    const treeMount = result.args.find((arg) => arg.startsWith(`${realpathSync.native(external)}:`));
+    const source = mountSource(realpathSync.native(external));
+    const treeMount = result.args.find((arg) => arg.startsWith(`${source}:`));
     assert.ok(treeMount, `expected the external tree to be mounted, got ${JSON.stringify(result.args)}`);
-    const [, containerRoot] = treeMount.split(":");
-    assert.match(containerRoot ?? "", /^\/mnt\/plugin-src\//);
+    // Sliced off the source rather than split on ":", which a Windows drive letter carries.
+    const containerRoot = treeMount.slice(source.length + 1).replace(/:ro$/, "");
+    assert.match(containerRoot, /^\/mnt\/plugin-src\//);
     assert.ok(treeMount.endsWith(":ro"), "a plugin tree is mounted read-only");
 
     // And the staged ledger points INTO that mount, not at the host path.
@@ -69,8 +84,8 @@ describe("pluginLedgerMountArgs", () => {
     mkdirSync(external, { recursive: true });
     writeLedgers(configDir, { ext: { installLocation: external } }, { version: 2, plugins: {} });
 
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
-    const treeIndex = result.args.findIndex((arg) => arg.startsWith(`${realpathSync.native(external)}:`));
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
+    const treeIndex = result.args.findIndex((arg) => arg.startsWith(`${mountSource(realpathSync.native(external))}:`));
     const overlayIndex = result.args.findIndex((arg) => arg.includes("known_marketplaces.json:"));
     assert.ok(treeIndex >= 0 && overlayIndex >= 0);
     assert.ok(treeIndex < overlayIndex, "the tree must be mounted before the overlay that references it");
@@ -85,7 +100,7 @@ describe("pluginLedgerMountArgs", () => {
     mkdirSync(secret, { recursive: true });
     writeLedgers(configDir, { ext: { installLocation: secret } }, { version: 2, plugins: {} });
 
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out"), home: root, systemBlocked: [] });
     assert.deepEqual(result.args, []);
     assert.equal(result.stagingDir, null);
   });
@@ -105,7 +120,7 @@ describe("pluginLedgerMountArgs", () => {
     writeLedgers(configDir, { ext: { installLocation: alias } }, { version: 2, plugins: {} });
 
     const result = pluginLedgerMountArgs({
-      platform: PLATFORM,
+      platform: HOST_PLATFORM,
       hostConfigDir: configDir,
       outputDir: join(root, "out"),
       home: root,
@@ -122,7 +137,7 @@ describe("pluginLedgerMountArgs", () => {
   it("creates no directory at all when there is nothing to stage", () => {
     const root = makeRoot();
     const outputDir = join(root, "out");
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: join(root, "cfg"), outputDir });
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: join(root, "cfg"), outputDir });
     assert.deepEqual(result.args, []);
     assert.equal(result.stagingDir, null);
     assert.equal(existsSync(outputDir), false);
@@ -137,16 +152,16 @@ describe("pluginLedgerMountArgs", () => {
       { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } },
       { version: 2, plugins: { "p@mp": [{ installPath: join(configDir, "plugins", "cache", "mp", "p", "1.0.0") }] } },
     );
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: configDir, outputDir });
 
     assert.equal(result.stagingDir, outputDir);
     // `-v` for an ordinary path: the shared mount helper only reaches for
     // `--mount` when a colon rules `-v` out (#3191).
     assert.deepEqual(result.args, [
       "-v",
-      `${join(outputDir, "known_marketplaces.json")}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/known_marketplaces.json:ro`,
+      `${mountSource(join(outputDir, "known_marketplaces.json"))}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/known_marketplaces.json:ro`,
       "-v",
-      `${join(outputDir, "installed_plugins.json")}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/installed_plugins.json:ro`,
+      `${mountSource(join(outputDir, "installed_plugins.json"))}:${CONTAINER_CLAUDE_CONFIG_DIR}/plugins/installed_plugins.json:ro`,
     ]);
 
     const staged: unknown = JSON.parse(readFileSync(join(outputDir, "installed_plugins.json"), "utf-8"));
@@ -159,14 +174,14 @@ describe("pluginLedgerMountArgs", () => {
   // A backslash is an ordinary filename character on POSIX, and `TMPDIR` can
   // contain one. Folding it to `/` would hand Docker a source path that does
   // not exist, and the sandbox would not start at all.
-  it("keeps a backslash in a POSIX staging path", () => {
+  it("keeps a backslash in a POSIX staging path", posixFilenamesOnly, () => {
     const root = makeRoot();
     const configDir = join(root, "cfg");
     const outputDir = join(root, "we\\ird");
     writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: configDir, outputDir });
     assert.equal(result.args[0], "-v");
-    assert.ok(result.args[1]?.startsWith(`${join(outputDir, "known_marketplaces.json")}:`));
+    assert.ok(result.args[1]?.startsWith(`${mountSource(join(outputDir, "known_marketplaces.json"))}:`));
     assert.ok(result.args[1]?.includes("we\\ird"));
   });
 
@@ -174,12 +189,12 @@ describe("pluginLedgerMountArgs", () => {
   // Measured: `docker run -v "<path with colon>:..."` is rejected outright with
   // "too many colons", so the sandbox would not start at all. `--mount` takes
   // the same path.
-  it("falls back to --mount for a staging path containing a colon", () => {
+  it("falls back to --mount for a staging path containing a colon", posixFilenamesOnly, () => {
     const root = makeRoot();
     const configDir = join(root, "cfg");
     const outputDir = join(root, "stag:ing");
     writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: configDir, outputDir });
     assert.equal(result.args[0], "--mount");
     assert.ok(result.args[1]?.includes("stag:ing"));
     assert.equal(result.stagingDir, outputDir);
@@ -190,12 +205,12 @@ describe("pluginLedgerMountArgs", () => {
   // three — its only forbidden character is `:` — so routing through the shared
   // helper turns three skipped cases into three working ones (#3191).
   ["stag,ing", 'stag"ing', "stag\ning"].forEach((name) => {
-    it(`stages through -v when the staging path holds ${JSON.stringify(name)}`, () => {
+    it(`stages through -v when the staging path holds ${JSON.stringify(name)}`, posixFilenamesOnly, () => {
       const root = makeRoot();
       const configDir = join(root, "cfg");
       const outputDir = join(root, name);
       writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
-      const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
+      const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: configDir, outputDir });
       assert.equal(result.args[0], "-v");
       assert.ok(result.args[1]?.includes(name));
       assert.equal(result.stagingDir, outputDir);
@@ -209,7 +224,7 @@ describe("pluginLedgerMountArgs", () => {
     const configDir = join(root, "cfg");
     const outputDir = join(root, "stag:i,ng");
     writeLedgers(configDir, { mp: { installLocation: join(configDir, "plugins", "marketplaces", "mp") } }, { version: 2, plugins: {} });
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir });
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: configDir, outputDir });
     assert.deepEqual(result.args, []);
     assert.equal(result.stagingDir, null);
   });
@@ -225,7 +240,7 @@ describe("pluginLedgerMountArgs", () => {
     execFileSync("mkfifo", [join(configDir, "plugins", "known_marketplaces.json")]);
     writeFileSync(join(configDir, "plugins", "installed_plugins.json"), JSON.stringify({ version: 2, plugins: {} }));
 
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out") });
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out") });
 
     assert.deepEqual(result.args, []);
     assert.equal(result.stagingDir, null);
@@ -237,7 +252,7 @@ describe("pluginLedgerMountArgs", () => {
     const root = makeRoot();
     const configDir = join(root, "cfg");
     mkdirSync(join(configDir, "plugins", "known_marketplaces.json"), { recursive: true });
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out") });
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out") });
     assert.deepEqual(result.args, []);
     assert.equal(result.stagingDir, null);
   });
@@ -250,7 +265,7 @@ describe("pluginLedgerMountArgs", () => {
     mkdirSync(join(configDir, "plugins"), { recursive: true });
     writeFileSync(join(configDir, "plugins", "known_marketplaces.json"), "not json at all");
     writeFileSync(join(configDir, "plugins", "installed_plugins.json"), "{");
-    const result = pluginLedgerMountArgs({ platform: PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out") });
+    const result = pluginLedgerMountArgs({ platform: HOST_PLATFORM, hostConfigDir: configDir, outputDir: join(root, "out") });
     assert.deepEqual(result.args, []);
     assert.equal(result.stagingDir, null);
   });
@@ -324,6 +339,10 @@ describe("withPluginLedgerCleanup", () => {
 // sandbox while working on the host (#3198). Mounting the tree and pointing the
 // ledger at the mount is what fixes it.
 describe("externalPluginMounts — what has to be mounted beyond the config dir", () => {
+  // Unlike the describes above, every path here is an imaginary POSIX one and the
+  // resolver is injected — nothing touches the filesystem — so this block states
+  // its own platform and stays a POSIX case on every runner.
+  const POSIX_PLATFORM = "linux";
   const HOME = "/Users/fake";
   const CONFIG = `${HOME}/.claude`;
   const CONTAINER_CONFIG = "/home/node/.claude";
@@ -337,7 +356,7 @@ describe("externalPluginMounts — what has to be mounted beyond the config dir"
       missing.includes(hostPath) ? null : (links[hostPath] ?? hostPath);
 
   const plan = (candidates: string[], links?: Record<string, string>, missing?: readonly string[]) =>
-    externalPluginMounts(candidates, CONFIG, "/", PLATFORM, { home: HOME, resolveRealPath: resolver(links, missing) });
+    externalPluginMounts(candidates, CONFIG, "/", POSIX_PLATFORM, { home: HOME, resolveRealPath: resolver(links, missing) });
   const roots = (candidates: string[], links?: Record<string, string>, missing?: readonly string[]): string[] =>
     plan(candidates, links, missing).mounts.map((mount) => mount.hostPath);
   const mappingFor = (result: ReturnType<typeof plan>, alias: string): string | undefined =>
