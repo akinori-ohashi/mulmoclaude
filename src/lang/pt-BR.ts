@@ -541,6 +541,8 @@ const ptBRMessages = {
     openInOs: "Abrir no SO",
     openingInOs: "Abrindo…",
     openInOsFailed: "Falha ao abrir no SO",
+    downloadFile: "Baixar",
+    downloadingFile: "Baixando…",
   },
   filesView: {
     chatPlaceholder: "Pergunte sobre este arquivo…",

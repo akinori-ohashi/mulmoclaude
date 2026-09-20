@@ -212,6 +212,20 @@ describe("PUT /api/files/content — security", () => {
     assert.equal(onDisk, "SECRET=1");
   });
 
+  it("rejects an executable suffix even though it previews as text", async () => {
+    // The preview gate and the write gate are deliberately different questions:
+    // a `.sh` renders in the Files view, and cannot be overwritten through the
+    // bearer-exempt file API — the same policy the upload route applies.
+    for (const name of ["deploy.sh", "run.bat", "run.cmd", "run.ps1"]) {
+      await writeFile(path.join(workspaceDir, name), "original", "utf-8");
+      const { state, res } = mockRes();
+      await putHandler(req({ path: name, content: "overwritten" }), res);
+      assert.equal(state.status, 400, `expected 400 for ${name}, got ${state.status}`);
+      assert.match((state.body as ErrorBody).error, /not editable/i);
+      assert.equal(await promises.readFile(path.join(workspaceDir, name), "utf-8"), "original");
+    }
+  });
+
   it("rejects a binary-classified extension even when the file exists", async () => {
     const rel = "image.png";
     await writeFile(path.join(workspaceDir, rel), "\x89PNG...", "utf-8");

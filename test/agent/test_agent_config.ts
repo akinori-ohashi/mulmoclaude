@@ -419,6 +419,16 @@ describe("resolveSystemPromptPaths", () => {
   });
 });
 
+// The host's own platform, for every case that is not ABOUT a platform rule.
+// `dockerBindMountArgs` derives its child paths with the host's `path.join`,
+// while the separator rewrite and the drive-letter strip fire for `win32` only:
+// name another platform and the two disagree, so on Windows the POSIX fixture
+// `/proj` reaches Docker as `\proj\node_modules` (#3218). Under the host's own
+// platform the rewrite undoes the host's spelling and these POSIX expectations
+// hold on every runner — which is also exactly what production does, since it
+// always passes `process.platform`.
+const HOST_PLATFORM: Platform = process.platform;
+
 describe("buildDockerSpawnArgs", () => {
   function baseParams() {
     return {
@@ -426,7 +436,7 @@ describe("buildDockerSpawnArgs", () => {
       cliArgs: ["-p", "hi"],
       uid: 1000,
       gid: 1000,
-      platform: "darwin" as Platform,
+      platform: HOST_PLATFORM,
       projectRoot: "/proj",
       // In dev (which this test fixture mirrors) packageRoot equals
       // projectRoot — both are the repo root. The distinction only
@@ -662,7 +672,9 @@ describe("buildDockerSpawnArgs", () => {
         cliArgs: [],
         uid: 1000,
         gid: 1000,
-        platform: "darwin" as Platform,
+        // This one resolves projectRoot from the real filesystem, so it has to
+        // run under the platform that spelled it (#3218).
+        platform: HOST_PLATFORM,
         chatSessionId: "test",
       });
       const nmMount = args.find((arg) => typeof arg === "string" && arg.endsWith(":/app/node_modules:ro"));
@@ -1257,7 +1269,7 @@ describe("dockerBindMountArgs", () => {
     workspacePath: "/ws",
     homeDir: "/home/u",
     packagesMount: ["-v", "/pkg/packages:/app/packages:ro"],
-    platform: "linux" as Platform,
+    platform: HOST_PLATFORM,
   };
 
   it("mounts node_modules from projectRoot and server/src from packageRoot, read-only", () => {

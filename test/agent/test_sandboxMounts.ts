@@ -17,6 +17,23 @@ import {
 // Use an isolated temp HOME so these tests don't depend on whether
 // the developer running CI actually has ~/.config/gh or a ~/.gitconfig.
 
+// The host's own platform, because these fixtures are real paths the host
+// spelled. `dockerMountArgs` converts separators and strips the drive letter for
+// `win32` only, so naming another platform leaves a Windows path with its
+// backslashes and pushes every mount onto `--mount` (#3218).
+const HOST_PLATFORM = process.platform;
+
+// `sshAgentForwardArgs` splits on darwin (Docker Desktop's magic socket) vs
+// everything else (bind the host socket). The socket-binding branch needs a
+// non-darwin platform, and it has to be one whose path spelling matches the
+// host's — so a macOS runner stands in as "linux", while a Windows runner is
+// already non-darwin and keeps its own.
+const SOCKET_BINDING_PLATFORM = process.platform === "darwin" ? "linux" : process.platform;
+
+// A directory NAME holding a colon or a comma is legal on POSIX and forbidden by
+// NTFS, so these fixtures cannot be created on Windows at all.
+const posixFilenamesOnly = { skip: process.platform === "win32" };
+
 // `awkwardName` puts the fixture home inside a directory whose NAME carries the
 // characters under test, which is the only way a resolved config path acquires
 // one — the allowlist joins fixed segments onto `$HOME`.
@@ -152,7 +169,7 @@ describe("planConfigMounts — attached is what the container actually gets", ()
   it("splits resolved specs into attached and skipped", () => {
     const home = makeFixtureHome({ gh: true, gitconfig: true });
     const { resolved } = resolveMountNames(["gh", "gitconfig"], buildAllowedConfigMounts(home));
-    const plan = planConfigMounts(resolved, "linux");
+    const plan = planConfigMounts(resolved, HOST_PLATFORM);
     assert.deepEqual(
       plan.attached.map((spec) => spec.name),
       ["gh", "gitconfig"],
@@ -162,7 +179,7 @@ describe("planConfigMounts — attached is what the container actually gets", ()
   });
 
   // A home holding both a colon and a comma cannot be carried by either flag.
-  it("reports a spec no docker flag can express as skipped, not attached", () => {
+  it("reports a spec no docker flag can express as skipped, not attached", posixFilenamesOnly, () => {
     const home = makeFixtureHome({ gh: true, gitconfig: true }, "with:colon,and-comma");
     const { resolved } = resolveMountNames(["gitconfig"], buildAllowedConfigMounts(home));
     assert.equal(resolved.length, 1, "the host path exists, so it resolves");
@@ -178,7 +195,7 @@ describe("planConfigMounts — attached is what the container actually gets", ()
 });
 
 describe("resolveSandboxAuth — the startup summary matches the argv", () => {
-  it("omits a mount that could not be expressed from the attached list", () => {
+  it("omits a mount that could not be expressed from the attached list", posixFilenamesOnly, () => {
     const home = makeFixtureHome({ gitconfig: true }, "with:colon,and-comma");
     const auth = resolveSandboxAuth({ sshAgentForward: false, configMountNames: ["gitconfig"], home, platform: "linux" });
     assert.deepEqual(auth.args, [], "no docker argument was produced");
@@ -187,7 +204,7 @@ describe("resolveSandboxAuth — the startup summary matches the argv", () => {
 
   it("still reports a mount that was expressed", () => {
     const home = makeFixtureHome({ gitconfig: true });
-    const auth = resolveSandboxAuth({ sshAgentForward: false, configMountNames: ["gitconfig"], home, platform: "linux" });
+    const auth = resolveSandboxAuth({ sshAgentForward: false, configMountNames: ["gitconfig"], home, platform: HOST_PLATFORM });
     assert.equal(auth.args[0], "-v");
     assert.equal(auth.appliedDescriptions.length, 1);
     assert.match(auth.appliedDescriptions[0] ?? "", /^gitconfig /);
@@ -224,10 +241,13 @@ describe("sshAgentForwardArgs", () => {
     assert.match(result.skippedReason ?? "", /not found/);
   });
 
-  it("binds socket and sets SSH_AUTH_SOCK when sock exists (Linux)", () => {
+  // Linux and Windows both bind the host socket directly. A fixed "linux" left
+  // the Windows socket path unconverted, so the argument came out as `--mount`
+  // with backslashes (#3218).
+  it("binds socket and sets SSH_AUTH_SOCK when sock exists (non-macOS)", () => {
     const fake = path.join(makeTempDir("sock-"), "agent.sock");
     writeFileSync(fake, "");
-    const result = sshAgentForwardArgs(true, fake, "linux");
+    const result = sshAgentForwardArgs(true, fake, SOCKET_BINDING_PLATFORM);
     assert.equal(result.skippedReason, null);
     const expectedHostPath = fake.replace(/\\/g, "/");
     assert.deepEqual(result.args, ["-v", `${expectedHostPath}:${SSH_AGENT_CONTAINER_SOCK}`, "-e", `SSH_AUTH_SOCK=${SSH_AGENT_CONTAINER_SOCK}`]);

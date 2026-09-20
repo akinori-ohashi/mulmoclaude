@@ -529,6 +529,8 @@ const zhMessages = {
     openInOs: "在系统中打开",
     openingInOs: "正在打开…",
     openInOsFailed: "无法在系统中打开",
+    downloadFile: "下载",
+    downloadingFile: "正在下载…",
   },
   filesView: {
     chatPlaceholder: "询问关于此文件的问题…",

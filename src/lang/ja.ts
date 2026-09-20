@@ -543,6 +543,8 @@ const jaMessages = {
     openInOs: "OS で開く",
     openingInOs: "開いています…",
     openInOsFailed: "OS で開けませんでした",
+    downloadFile: "ダウンロード",
+    downloadingFile: "ダウンロード中…",
   },
   filesView: {
     chatPlaceholder: "このファイルについて質問…",

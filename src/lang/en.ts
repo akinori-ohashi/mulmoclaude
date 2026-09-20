@@ -561,6 +561,8 @@ const enMessages = {
     openInOs: "Open in OS",
     openingInOs: "Opening…",
     openInOsFailed: "Failed to open in OS",
+    downloadFile: "Download",
+    downloadingFile: "Downloading…",
   },
   filesView: {
     chatPlaceholder: "Ask about this file…",

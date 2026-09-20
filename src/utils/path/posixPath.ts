@@ -39,3 +39,12 @@ export function normalizeWorkspacePath(path: string): string | null {
   }
   return stack.length === 0 ? null : stack.join("/");
 }
+
+// The last segment of a workspace path — the name a download should be
+// saved under. A path with no segment left (empty, or ending in "/")
+// yields the fallback, because an anchor with `download=""` saves the
+// file as "download" with no extension instead.
+export function workspaceBasename(path: string, fallback: string): string {
+  const last = path.split("/").pop() ?? "";
+  return last === "" ? fallback : last;
+}

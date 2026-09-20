@@ -550,6 +550,8 @@ const esMessages = {
     openInOs: "Abrir en el SO",
     openingInOs: "Abriendo…",
     openInOsFailed: "No se pudo abrir en el SO",
+    downloadFile: "Descargar",
+    downloadingFile: "Descargando…",
   },
   filesView: {
     chatPlaceholder: "Pregunta sobre este archivo…",
