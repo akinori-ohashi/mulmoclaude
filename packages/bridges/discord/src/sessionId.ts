@@ -54,8 +54,13 @@ export function parseGranularity(raw: string | undefined): SessionGranularity {
  *  ungated would hand a category id to the allowlist and to session
  *  keying.
  *
- *  An uncached parent reads as not sendable, which costs only the fold in
- *  `channel` mode — never the allow decision, which runs off the id alone. */
+ *  An uncached parent reads as not sendable. Unreachable as the bridge is
+ *  configured — `Guild._patch` caches every channel in the GUILD_CREATE
+ *  payload and the `Guilds` intent is always on — so this is only about which
+ *  way a defensive branch fails. Not folding costs an extra session, which a
+ *  user can see; folding onto a parent that turns out to be a forum costs the
+ *  reply, which nobody sees. It never touches the allow decision, which runs
+ *  off the id alone. */
 export function readChannelRef(channelId: string, channel: ChannelLike): MessageChannelRef {
   if (!channel.isThread()) return { channelId };
   const parentId = channel.parentId ?? undefined;

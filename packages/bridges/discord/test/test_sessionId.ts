@@ -72,7 +72,7 @@ describe("readChannelRef", () => {
     });
   });
 
-  it("an uncached parent reads as not sendable rather than throwing", () => {
+  it("defensive: an uncached parent reads as not sendable rather than throwing", () => {
     assert.deepEqual(readChannelRef(THREAD, threadWithUncachedParent(PARENT_CHANNEL)), {
       channelId: THREAD,
       parentChannel: { id: PARENT_CHANNEL, sendable: false },
@@ -178,7 +178,7 @@ describe("buildExternalChatId", () => {
     assert.equal(buildExternalChatId(ref, "channel"), THREAD);
   });
 
-  it("channel mode: a thread with an uncached parent keeps its own, deliverable id", () => {
+  it("defensive: an uncached parent keeps the thread's own, deliverable id rather than risking a forum", () => {
     const ref = readChannelRef(THREAD, threadWithUncachedParent(PARENT_CHANNEL));
     assert.equal(buildExternalChatId(ref, "channel"), THREAD);
   });
