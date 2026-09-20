@@ -16,6 +16,8 @@ Files posted with a message are downloaded from Discord's CDN and forwarded to M
 
 A Discord thread is a **channel of its own** — it has its own id, separate from the channel it hangs off. That single fact drives both settings below.
 
+> **Check the bot's permissions first.** Posting inside a thread needs `Send Messages in Threads`, which Discord treats as separate from `Send Messages`. Without it the bot receives thread messages and silently fails to reply. See [Setup](#3-invite-the-bot-to-your-server).
+
 ### The allowlist judges a thread by its parent channel
 
 `DISCORD_ALLOWED_CHANNELS` used to compare a thread against its own id, and a thread's id is minted fresh every time someone opens one. So the allowlist and threads could not be used together: you had to paste each new thread's id into `.env` and restart, or leave the list empty and let the bot answer in every channel it can see.
@@ -88,7 +90,9 @@ Notes:
 
 **OAuth2** → **URL Generator**:
 - Scopes: `bot`
-- Permissions: `Send Messages`, `Read Message History`
+- Permissions: `Send Messages`, `Send Messages in Threads`, `Read Message History`
+
+`Send Messages in Threads` is a **separate** Discord permission from `Send Messages` — a bot granted only the latter receives messages posted in a thread and then fails to reply to them. Grant both, or the bot will look silent inside every thread. Already-invited bots do not pick up a new permission from a fresh invite URL alone; add it to the bot's role, or to the channel's permission overwrites.
 
 Copy the generated URL and open it in your browser to invite the bot.
 
