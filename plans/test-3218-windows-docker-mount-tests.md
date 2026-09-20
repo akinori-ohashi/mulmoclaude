@@ -63,6 +63,18 @@ fixture のパスをホストの `path.join()` / `mkdtempSync()` で綴ってい
 | `test/utils/test_claudeConfigEnv.ts` | 子プロセスの probe が渡す platform をホストに |
 | `test/workspace/test_reference_dirs.ts` | NTFS 不可名の 5 件を skip / symlink 系 describe の platform をホストに＋mount arg の解析を Windows 安全に |
 
+## なぜ二度見逃されたか（この PR では直さない）
+
+`lint_test (Windows)` は `pull_request` では `server/utils/launcher/**` /
+`test/utils/launcher/**` / `packages/client/**` に触れた PR でしか走らない
+（Windows ランナーのコストを避けるため #1585・#2613 で意図的に絞ったもの）。
+#3188 も #3193 もそのパスに触れていないのでマージ前に Windows が走らず、赤は
+push-to-main の run で初めて出た。その時点で main は既に赤だったので、どの PR の赤か
+分からなくなっていた。
+
+paths を広げる案は検討した上で見送る。Windows ランナーのコストを避けるという既存の
+判断を優先し、このブランチの検証は `workflow_dispatch` の手動実行で行う。
+
 ## 検証
 
 - ローカル（macOS）: `yarn format` → `yarn build:packages` → `yarn typecheck` → `yarn lint` → `yarn build`、
