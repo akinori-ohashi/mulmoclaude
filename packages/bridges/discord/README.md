@@ -115,8 +115,8 @@ npx @mulmobridge/discord
 | Variable | Required | Description |
 |---|---|---|
 | `DISCORD_BOT_TOKEN` | Yes | Bot token from Developer Portal |
-| `DISCORD_ALLOWED_CHANNELS` | No | CSV of channel IDs to restrict (empty = all). A thread is admitted by its **parent** channel — see [Threads](#threads) |
-| `DISCORD_SESSION_GRANULARITY` | No | `thread` *(default)* \| `channel`. Whether a thread is its own session or joins its parent channel's. See [Threads](#threads) |
+| `DISCORD_ALLOWED_CHANNELS` | No | CSV of channel IDs to restrict (empty = all). A thread is admitted by its **parent** channel, or by its own id — see [Threads](#threads) |
+| `DISCORD_SESSION_GRANULARITY` | No | `thread` *(default)* \| `channel`. Whether a thread is its own session or joins its parent channel's. `channel` folds only onto a parent that is postable and allow-listed. See [Threads](#threads) |
 | `MULMOCLAUDE_API_URL` | No | Default: auto (`.server-port`; waits if nothing is published) |
 | `MULMOCLAUDE_AUTH_TOKEN` | No | Bearer token (auto-read from workspace) |
 | `DISCORD_BRIDGE_DEFAULT_ROLE` | No | Role id to seed new bridge sessions with (e.g. `coder`, `general`). Applied ONLY when a discord session first appears — once the user switches role via `/role <id>` the session's own role wins. Unknown role ids silently fall back to the server's default with a warn log. |
