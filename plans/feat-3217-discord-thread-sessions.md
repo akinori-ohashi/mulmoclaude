@@ -85,7 +85,7 @@ export interface MessageChannelRef {
 export function parseGranularity(raw: string | undefined): SessionGranularity;
 export function readChannelRef(channelId: string, channel: ChannelLike): MessageChannelRef;
 export function isChannelAllowed(ref: MessageChannelRef, allowed: ReadonlySet<string>): boolean;
-export function buildExternalChatId(ref: MessageChannelRef, mode: SessionGranularity): string;
+export function buildExternalChatId(ref: MessageChannelRef, mode: SessionGranularity, allowed: ReadonlySet<string>): string;
 ```
 
 `isChannelAllowed` admits a message when the allowlist is empty, when it
@@ -103,6 +103,16 @@ the reply is lost. `channel` mode therefore folds only onto a parent
 that can actually receive a message, and an uncached parent (kind
 unknown) is treated the same way. The allow decision is deliberately
 NOT gated on this — a forum id is a perfectly good allowlist entry.
+
+Folding is refused on a second ground too, which is why
+`buildExternalChatId` takes the allowlist: a parent the allowlist does not
+cover is a channel the operator chose not to permit. A thread allowed by
+its OWN id hangs off such a parent, and folding there would aim
+server-initiated pushes at it, since `onPushEvent` does not consult the
+allowlist. Both refusals are one invariant — **a session is only ever keyed
+to a channel the bridge may actually talk in** — and that invariant is swept
+over real channel objects in `test/test_discordChannels.ts` rather than
+spot-checked.
 
 `src/index.ts` keeps the ordering it has: the allow check still runs
 before any attachment is fetched, so a denied thread never makes the

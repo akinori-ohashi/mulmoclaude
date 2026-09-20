@@ -168,11 +168,12 @@ describe("every session id we can produce is one onPushEvent can deliver to", ()
     ["thread", TEXT_THREAD_ID, textThread],
     ["forum post", FORUM_POST_ID, forumPost],
   ];
+  const allowAll = new Set<string>();
 
   everyChannel.forEach(([label, channelId, channel]) => {
     everyMode.forEach((mode) => {
       it(`${label} in ${mode} mode`, () => {
-        const sessionId = buildExternalChatId(readChannelRef(channelId, channel), mode);
+        const sessionId = buildExternalChatId(readChannelRef(channelId, channel), mode, allowAll);
         assert.equal(passesPushGuard(sessionId), true, `session id ${sessionId} cannot receive a push`);
       });
     });
@@ -181,5 +182,65 @@ describe("every session id we can produce is one onPushEvent can deliver to", ()
   it("and the guard really does reject a forum and a category, so the assertions above are not vacuous", () => {
     assert.equal(passesPushGuard(FORUM_ID), false);
     assert.equal(passesPushGuard(CATEGORY_ID), false);
+  });
+});
+
+// The second half of the same invariant: a session id must also name a channel
+// the OPERATOR permitted, not merely one Discord would accept a message for.
+//
+// "Permitted" is asked the same way the message handler asks it — of the
+// channel WITH its parent — because a thread is legitimately admitted by its
+// parent. Asking of the bare id would call every thread session unauthorized.
+describe("every session id we can produce is one the allowlist would admit a message from", () => {
+  const byId = new Map<string, Parameters<typeof readChannelRef>[1]>([
+    [TEXT_CHANNEL_ID, textChannel],
+    [TEXT_THREAD_ID, textThread],
+    [FORUM_ID, forum],
+    [FORUM_POST_ID, forumPost],
+  ]);
+  const refFor = (channelId: string) => {
+    const channel = byId.get(channelId);
+    assert.ok(channel !== undefined, `no channel object for ${channelId}`);
+    return readChannelRef(channelId, channel);
+  };
+
+  const everyMode: SessionGranularity[] = ["thread", "channel"];
+  const everyAllowlist: [string, Set<string>][] = [
+    ["empty (allow all)", new Set()],
+    ["the parent text channel", new Set([TEXT_CHANNEL_ID])],
+    ["the thread's own id only — the legacy .env workaround", new Set([TEXT_THREAD_ID])],
+    ["the forum", new Set([FORUM_ID])],
+  ];
+  const everyIncomingChannel: [string, string][] = [
+    ["thread", TEXT_THREAD_ID],
+    ["forum post", FORUM_POST_ID],
+  ];
+
+  everyAllowlist.forEach(([allowlistLabel, allowed]) => {
+    everyMode.forEach((mode) => {
+      everyIncomingChannel.forEach(([channelLabel, channelId]) => {
+        it(`${channelLabel}, allowlist = ${allowlistLabel}, ${mode} mode`, () => {
+          const ref = refFor(channelId);
+          // A denied message never reaches session keying at all.
+          if (!isChannelAllowed(ref, allowed)) return;
+          const sessionId = buildExternalChatId(ref, mode, allowed);
+          assert.equal(isChannelAllowed(refFor(sessionId), allowed), true, `session id ${sessionId} names a channel the allowlist would not admit`);
+          assert.equal(passesPushGuard(sessionId), true, `session id ${sessionId} cannot receive a push`);
+        });
+      });
+    });
+  });
+
+  // Without this the sweep above could pass by never folding at all.
+  it("folding does still happen when the parent is both sendable and allowed", () => {
+    const allowed = new Set([TEXT_CHANNEL_ID]);
+    assert.equal(buildExternalChatId(refFor(TEXT_THREAD_ID), "channel", allowed), TEXT_CHANNEL_ID);
+  });
+
+  // And this is the case the sweep exists to catch: before folding was gated on
+  // the parent being allowed, this returned the unlisted parent.
+  it("a thread admitted by its own id does not fold onto its unlisted parent", () => {
+    const allowed = new Set([TEXT_THREAD_ID]);
+    assert.equal(buildExternalChatId(refFor(TEXT_THREAD_ID), "channel", allowed), TEXT_THREAD_ID);
   });
 });

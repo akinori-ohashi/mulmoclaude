@@ -89,7 +89,7 @@ async function onMessageCreate(msg: Message): Promise<void> {
   const files = [...msg.attachments.values()];
   if (text.length === 0 && files.length === 0) return;
 
-  const externalChatId = buildExternalChatId(channelRef, granularity);
+  const externalChatId = buildExternalChatId(channelRef, granularity, allowedChannels);
   console.log(
     `[discord] message channel=${channelRef.channelId} parent=${channelRef.parentChannel?.id ?? "-"} session=${externalChatId} user=${msg.author.tag} len=${text.length} attachments=${files.length}`,
   );

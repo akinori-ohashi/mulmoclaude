@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildExternalChatId, isChannelAllowed, parseGranularity, readChannelRef } from "../src/sessionId.ts";
+import { buildExternalChatId, isChannelAllowed, parseGranularity, readChannelRef, type SessionGranularity } from "../src/sessionId.ts";
 
 // Real-shaped snowflakes so a reader can tell the three roles apart.
 const PARENT_CHANNEL = "111111111111111111";
@@ -149,25 +149,28 @@ describe("isChannelAllowed", () => {
 describe("buildExternalChatId", () => {
   const inThread = { channelId: THREAD, parentChannel: { id: PARENT_CHANNEL, sendable: true } };
   const notInThread = { channelId: OTHER_CHANNEL };
+  // Most cases are about granularity, not authorization, so they run with the
+  // "allow all" sentinel; the allowlist-specific cases pass their own set.
+  const allowAll = new Set<string>();
 
   it("thread mode: a thread keys its own session", () => {
-    assert.equal(buildExternalChatId(inThread, "thread"), THREAD);
+    assert.equal(buildExternalChatId(inThread, "thread", allowAll), THREAD);
   });
 
   it("thread mode: a non-thread message keys the channel", () => {
-    assert.equal(buildExternalChatId(notInThread, "thread"), OTHER_CHANNEL);
+    assert.equal(buildExternalChatId(notInThread, "thread", allowAll), OTHER_CHANNEL);
   });
 
   it("channel mode: a thread folds into its parent channel", () => {
-    assert.equal(buildExternalChatId(inThread, "channel"), PARENT_CHANNEL);
+    assert.equal(buildExternalChatId(inThread, "channel", allowAll), PARENT_CHANNEL);
   });
 
   it("channel mode: a non-thread message keys the channel", () => {
-    assert.equal(buildExternalChatId(notInThread, "channel"), OTHER_CHANNEL);
+    assert.equal(buildExternalChatId(notInThread, "channel", allowAll), OTHER_CHANNEL);
   });
 
   it("channel mode: a parentless thread falls back to its own id rather than producing nothing", () => {
-    assert.equal(buildExternalChatId({ channelId: THREAD }, "channel"), THREAD);
+    assert.equal(buildExternalChatId({ channelId: THREAD }, "channel", allowAll), THREAD);
   });
 
   // Keying a session by a forum id would strand every server-initiated push:
@@ -175,21 +178,56 @@ describe("buildExternalChatId", () => {
   // and a ForumChannel is neither.
   it("channel mode: a forum post does NOT fold onto its unsendable forum", () => {
     const ref = readChannelRef(THREAD, forumPost(FORUM));
-    assert.equal(buildExternalChatId(ref, "channel"), THREAD);
+    assert.equal(buildExternalChatId(ref, "channel", allowAll), THREAD);
   });
 
   it("defensive: an uncached parent keeps the thread's own, deliverable id rather than risking a forum", () => {
     const ref = readChannelRef(THREAD, threadWithUncachedParent(PARENT_CHANNEL));
-    assert.equal(buildExternalChatId(ref, "channel"), THREAD);
+    assert.equal(buildExternalChatId(ref, "channel", allowAll), THREAD);
   });
 
   it("thread mode: a forum post keys its own session, as every thread does", () => {
     const ref = readChannelRef(THREAD, forumPost(FORUM));
-    assert.equal(buildExternalChatId(ref, "thread"), THREAD);
+    assert.equal(buildExternalChatId(ref, "thread", allowAll), THREAD);
   });
 
   it("the two modes agree whenever the message is not in a thread", () => {
-    assert.equal(buildExternalChatId(notInThread, "thread"), buildExternalChatId(notInThread, "channel"));
+    assert.equal(buildExternalChatId(notInThread, "thread", allowAll), buildExternalChatId(notInThread, "channel", allowAll));
+  });
+
+  // A thread admitted by its OWN id (the legacy `.env` workaround) hangs off a
+  // parent the operator never listed. Folding there would aim server-initiated
+  // pushes at a channel that was deliberately excluded — `onPushEvent` does not
+  // consult the allowlist.
+  it("channel mode: does NOT fold onto a parent the allowlist does not cover", () => {
+    assert.equal(buildExternalChatId(inThread, "channel", new Set([THREAD])), THREAD);
+  });
+
+  it("channel mode: folds once the parent IS listed", () => {
+    assert.equal(buildExternalChatId(inThread, "channel", new Set([PARENT_CHANNEL])), PARENT_CHANNEL);
+  });
+
+  it("channel mode: folds when the allowlist is empty, since everything is permitted then", () => {
+    assert.equal(buildExternalChatId(inThread, "channel", allowAll), PARENT_CHANNEL);
+  });
+
+  // Folding is the only way a session id can differ from the channel the
+  // message arrived in, so it is the only way one can name a channel the
+  // operator never listed. Whenever it declines to fold, the id is the
+  // message's own channel — permitted by construction, since the message got
+  // through. `test_discordChannels.ts` states the same invariant over real
+  // channel objects, where "permitted" can be asked properly.
+  it("it only ever returns the message's own channel or a parent the allowlist lists", () => {
+    const allowlists = [allowAll, new Set([THREAD]), new Set([PARENT_CHANNEL]), new Set([THREAD, PARENT_CHANNEL])];
+    const modes: SessionGranularity[] = ["thread", "channel"];
+    allowlists.forEach((allowed) => {
+      modes.forEach((mode) => {
+        const sessionId = buildExternalChatId(inThread, mode, allowed);
+        const isOwnChannel = sessionId === THREAD;
+        const isListedParent = sessionId === PARENT_CHANNEL && isChannelAllowed({ channelId: PARENT_CHANNEL }, allowed);
+        assert.ok(isOwnChannel || isListedParent, `${sessionId} under ${[...allowed]} in ${mode} mode is neither`);
+      });
+    });
   });
 });
 
@@ -199,12 +237,12 @@ describe("end to end over a message's channel object", () => {
   it("a thread under an allowed channel: admitted, own session by default", () => {
     const ref = readChannelRef(THREAD, threadChannel(PARENT_CHANNEL));
     assert.equal(isChannelAllowed(ref, allowed), true);
-    assert.equal(buildExternalChatId(ref, parseGranularity(undefined)), THREAD);
+    assert.equal(buildExternalChatId(ref, parseGranularity(undefined), allowed), THREAD);
   });
 
   it("the same thread under DISCORD_SESSION_GRANULARITY=channel: admitted, parent's session", () => {
     const ref = readChannelRef(THREAD, threadChannel(PARENT_CHANNEL));
-    assert.equal(buildExternalChatId(ref, parseGranularity("channel")), PARENT_CHANNEL);
+    assert.equal(buildExternalChatId(ref, parseGranularity("channel"), allowed), PARENT_CHANNEL);
   });
 
   it("a thread under a channel that is NOT allowed stays denied", () => {

@@ -66,6 +66,7 @@ Use this when threads are just a tidier way to lay out **one** running conversat
 Notes:
 
 - **A forum post never folds**, in either mode. Discord does not allow posting into a forum channel itself — you open a post — so a session keyed by the forum id would have nowhere to deliver a server-initiated message. A forum post is its own conversation anyway; there is no channel-level talk to fold it into. The forum id still works in `DISCORD_ALLOWED_CHANNELS`.
+- **A thread never folds onto a parent your allowlist does not cover.** If you allow a thread by its own id — the older workaround — its parent channel is not thereby allowed, so `channel` mode keeps that thread's own session rather than aiming replies at a channel you chose to leave out. Both rules are the same invariant: a session is only ever keyed to a channel the bot may actually talk in.
 - The value is case-insensitive. Anything other than `thread` or `channel` makes the bridge exit at startup rather than guess — including Slack's `auto`, which has no separate meaning here.
 - The default differs from [`@mulmobridge/slack`](https://www.npmjs.com/package/@mulmobridge/slack), where `SLACK_SESSION_GRANULARITY` defaults to `channel`. A Slack thread is a facet of a channel; a Discord thread is a channel. Set both explicitly if you run the two bridges and want them to match.
 - Switching modes does not delete anything. It only changes how *new* messages map to sessions — old conversations stay in the MulmoClaude UI, and the AI does not port their context into the new ones.

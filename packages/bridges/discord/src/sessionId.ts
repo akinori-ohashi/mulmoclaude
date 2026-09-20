@@ -94,12 +94,22 @@ export function isChannelAllowed(ref: MessageChannelRef, allowedChannels: Readon
  *  id the server hands back resolves through `channels.fetch()` whether it
  *  names a thread or a text channel.
  *
- *  A thread under a FORUM never folds, whatever the mode. A forum channel
- *  cannot be posted to — `isSendable()` is false — so its id would key a
- *  session the server can never push a reply into, and the reply would be
- *  dropped by the push guard with only a warn line. A forum post is its own
- *  conversation anyway; there is no channel-level talk to fold it into. */
-export function buildExternalChatId(ref: MessageChannelRef, mode: SessionGranularity): string {
-  if (mode === "thread") return ref.channelId;
-  return ref.parentChannel?.sendable === true ? ref.parentChannel.id : ref.channelId;
+ *  Folding is refused on two grounds, and both reduce to one invariant: a
+ *  session id must name a channel the bridge may actually talk in.
+ *
+ *  - A FORUM parent cannot be posted to at all (`isSendable()` is false —
+ *    Discord has you open a post), so its id would key a session the server
+ *    can never push a reply into; the push guard drops it with only a warn
+ *    line. A forum post is its own conversation anyway.
+ *  - A parent the ALLOWLIST does not cover is a channel the operator chose
+ *    not to permit. A thread admitted by its own id (the legacy `.env`
+ *    workaround) hangs off such a parent, and folding there would aim
+ *    server-initiated pushes at it — `onPushEvent` does not consult the
+ *    allowlist. Keeping the thread's own id is safe by construction: the
+ *    message reached us, so that channel is permitted. */
+export function buildExternalChatId(ref: MessageChannelRef, mode: SessionGranularity, allowedChannels: ReadonlySet<string>): string {
+  const { channelId, parentChannel } = ref;
+  if (mode === "thread" || parentChannel === undefined) return channelId;
+  const mayFold = parentChannel.sendable && isChannelAllowed({ channelId: parentChannel.id }, allowedChannels);
+  return mayFold ? parentChannel.id : channelId;
 }
