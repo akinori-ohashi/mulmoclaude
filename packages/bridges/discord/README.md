@@ -12,6 +12,67 @@ Files posted with a message are downloaded from Discord's CDN and forwarded to M
 - Images and PDFs reach Claude directly; text, DOCX, XLSX and PPTX are converted server-side. Other types are skipped with a log line.
 - Attachments arrive over the **Message Content Intent**, the same privileged intent the bot already needs to read text.
 
+## Threads
+
+A Discord thread is a **channel of its own** — it has its own id, separate from the channel it hangs off. That single fact drives both settings below.
+
+> **Check the bot's permissions first.** Posting inside a thread needs `Send Messages in Threads`, which Discord treats as separate from `Send Messages`. Without it the bot receives thread messages and silently fails to reply. See [Setup](#3-invite-the-bot-to-your-server).
+
+### The allowlist judges a thread by its parent channel
+
+`DISCORD_ALLOWED_CHANNELS` used to compare a thread against its own id, and a thread's id is minted fresh every time someone opens one. So the allowlist and threads could not be used together: you had to paste each new thread's id into `.env` and restart, or leave the list empty and let the bot answer in every channel it can see.
+
+Now a message in a thread is admitted when the **parent channel** is listed. Allow `#ai-help` once and every thread under it works, with the permitted area still closed at that channel. Listing a thread's own id also still works, so an existing `.env` keeps behaving as it did.
+
+### `DISCORD_SESSION_GRANULARITY` — one session per thread, or per channel
+
+> **What's a "session"?** In MulmoClaude a *session* is one continuous conversation — it remembers what you said earlier and builds on it. This setting decides how many sessions one Discord channel maps to.
+
+#### 🧵 `thread` (default) — a thread is its own conversation
+
+```text
+#ai-help
+├── Alice: "Summarize yesterday's standup"        → session: #ai-help
+│
+├── 🧵 Deploy question
+│   ├── Bob: "What's the rollback procedure?"     ┐
+│   └── Bob: "And who approves it?"               ┘ → its own session
+│
+└── 🧵 Translation task
+    ├── Alice: "Translate the release notes"      ┐
+    └── Alice: "Now make it shorter"              ┘ → its own session
+```
+
+Open a thread for each topic and the AI keeps them apart — Bob's deploy question never mixes into Alice's translation. Because a thread carries its own id, this is what the bridge has always done for threads that reached it; the default keeps that.
+
+#### 🗂 `channel` — every thread joins its parent channel's conversation
+
+```text
+#ai-help
+├── Alice: "Summarize yesterday's standup"        ┐
+├── 🧵 Deploy question                            │
+│   └── Bob: "What's the rollback procedure?"     ├ one session, keyed by #ai-help
+└── 🧵 Translation task                           │
+    └── Alice: "Translate the release notes"      ┘
+```
+
+Use this when threads are just a tidier way to lay out **one** running conversation and you want the AI to carry context across all of them. Watch out: a long-lived channel session accumulates context, so answers get slower and pull in stale details.
+
+| | `thread` *(default)* | `channel` |
+|---|---|---|
+| Message in a channel | channel session | channel session |
+| Message in a thread | **thread session** | **parent channel session** |
+| Post in a **forum** channel | thread session | thread session |
+| DM | one session per DM | one session per DM |
+
+Notes:
+
+- **A forum post never folds**, in either mode. Discord does not allow posting into a forum channel itself — you open a post — so a session keyed by the forum id would have nowhere to deliver a server-initiated message. A forum post is its own conversation anyway; there is no channel-level talk to fold it into. The forum id still works in `DISCORD_ALLOWED_CHANNELS`.
+- **A thread never folds onto a parent your allowlist does not cover.** If you allow a thread by its own id — the older workaround — its parent channel is not thereby allowed, so `channel` mode keeps that thread's own session rather than aiming replies at a channel you chose to leave out. Both rules are the same invariant: a session is only ever keyed to a channel the bot may actually talk in.
+- The value is case-insensitive. Anything other than `thread` or `channel` makes the bridge exit at startup rather than guess — including Slack's `auto`, which has no separate meaning here.
+- The default differs from [`@mulmobridge/slack`](https://www.npmjs.com/package/@mulmobridge/slack), where `SLACK_SESSION_GRANULARITY` defaults to `channel`. A Slack thread is a facet of a channel; a Discord thread is a channel. Set both explicitly if you run the two bridges and want them to match.
+- Switching modes does not delete anything. It only changes how *new* messages map to sessions — old conversations stay in the MulmoClaude UI, and the AI does not port their context into the new ones.
+
 ## Setup
 
 ### 1. Create a Discord Application
@@ -29,7 +90,9 @@ Files posted with a message are downloaded from Discord's CDN and forwarded to M
 
 **OAuth2** → **URL Generator**:
 - Scopes: `bot`
-- Permissions: `Send Messages`, `Read Message History`
+- Permissions: `Send Messages`, `Send Messages in Threads`, `Read Message History`
+
+`Send Messages in Threads` is a **separate** Discord permission from `Send Messages` — a bot granted only the latter receives messages posted in a thread and then fails to reply to them. Grant both, or the bot will look silent inside every thread. Already-invited bots do not pick up a new permission from a fresh invite URL alone; add it to the bot's role, or to the channel's permission overwrites.
 
 Copy the generated URL and open it in your browser to invite the bot.
 
@@ -52,7 +115,8 @@ npx @mulmobridge/discord
 | Variable | Required | Description |
 |---|---|---|
 | `DISCORD_BOT_TOKEN` | Yes | Bot token from Developer Portal |
-| `DISCORD_ALLOWED_CHANNELS` | No | CSV of channel IDs to restrict (empty = all) |
+| `DISCORD_ALLOWED_CHANNELS` | No | CSV of channel IDs to restrict (empty = all). A thread is admitted by its **parent** channel, or by its own id — see [Threads](#threads) |
+| `DISCORD_SESSION_GRANULARITY` | No | `thread` *(default)* \| `channel`. Whether a thread is its own session or joins its parent channel's. `channel` folds only onto a parent that is postable and allow-listed. See [Threads](#threads) |
 | `MULMOCLAUDE_API_URL` | No | Default: auto (`.server-port`; waits if nothing is published) |
 | `MULMOCLAUDE_AUTH_TOKEN` | No | Bearer token (auto-read from workspace) |
 | `DISCORD_BRIDGE_DEFAULT_ROLE` | No | Role id to seed new bridge sessions with (e.g. `coder`, `general`). Applied ONLY when a discord session first appears — once the user switches role via `/role <id>` the session's own role wins. Unknown role ids silently fall back to the server's default with a warn log. |
