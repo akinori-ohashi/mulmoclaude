@@ -42,7 +42,7 @@ describe("extractIncomingLineMessage — text branch", () => {
 
   it("returns null when source.userId is missing", () => {
     assert.equal(extractIncomingLineMessage(textEvent({ source: { type: "user" } })), null);
-    assert.equal(extractIncomingLineMessage(textEvent({ source: undefined })), null);
+    assert.equal(extractIncomingLineMessage({ type: "message", message: { type: "text", text: "hello" } }), null);
   });
 
   it("returns null for empty / whitespace text", () => {
@@ -78,7 +78,7 @@ describe("extractIncomingLineMessage — image branch (#1222 PR-C)", () => {
   });
 
   it("still requires source.userId for images", () => {
-    assert.equal(extractIncomingLineMessage(imageEvent({ source: undefined })), null);
+    assert.equal(extractIncomingLineMessage({ type: "message", message: { type: "image", id: "msg-img-9999" } }), null);
   });
 });
 

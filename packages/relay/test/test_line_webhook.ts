@@ -48,7 +48,10 @@ describe("parseLineMessageEvent", () => {
   });
 
   it("uses 'unknown' for both fields when source is missing entirely", () => {
-    const out = parseLineMessageEvent(textEvent({ source: undefined }));
+    // Built directly rather than via textEvent: the case is an ABSENT source,
+    // and an explicit `undefined` is a different type under
+    // `exactOptionalPropertyTypes` — as well as a different thing.
+    const out = parseLineMessageEvent({ type: "message", message: { type: "text", text: "hello" }, replyToken: "tok-1" });
     assert.deepEqual(out, { chatId: "unknown", senderId: "unknown", text: "hello", replyToken: "tok-1" });
   });
 
@@ -82,6 +85,6 @@ describe("parseLineMessageEvent", () => {
   });
 
   it("returns undefined replyToken when not present", () => {
-    assert.equal(parseLineMessageEvent(textEvent({ replyToken: undefined }))?.replyToken, undefined);
+    assert.equal(parseLineMessageEvent({ type: "message", message: { type: "text", text: "hello" }, source: { userId: "U123" } })?.replyToken, undefined);
   });
 });

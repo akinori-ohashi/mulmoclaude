@@ -8,8 +8,11 @@ describe("formatAckReply", () => {
   });
 
   it("returns empty string when ok with no reply", () => {
+    // `{ ok: true, reply: undefined }` is not a separate case: formatAckReply
+    // reads `ack.reply ?? ""` and never asks whether the key is present, so an
+    // absent key and an explicit undefined reach the same branch. It is also
+    // not a shape the wire can produce — JSON carries absent or null.
     assert.equal(formatAckReply({ ok: true }), "");
-    assert.equal(formatAckReply({ ok: true, reply: undefined }), "");
   });
 
   it("preserves an empty-string reply on success", () => {

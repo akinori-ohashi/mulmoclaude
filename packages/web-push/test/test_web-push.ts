@@ -17,6 +17,15 @@ const okOpts = (over: Partial<SendWebPushOptions> = {}): SendWebPushOptions => (
   ...over,
 });
 
+/** `calls[0]` is `T | undefined` under `noUncheckedIndexedAccess`. Asserting it
+ *  first states the precondition each case already relies on, and turns a
+ *  "cannot read property of undefined" into a named failure. */
+const firstCall = <T>(calls: T[]): T => {
+  const call = calls[0];
+  assert.ok(call !== undefined, "expected fetch to have been called at least once");
+  return call;
+};
+
 test("buildSendPushBody wraps title/body in the onCall data envelope", () => {
   assert.deepEqual(JSON.parse(buildSendPushBody("✅ proj", "done")), { data: { title: "✅ proj", body: "done" } });
 });
@@ -65,19 +74,20 @@ test("sendWebPush POSTs the bearer token + data body and returns the parsed resu
   const result = await sendWebPush("✅ proj", "done", okOpts({ fetchImpl }));
   assert.deepEqual(result, { sent: 2, failed: 0, targets: 2 });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, DEFAULT_SEND_PUSH_URL);
-  assert.equal(calls[0].init.method, "POST");
-  const headers = calls[0].init.headers as Record<string, string>;
+  const call = firstCall(calls);
+  assert.equal(call.url, DEFAULT_SEND_PUSH_URL);
+  assert.equal(call.init.method, "POST");
+  const headers = call.init.headers as Record<string, string>;
   assert.equal(headers.authorization, "Bearer id-token-123");
   assert.equal(headers["content-type"], "application/json");
-  assert.deepEqual(JSON.parse(calls[0].init.body as string), { data: { title: "✅ proj", body: "done" } });
+  assert.deepEqual(JSON.parse(call.init.body as string), { data: { title: "✅ proj", body: "done" } });
 });
 
 test("sendWebPush honours a custom url", async () => {
   const custom = "https://asia-northeast1-example.cloudfunctions.net/sendPush";
   const { fetchImpl, calls } = makeFetch(() => ({ ok: true, json: async () => ({ result: { sent: 1, failed: 0, targets: 1 } }) }));
   await sendWebPush("t", "b", okOpts({ fetchImpl, url: custom }));
-  assert.equal(calls[0].url, custom);
+  assert.equal(firstCall(calls).url, custom);
 });
 
 test("sendWebPush returns null on a non-2xx response", async () => {
@@ -137,14 +147,14 @@ test("sendWebPush forwards options.data to the request body", async () => {
   const { fetchImpl, calls } = makeFetch(() => ({ ok: true, json: async () => ({ result: { sent: 1, failed: 0, targets: 1 } }) }));
   await sendWebPush("done", "ok", okOpts({ fetchImpl, data: { sessionId: "xyz" } }));
   assert.equal(calls.length, 1);
-  const sent = JSON.parse(String(calls[0].init.body)) as { data: { data?: unknown } };
+  const sent = JSON.parse(String(firstCall(calls).init.body)) as { data: { data?: unknown } };
   assert.deepEqual(sent.data.data, { sessionId: "xyz" });
 });
 
 test("sendWebPush omits data when the caller passes none (back-compat)", async () => {
   const { fetchImpl, calls } = makeFetch(() => ({ ok: true, json: async () => ({ result: { sent: 1, failed: 0, targets: 1 } }) }));
   await sendWebPush("done", "ok", okOpts({ fetchImpl }));
-  const sent = JSON.parse(String(calls[0].init.body)) as { data: Record<string, unknown> };
+  const sent = JSON.parse(String(firstCall(calls).init.body)) as { data: Record<string, unknown> };
   assert.ok(!("data" in sent.data), `no routing block expected, got: ${JSON.stringify(sent)}`);
 });
 

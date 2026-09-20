@@ -2,6 +2,16 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createTelegramApi } from "../src/api.ts";
 
+/** `items[index]` is `T | undefined` under `noUncheckedIndexedAccess`. Asserting
+ *  states the precondition each case already relies on — the length was just
+ *  checked — and names the failure instead of throwing on a property of
+ *  undefined. */
+const elementAt = <T>(items: T[], index: number): T => {
+  const item = items[index];
+  assert.ok(item !== undefined, `expected an element at index ${index}, but the list holds ${items.length}`);
+  return item;
+};
+
 interface FakeCall {
   url: string;
   init?: Parameters<typeof fetch>[1];
@@ -41,9 +51,9 @@ describe("TelegramApi.getUpdates", () => {
     });
     await api.getUpdates({ offset: 42, timeoutSec: 25 });
     assert.equal(calls.length, 1);
-    assert.ok(calls[0].url.includes("/botTKN/getUpdates"));
-    assert.ok(calls[0].url.includes("offset=42"));
-    assert.ok(calls[0].url.includes("timeout=25"));
+    assert.ok(elementAt(calls, 0).url.includes("/botTKN/getUpdates"));
+    assert.ok(elementAt(calls, 0).url.includes("offset=42"));
+    assert.ok(elementAt(calls, 0).url.includes("timeout=25"));
   });
 
   it("returns updates on success", async () => {
@@ -68,8 +78,8 @@ describe("TelegramApi.getUpdates", () => {
     });
     const updates = await api.getUpdates();
     assert.equal(updates.length, 1);
-    assert.equal(updates[0].update_id, 1);
-    assert.equal(updates[0].message?.text, "hi");
+    assert.equal(elementAt(updates, 0).update_id, 1);
+    assert.equal(elementAt(updates, 0).message?.text, "hi");
   });
 
   it("throws on non-2xx HTTP status", async () => {

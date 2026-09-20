@@ -8,6 +8,16 @@ import { createPushQueue } from "../src/push-queue.js";
 import type { RelayResult } from "../src/relay.js";
 import type { Logger } from "../src/types.js";
 
+/** `items[index]` is `T | undefined` under `noUncheckedIndexedAccess`. Asserting
+ *  states the precondition each case already relies on — the length was just
+ *  checked, or the collector was asked for exactly this many — and names the
+ *  failure instead of throwing on a property of undefined. */
+const elementAt = <T>(items: readonly T[], index: number): T => {
+  const item = items[index];
+  assert.ok(item !== undefined, `expected an element at index ${index}, but the list holds ${items.length}`);
+  return item;
+};
+
 const silentLogger: Logger = {
   error: () => {},
   warn: () => {},
@@ -111,7 +121,7 @@ describe("pushToBridge — live", () => {
     const pushes = collectPushes(client, 1);
     harness.handle.pushToBridge("cli", "terminal", "hello");
 
-    const [evt] = await pushes;
+    const evt = elementAt(await pushes, 0);
     assert.equal(evt.chatId, "terminal");
     assert.equal(evt.message, "hello");
     assert.equal(harness.queueSizeFor("cli"), 0);
@@ -129,7 +139,9 @@ describe("pushToBridge — live", () => {
 
     harness.handle.pushToBridge("cli", "terminal", "shared");
 
-    const [[aEvt], [bEvt]] = await Promise.all([aPushes, bPushes]);
+    const [aReceived, bReceived] = await Promise.all([aPushes, bPushes]);
+    const aEvt = elementAt(aReceived, 0);
+    const bEvt = elementAt(bReceived, 0);
     assert.equal(aEvt.message, "shared");
     assert.equal(bEvt.message, "shared");
 
@@ -199,7 +211,7 @@ describe("pushToBridge — offline queue + flush on reconnect", () => {
     const a = connectClient(harness.url);
     const firstPush = collectPushes(a, 1);
     await waitConnect(a);
-    const [aEvt] = await firstPush;
+    const aEvt = elementAt(await firstPush, 0);
     assert.equal(aEvt.message, "once");
     assert.equal(harness.queueSizeFor("cli"), 0);
 
@@ -231,7 +243,7 @@ describe("pushToBridge — offline queue + flush on reconnect", () => {
     const b = connectClient(harness.url);
     const pushes = collectPushes(b, 1);
     await waitConnect(b);
-    const [evt] = await pushes;
+    const evt = elementAt(await pushes, 0);
     assert.equal(evt.message, "while-away");
     b.disconnect();
   });

@@ -24,7 +24,7 @@ const silentLogger: Logger = {
 };
 
 interface HarnessOpts {
-  getSessionRole?: (sessionId: string) => Promise<string | null>;
+  getSessionRole?: ((sessionId: string) => Promise<string | null>) | undefined;
 }
 
 interface Harness {
@@ -32,12 +32,12 @@ interface Harness {
   transportsDir: string;
   seedState: (transportId: string, externalChatId: string, roleId: string, sessionId: string) => Promise<void>;
   readState: (transportId: string, externalChatId: string) => Promise<{ sessionId: string; roleId: string } | null>;
-  connectCalls: Array<{ sessionId: string; roleId?: string }>;
+  connectCalls: Array<{ sessionId: string; roleId?: string | undefined }>;
 }
 
 async function startHarness(opts: HarnessOpts = {}): Promise<{ harness: Harness; shutdown: () => Promise<void> }> {
   const transportsDir = mkdtempSync(path.join(tmpdir(), "connect-route-"));
-  const connectCalls: Array<{ sessionId: string; roleId?: string }> = [];
+  const connectCalls: Array<{ sessionId: string; roleId?: string | undefined }> = [];
 
   // Real store for readback, but wrapped to capture connectSession args so we
   // can pin the exact roleId the route passed through.
@@ -61,7 +61,7 @@ async function startHarness(opts: HarnessOpts = {}): Promise<{ harness: Harness;
     defaultRoleId: "general",
     transportsDir,
     logger: silentLogger,
-    getSessionRole: opts.getSessionRole,
+    ...(opts.getSessionRole === undefined ? {} : { getSessionRole: opts.getSessionRole }),
   };
 
   // Swap createChatStateStore's factory so createChatService uses OUR wrapped

@@ -9,7 +9,11 @@ import assert from "node:assert/strict";
 import { envSecret, requireEnvSecret } from "../src/utils/envSecret.js";
 import type { Env } from "../src/types.js";
 
-const envWith = (values: Record<string, unknown>): Env => ({ RELAY: null, RELAY_TOKEN: "t", ...values }) as Env;
+// `Env.RELAY` is a Workers DurableObjectNamespace: not constructible in a node
+// test, and never read by anything under test here — these paths only index
+// string secrets off the env. The two-step assertion says that out loud
+// instead of claiming `null` is a namespace, which is what TS rejected.
+const envWith = (values: Record<string, unknown>): Env => ({ RELAY_TOKEN: "t", ...values }) as unknown as Env;
 
 describe("envSecret", () => {
   it("returns a configured secret", () => {

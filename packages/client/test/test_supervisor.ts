@@ -43,7 +43,10 @@ describe("backoffMs", () => {
   it("never decreases", () => {
     const series = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(backoffMs);
     series.forEach((value, index) => {
-      if (index > 0) assert.ok(value >= series[index - 1], `attempt ${index} waited less than ${index - 1}`);
+      if (index === 0) return;
+      const previous = series[index - 1];
+      assert.ok(previous !== undefined, `series is missing attempt ${index - 1}`);
+      assert.ok(value >= previous, `attempt ${index} waited less than ${index - 1}`);
     });
   });
 
