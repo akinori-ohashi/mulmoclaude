@@ -126,7 +126,7 @@
           :show-detail="Boolean(viewing || editing)"
           @select="onCalendarSelect"
           @create-on="createOnDate"
-          @close="onDayClose"
+          @close="closeRecordSurfaces"
         >
           <template #detail>
             <CollectionRecordPanel
@@ -149,7 +149,7 @@
               @submit="saveEditor"
               @cancel="cancelEditor"
               @edit="editFromView"
-              @close="onDayClose"
+              @close="closeRecordSurfaces"
               @delete="viewing && confirmDelete(viewing)"
               @run-action="runAction"
               @item-chat="onItemChat"
@@ -732,7 +732,7 @@ const {
 // ── Chat entry points (header "chat about collection" + per-record chat box) ──
 // The modal open/close + the skill/feed chat-seed builder live in
 // `useCollectionChat`; the seed shape is core's `skillCommandSeed`.
-const { chatOpen, openChat, closeChat, submitChat, onItemChat } = useCollectionChat({ collection, viewing, cui, props, t });
+const { chatOpen, openChat, closeChat, submitChat, onItemChat } = useCollectionChat({ collection, viewing, cui, props, closeRecord: closeRecordSurfaces, t });
 
 // ── Related-collections pulldown ──────────────────────────────────────
 // Its whole markup AND its `useRelatedMenu` (open-state, click-outside ref,
@@ -1511,13 +1511,21 @@ function onCustomViewOpenItem(payload: { id: string; mode: "view" | "edit" }): v
 }
 
 /** The custom view called `__MC_VIEW.startChat(prompt, role)` — open a new chat
- *  with the prompt prefilled as an editable draft. The host validates `role`
- *  (falls back to General). The view's code only proposes text; the user
- *  approves / edits / sends, so no capability is required. */
-function onCustomViewStartChat(payload: { prompt: string; role?: string | undefined }): void {
+ *  seeded with the prompt. `role` is optional and resolves to General when it
+ *  names no known role, the same way a schema action's role does.
+ *
+ *  Draft by default: the view's code only PROPOSES text, and the user approves /
+ *  edits / sends it, so no capability is required. A view whose `views[]` entry
+ *  declares `allowSendChat: true` sends instead — one press runs the turn (#3062).
+ *  That flag is read off the SCHEMA by the view components, never taken from the
+ *  iframe's message, so the sandbox cannot grant itself the send. */
+function onCustomViewStartChat(payload: { prompt: string; role?: string | undefined; send: boolean }): void {
   const prompt = payload.prompt.trim();
   if (!prompt) return;
-  cui.startNewChatDraft(prompt, payload.role);
+  // `startChat` needs a concrete role where the draft path takes an optional one,
+  // so an omitted role becomes General here rather than host-side.
+  if (payload.send) cui.startChat(prompt, payload.role ?? cui.generalRoleId);
+  else cui.startNewChatDraft(prompt, payload.role);
 }
 
 /** A calendar day cell was activated → open its popup on a clean slate
@@ -1528,12 +1536,13 @@ function onOpenDay(day: Ymd): void {
   openDay.value = day;
 }
 
-/** Close the day popup: drop the open day, the selection, AND any in-progress
- *  draft together. Clearing `editing` matters because the shared record modal
- *  shows whenever `editing` is set and no day is open — so without this, an
- *  edit/create started inside the day popup would re-appear in the centred
- *  modal the instant the popup closed (Codex P2 on #1656). */
-function onDayClose(): void {
+/** Take down every full-screen surface the open record can sit in — the day
+ *  popup, any in-progress draft, and the detail itself. Clearing `editing`
+ *  matters because the shared record modal shows whenever `editing` is set and
+ *  no day is open — so without this, an edit/create started inside the day
+ *  popup would re-appear in the centred modal the instant the popup closed
+ *  (Codex P2 on #1656). */
+function closeRecordSurfaces(): void {
   openDay.value = null;
   if (editing.value) closeEditor();
   closeView();

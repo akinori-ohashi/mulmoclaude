@@ -1,6 +1,6 @@
 {
   "name": "@mulmoclaude/markdown-utils",
-  "version": "2.3.0",
+  "version": "3.0.0",
   "description": "Browser-safe markdown / image rendering utilities shared by the MulmoClaude host and the markdown plugin",
   "type": "module",
   "main": "./dist/index.js",
@@ -26,7 +26,7 @@
   "scripts": {
     "build": "tsc",
     "prepack": "yarn build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
     "test": "tsx --test test/test_*.ts",
     "lint": "eslint src test"
   },
@@ -40,12 +40,12 @@
   },
   "peerDependencies": {
     "mathjax-full": "^3.2.2",
-    "mermaid": "^11.16.1",
+    "mermaid": "^12.0.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {
     "mathjax-full": "^3.2.2",
-    "mermaid": "^11.17.2",
+    "mermaid": "^12.0.0",
     "typescript": "^6.0.3",
     "vue": "^3.5.42"
   },

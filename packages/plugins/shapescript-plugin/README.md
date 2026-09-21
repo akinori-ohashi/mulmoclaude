@@ -13,7 +13,7 @@ name, and the `Present3D*` type names, are renamed throughout.
 | Entry         | Contents                                                                                                                 |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `.`           | `TOOL_NAME`, `TOOL_DEFINITION`, `executePresentShapeScript`, `pluginCore`, `samples`, `parseShapeScript`, `astToThreeJS`, `executeShapeScriptDispatch` + the `artifacts/shapes` path rules |
-| `.` (export) | `shapeScriptToUsdz`, `sceneToUsdz`, `USDZ_MIME_TYPE`, `USDZ_EXTENSION`, and the **`exportShapeScriptUsdz`** tool (`executeExportShapeScriptUsdz`, `EXPORT_USDZ_*`). Browser-safe: it needs no canvas, so the View's "Download USDZ" button and a host's MCP tool run the same code. |
+| `.` (export) | `shapeScriptToUsdz`, `sceneToUsdz`, `USDZ_MIME_TYPE`, `USDZ_EXTENSION`, and the **`exportShapeScriptUsdz`** tool (`executeExportShapeScriptUsdz`, `EXPORT_USDZ_*`); `shapeScriptToGlb` / `sceneToGlb` / `GLB_*` and `shapeScriptToStl` / `sceneToStl` / `STL_*` alongside. Browser-safe: none needs a canvas, so the View's download buttons and a host's MCP tool run the same code. |
 | `./render`    | **server-only** — `renderShapeScriptSheet` and the render page. Rasterises a model to a PNG with Puppeteer's headless Chromium (an OPTIONAL peer); a host without one gets `RenderUnavailableError` carrying the install hint. |
 | `./vue`       | the `ToolPlugin` (View + Preview + `SYSTEM_PROMPT`), plus everything on `.`                                              |
 | `./style.css` | the compiled component styles (Vite lib mode does not auto-inject them)                                                  |
@@ -54,33 +54,99 @@ import { executeExportShapeScriptUsdz, EXPORT_USDZ_TOOL_NAME, EXPORT_USDZ_DESCRI
 const { message, filePath } = await executeExportShapeScriptUsdz({ files: shapeFiles }, args);
 ```
 
-The file lands at `artifacts/shapes/<slug>-<epoch-ms>-<token>.usdz`. The View's **Download USDZ**
-button builds the same archive in the browser with `shapeScriptToUsdz` and saves it locally.
+The file lands at `artifacts/shapes/<slug>-<epoch-ms>-<token>.usdz`. The View's **Download**
+menu (USDZ item) builds the same archive in the browser with `shapeScriptToUsdz` and saves it locally.
 USDZ units are metres, so `size 1` is one metre in AR.
 
-## Publishing to the gallery
+The same menu also offers **GLB** (binary glTF, for the web and game engines; vertex colours
+survive as `COLOR_0`) and **STL** (binary, geometry only, in world space, for slicers),
+built the same way by `shapeScriptToGlb` and `shapeScriptToStl`. Neither has an MCP tool yet.
 
-`publishShapeScript` posts a model to the public gallery on mulmoserver (server.mulmocast.com/shapes)
-and returns its URL. The tool's contract — schema, description, the document a post is
-(`SHAPE_POST_KEYS`, which mulmoserver's rules pin with `hasOnly`), the keyword normalisation — is the
-package's; Firebase is not. A host supplies a `ShapeGalleryWriter` over its own signed-in session
-(the remote-host session, which is the user's account on mulmoserver's Firebase) and a
-`renderThumbnail` — `renderShapeThumbnail` from `./render`, which answers `null` where no headless
-browser is installed, so the post still lands, without a picture:
+## The gallery: `manageShapeScript`
+
+`manageShapeScript` is the user's models in the public gallery on mulmoserver
+(server.mulmocast.com/shapes), one tool with an `action` — as `manageCollection` is:
+
+| `action`  | Does                                                                                                   | Needs                              |
+| --------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| `publish` | Posts a new model and answers its URL.                                                                 | `title`, `script` or `path`; `acceptLicense: true` unless a draft |
+| `update`  | Changes the user's own post in place, sending only the fields given.                                   | `id`                               |
+| `delete`  | Removes the user's own post and every object under it.                                                 | `id`                               |
+| `get`     | One post's readable fields and its ShapeScript source — anyone's published one, or the user's draft.  | `id`; `save: true` writes a .shape |
+| `getList` | The user's own posts, drafts included, newest first.                                                   | `limit` (default 20, at most 100)  |
+
+The tool's contract — schema, description, the document a post is (`SHAPE_POST_KEYS`, which
+mulmoserver's rules pin with `hasOnly`), the keyword normalisation — is the package's; Firebase is
+not. A host supplies a `ShapeGalleryWriter` over its own signed-in session (the remote-host
+session, which is the user's account on mulmoserver's Firebase) and a `renderThumbnail` —
+`renderShapeThumbnail` from `./render`, which answers `null` where no headless browser is installed,
+so a post still lands, without a picture:
 
 ```ts
-import { executePublishShapeScript, PUBLISH_TOOL_NAME, PUBLISH_DESCRIPTION, PUBLISH_SCHEMA, PUBLISH_PROMPT } from "@mulmoclaude/shapescript-plugin";
+import { executeManageShapeScript, MANAGE_TOOL_NAME, MANAGE_DESCRIPTION, MANAGE_SCHEMA, MANAGE_PROMPT } from "@mulmoclaude/shapescript-plugin";
 import { renderShapeThumbnail } from "@mulmoclaude/shapescript-plugin/render";
 
-// gallery: { uid, authorName, createPost(id, doc), uploadThumbnail(id, png), deleteObject(id, objectId) }
+// gallery: { uid, authorName,
+//            createPost(id, doc), readPost(id), updatePost(id, patch, expect), deletePost(id, expect),
+//            listPosts(uid, limit), readScript(ownerUid, id, scriptId),
+//            uploadThumbnail(id, png), uploadScript(id, script), deleteObject(id, objectId) }
 //          — every member required; null when not signed in
-const { message, url } = await executePublishShapeScript({ files: shapeFiles, gallery, renderThumbnail: renderShapeThumbnail }, args);
+const result = await executeManageShapeScript({ files: shapeFiles, gallery, renderThumbnail: renderShapeThumbnail }, args);
+result.message; // the sentence (publish / update / delete) or the JSON (get / getList) the agent reads
 ```
 
 `createPost` must add `createdAt` / `updatedAt` as `serverTimestamp()`; the rules refuse a client
 clock. `deleteObject` is what takes an uploaded thumbnail back out when `createPost` is refused, so
 no object is left that nothing references. With `gallery: null` the tool throws
 `NOT_CONNECTED_MESSAGE`, which tells the user to connect Remote Host.
+
+Publishing a post licenses it under **CC BY 4.0** (`SHAPE_LICENSE`, `SHAPE_LICENSE_URL`), as the
+gallery's own editor asks before publishing. The tool asks the same way: publishing a public post,
+making a draft public, or editing a public post that has no license yet needs `acceptLicense: true`
+— the user's explicit agreement, which `MANAGE_PROMPT` tells the model to ask for and never to pass
+on its own — and is refused with `LICENSE_REQUIRED_MESSAGE`, before any upload, without it. A draft
+(`published: false`) needs none and records none. The document carries `license` (`"CC-BY-4.0"` or
+`null`, a pinned key), and the host stamps `licenseAcceptedAt` as `serverTimestamp()` beside a
+grant — in `createPost` when `doc.license` is set, in `updatePost` when the patch carries `license`
+(the owner's first agreement; the plugin never sends it for a post already licensed). The rules let
+a grant be made once and never moved or removed, so `updatePost` must drop both keys if the stored
+document turns out to be licensed already; the mulmoclaude adapter does that inside its transaction.
+`get` / `getList` answer `license` and `licenseAcceptedAt` (an ISO string, `""` when none). A
+public post with `license: null` predates the gallery's asking and carries no grant; the prompt
+tells the model not to present such a model as reusable.
+
+This is a **breaking change of the `ShapeGalleryWriter` contract** (5.x → 6.0.0): a host built
+against 5.x does not stamp `licenseAcceptedAt`, so with this plugin its `createPost` / `updatePost`
+would send `license` without the stamp and the rules would refuse every public write. A host
+takes 6.x only once its adapter stamps the grant.
+
+`update` rewrites the user's own post `id` in place: `readPost` fetches it, the tool refuses it
+unless its `uid` is the writer's (only the publisher may change a post; the gallery's rules say the
+same, but without a reason), and `updatePost` merges a PATCH — only the fields the caller gave,
+plus new object ids — with a server `updatedAt` and no `createdAt`, which the rules freeze. It must
+be a field-level update (Firestore `updateDoc`), never a whole-document write, so a field not given
+keeps what the document holds now rather than what the read saw; and it must be CONDITIONAL on
+`expect` (owner, object ids and published state as read), refusing with `POST_CHANGED_MESSAGE` when the post changed
+meanwhile — a `runTransaction` that re-reads, compares and updates — so two racing edits cannot
+orphan each other's objects. A field given replaces the post's (an explicit `""` clears
+`description` / `prompt` / `aiModel`), one omitted keeps it. A new `script` / `path` uploads a new
+script object and thumbnail and removes the replaced ones once the document points at the new ids.
+
+`delete` is the same owner check, then `deletePost` — the document first, so the post is gone at
+once, and conditional on `expect` exactly as `updatePost` is (a transaction that re-reads, compares
+and deletes), so an update that landed meanwhile keeps its post and its new objects. It answers the
+document as deleted, and that version's objects are what `deleteObject` then removes — the script,
+the thumbnail and any reference photos, a photo the web editor swapped in meanwhile included, since
+`expect` pins the model and not the photos; an object that will not go is a warning, since nothing
+links to it.
+
+`get` and `getList` are reads: `readPost` / `listPosts` answer documents as stored (the server
+stamps may stay whatever the SDK returns — a `Date`, or anything with `toDate()` — the tool turns
+them into ISO strings), and `readScript` downloads the source from under the post's OWNER, which
+need not be the session user: the Storage rule opens the objects to anyone. `readPost` must answer
+`null`, not throw, for a document the rules hide (another account's draft), as it does for a wrong
+id. `listPosts` is the gallery's own "My models" query — `uid == me`, `createdAt` descending — which
+the rules admit and the composite index serves.
 
 ## ShapeScript language
 

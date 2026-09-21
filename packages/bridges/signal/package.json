@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/signal",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Signal bridge for MulmoBridge — talks to a signal-cli-rest-api daemon via WebSocket + REST",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,7 +29,7 @@
     "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.2",
     "@types/ws": "^8.18.1",
     "typescript": "^6.0.3"
   },

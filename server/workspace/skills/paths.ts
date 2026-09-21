@@ -1,8 +1,6 @@
-// Path helpers and slug validation for the skills module.
-//
-// Skills live in two scopes:
-//   - user:    ~/.claude/skills/<slug>/SKILL.md        (read-only from MulmoClaude)
-//   - project: <workspaceRoot>/.claude/skills/<slug>/SKILL.md  (MulmoClaude can CRUD)
+// Path helpers and slug validation for the skills module. Writes go to the
+// project scope only; `discovery.ts` owns which scopes are read and in what
+// precedence.
 //
 // The slug doubles as a filename and appears in Claude CLI slash
 // commands (`/<slug>`), so it has to be strict: no uppercase, no
@@ -11,13 +9,25 @@
 // them in sync manually.
 
 import { join } from "node:path";
-import { claudeSkillsDir } from "../../utils/claudeConfigPath.js";
+import { claudePluginLedgerPath, claudeSettingsPath, claudeSkillsDir } from "../../utils/claudeConfigPath.js";
 
 export const SKILL_FILE = "SKILL.md";
 
 /** `<claudeConfigDir>/skills/` — user scope, read-only from MulmoClaude.
  *  Default `~/.claude/skills/`; override via `CLAUDE_CONFIG_DIR` (issue #87 §2). */
 export const USER_SKILLS_DIR = claudeSkillsDir();
+
+/** `<claudeConfigDir>/plugins/installed_plugins.json` — the CLI's record of
+ *  where each installed plugin's tree landed. */
+export const CLAUDE_PLUGIN_LEDGER_PATH = claudePluginLedgerPath();
+
+/** The `settings.json` files whose `enabledPlugins` decide which plugins
+ *  contribute skills, in ascending precedence. `settings.local.json` is the
+ *  per-machine override the CLI reads last. */
+export function claudeSettingsPaths(workspaceRoot?: string): string[] {
+  if (!workspaceRoot) return [claudeSettingsPath()];
+  return [claudeSettingsPath(), join(workspaceRoot, ".claude", "settings.json"), join(workspaceRoot, ".claude", "settings.local.json")];
+}
 
 /** `<workspaceRoot>/.claude/skills/` — project scope, writable. */
 export function projectSkillsDir(workspaceRoot: string): string {

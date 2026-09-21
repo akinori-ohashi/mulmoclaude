@@ -10,11 +10,11 @@ import { CHAT_MODELS } from "../../src/config/models.js";
 
 describe("resolveChatModel", () => {
   it("lets the role win over the app-wide setting", () => {
-    assert.deepEqual(resolveChatModel("haiku", "opus"), { model: "haiku", source: "role" });
+    assert.deepEqual(resolveChatModel(undefined, "haiku", "opus"), { model: "haiku", source: "role" });
   });
 
   it("falls back to the app-wide setting when the role says nothing", () => {
-    assert.deepEqual(resolveChatModel(undefined, "opus"), { model: "opus", source: "global" });
+    assert.deepEqual(resolveChatModel(undefined, undefined, "opus"), { model: "opus", source: "global" });
   });
 
   // The case the whole feature is about: no model is passed to the CLI, which
@@ -22,16 +22,16 @@ describe("resolveChatModel", () => {
   // clients write to. `model` is undefined because at this layer the value
   // genuinely is not known; only the CLI's init frame can report it (#2554).
   it("reports `shared` with NO model when neither decides", () => {
-    assert.deepEqual(resolveChatModel(undefined, undefined), { source: "shared" });
-    assert.equal(resolveChatModel(undefined, undefined).model, undefined);
+    assert.deepEqual(resolveChatModel(undefined, undefined, undefined), { source: "shared" });
+    assert.equal(resolveChatModel(undefined, undefined, undefined).model, undefined);
   });
 
   it("uses the role even when the app-wide setting is unset", () => {
-    assert.deepEqual(resolveChatModel("sonnet", undefined), { model: "sonnet", source: "role" });
+    assert.deepEqual(resolveChatModel(undefined, "sonnet", undefined), { model: "sonnet", source: "role" });
   });
 
   it("never invents a model", () => {
-    const shared = resolveChatModel(undefined, undefined);
+    const shared = resolveChatModel(undefined, undefined, undefined);
     assert.equal("model" in shared, false);
   });
 
@@ -39,8 +39,43 @@ describe("resolveChatModel", () => {
   // source must be covered here automatically, which a literal list would not do.
   it("is the same answer for every alias, so no family is special-cased", () => {
     CHAT_MODELS.forEach((model) => {
-      assert.deepEqual(resolveChatModel(model, undefined), { model, source: "role" });
-      assert.deepEqual(resolveChatModel(undefined, model), { model, source: "global" });
+      assert.deepEqual(resolveChatModel(undefined, model, undefined), { model, source: "role" });
+      assert.deepEqual(resolveChatModel(undefined, undefined, model), { model, source: "global" });
+    });
+  });
+});
+
+// #3147 adds the most specific level: a one-off override on this conversation.
+describe("resolveChatModel — session override", () => {
+  it("beats the role", () => {
+    assert.deepEqual(resolveChatModel("opus", "haiku", undefined), { model: "opus", source: "session" });
+  });
+
+  it("beats the app-wide setting", () => {
+    assert.deepEqual(resolveChatModel("opus", undefined, "sonnet"), { model: "opus", source: "session" });
+  });
+
+  it("beats BOTH at once — it is the most specific thing the user said", () => {
+    assert.deepEqual(resolveChatModel("haiku", "opus", "sonnet"), { model: "haiku", source: "session" });
+  });
+
+  // Clearing the override is what "back to the default" does, so absent here
+  // must fall through to exactly what the session would have had without it.
+  it("falls through to the role when cleared", () => {
+    assert.deepEqual(resolveChatModel(undefined, "haiku", "sonnet"), { model: "haiku", source: "role" });
+  });
+
+  it("falls through to the app-wide setting when cleared and the role has none", () => {
+    assert.deepEqual(resolveChatModel(undefined, undefined, "sonnet"), { model: "sonnet", source: "global" });
+  });
+
+  it("falls all the way through to the shared file", () => {
+    assert.deepEqual(resolveChatModel(undefined, undefined, undefined), { source: "shared" });
+  });
+
+  it("works for every alias, so no family is special-cased at this level either", () => {
+    CHAT_MODELS.forEach((model) => {
+      assert.deepEqual(resolveChatModel(model, "opus", "sonnet"), { model, source: "session" });
     });
   });
 });

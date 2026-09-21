@@ -4,10 +4,12 @@ import { createCommandHandler, parseSkillShortcut } from "../src/commands.ts";
 import type { TransportChatState } from "../src/chat-state.ts";
 import type { SessionSummary } from "../src/types.ts";
 
-const roles = [
-  { id: "general", name: "General" },
-  { id: "office", name: "Office" },
-];
+// Named rather than indexed: every fallback below means "the general role",
+// not "whatever happens to be first", and a named binding is also not
+// `T | undefined` the way `generalRole` is under `noUncheckedIndexedAccess`.
+const generalRole = { id: "general", name: "General" };
+const officeRole = { id: "office", name: "Office" };
+const roles = [generalRole, officeRole];
 
 function makeState(overrides?: Partial<TransportChatState>): TransportChatState {
   return {
@@ -54,7 +56,7 @@ describe("/sessions command", () => {
   it("lists sessions with page info", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: (id) => roles.find((r) => r.id === id) ?? roles[0],
+      getRole: (id) => roles.find((r) => r.id === id) ?? generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       listSessions: async ({ limit, offset }) => ({
@@ -71,7 +73,7 @@ describe("/sessions command", () => {
   it("returns not available when listSessions is not provided", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
     });
@@ -85,7 +87,7 @@ describe("/switch command", () => {
   it("switches to a session from the list", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: (id) => roles.find((r) => r.id === id) ?? roles[0],
+      getRole: (id) => roles.find((r) => r.id === id) ?? generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async (_t, _c, sessionId) => makeState({ sessionId }),
       listSessions: async ({ limit, offset }) => ({
@@ -105,7 +107,7 @@ describe("/switch command", () => {
   it("treats non-digit argument as session ID (not found)", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
     });
@@ -119,10 +121,10 @@ describe("/switch command", () => {
     // is under "office". Before the fix, connectSession only received the sessionId
     // so the persisted state kept roleId="general" and the next relay's startChat
     // ran the resumed office session under the general role.
-    const capturedArgs: { sessionId?: string; roleId?: string } = {};
+    const capturedArgs: { sessionId?: string | undefined; roleId?: string | undefined } = {};
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: (id) => roles.find((r) => r.id === id) ?? roles[0],
+      getRole: (id) => roles.find((r) => r.id === id) ?? generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       // Mock mirrors the real chat-state.ts behaviour: when roleId is passed,
       // stamp it into the returned state; otherwise preserve the incoming role.
@@ -150,10 +152,10 @@ describe("/switch command", () => {
     // Same bug shape as the numeric branch, on the `/switch <sessionId>` path
     // (commands.ts line ~259). Covering both branches so a future refactor
     // that only fixes one is caught.
-    const capturedArgs: { sessionId?: string; roleId?: string } = {};
+    const capturedArgs: { sessionId?: string | undefined; roleId?: string | undefined } = {};
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: (id) => roles.find((r) => r.id === id) ?? roles[0],
+      getRole: (id) => roles.find((r) => r.id === id) ?? generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async (_t, _c, sessionId, roleId) => {
         capturedArgs.sessionId = sessionId;
@@ -176,7 +178,7 @@ describe("/switch command", () => {
   it("per-chat cache isolation", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: (id) => roles.find((r) => r.id === id) ?? roles[0],
+      getRole: (id) => roles.find((r) => r.id === id) ?? generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async (_t, _c, sessionId) => makeState({ sessionId }),
       listSessions: async ({ limit, offset }) => ({
@@ -197,7 +199,7 @@ describe("/history command", () => {
   it("shows recent messages", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       getSessionHistory: async (_sid, { limit, offset }) => ({
@@ -214,7 +216,7 @@ describe("/history command", () => {
   it("returns not available when getSessionHistory is not provided", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
     });
@@ -226,7 +228,7 @@ describe("/history command", () => {
   it("supports pagination", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       getSessionHistory: async (_sid, { limit, offset }) => ({
@@ -245,7 +247,7 @@ describe("unknown slash command", () => {
   it("rejects an unknown slash with help text when no skill list is wired", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
     });
@@ -257,7 +259,7 @@ describe("unknown slash command", () => {
   it("forwards to the agent (returns null) when the slash names a registered skill", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       listRegisteredSkills: async () => [{ name: "shiritori", description: "Play shiritori" }],
@@ -269,7 +271,7 @@ describe("unknown slash command", () => {
   it("rejects an unregistered slash even when a skill list is wired", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       listRegisteredSkills: async () => [{ name: "shiritori", description: "Play shiritori" }],
@@ -282,7 +284,7 @@ describe("unknown slash command", () => {
   it("treats bare `/` as unknown (slice produces empty string, list ignored)", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       // Even a permissive list must NOT match the empty skill name.
@@ -296,7 +298,7 @@ describe("unknown slash command", () => {
   it("includes registered skills in the unknown-command help footer", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       listRegisteredSkills: async () => [
@@ -355,7 +357,7 @@ describe("//{skill} shortcut", () => {
     const resetCalls: Array<{ transportId: string; chatId: string; roleId: string }> = [];
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: (id) => roles.find((r) => r.id === id) ?? roles[0],
+      getRole: (id) => roles.find((r) => r.id === id) ?? generalRole,
       resetChatState: async (transportId, chatId, roleId) => {
         resetCalls.push({ transportId, chatId, roleId });
         return makeState({ roleId, sessionId: "sess-new" });
@@ -369,14 +371,16 @@ describe("//{skill} shortcut", () => {
     assert.ok(result.nextState);
     assert.equal(result.nextState?.sessionId, "sess-new");
     assert.equal(resetCalls.length, 1);
-    assert.equal(resetCalls[0].roleId, "office");
+    const resetCall = resetCalls[0];
+    assert.ok(resetCall !== undefined, "expected resetChatState to have been called");
+    assert.equal(resetCall.roleId, "office");
   });
 
   it("rejects // with a skill that is not registered", async () => {
     let resetCalled = false;
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => {
         resetCalled = true;
         return makeState({ roleId });
@@ -394,7 +398,7 @@ describe("//{skill} shortcut", () => {
   it("rejects bare // (empty skill name never matches)", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       listRegisteredSkills: async () => [{ name: "", description: "wat" }],
@@ -408,7 +412,7 @@ describe("//{skill} shortcut", () => {
   it("forwards args after the skill name verbatim", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId, sessionId: "sess-new" }),
       connectSession: async () => makeState(),
       listRegisteredSkills: async () => [{ name: "mag2", description: "Write a newsletter from a URL" }],
@@ -422,7 +426,7 @@ describe("//{skill} shortcut", () => {
   it("forwards multi-token args after the skill name", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       listRegisteredSkills: async () => [{ name: "mag2", description: "Write a newsletter" }],
@@ -439,7 +443,7 @@ describe("//{skill} shortcut", () => {
     // contain doubled spaces, tabs, or newlines (CodeRabbit on #967).
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId, sessionId: "sess-new" }),
       connectSession: async () => makeState(),
       listRegisteredSkills: async () => [{ name: "mag2", description: "Write a newsletter from a URL" }],
@@ -452,7 +456,7 @@ describe("//{skill} shortcut", () => {
   it("rejects // when no skill list is wired", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
     });
@@ -467,7 +471,7 @@ describe("/help command", () => {
   it("omits the Skills section when no skill list is wired", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
     });
@@ -480,7 +484,7 @@ describe("/help command", () => {
   it("omits the Skills section when the skill list is empty", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       listRegisteredSkills: async () => [],
@@ -493,7 +497,7 @@ describe("/help command", () => {
   it("lists registered skills with descriptions in the Skills section", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       listRegisteredSkills: async () => [
@@ -512,7 +516,7 @@ describe("/help command", () => {
   it("omits the //<skill> tip when no skills are registered", async () => {
     const handler = createCommandHandler({
       loadAllRoles: () => roles,
-      getRole: () => roles[0],
+      getRole: () => generalRole,
       resetChatState: async (_t, _c, roleId) => makeState({ roleId }),
       connectSession: async () => makeState(),
       listRegisteredSkills: async () => [],

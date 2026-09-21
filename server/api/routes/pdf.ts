@@ -1,7 +1,9 @@
 import { realpathSync } from "fs";
 import path from "path";
 import { Router, Request, Response } from "express";
+import { randomUUID } from "node:crypto";
 import { marked } from "marked";
+import { rawHtmlPolicyExtension } from "@mulmoclaude/markdown-utils/markdown/rawHtmlPolicy";
 import { renderMarpDeck } from "@mulmoclaude/markdown-plugin";
 import { listMarpThemes } from "../../workspace/marp-themes.js";
 import puppeteer from "puppeteer";
@@ -16,6 +18,11 @@ import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { transformResolvableUrlsInHtml } from "@mulmoclaude/markdown-utils/image/htmlSrcAttrs";
 
 const router = Router();
+
+// This process never runs the SPA's `setupMarked()`, so the policy has to be
+// registered here too: `presentDocument` renders any `.md` on disk, and author
+// `style` positions content in the PDF exactly as it would on screen (#3151).
+marked.use(rawHtmlPolicyExtension);
 
 const MARKDOWN_CSS = `
   body {
@@ -221,12 +228,51 @@ export function inlineImages(html: string, options: InlineImagesOptions = {}): s
   });
 }
 
+// This document is `marked.parse` output with NO sanitiser — unlike every
+// view surface, which runs `sanitizeMarkdownHtml`. So a `<script>` in a
+// rendered `.md` reaches `page.setContent()` and Chromium executes it,
+// letting author markdown rewrite the PDF it is being exported into
+// (codex round 9). The renderer needs no script of its own here, so the
+// policy is: none may run.
+//
+// `frame-src`/`child-src` are not belt-and-braces: measured in Chromium,
+// without them a `<iframe src="data:text/html,…">` LOADS and paints
+// attacker content into the exported PDF. With them it is blocked. (A
+// `srcdoc` frame was already covered — it inherits this policy.)
+//
+// Marp's document is built separately and deliberately does NOT carry
+// this, because it ships its own custom-elements polyfill and would
+// break. What makes that safe is narrower than it first looks, so state
+// it exactly: Marp escapes `<script>`, and every tag outside
+// `MARP_HTML_ALLOWLIST`. It does NOT escape raw HTML in general — the
+// allowlist deliberately passes `div`/`span`/`img`/`sub`/`sup`/`small`
+// with `id`/`class`/`style`, because authoring slides needs layout.
+// `test_pdfCsp.ts` pins the script claim and the allowlist's shape; an
+// entry gaining `iframe`, a form control, or an event-handler attribute
+// turns it red.
+const NO_SCRIPT_CSP = "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; child-src 'none'";
+
+// Author `<style>` is the same spoof by another door, and the attribute
+// policy cannot stop it: a stylesheet is raw-text content, which the
+// scanner copies verbatim by design. Measured in Chromium —
+// `<style>pre::before{content:"npm install";position:absolute;inset:0;
+// background:white}</style>` renders that text over the code block in the
+// exported document.
+//
+// So `style-src` names a per-render nonce and the route's own stylesheet
+// carries it. A FRESH nonce each time, for the reason the copy button
+// learned the hard way: a constant in the source is one an attacker reads
+// off GitHub. Measured: author `::before` goes from `"npm install"` to
+// `none` while the route's own CSS still applies.
 function wrapHtml(body: string, css: string): string {
+  const nonce = randomUUID();
+  const policy = `${NO_SCRIPT_CSP}; style-src 'nonce-${nonce}'`;
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<style>${css}</style>
+<meta http-equiv="Content-Security-Policy" content="${policy}">
+<style nonce="${nonce}">${css}</style>
 </head>
 <body>${body}</body>
 </html>`;

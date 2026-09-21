@@ -284,7 +284,7 @@ Catalog にあるだけでは prompt に乗らない (Claude Code の resolver �
 
 **ソース実装**:
 
-- Discovery: `server/workspace/skills/index.ts` の `discoverSkills` — user + project を merge、project 優先
+- Discovery: `server/workspace/skills/index.ts` の `discoverSkills` — どのスコープを読むか / 衝突時にどれが勝つかはこの関数が単一の source of truth（現在は plugin → user → project で後勝ち）
 - Route: `server/api/routes/skills.ts:57` — `GET /api/skills`
 - 編集 (project scope のみ): `saveProjectSkill` / `updateProjectSkill` / `deleteProjectSkill`
 - MulmoClaude UI: `src/plugins/manageSkills/View.vue` — CRUD UI

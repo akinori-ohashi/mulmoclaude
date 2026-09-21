@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import type { Activity } from "botbuilder";
 import { extractIncomingMessage } from "../src/parse.js";
 
-function makeActivity(overrides: Partial<Activity>): Activity {
+/** `Partial<Activity>` rejects `{ from: undefined }` under
+ *  `exactOptionalPropertyTypes` — an absent key and an explicit `undefined` are
+ *  different types. The tests below pass the latter on purpose: the Bot
+ *  Framework hands us activities with these fields present and undefined, and
+ *  that is the case `extractIncomingMessage` has to survive. */
+type ActivityOverrides = { [K in keyof Activity]?: Activity[K] | undefined };
+
+function makeActivity(overrides: ActivityOverrides): Activity {
   return {
     type: "message",
     from: { id: "user-123", aadObjectId: "aad-abc" },
@@ -20,7 +27,7 @@ describe("extractIncomingMessage", () => {
   });
 
   it("falls back to from.id when aadObjectId is missing", () => {
-    const out = extractIncomingMessage(makeActivity({ from: { id: "user-99" } }));
+    const out = extractIncomingMessage(makeActivity({ from: { id: "user-99", name: "User 99" } }));
     assert.deepEqual(out, { senderId: "user-99", chatId: "conv-1", text: "hello" });
   });
 

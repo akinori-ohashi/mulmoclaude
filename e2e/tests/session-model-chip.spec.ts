@@ -1,0 +1,127 @@
+// The session model picker (#3147), and the two ways it stopped working
+// during the #3148 cross-review.
+//
+// `makeSessionEntries` deliberately reports no `resolvedModel` and no
+// `chatModel`, which is the state a real conversation is in until its first
+// turn comes back — and the moment a per-chat model is most worth choosing.
+// The chip used to hide itself in exactly that state, because it inherited a
+// visibility rule written when it was a read-only label (#2554).
+
+import { test, expect, type Page } from "@playwright/test";
+import { mockAllApis } from "../fixtures/api";
+import { SESSION_A } from "../fixtures/sessions";
+
+const CHAT_MODEL_PATH = `/api/sessions/${SESSION_A.id}/chat-model`;
+const chip = (page: Page) => page.getByTestId("session-model-chip");
+
+test.describe("session model chip", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllApis(page);
+  });
+
+  test("offers the picker before the session has ever reported a model", async ({ page }) => {
+    await page.goto(`/chat/${SESSION_A.id}`);
+    await expect(chip(page)).toBeVisible();
+    // Every alias is selectable, plus the leading "no override" row.
+    await expect(chip(page).locator("option")).toHaveCount(5);
+    await expect(chip(page).locator("option").nth(1)).toHaveText("fable");
+  });
+
+  test("persists a chosen alias and then clears it", async ({ page }) => {
+    const bodies: unknown[] = [];
+    await page.route(`**${CHAT_MODEL_PATH}`, (route) => {
+      bodies.push(route.request().postDataJSON());
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.goto(`/chat/${SESSION_A.id}`);
+
+    await chip(page).selectOption("opus");
+    await expect.poll(() => bodies).toEqual([{ chatModel: "opus" }]);
+
+    // The clear button only exists while an override is set — it is the one
+    // affordance that says "this chat is off the default".
+    const clear = page.getByTestId("session-model-chip-clear");
+    await expect(clear).toBeVisible();
+    await clear.click();
+    await expect.poll(() => bodies).toEqual([{ chatModel: "opus" }, { chatModel: null }]);
+    await expect(clear).toBeHidden();
+  });
+
+  // A session is minted in the browser and has no sidecar until its first
+  // turn, so the chat-model POST is a no-op before then — the choice has to
+  // ride with the request instead. Found by driving the real app: without
+  // this the chip said `haiku` and the first turn ran on the shared default.
+  test("sends the chosen model with the turn, so the FIRST message uses it", async ({ page }) => {
+    const bodies: { chatModel?: string }[] = [];
+    await page.route(`**${CHAT_MODEL_PATH}`, (route) => route.fulfill({ json: { ok: true } }));
+    await page.route("**/api/agent", (route) => {
+      bodies.push(route.request().postDataJSON());
+      return route.fulfill({ status: 202, json: { chatSessionId: SESSION_A.id } });
+    });
+    await page.goto(`/chat/${SESSION_A.id}`);
+
+    await chip(page).selectOption("opus");
+    await page.getByTestId("user-input").fill("hello");
+    await page.getByTestId("send-btn").click();
+
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0]?.chatModel).toBe("opus");
+  });
+
+  // The interleaving Codex found in round 5, which my first attempt at this got
+  // backwards. A second selection made while the first write is still in
+  // flight is QUEUED — `setSessionModelOverride` assigns `session.chatModel`
+  // inside the queued task, not at click time — so the value is still the
+  // first one when Send is pressed. Reading it before the await therefore
+  // sends the stale model; reading it after is correct, because the await is
+  // on the LATEST queued write. On a brand-new chat this is the only thing
+  // that decides the first turn, since the chat-model POST is a no-op until
+  // the sidecar exists.
+  test("sends the latest selection when two are queued before send", async ({ page }) => {
+    const bodies: { chatModel?: string }[] = [];
+    await page.route(`**${CHAT_MODEL_PATH}`, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.route("**/api/agent", (route) => {
+      bodies.push(route.request().postDataJSON());
+      return route.fulfill({ status: 202, json: { chatSessionId: SESSION_A.id } });
+    });
+    await page.goto(`/chat/${SESSION_A.id}`);
+
+    await chip(page).selectOption("opus");
+    // Queued behind the `opus` write, so `session.chatModel` is still `opus`
+    // at the moment Send is pressed.
+    await chip(page).selectOption("haiku");
+    await page.getByTestId("user-input").fill("hello");
+    await page.getByTestId("send-btn").click();
+
+    await expect.poll(() => bodies.length, { timeout: 10_000 }).toBe(1);
+    expect(bodies[0]?.chatModel).toBe("haiku");
+  });
+
+  // The next turn reads the override from disk, so a send issued straight
+  // after a selection must not overtake the write that persists it.
+  test("does not dispatch a turn before the override write lands", async ({ page }) => {
+    const order: string[] = [];
+    await page.route(`**${CHAT_MODEL_PATH}`, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      order.push("chat-model");
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.route("**/api/agent", (route) => {
+      order.push("agent");
+      return route.fulfill({ status: 202, json: { chatSessionId: SESSION_A.id } });
+    });
+    await page.goto(`/chat/${SESSION_A.id}`);
+
+    await chip(page).selectOption("opus");
+    await page.getByTestId("user-input").fill("hello");
+    await page.getByTestId("send-btn").click();
+
+    // Wait for both requests, then assert which one went first — a poll on the
+    // order alone would go green the instant the array happened to match.
+    await expect.poll(() => order.length, { timeout: 10_000 }).toBe(2);
+    expect(order).toEqual(["chat-model", "agent"]);
+  });
+});

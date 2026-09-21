@@ -205,7 +205,14 @@ export const codeCopyExtension: MarkedExtension = {
         `<button type="button" ${CODE_COPY_ATTR}="${escapeHtml(nonce)}" ${CODE_COPY_IDLE_LABEL_ATTR}="${idle}" ${CODE_COPY_COPIED_LABEL_ATTR}="${copied}" class="${CODE_COPY_BUTTON_CLASS}" aria-label="${idle}" title="${idle}">`,
         CODE_COPY_ICON,
         "</button>",
-        `<pre><code class="${codeClass}">${body}</code></pre>`,
+        // `dir="ltr"` isolates the block from an author's `dir="rtl"`
+        // wrapper. Without it the code renders right-aligned and a long
+        // line's LEFT end — where a payload would sit — scrolls out of
+        // view while the clipboard still takes the whole logical string.
+        // Measured: the rendered pixels change, the clipboard does not
+        // (codex round 2). Isolating the block rather than stripping the
+        // author's `dir` keeps legitimate right-to-left prose working.
+        `<pre dir="ltr"><code class="${codeClass}">${body}</code></pre>`,
         "</div>\n",
       ].join("");
     },

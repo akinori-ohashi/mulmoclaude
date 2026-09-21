@@ -25,6 +25,7 @@
       :srcdoc="srcdoc"
       sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads"
       class="w-full h-full border-0"
+      @load="onFrameLoad"
     />
   </div>
 </template>
@@ -32,7 +33,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { useCollectionI18n } from "../lang";
-import { errorMessage } from "@mulmoclaude/core/collection";
+import { customViewSendsChat, errorMessage } from "@mulmoclaude/core/collection";
 import type { CollectionCustomView } from "@mulmoclaude/core/collection";
 import { useCollectionUi } from "../scopedUi";
 import { decideSearchChannelClaim, type SearchChannelState } from "../searchChannelPolicy";
@@ -52,8 +53,10 @@ const emit = defineEmits<{
    *  host's shared modal. */
   openItem: [payload: { id: string; mode: "view" | "edit" }];
   /** The view called `__MC_VIEW.startChat(prompt, role)` — open a new chat with
-   *  `prompt` prefilled as an editable draft (host validates `role`). */
-  startChat: [payload: { prompt: string; role?: string | undefined }];
+   *  `prompt`; `role` resolves to the general role when it names no known one.
+   *  `send` carries the view's DECLARED intent (`allowSendChat`): false ⇒ prefill
+   *  it as an editable draft, true ⇒ run it. */
+  startChat: [payload: { prompt: string; role?: string | undefined; send: boolean }];
 }>();
 
 const loading = ref(true);
@@ -73,6 +76,48 @@ let searchPort: MessagePort | null = null;
 // tests rather than by racing an async iframe rebuild.
 let frameReclaims = 0;
 let searchState: SearchChannelState = "idle";
+
+// How many documents this frame has loaded since the host installed its srcdoc.
+// The srcdoc is one; anything beyond it is the VIEW NAVIGATING ITSELF, which
+// nothing in the sandbox or the CSP prevents (the bootstrap's own docs say so).
+// The replacement document keeps the frame's `contentWindow`, so it still
+// passes the `event.source` check below and could drive the host with this
+// view's declared privileges — verified by loading a foreign page into the
+// frame and watching it start an agent turn. It is a different document from
+// the one the declaration authorises, so its actions are dropped.
+//
+// WHAT THIS DOES NOT CATCH, because counting cannot: a redirect that runs while
+// the srcdoc is still PARSING. The srcdoc's own load never fires, so the
+// foreign document's load is the first one and the count reads 1. Also verified.
+// Closing it needs the action message to prove which document sent it — either
+// carrying the injected `cspNonce`, which only the srcdoc can read, or
+// travelling over the MessageChannel port the bootstrap already creates (a port
+// is bound to its document, which is why the search channel uses one). Both are
+// changes to the three bootstrap copies plus a protocol bump, so they are a
+// follow-up rather than part of #3062.
+//
+// Note what both cases have in common: the VIEW'S OWN document has to perform
+// the navigation. A view that wanted to run turns could simply call `startChat`,
+// which its declaration already permits — so this is containment after the
+// frame stops being the view, not a trust boundary the declaration did not
+// already cross.
+let frameDocuments = 0;
+
+function onFrameLoad(event: Event): void {
+  // Only THIS frame's loads count. Defensive rather than a fix for an observed
+  // bug: switching away mid-load destroys the old frame, so its pending `load`
+  // was never seen to arrive here — but if one ever did, after the reset below,
+  // it would take the new view straight to 2 and silently refuse its own
+  // buttons. Comparing the target costs nothing and removes the dependency on
+  // that teardown detail.
+  if (event.target !== iframeEl.value) return;
+  frameDocuments += 1;
+}
+
+/** False once the frame holds a document the host did not install. */
+function frameIsTheInstalledView(): boolean {
+  return frameDocuments <= 1;
+}
 
 function closeSearchPort(): void {
   searchPort?.close();
@@ -114,6 +159,7 @@ let loadSeq = 0;
 async function load(): Promise<void> {
   clearRefresh();
   closeSearchPort(); // the frame this port belonged to is being replaced
+  frameDocuments = 0; // a fresh srcdoc is about to be installed
   // Non-connectable until the new srcdoc is actually installed: the awaits
   // below are network round trips, and the OLD document sits in the frame for
   // all of them. `exhausted` outranks this and is not cleared here.
@@ -173,8 +219,19 @@ async function load(): Promise<void> {
 // back. `localeTag()` is documented as reactive (the binding doc on
 // `CollectionUi.localeTag`); reading it inside the watch source array lets
 // Vue track that dep transparently.
+//
+// The WHOLE declaration, not just its id: a schema refetch can replace this
+// entry in place, and everything the host derives from it is baked into the
+// document already in the frame — the HTML `file`, the minted token's
+// `capabilities`, the injected `dict`, and `allowSendChat`, which the message
+// handler below re-reads live. Keying on the id alone leaves the old document
+// mounted while the new policy governs it, so flipping an open view to
+// `allowSendChat: true` would let the PREVIOUS build's buttons send. Comparing
+// the serialized entry makes "the document in the frame was built from the
+// declaration being enforced" true by construction; the object is a handful of
+// scalar fields, so the stringify costs nothing.
 watch(
-  [() => props.slug, () => props.view.id, () => cui.localeTag()],
+  [() => props.slug, () => JSON.stringify(props.view), () => cui.localeTag()],
   () => {
     frameReclaims = 0;
     searchState = "idle";
@@ -286,7 +343,11 @@ function handleOpenItem(body: { id?: unknown; mode?: unknown }): void {
 function handleStartChat(body: { prompt?: unknown; role?: unknown }): void {
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt) return;
-  emit("startChat", { prompt, role: typeof body.role === "string" ? body.role : undefined });
+  // `send` comes from the SCHEMA, never from the message: the iframe composes the
+  // text, so letting it also choose whether that text runs unreviewed would put
+  // both halves of the decision inside the sandbox.
+  const send = customViewSendsChat(props.view);
+  emit("startChat", { prompt, role: typeof body.role === "string" ? body.role : undefined, send });
 }
 
 /** Anything the sandboxed view may post up. Every field stays `unknown` — the
@@ -308,8 +369,14 @@ function onWindowMessage(event: MessageEvent): void {
   if (event.source !== iframeEl.value?.contentWindow) return;
   const msg: unknown = event.data;
   if (!isBridgeMessage(msg) || msg.slug !== props.slug) return;
-  if (msg.type === "mc-view-ready") acceptSearchPort(event.ports[0]);
-  else if (msg.type === "mc-open-item") handleOpenItem({ id: msg.id, mode: msg.mode });
+  if (msg.type === "mc-view-ready") {
+    acceptSearchPort(event.ports[0]);
+    return;
+  }
+  // Actions are the view's PRIVILEGES, so they belong to the document the host
+  // installed and not merely to the frame it sits in.
+  if (!frameIsTheInstalledView()) return;
+  if (msg.type === "mc-open-item") handleOpenItem({ id: msg.id, mode: msg.mode });
   else if (msg.type === "mc-start-chat") handleStartChat({ prompt: msg.prompt, role: msg.role });
 }
 

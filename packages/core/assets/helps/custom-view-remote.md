@@ -60,7 +60,7 @@ window.__MC_VIEW = {
   getItems: (opts) => Promise, // the ONLY way to read records — see below
   updateItem: (id, patch) => Promise, // patch declared fields (see Writing records)
   deleteItem: (id) => Promise, // remove a record (requires allowDelete)
-  startChat: (prompt, role) => void, // draft a new chat for the user
+  startChat: (prompt, role) => void, // start a new chat seeded with the prompt (sent, not drafted)
   t: (key, named) => string, // vue-i18n-style dict lookup (same as desktop)
 };
 ```
@@ -213,13 +213,23 @@ const page = await window.__MC_VIEW.getItems({ offset: 0, limit: 20, fields: ["t
 
 ### Starting a chat — `startChat`
 
-Identical to the desktop helper: opens a **new chat with your prompt prefilled
-as an editable draft** — it does NOT auto-send; the user reviews and sends.
-This is the only way a remote view "does" anything beyond display:
+Same helper as on desktop, seeding a **new chat with your prompt**. This is the
+only way a remote view "does" anything beyond display:
 
 ```js
 window.__MC_VIEW.startChat("Mark task " + item.id + " as done.");
 ```
+
+**On the phone the prompt is sent, not drafted** — one press and the turn runs.
+A phone has no Enter key to press, so leaving the text sitting in an input box
+would simply strand the work. (The desktop custom view drafts by default and
+sends only when its `views[]` entry declares `allowSendChat: true`; the desktop
+phone-frame preview follows that same declaration, so declare it there too if
+you want the preview to behave the way the phone will.)
+
+So whatever you compose becomes an agent turn verbatim, with every tool
+available. Build the prompt from your own records, and don't paste text you
+fetched from somewhere else into it.
 
 ### Translations — `t`
 

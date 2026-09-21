@@ -8,7 +8,14 @@ export interface Messages {
   scriptEditorLabel: string;
   applyChanges: string;
   saveError: string;
+  /** The Download menu's trigger; the formats are its items. */
+  download: string;
+  /** Hint beside "USDZ" in the Download menu: what the format is for. */
   downloadUsdz: string;
+  /** Hint beside "GLB" (binary glTF) in the Download menu. */
+  downloadGlb: string;
+  /** Hint beside "STL" in the Download menu. */
+  downloadStl: string;
   exportError: string;
   /** Copies the ShapeScript source to the clipboard. */
   copyScript: string;

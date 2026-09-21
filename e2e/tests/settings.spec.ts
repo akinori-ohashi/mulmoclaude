@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { mockAllApis } from "../fixtures/api";
+import { mockAllApis, waitForConfigLoad } from "../fixtures/api";
 
 interface Settings {
   extraAllowedTools: string[];
@@ -83,9 +83,10 @@ async function mockConfigApi(
 // the GET response lands. Mirrors the production UX (user sees the
 // modal already populated when they start typing).
 async function openSettingsModal(page: Page): Promise<void> {
+  const configLoaded = waitForConfigLoad(page);
   await page.locator('[data-testid="settings-btn"]').click();
   await expect(page.locator('[data-testid="settings-modal"]')).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await configLoaded;
 }
 
 test.describe("Settings modal", () => {

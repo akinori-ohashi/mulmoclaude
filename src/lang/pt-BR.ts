@@ -157,6 +157,11 @@ const ptBRMessages = {
   },
   sessionModelChip: {
     tooltip: "Modelo que esta sessão está usando: {model}",
+    tooltipOverride: "Modelo deste chat: {model} (sobrepõe o papel / configuração global)",
+    ariaLabel: "Modelo deste chat",
+    clear: "Voltar ao padrão",
+    unknown: "desconhecido",
+    inherited: "{model} (herdado)",
   },
   sidebarHeader: {
     newMessages: "Novas mensagens",
@@ -546,6 +551,8 @@ const ptBRMessages = {
     openInOs: "Abrir no SO",
     openingInOs: "Abrindo…",
     openInOsFailed: "Falha ao abrir no SO",
+    downloadFile: "Baixar",
+    downloadingFile: "Baixando…",
   },
   filesView: {
     chatPlaceholder: "Pergunte sobre este arquivo…",
@@ -954,7 +961,7 @@ const ptBRMessages = {
     sectionActive: "Ativas",
     sectionCatalog: "Catálogo",
     sectionLegendActive:
-      "Skills que o Claude pode usar agora. O Claude as usa automaticamente no fluxo da conversa, ou você pode invocar uma digitando seu nome. {system} Sistema (mc- inclusa) / {project} Projeto (editável, somente neste workspace) / {user} Usuário (skills em ~/.claude/skills/).",
+      "Skills que o Claude pode usar agora. O Claude as usa automaticamente no fluxo da conversa, ou você pode invocar uma digitando seu nome. {system} Sistema (mc- inclusa) / {project} Projeto (editável, somente neste workspace) / {user} Usuário (skills em ~/.claude/skills/) / {claudePlugin} Plugin (de um plugin do Claude Code instalado, somente leitura).",
     sectionLegendCatalog:
       "Catálogo: skills que passam a ser Ativas ao marcar com {star}. Remover {star} de Ativas devolve a skill ao Catálogo — o Claude deixa de usá-la (a skill não é excluída).",
     catalogEmpty: "Nenhuma skill de preset disponível.",
@@ -962,6 +969,7 @@ const ptBRMessages = {
     catalogStar: "Favoritar",
     catalogStarred: "Favoritada",
     sourceUserTitle: "Skill do usuário (~/.claude/skills/, disponível em todos os workspaces)",
+    sourceClaudePluginTitle: "Skill de plugin (plugin do Claude Code instalado — somente leitura, atualizado pelo plugin)",
     sourceSystemTitle: "Skill de sistema (inclusa, prefixo mc- — somente leitura, sobrescrita pelo launcher)",
     sourceProjectTitle: "Skill do projeto (.claude/skills/ do workspace, apenas este workspace)",
     sourcePresetTitle: "Catálogo de presets — clique em Favoritar para ativar neste workspace",

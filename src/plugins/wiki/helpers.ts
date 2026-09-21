@@ -4,8 +4,9 @@
 // wrapping (image-ref rewrite + marked + interactive task lists).
 
 import { marked } from "marked";
-import { renderWikiLinks, WIKI_ACTION } from "@mulmoclaude/core/wiki";
+import { WIKI_ACTION } from "@mulmoclaude/core/wiki";
 import { rewriteMarkdownImageRefs } from "@mulmoclaude/markdown-utils/image/rewriteMarkdownImageRefs";
+import { withWikiLinks } from "../../utils/markdown/wikiLinks";
 import { findTaskLines, makeTasksInteractive, toggleTaskAt } from "@mulmoclaude/markdown-utils/markdown/taskList";
 import { splitFrontmatter } from "@mulmoclaude/markdown-utils/markdown/frontmatter";
 
@@ -23,7 +24,10 @@ export { renderWikiLinks } from "@mulmoclaude/core/wiki";
 export function renderWikiPageHtml(body: string, baseDir: string): string {
   if (!body) return "";
   const withImages = rewriteMarkdownImageRefs(body, baseDir);
-  const rendered = marked.parse(renderWikiLinks(withImages));
+  // `[[...]]` is a marked extension rather than a rewrite of the source, so it
+  // never fires inside a fence and never reaches the raw-HTML policy. The
+  // window is what keeps it off the chat surfaces that share this instance.
+  const rendered = withWikiLinks(() => marked.parse(withImages));
   // An async marked extension would hand back a Promise; this renderer is
   // synchronous, so it falls back to the same empty result as an empty body.
   return typeof rendered === "string" ? makeTasksInteractive(rendered) : "";

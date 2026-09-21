@@ -13,6 +13,14 @@ import { b64UrlDecode, parseJwt, jwtHashAlg, type ParsedJwt } from "../src/webho
 import { makeRelayMessage } from "../src/webhooks/relay-message.js";
 import { postJsonChunks } from "../src/webhooks/respond.js";
 
+/** `items[index]` is `T | undefined` under `noUncheckedIndexedAccess`. Asserting
+ *  states the precondition the case already relies on and names the failure. */
+const elementAt = <T>(items: readonly T[], index: number): T => {
+  const item = items[index];
+  assert.ok(item !== undefined, `expected an element at index ${index}, but the list holds ${items.length}`);
+  return item;
+};
+
 function b64url(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url");
 }
@@ -111,7 +119,7 @@ describe("postJsonChunks", () => {
   it("POSTs the built body to the endpoint with a bearer token", async () => {
     const calls: { url: string; authorization: string; body: string }[] = [];
     globalThis.fetch = (async (url: string, init: { headers: Record<string, string>; body: string }) => {
-      calls.push({ url, authorization: init.headers.Authorization, body: init.body });
+      calls.push({ url, authorization: init.headers.Authorization ?? "", body: init.body });
       return { ok: true } as Response;
     }) as typeof fetch;
 
@@ -125,9 +133,9 @@ describe("postJsonChunks", () => {
     });
 
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "https://example.test/send");
-    assert.equal(calls[0].authorization, "Bearer tok");
-    assert.equal(calls[0].body, JSON.stringify({ msg: "hi" }));
+    assert.equal(elementAt(calls, 0).url, "https://example.test/send");
+    assert.equal(elementAt(calls, 0).authorization, "Bearer tok");
+    assert.equal(elementAt(calls, 0).body, JSON.stringify({ msg: "hi" }));
   });
 
   it("wraps a network error with the platform label", async () => {

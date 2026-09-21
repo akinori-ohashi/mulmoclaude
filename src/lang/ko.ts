@@ -163,6 +163,11 @@ const koMessages = {
   },
   sessionModelChip: {
     tooltip: "이 세션이 사용 중인 모델: {model}",
+    tooltipOverride: "이 대화의 모델: {model} (역할/전체 설정을 덮어씀)",
+    ariaLabel: "이 대화의 모델",
+    clear: "기본값으로 되돌리기",
+    unknown: "알 수 없음",
+    inherited: "{model} (상속)",
   },
   sidebarHeader: {
     newMessages: "새 메시지",
@@ -546,6 +551,8 @@ const koMessages = {
     openInOs: "OS에서 열기",
     openingInOs: "여는 중…",
     openInOsFailed: "OS에서 열 수 없습니다",
+    downloadFile: "다운로드",
+    downloadingFile: "다운로드 중…",
   },
   filesView: {
     chatPlaceholder: "이 파일에 대해 질문하세요…",
@@ -949,7 +956,7 @@ const koMessages = {
     sectionActive: "활성",
     sectionCatalog: "카탈로그",
     sectionLegendActive:
-      "Claude가 지금 사용할 수 있는 스킬. 대화 흐름에서 Claude가 자동으로 사용하거나, 스킬 이름을 입력해 호출할 수 있습니다. {system} 시스템(동봉 mc-) / {project} 프로젝트(편집 가능, 이 워크스페이스 전용) / {user} 사용자(~/.claude/skills/ 의 스킬).",
+      "Claude가 지금 사용할 수 있는 스킬. 대화 흐름에서 Claude가 자동으로 사용하거나, 스킬 이름을 입력해 호출할 수 있습니다. {system} 시스템(동봉 mc-) / {project} 프로젝트(편집 가능, 이 워크스페이스 전용) / {user} 사용자(~/.claude/skills/ 의 스킬) / {claudePlugin} 플러그인(설치된 Claude Code 플러그인. 읽기 전용).",
     sectionLegendCatalog:
       "카탈로그: {star}를 누르면 활성이 되는 스킬. 활성에서 {star}를 해제하면 카탈로그로 돌아가고 Claude는 사용하지 않게 됩니다 (스킬은 삭제되지 않습니다).",
     catalogEmpty: "사용 가능한 프리셋 스킬이 없습니다.",
@@ -957,6 +964,7 @@ const koMessages = {
     catalogStar: "별 표시",
     catalogStarred: "별 표시됨",
     sourceUserTitle: "사용자 스킬 (~/.claude/skills/, 모든 워크스페이스 공통)",
+    sourceClaudePluginTitle: "플러그인 스킬 (설치된 Claude Code 플러그인 — 읽기 전용, 플러그인에서 갱신)",
     sourceSystemTitle: "시스템 스킬 (동봉, mc- 접두사 — 읽기 전용, 런처 부팅 시 덮어씀)",
     sourceProjectTitle: "프로젝트 스킬 (워크스페이스 .claude/skills/, 이 워크스페이스 전용)",
     sourcePresetTitle: "프리셋 카탈로그 — 별 표시를 눌러 이 워크스페이스에 활성화",

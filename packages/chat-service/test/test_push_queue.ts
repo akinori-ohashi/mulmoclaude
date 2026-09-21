@@ -2,6 +2,16 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createPushQueue, type PushQueue } from "../src/push-queue.js";
 
+/** `items[index]` is `T | undefined` under `noUncheckedIndexedAccess`. Asserting
+ *  states the precondition each case already relies on — the length was just
+ *  checked, or the collector was asked for exactly this many — and names the
+ *  failure instead of throwing on a property of undefined. */
+const elementAt = <T>(items: readonly T[], index: number): T => {
+  const item = items[index];
+  assert.ok(item !== undefined, `expected an element at index ${index}, but the list holds ${items.length}`);
+  return item;
+};
+
 const msg = (chatId: string, message: string) => ({
   chatId,
   message,
@@ -25,8 +35,8 @@ describe("createPushQueue", () => {
     assert.equal(q.sizeFor("cli"), 1);
     const drained = q.drainFor("cli");
     assert.equal(drained.length, 1);
-    assert.equal(drained[0].chatId, "terminal");
-    assert.equal(drained[0].message, "hello");
+    assert.equal(elementAt(drained, 0).chatId, "terminal");
+    assert.equal(elementAt(drained, 0).message, "hello");
   });
 
   it("preserves FIFO order", () => {
@@ -54,7 +64,7 @@ describe("createPushQueue", () => {
     assert.equal(q.sizeFor("telegram"), 1);
 
     const cliDrain = q.drainFor("cli");
-    assert.equal(cliDrain[0].message, "cli-msg");
+    assert.equal(elementAt(cliDrain, 0).message, "cli-msg");
     assert.equal(q.sizeFor("cli"), 0);
     assert.equal(q.sizeFor("telegram"), 1);
   });

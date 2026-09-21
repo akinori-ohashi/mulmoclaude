@@ -91,7 +91,10 @@ async function doRegister(deps: SkillSchedulerDeps): Promise<number> {
   const previousCount = registeredSkillTasks.size;
   registeredSkillTasks = new Map<string, ScheduledSkillTask>();
 
-  const skills = await discoverSkills({ workspaceRoot });
+  // Plugin skills are excluded: installing a marketplace plugin must not
+  // register recurring work the user never asked for, and the schedule lives
+  // in frontmatter its author controls.
+  const skills = await discoverSkills({ workspaceRoot, includeClaudePlugins: false });
 
   for (const skill of skills) {
     const info = readSkillScheduleInfo(skill);

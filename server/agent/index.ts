@@ -6,6 +6,7 @@ import { refreshCredentials } from "../system/credentials.js";
 import { loadMcpConfig, loadSettings } from "../system/config.js";
 import type { Role } from "../../src/config/roles.js";
 import { resolveChatModel } from "../../src/config/chatModelSource.js";
+import type { ChatModel } from "../../src/config/models.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { loadMemorySnapshot } from "../workspace/memory/snapshot.js";
 import { beginBrokerSpawn } from "./brokerReadiness.js";
@@ -48,6 +49,10 @@ export interface RunAgentInput {
   port: number;
   claudeSessionId?: string | undefined;
   sessionToken?: string | undefined;
+  /** This conversation's one-off model override (#3147), read from session
+   *  meta by the route — the same rail `claudeSessionId` travels, because
+   *  `buildAgentInput` is synchronous and the meta read is not. */
+  sessionChatModel?: ChatModel | undefined;
   abortSignal?: AbortSignal | undefined;
   attachments?: Attachment[] | undefined;
   userTimezone?: string | undefined;
@@ -282,7 +287,7 @@ function logSpawn(args: {
  *  call site stops consulting `role.model`. Reverting the line below to
  *  `settings.chatModel` left all 10,169 tests green (Codex round 2, #3104), so
  *  the per-role feature could be disconnected in silence. The test drives this
- *  function to close that. */
+ *  function to close that, and covers the session level (#3147) the same way. */
 export function buildAgentInput(
   input: RunAgentInput,
   deps: AgentRunDeps,
@@ -297,7 +302,7 @@ export function buildAgentInput(
     startMarkerPath: string;
   },
 ): { backend: LLMBackend; agentInput: AgentInput } {
-  const { message, role, workspacePath, sessionId, port, claudeSessionId, sessionToken, abortSignal, attachments, userTimezone } = input;
+  const { message, role, workspacePath, sessionId, port, claudeSessionId, sessionToken, sessionChatModel, abortSignal, attachments, userTimezone } = input;
   const { activePlugins, useDocker, userServers, backend } = deps;
   const { systemPrompt, hasMcp, mcpPaths, mcpServerNames, mcpConfig, broker, spawnId, startMarkerPath } = args;
 
@@ -324,7 +329,7 @@ export function buildAgentInput(
     spawnId: hasMcp ? spawnId : undefined,
     extraAllowedTools: [...settings.extraAllowedTools, ...userServerAllowedTools],
     effortLevel: settings.effortLevel,
-    chatModel: resolveChatModel(role.model, settings.chatModel).model,
+    chatModel: resolveChatModel(sessionChatModel, role.model, settings.chatModel).model,
     abortSignal,
     userTimezone,
     useDocker,

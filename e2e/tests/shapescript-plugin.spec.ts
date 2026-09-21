@@ -66,7 +66,45 @@ test.describe("shapescript plugin rendering", () => {
     await expect(page.locator('[data-testid="shapescript-view"]')).toBeVisible();
     await expect(page.locator('[data-testid="shapescript-viewport"]')).toBeVisible();
     await expect(page.locator('[data-testid="shapescript-parse-error"]')).toHaveCount(0);
-    await expect(page.getByTestId("shapescript-download-usdz")).toBeEnabled();
+    // The formats live in one Download menu; open it to see them.
+    const downloadMenu = page.getByTestId("shapescript-download-menu");
+    await expect(downloadMenu).toBeEnabled();
+    await downloadMenu.click();
+    for (const format of ["usdz", "glb", "stl"]) await expect(page.getByTestId(`shapescript-download-${format}`)).toBeEnabled();
+    // The open panel stays inside the view, whatever width the pane has.
+    const viewBox = await page.getByTestId("shapescript-view").boundingBox();
+    const panelBox = await page.getByTestId("shapescript-download-menu-panel").boundingBox();
+    expect(panelBox && viewBox && panelBox.x >= viewBox.x && panelBox.x + panelBox.width <= viewBox.x + viewBox.width).toBe(true);
+    // ...and refits when the pane is resized while it is open.
+    await page.setViewportSize({ width: 900, height: 720 });
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toBeVisible();
+    await expect(async () => {
+      const narrowView = await page.getByTestId("shapescript-view").boundingBox();
+      const narrowPanel = await page.getByTestId("shapescript-download-menu-panel").boundingBox();
+      expect(narrowPanel && narrowView && narrowPanel.x >= narrowView.x && narrowPanel.x + narrowPanel.width <= narrowView.x + narrowView.width).toBe(true);
+    }).toPass();
+    // Escape closes it and hands focus back to the trigger; a click outside closes it too.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);
+    await expect(downloadMenu).toBeFocused();
+    await downloadMenu.click();
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toBeVisible();
+    await page.getByTestId("shapescript-viewport").click({ position: { x: 5, y: 5 } });
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);
+    // Picking a format closes the panel and returns focus to the trigger too.
+    // The click is stubbed at the anchor so the test does not save a file.
+    await page.evaluate(() => (HTMLAnchorElement.prototype.click = () => undefined));
+    await downloadMenu.click();
+    await page.getByTestId("shapescript-download-stl").click();
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);
+    await expect(downloadMenu).toBeFocused();
+    // Copy lives at the right end of the "Edit ShapeScript" bar and must not
+    // toggle the editor it sits on.
+    const source = page.locator('[data-testid="shapescript-view"] details.script-source');
+    await expect(source.locator("summary")).toContainText("Edit ShapeScript Source");
+    await expect(source).not.toHaveAttribute("open", "");
+    await page.getByTestId("shapescript-copy-script").click();
+    await expect(source).not.toHaveAttribute("open", "");
   });
 
   test("validates edited geometry and renders completed builders", async ({ page }) => {
@@ -76,12 +114,16 @@ test.describe("shapescript plugin rendering", () => {
     await view.locator("summary").click();
     const editor = view.locator("textarea");
     const apply = view.locator("button.apply-btn");
-    const download = page.getByTestId("shapescript-download-usdz");
+    const download = page.getByTestId("shapescript-download-menu");
     await expect(download).toBeEnabled();
+    await download.click();
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toBeVisible();
     await editor.fill("cube { size missing }");
-    // A dirty editor cannot be exported: the USDZ is built from the APPLIED
-    // script, which is what the viewport shows, not from unsaved edits.
+    // A dirty editor cannot be exported: every format is built from the
+    // APPLIED script, which is what the viewport shows, not from unsaved edits.
+    // The menu that was open closes with it.
     await expect(download).toBeDisabled();
+    await expect(page.getByTestId("shapescript-download-menu-panel")).toHaveCount(0);
     await apply.click();
     await expect(page.getByTestId("shapescript-parse-error")).toContainText("Undefined variable: missing");
     // Failed edits remain unsaved and can be corrected in place.

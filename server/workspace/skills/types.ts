@@ -1,12 +1,12 @@
 // Shared Skill type. A Skill is the parsed content of one
 // ~/.claude/skills/<name>/SKILL.md file (or the project-level
-// equivalent under <workspace>/.claude/skills/<name>/SKILL.md).
+// equivalent under <workspace>/.claude/skills/<name>/SKILL.md, or one
+// shipped inside an installed Claude Code plugin — see claude-plugins.ts).
 //
-// Phase 0 is read-only: the server discovers and exposes skills
-// but never writes to them. Edits happen through the user's file
-// system or other tooling (e.g. their own skills repo).
+// Only the project scope is writable, through `writer.ts`; every other scope is
+// read-only here and edited in its own source files.
 
-export type SkillSource = "user" | "project";
+export type SkillSource = "user" | "project" | "claude-plugin";
 
 export interface Skill {
   /** Directory name under skills/, e.g. "ci_enable". */
@@ -17,8 +17,8 @@ export interface Skill {
   /** Markdown body after the frontmatter. Passed to Claude when the
    *  user clicks "Run". */
   body: string;
-  /** Which scope this skill was discovered in. Project overrides user
-   *  when names collide. */
+  /** Which scope this skill was discovered in. On a name collision project
+   *  overrides user, and user overrides claude-plugin. */
   source: SkillSource;
   /** Absolute path to the SKILL.md file (post-symlink resolve). Used
    *  to surface the origin in the detail view. */

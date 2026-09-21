@@ -125,9 +125,11 @@
           :session-role-name="sessionRoleName"
           :session-role-icon="sessionRoleIcon"
           :session-model="activeSession?.resolvedModel"
+          :session-model-override="activeSession?.chatModel"
           :layout-mode="layoutMode"
           :show-right-sidebar="showRightSidebar"
           :has-new-messages="hasNewWhileDetached"
+          @update:session-model-override="setSessionModelOverride"
           @select="onSidebarItemClick"
           @activate="activePane = 'sidebar'"
           @update:layout-mode="setLayoutMode"
@@ -212,9 +214,11 @@
             :session-role-name="sessionRoleName"
             :session-role-icon="sessionRoleIcon"
             :session-model="activeSession?.resolvedModel"
+            :session-model-override="activeSession?.chatModel"
             :layout-mode="layoutMode"
             :show-right-sidebar="showRightSidebar"
             :google-map-key="googleMapsApiKey"
+            @update:session-model-override="setSessionModelOverride"
             @select="(uuid) => (selectedResultUuid = uuid)"
             @update-result="handleUpdateResult"
             @update:layout-mode="setLayoutMode"
@@ -433,6 +437,7 @@ import { provideActiveSession } from "./composables/useActiveSession";
 import { useRoute, useRouter } from "vue-router";
 import { apiGet, apiPost } from "./utils/api";
 import { API_ROUTES } from "./config/apiRoutes";
+import type { ChatModel } from "./config/models";
 import { TOOL_NAMES } from "./config/toolNames";
 import { classifyWorkspacePath } from "./utils/path/workspaceLinkRouter";
 
@@ -518,6 +523,39 @@ const selectedResultUuid = computed<string | null>({
     if (activeSession.value) activeSession.value.selectedResultUuid = val;
   },
 });
+
+// This conversation's one-off model override (#3147). Written straight to
+// session meta so it survives a reload; the local session object is updated
+// optimistically because the chip must not lag the click, and the next turn
+// reads the persisted value rather than this copy.
+const pendingModelWrite = ref<Promise<void> | null>(null);
+
+async function persistSessionModelOverride(session: ActiveSession, model: ChatModel | undefined): Promise<void> {
+  const previous = session.chatModel;
+  if (model) session.chatModel = model;
+  else delete session.chatModel;
+  const path = API_ROUTES.sessions.chatModel.replace(":id", encodeURIComponent(session.id));
+  const result = await apiPost<{ ok: boolean }>(path, { chatModel: model ?? null });
+  if (result.ok) return;
+  // Put the old value back rather than leaving the chip claiming a setting the
+  // server rejected — a silent disagreement between screen and disk is the
+  // thing #2554 existed to end.
+  if (previous) session.chatModel = previous;
+  else delete session.chatModel;
+}
+
+// Queued, and `sendMessage` waits on the queue before it dispatches: the next
+// turn reads this choice from DISK, so a send issued straight after a
+// selection would otherwise overtake the write and run on the previous
+// cascade. Chaining also lands two quick selections in the order they were
+// clicked, which two independent requests do not guarantee.
+async function setSessionModelOverride(model: ChatModel | undefined): Promise<void> {
+  const session = activeSession.value;
+  if (!session) return;
+  const queued = (pendingModelWrite.value ?? Promise.resolve()).then(() => persistSessionModelOverride(session, model));
+  pendingModelWrite.value = queued.catch(() => undefined);
+  await queued;
+}
 
 // Display name and icon of the role the active session was created
 // under, so the message list can show which role is driving the
@@ -1102,12 +1140,22 @@ async function sendMessage(text?: string) {
   beginUserTurn(session, message, attachments);
   ensureSessionSubscription(session);
 
+  // The override is persisted by its own request and a later turn reads it
+  // from disk, so the write is the barrier — not the click that started it.
+  // The model is read AFTER this await, deliberately: the await is on the
+  // LATEST queued write, so by the time it returns every selection made
+  // before Send has been applied. Reading before it sends the value from
+  // before the queue drained — the picker would show one model and the first
+  // turn would run another.
+  await pendingModelWrite.value;
+  const { chatModel } = session;
   const result = await postAgentRun(
     buildAgentRequestBody({
       message,
       role: roleOfSession(session),
       chatSessionId: session.id,
       attachments,
+      chatModel,
     }),
   );
   if (!result.ok) {

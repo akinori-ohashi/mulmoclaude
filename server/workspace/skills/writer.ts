@@ -64,7 +64,12 @@ export async function saveProjectSkill(input: SaveSkillInput): Promise<SaveResul
   // Conflict check across BOTH scopes — we don't want to shadow a
   // user-scope skill with the same name (project would silently
   // override it via the precedence rule).
-  const existing = await discoverSkills({ workspaceRoot });
+  //
+  // Plugin skills are out of scope for every writer here: their names carry a
+  // `<plugin>:` namespace, and `isValidSlug` rejects `:`, so no write can ever
+  // name one. Reading them would only make these calls depend on the machine's
+  // installed plugins.
+  const existing = await discoverSkills({ workspaceRoot, includeClaudePlugins: false });
   if (existing.some((skill) => skill.name === name)) {
     return { kind: "exists", name };
   }
@@ -102,7 +107,7 @@ export async function updateProjectSkill(input: SaveSkillInput): Promise<UpdateR
   if (problem) return problem;
   const { workspaceRoot, name, description, body } = input;
 
-  const existing = await discoverSkills({ workspaceRoot });
+  const existing = await discoverSkills({ workspaceRoot, includeClaudePlugins: false });
   const skill = existing.find((candidate) => candidate.name === name);
   if (!skill) return { kind: "not-found", name };
   if (skill.source === "user") return { kind: "user-scope", name };
@@ -145,7 +150,7 @@ export async function deleteProjectSkill(input: DeleteSkillInput): Promise<Delet
 
   // Look up the skill's effective source via discovery — if the
   // matching name is user-scope, we refuse.
-  const all = await discoverSkills({ workspaceRoot, userDir });
+  const all = await discoverSkills({ workspaceRoot, userDir, includeClaudePlugins: false });
   const skill = all.find((candidate) => candidate.name === name);
   if (!skill) return { kind: "not-found", name };
   if (skill.source === "user") return { kind: "user-scope", name };

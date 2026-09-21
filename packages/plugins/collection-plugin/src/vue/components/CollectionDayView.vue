@@ -113,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useCollectionI18n } from "../lang";
 import {
   bucketRecords,
@@ -306,15 +306,27 @@ function onCreate(): void {
   emit("createOn", dayKey.value);
 }
 
+// The control that had focus before the popup opened (the day cell or chip the
+// user activated). Restored on unmount, matching CollectionRecordModal.
+let previouslyFocused: HTMLElement | null = null;
+
 // On open: move focus into the dialog (so Escape/Tab act on the modal, not the
 // background day cell), then auto-scroll the timeline to the earliest timed
 // event (less one hour of lead-in) so an afternoon-heavy day doesn't open on
 // an empty morning.
 onMounted(async () => {
+  previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   await nextTick();
   dialogEl.value?.focus();
   const earliest = timedEntries.value.reduce((min, entry) => Math.min(min, entry.slice.startMin), MINUTES_PER_DAY);
   if (earliest >= MINUTES_PER_DAY) return;
   if (scrollEl.value) scrollEl.value.scrollTop = Math.max(0, (earliest - 60) * PX_PER_MIN);
+});
+
+// Restore focus to the trigger. The popup also closes on actions that are not a
+// close control — sending the record chat box dismisses it — and those leave
+// focus on a removed node, i.e. on <body>, with no way back by keyboard.
+onBeforeUnmount(() => {
+  previouslyFocused?.focus?.();
 });
 </script>

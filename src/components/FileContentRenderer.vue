@@ -241,16 +241,31 @@
       <div v-else class="p-4 text-sm text-gray-500 flex flex-col gap-3">
         <template v-if="'message' in content">{{ content.message }}</template>
         <div v-if="selectedPath">
-          <button
-            type="button"
-            class="h-8 px-3 flex items-center gap-1 rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-medium disabled:opacity-50"
-            :disabled="openInOsBusy"
-            data-testid="file-open-in-os"
-            @click="openInOs"
-          >
-            <span class="material-icons text-sm">open_in_new</span>
-            {{ openInOsBusy ? t("fileContentRenderer.openingInOs") : t("fileContentRenderer.openInOs") }}
-          </button>
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Download first: it is the one that works when the server
+                 has no desktop session to hand the file to (#3213). -->
+            <button
+              type="button"
+              class="h-8 px-3 flex items-center gap-1 rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-medium disabled:opacity-50"
+              :disabled="downloadBusy"
+              data-testid="file-download"
+              @click="downloadFile"
+            >
+              <span class="material-icons text-sm">download</span>
+              {{ downloadBusy ? t("fileContentRenderer.downloadingFile") : t("fileContentRenderer.downloadFile") }}
+            </button>
+            <button
+              type="button"
+              class="h-8 px-3 flex items-center gap-1 rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-medium disabled:opacity-50"
+              :disabled="openInOsBusy"
+              data-testid="file-open-in-os"
+              @click="openInOs"
+            >
+              <span class="material-icons text-sm">open_in_new</span>
+              {{ openInOsBusy ? t("fileContentRenderer.openingInOs") : t("fileContentRenderer.openInOs") }}
+            </button>
+          </div>
+          <p v-if="downloadError" class="mt-2 text-xs text-red-600" data-testid="file-download-error">{{ downloadError }}</p>
           <p v-if="openInOsError" class="mt-2 text-xs text-red-600">{{ openInOsError }}</p>
         </div>
       </div>
@@ -273,6 +288,7 @@ import { rewriteMarkdownImageRefs } from "@mulmoclaude/markdown-utils/image/rewr
 import { API_ROUTES } from "../config/apiRoutes";
 import { useSharePack } from "../composables/useSharePack";
 import { useOpenInOs } from "../composables/useOpenInOs";
+import { useRawFileDownload } from "../composables/useRawFileDownload";
 import { descriptorForPath, jsonEditableByPolicy } from "../config/systemFileDescriptors";
 import { isMarpDocument } from "@mulmoclaude/markdown-utils/markdown/marpDetect";
 import { buildPdfFilename } from "@mulmoclaude/markdown-utils/files/filename";
@@ -354,6 +370,11 @@ const marpPdfFilename = computed(() => {
 // ("Show in folder" lives in FileContentHeader so it's available for
 // every file type, not just this fallback.)
 const { busy: openInOsBusy, error: openInOsError, open: openInOs } = useOpenInOs(toRef(props, "selectedPath"), () => t("fileContentRenderer.openInOsFailed"));
+
+// Browser download on the same fallback. Unlike "Open in OS" this needs
+// nothing of the server's host beyond reading the file, so it is the path
+// that still works under Docker / WSL2 / a remote host (#3213).
+const { busy: downloadBusy, error: downloadError, download: downloadFile } = useRawFileDownload(toRef(props, "selectedPath"), () => t("common.downloadFailed"));
 
 const jsonEditing = ref(false);
 const jsonDraft = ref("");

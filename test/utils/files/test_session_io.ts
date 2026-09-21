@@ -1,6 +1,6 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -12,12 +12,19 @@ import {
   backfillFirstUserMessage,
   setClaudeSessionId,
   updateResolvedModel,
+  updateSessionChatModel,
   clearClaudeSessionId,
   setAgentSession,
   clearAgentSession,
   appendSessionLine,
   readSessionJsonl,
+  readSessionMetaFull,
+  updateIsBookmarked,
+  deleteSessionFiles,
+  sessionJsonlAbsPath,
+  sessionMetaAbsPath,
 } from "../../../server/utils/files/session-io.js";
+import type { ChatModel } from "../../../src/config/models.js";
 import { WORKSPACE_DIRS } from "../../../server/workspace/paths.js";
 
 let root: string;
@@ -252,5 +259,220 @@ describe("updateResolvedModel", () => {
   it("does nothing when there is no session meta to update", async () => {
     await updateResolvedModel("rm-missing", "claude-opus-5", root);
     assert.equal(await readSessionMeta("rm-missing", root), null);
+  });
+});
+
+// #3147. The override is the only model value in this file that reaches
+// `claude --model`, so it is validated on the way in and — the part that is
+// easy to get wrong — the key must LEAVE the file when cleared. A stored empty
+// value would shadow the role and the app-wide setting forever.
+describe("updateSessionChatModel", () => {
+  it("round-trips an override", async () => {
+    await createSessionMeta("sm-1", "general", "hi", root);
+    await updateSessionChatModel("sm-1", "opus", root);
+    assert.equal((await readSessionMeta("sm-1", root))?.chatModel, "opus");
+  });
+
+  it("REMOVES the key when cleared, rather than storing an empty value", async () => {
+    await createSessionMeta("sm-2", "general", "hi", root);
+    await updateSessionChatModel("sm-2", "opus", root);
+    await updateSessionChatModel("sm-2", undefined, root);
+    const meta = await readSessionMeta("sm-2", root);
+    assert.equal(meta?.chatModel, undefined);
+    assert.equal("chatModel" in (meta ?? {}), false, "the key itself must be gone so the cascade falls through");
+  });
+
+  it("preserves the fields it is not writing", async () => {
+    await createSessionMeta("sm-3", "guide", "first", root);
+    await setClaudeSessionId("sm-3", "cli-abc", root);
+    await updateResolvedModel("sm-3", "claude-opus-5[1m]", root);
+    await updateSessionChatModel("sm-3", "haiku", root);
+    const meta = await readSessionMeta("sm-3", root);
+    assert.equal(meta?.chatModel, "haiku");
+    assert.equal(meta?.roleId, "guide");
+    assert.equal(meta?.claudeSessionId, "cli-abc");
+    assert.equal(meta?.resolvedModel, "claude-opus-5[1m]");
+    assert.equal(meta?.firstUserMessage, "first");
+  });
+
+  // The CHOSEN value and the OBSERVED value are different fields on purpose;
+  // writing one must not disturb the other.
+  it("does not disturb resolvedModel, which is an observation, not a setting", async () => {
+    await createSessionMeta("sm-4", "general", "hi", root);
+    await updateResolvedModel("sm-4", "claude-haiku-4-5-20251001", root);
+    await updateSessionChatModel("sm-4", "opus", root);
+    await updateSessionChatModel("sm-4", undefined, root);
+    assert.equal((await readSessionMeta("sm-4", root))?.resolvedModel, "claude-haiku-4-5-20251001");
+  });
+
+  it("does nothing when there is no session meta", async () => {
+    await updateSessionChatModel("sm-missing", "opus", root);
+    assert.equal(await readSessionMeta("sm-missing", root), null);
+  });
+
+  // An alias this build does not know must not reach `claude --model`, and must
+  // not take the rest of the sidecar down with it. Both halves matter: the
+  // first is the security property, the second is what lets `CHAT_MODELS` gain
+  // or retire a name without hiding every conversation written by the other
+  // build. Before this was split, one unknown alias made the whole file
+  // `corrupt`, so the session lost its role, its bookmark and its title too.
+  it("drops an alias that is not a known one, and keeps the rest of the file", async () => {
+    await createSessionMeta("sm-5", "general", "hi", root);
+    // Written as raw JSON, not through `writeSessionMeta`: the typed writer
+    // cannot express this, which is the point — only a hand edit or another
+    // build can, and that is exactly what the validator exists for.
+    writeFileSync(
+      path.join(root, WORKSPACE_DIRS.chat, "sm-5.json"),
+      JSON.stringify({ roleId: "general", startedAt: "2026-01-01T00:00:00.000Z", isBookmarked: true, chatModel: "gpt-4o" }),
+    );
+    const meta = await readSessionMeta("sm-5", root);
+    assert.equal(meta?.chatModel, undefined, "a bad alias must not be handed on to `claude --model`");
+    assert.equal(meta?.roleId, "general", "the rest of the sidecar must survive one bad optional field");
+    assert.equal(meta?.isBookmarked, true);
+    assert.equal((await readSessionMetaFull("sm-5", root)).kind, "ok", "one unknown alias is not a corrupt file");
+  });
+
+  // The value is refused on the way IN too — dropping it on read is a
+  // compatibility rule, not a relaxation of what may be stored. Asserted
+  // against the RAW FILE: reading it back would pass either way, because the
+  // read drops an unknown alias regardless of how it got there, so only the
+  // bytes on disk can tell the two mechanisms apart.
+  it("refuses to store an alias that is not a known one", async () => {
+    await createSessionMeta("sm-6", "general", "hi", root);
+    await updateSessionChatModel("sm-6", "gpt-4o" as ChatModel, root);
+    const raw = readFileSync(path.join(root, WORKSPACE_DIRS.chat, "sm-6.json"), "utf-8");
+    assert.equal(raw.includes("gpt-4o"), false, "an unknown alias must not reach the file at all");
+    assert.equal((await readSessionMeta("sm-6", root))?.chatModel, undefined);
+  });
+});
+
+// Serialisation (#3148 cross-review). Every helper here is a whole-file
+// read-modify-write, so two of them overlapping on one session used to drop
+// whichever field the loser wrote — measured at 40 out of 40 concurrent
+// chatModel/resolvedModel pairs before `mutateSessionMeta` existed. These fail
+// if the per-session queue is removed.
+describe("session meta concurrent writers", () => {
+  it("keeps both fields when chatModel and resolvedModel are written at once", async () => {
+    const sessionIds = Array.from({ length: 20 }, (_unused, index) => `race-${index}`);
+    await Promise.all(sessionIds.map((sessionId) => createSessionMeta(sessionId, "general", "hi", root)));
+    await Promise.all(
+      sessionIds.flatMap((sessionId) => [updateSessionChatModel(sessionId, "opus", root), updateResolvedModel(sessionId, "claude-haiku-4-5-20251001", root)]),
+    );
+    const metas = await Promise.all(sessionIds.map((sessionId) => readSessionMeta(sessionId, root)));
+    const losses = metas.filter((meta) => meta?.chatModel !== "opus" || meta?.resolvedModel !== "claude-haiku-4-5-20251001");
+    assert.deepEqual(losses, [], "a concurrent writer must not drop the other one's field");
+  });
+
+  it("keeps every field when four different writers overlap", async () => {
+    await createSessionMeta("race-all", "general", "hi", root);
+    await Promise.all([
+      updateSessionChatModel("race-all", "sonnet", root),
+      updateResolvedModel("race-all", "claude-opus-5", root),
+      updateIsBookmarked("race-all", true, root),
+      setClaudeSessionId("race-all", "cs-1", root),
+    ]);
+    const meta = await readSessionMeta("race-all", root);
+    assert.deepEqual(
+      { chatModel: meta?.chatModel, resolvedModel: meta?.resolvedModel, isBookmarked: meta?.isBookmarked, claudeSessionId: meta?.claudeSessionId },
+      { chatModel: "sonnet", resolvedModel: "claude-opus-5", isBookmarked: true, claudeSessionId: "cs-1" },
+    );
+  });
+
+  it("applies queued writes in arrival order", async () => {
+    await createSessionMeta("race-order", "general", "hi", root);
+    await Promise.all([
+      updateSessionChatModel("race-order", "opus", root),
+      updateSessionChatModel("race-order", "haiku", root),
+      updateSessionChatModel("race-order", "sonnet", root),
+    ]);
+    assert.equal((await readSessionMeta("race-order", root))?.chatModel, "sonnet");
+  });
+});
+
+// `metaRel` normalises `../` away and `readTextUnder` is documented as
+// "internal fixed paths only", so an id that reaches file IO unvalidated
+// resolves anywhere under the workspace. Reproduced before the guard existed:
+// `../../config/settings` overwrote the app's own settings file.
+describe("session meta hostile ids", () => {
+  const HOSTILE = ["../../config/settings", "..", "a/../../b", "foo/bar", "..json"];
+
+  it("writes nothing outside the chat dir", async () => {
+    const victim = path.join(root, "config", "settings.json");
+    mkdirSync(path.join(root, "config"), { recursive: true });
+    const original = JSON.stringify({ extraAllowedTools: [], chatModel: "sonnet" }, null, 2);
+    writeFileSync(victim, original);
+    await Promise.all(
+      HOSTILE.flatMap((sessionId) => [
+        updateSessionChatModel(sessionId, "opus", root),
+        updateIsBookmarked(sessionId, true, root),
+        setClaudeSessionId(sessionId, "leaked", root),
+      ]),
+    );
+    assert.equal(readFileSync(victim, "utf-8"), original, "a hostile session id must not reach a file outside the chat dir");
+  });
+
+  // `startChat` reaches both of these with the `chatSessionId` straight off the
+  // request body, which is only checked for being non-empty — so they are the
+  // two writers an attacker can hit without touching the sessions routes at
+  // all. Raised by Codex after the first round of this fix claimed, wrongly,
+  // that every write was already covered.
+  it("creates and appends nothing outside the chat dir", async () => {
+    const victim = path.join(root, "config", "settings.json");
+    mkdirSync(path.join(root, "config"), { recursive: true });
+    const original = JSON.stringify({ extraAllowedTools: [] }, null, 2);
+    writeFileSync(victim, original);
+    const transcript = path.join(root, "config", "settings.jsonl");
+    await Promise.all([
+      createSessionMeta("../../config/settings", "general", "hi", root),
+      appendSessionLine("../../config/settings", JSON.stringify({ source: "user", message: "x" }), root),
+      writeSessionMeta("../../config/settings", { roleId: "general" }, root),
+    ]);
+    assert.equal(readFileSync(victim, "utf-8"), original, "createSessionMeta / writeSessionMeta must not reach outside the chat dir");
+    assert.equal(existsSync(transcript), false, "appendSessionLine must not create a transcript outside the chat dir");
+  });
+
+  // The rule, stated as what is PERMITTED. Three rounds of this review each
+  // found one more writer deriving a path without checking — the meta
+  // mutators, then `appendSessionLine` / `createSessionMeta`, then
+  // `resultsFilePath`, which `startChat` hands to the tool-trace and jsonl
+  // append sinks. Enumerating the writers was always going to miss one, so the
+  // getters refuse instead and no caller can hold a path it may not write to.
+  it("hands out no path at all for an id that is not path-safe", () => {
+    HOSTILE.forEach((sessionId) => {
+      assert.equal(sessionJsonlAbsPath(sessionId, root), null, `${sessionId} must not yield a jsonl path`);
+      assert.equal(sessionMetaAbsPath(sessionId, root), null, `${sessionId} must not yield a meta path`);
+    });
+  });
+
+  // The completion of the same rule: reads yield nothing either, so the
+  // invariant is "an unsafe id never becomes a session path", full stop —
+  // not "writes are safe and reads are not", which is the half-rule that
+  // reads as handled.
+  it("reads nothing for an id that is not path-safe", async () => {
+    const victim = path.join(root, "config", "settings.json");
+    mkdirSync(path.join(root, "config"), { recursive: true });
+    writeFileSync(victim, JSON.stringify({ extraAllowedTools: ["Bash"] }));
+    const results = await Promise.all(HOSTILE.map((sessionId) => readSessionMeta(sessionId, root)));
+    assert.deepEqual(
+      results,
+      HOSTILE.map(() => null),
+      "a hostile id must not read a file outside the chat dir",
+    );
+    assert.equal((await readSessionMetaFull("../../config/settings", root)).kind, "missing");
+    assert.equal(await readSessionJsonl("../../config/settings", root), null);
+  });
+
+  it("still hands out a path for a real session id", () => {
+    const real = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+    assert.equal(sessionJsonlAbsPath(real, root), path.join(root, WORKSPACE_DIRS.chat, `${real}.jsonl`));
+    assert.equal(sessionMetaAbsPath(real, root), path.join(root, WORKSPACE_DIRS.chat, `${real}.json`));
+  });
+
+  it("deletes nothing outside the chat dir", async () => {
+    const victim = path.join(root, "config", "settings.json");
+    mkdirSync(path.join(root, "config"), { recursive: true });
+    writeFileSync(victim, "{}");
+    await deleteSessionFiles("../../config/settings", root);
+    assert.equal(existsSync(victim), true, "an unvalidated id here is an arbitrary file delete");
   });
 });

@@ -159,6 +159,11 @@ const deMessages = {
   },
   sessionModelChip: {
     tooltip: "Modell dieser Sitzung: {model}",
+    tooltipOverride: "Modell dieses Chats: {model} (überschreibt Rolle / globale Einstellung)",
+    ariaLabel: "Modell dieses Chats",
+    clear: "Zurück zum Standard",
+    unknown: "unbekannt",
+    inherited: "{model} (geerbt)",
   },
   sidebarHeader: {
     newMessages: "Neue Nachrichten",
@@ -554,6 +559,8 @@ const deMessages = {
     openInOs: "Im Betriebssystem oeffnen",
     openingInOs: "Wird geoeffnet…",
     openInOsFailed: "Konnte nicht im Betriebssystem geoeffnet werden",
+    downloadFile: "Herunterladen",
+    downloadingFile: "Wird heruntergeladen…",
   },
   filesView: {
     chatPlaceholder: "Frage zu dieser Datei stellen…",
@@ -968,7 +975,7 @@ const deMessages = {
     sectionActive: "Aktiv",
     sectionCatalog: "Katalog",
     sectionLegendActive:
-      "Skills, die Claude jetzt verwenden kann. Claude verwendet sie automatisch im Verlauf des Gesprächs, oder du kannst eine durch Eingabe ihres Namens aufrufen. {system} System (mc- mitgeliefert) / {project} Projekt (bearbeitbar, nur in diesem Workspace) / {user} Nutzer (Skills in ~/.claude/skills/).",
+      "Skills, die Claude jetzt verwenden kann. Claude verwendet sie automatisch im Verlauf des Gesprächs, oder du kannst eine durch Eingabe ihres Namens aufrufen. {system} System (mc- mitgeliefert) / {project} Projekt (bearbeitbar, nur in diesem Workspace) / {user} Nutzer (Skills in ~/.claude/skills/) / {claudePlugin} Plugin (aus einem installierten Claude-Code-Plugin, schreibgeschützt).",
     sectionLegendCatalog:
       "Katalog: Skills, die durch {star} Markieren Aktiv werden. {star} in Aktiv entfernen bringt eine Skill zurück in den Katalog — Claude verwendet sie dann nicht mehr (die Skill wird nicht gelöscht).",
     catalogEmpty: "Keine Preset-Skills verfügbar.",
@@ -976,6 +983,7 @@ const deMessages = {
     catalogStar: "Markieren",
     catalogStarred: "Markiert",
     sourceUserTitle: "Benutzer-Skill (~/.claude/skills/, in allen Workspaces verfügbar)",
+    sourceClaudePluginTitle: "Plugin-Skill (installiertes Claude-Code-Plugin — schreibgeschützt, wird vom Plugin aktualisiert)",
     sourceSystemTitle: "System-Skill (mitgeliefert, mc- Präfix — schreibgeschützt, vom Launcher überschrieben)",
     sourceProjectTitle: "Projekt-Skill (.claude/skills/ des Workspaces, nur dieser Workspace)",
     sourcePresetTitle: "Preset-Katalog — Markieren anklicken, um in diesem Workspace zu aktivieren",

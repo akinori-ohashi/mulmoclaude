@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "comment": "Two overrides the other packages do not need. `exclude` beats `include`, so the build's exclude is restated here without `test` — otherwise this config adds nothing and reports a vacuous zero. `src/client.ts` stays out, as it is in the build. And `types` carries node alongside the Workers types: src targets Workers, the tests run under node, and this one program spans both.",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "allowImportingTsExtensions": true,
+    "types": ["@cloudflare/workers-types", "node"]
+  },
+  "include": ["src/**/*.ts", "test/**/*"],
+  "exclude": ["node_modules", "dist", "src/client.ts"]
+}

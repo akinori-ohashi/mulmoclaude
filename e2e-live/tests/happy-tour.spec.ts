@@ -191,10 +191,9 @@ async function runLauncherRouteSweep(page: Page): Promise<void> {
 // items / …) is still in-flight and may surface `*-api-error` a
 // moment later. Without this gate, `toHaveCount(0)` resolves
 // instantly in the pre-fetch state and false-passes regressions
-// (Codex GHA iter-2 finding). `networkidle` is best-effort because
-// pages with long-polling / SSE never reach it — the swallow is
-// intentional, the worst case is we revert to the pre-fix behaviour
-// for that one route rather than hang.
+// (Codex GHA iter-2 finding). Waiting on the banner itself returns the
+// moment one appears, so a real regression fails fast and only a clean
+// route burns the whole grace.
 const POST_FETCH_GRACE_MS = 3000;
 
 async function assertRouteMount(page: Page, entry: RouteSweepEntry): Promise<void> {
@@ -203,7 +202,8 @@ async function assertRouteMount(page: Page, entry: RouteSweepEntry): Promise<voi
     timeout: VIEW_MOUNT_TIMEOUT_MS,
   });
   if (entry.errorBannerTestId !== undefined) {
-    await page.waitForLoadState("networkidle", { timeout: POST_FETCH_GRACE_MS }).catch(() => {});
-    await expect(page.getByTestId(entry.errorBannerTestId), `${entry.errorBannerTestId} must NOT appear on a fresh ${entry.path} visit`).toHaveCount(0);
+    const errorBanner = page.getByTestId(entry.errorBannerTestId);
+    await errorBanner.waitFor({ state: "visible", timeout: POST_FETCH_GRACE_MS }).catch(() => {});
+    await expect(errorBanner, `${entry.errorBannerTestId} must NOT appear on a fresh ${entry.path} visit`).toHaveCount(0);
   }
 }

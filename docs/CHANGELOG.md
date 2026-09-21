@@ -10,6 +10,230 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Added
 
+- **Discord threads work with the allowlist, and can hold their own session** (`@mulmobridge/discord`, #3217) — a thread is a channel of its own on Discord, with an id minted the moment someone opens it, so `DISCORD_ALLOWED_CHANNELS` and threads could not be used together: you pasted each new thread id into `.env` and restarted, or left the list empty and answered everywhere. A thread is now admitted by its **parent** channel, and listing a thread's own id still works. The new `DISCORD_SESSION_GRANULARITY` chooses what a thread maps to — `thread` (default, and what the bridge already did for any thread that reached it) gives each thread its own conversation; `channel` folds every thread into its parent channel's. It defaults differently from `SLACK_SESSION_GRANULARITY` on purpose, because a Slack thread is a facet of a channel while a Discord thread is a channel. Folding is refused in two cases, both the same invariant — a session is only ever keyed to a channel the bot may actually talk in. A post in a **forum** channel never folds, because Discord does not allow posting into a forum channel itself, so a session keyed by the forum id would have nowhere to deliver a server-initiated reply. And a thread never folds onto a parent the allowlist does not cover, so allowing a thread by its own id cannot aim replies at a channel that was deliberately left out. **Operators should check the bot has `Send Messages in Threads`** — Discord treats it as separate from `Send Messages`, and now that threads reach the bridge by default, a bot missing it receives thread messages and silently fails to reply.
+
+## [1.19.0] - 2026-09-18
+
+**A custom collection view's button can start the work, not just draft it — and the last exact dependency pin in either manifest is gone.**
+
+### Highlights
+
+#### A custom view's button runs the chat (#3062, #3208)
+
+`__MC_VIEW.startChat(prompt)` has always put its text in the composer for you to read and send.
+That gate was real in this app and only here: MulmoTerminal collapses the draft to a single line
+before pasting it into the TUI, and the phone runtimes of both hosts have always sent the prompt
+outright, because a phone has no Enter key to press.
+
+A `views[]` entry may now declare `allowSendChat: true`, and that view's buttons run the turn on
+press. Absent — as in every view shipped so far — the prompt is still a draft, so upgrading changes
+nothing about what an existing view does. The host reads the declaration from the schema, never
+from the message the sandboxed iframe posts up: the view's code composes the prompt, and letting it
+also decide whether that prompt runs unreviewed would put both halves of the decision inside the
+sandbox.
+
+Two things came out of reviewing it that are worth naming on their own. **A view that navigates
+its frame away no longer keeps the view's privileges** — nothing in the sandbox or the CSP stops a
+view setting `location`, and the replacement document kept the frame's `contentWindow`, so a
+foreign page could start an agent turn. Reproduced, then closed by counting the documents the frame
+has loaded. **A view now reloads when its declaration changes**, not merely when its id does, so an
+in-place schema edit cannot govern the previously-built document with the new policy.
+
+One case remains open and is stated in the code: a redirect that runs while the view is still
+PARSING is not caught, because that document's own load never fires. Closing it needs the action
+message to prove which document sent it, which spans the three bootstrap copies and a protocol
+bump. Both navigation cases require the view's own document to perform the redirect, and a view
+that declares `allowSendChat` can call `startChat` directly, so this is containment after the frame
+stops being the view rather than a boundary the declaration did not already cross.
+
+#### The `firebase` pin from the sign-in regression is lifted (#2835, #3207)
+
+`firebase` was pinned to an exact version, caret deliberately removed, because `@firebase/auth`
+1.13.4 made `IndexedDBLocalPersistence` treat a hidden document as page teardown — the sign-in
+popup backgrounds the opener, so the credential write on return threw with no retry path. Upstream
+published the fix, and `firebase` had already moved to that line during a routine dependency sweep,
+so the range is what changes. It was the last caret-less pin in either manifest.
+
+Against the committed lockfile nothing moves. What the caret admits is an install that regenerates
+the lockfile — and a fresh `npm install mulmoclaude`, which has no lockfile at all — taking
+whichever 12.x satisfies the range. That third case is the substance: from the next `firebase`
+release on, npm users receive it without it passing through a PR here.
+
+#### Dependency refresh and steadier end-to-end tests (#3205)
+
+Application, plugin, tooling and Cloudflare dev dependencies were refreshed across the workspace.
+Alongside it, several browser tests stopped depending on network-idle timing: route checks now fail
+promptly when an error banner appears, the Settings tests synchronise on the configuration response
+rather than racing the modal, and the phase-C verification script navigates on `load` for pages
+that never reach idle.
+
+#### Published manifests caught up with their sources
+
+`@mulmoclaude/core@4.10.0` and `@mulmoclaude/collection-plugin@4.8.0` carry the feature above.
+`@mulmobridge/email@1.1.2` and `@mulmoclaude/email-plugin@2.0.3` are manifest-only patches: their
+`imapflow` / `mailparser` / `nodemailer` ranges had moved in a dependency sweep without either
+package being republished, so npm still advertised the old ones.
+
+Note for anyone reading version history: the root `package.json` was left at 1.17.0 when 1.18.0
+shipped. Both are 1.19.0 here, which is the lockstep the release flow expects.
+
+Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.8.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.10.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@6.2.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.18.0] - 2026-09-17
+
+**Claude Code plugins work in the sandbox at last — their skills are discovered and addressable — and the five ways the sandbox mishandled host paths are closed.**
+
+### Highlights
+
+#### Skills shipped by an installed plugin are discovered (#3175, #3184)
+
+Claude Code installs skills two ways: loose directories under `~/.claude/skills/`, and a
+marketplace plugin whose tree carries its own `skills/`. Only the first was ever scanned.
+Plugin skills now appear as a third scope, named `<plugin>:<skill>` exactly the way the CLI
+addresses them — not cosmetic, because the manageSkills **Run** button dispatches
+`/${skill.name}`, so a differently-named row would be clickable and dead.
+
+Precedence is **project > user > claude-plugin**, so a plugin can never shadow a skill you
+wrote, and the sidebar lists plugin skills after your own so the selection does not jump the
+moment one is installed. A plugin set to `false` in `settings.json` contributes nothing. The
+two by-name lookups skip the plugin scan unless the name is namespaced, which is what keeps a
+user-skill invocation from paying the scan mid-turn.
+
+#### The sandbox stopped mishandling host paths — in five different ways (#3186, #3191, #3194, #3198, #3200)
+
+`#3184` could not confirm why `Skill` invocations were zero under Docker. `#3186` is the
+answer, and it was worse than skills: **every** installed plugin was inert in the sandbox —
+skills, slash commands, MCP servers and hooks — with no error and no warning. The CLI's two
+ledgers record host absolute paths, which do not exist under the container's `HOME`.
+
+The other four are the same mistake in different places, each one a rule applied to a path's
+_spelling_ rather than to what the path actually is:
+
+- a workspace path containing a backslash mounted an empty directory, and the agent's writes
+  went to a phantom host directory (**#3191**);
+- the system prompt told the agent it could read reference directories that were never
+  mounted (**#3194**);
+- a plugin registered from outside the config dir worked on the host and was inert in the
+  sandbox, because no mount carried its tree (**#3198**);
+- **a reference directory could be a symlink to a blocked location** — `~/notes -> ~/.ssh` was
+  mounted into the container and served through `@ref/notes/…`, because the blocklist is
+  lexical while Docker and the file API both follow the link (**#3200**).
+
+Every Docker claim behind these was measured against the daemon rather than reasoned about.
+The blocklist now lives in one place, `server/utils/sensitiveMountPaths.ts`, shared by plugin
+trees and reference directories, and its contract states that it is **lexical** — so a future
+caller that mounts a user-supplied path knows it must resolve first.
+
+### Added
+
+#### `@mulmoclaude/shapescript-plugin@6.0.0` — `manageShapeScript` asks for the gallery's CC BY 4.0 agreement
+
+A public model in the gallery on mulmoserver is now licensed under CC BY 4.0
+(receptron/mulmoserver#269), and its editor asks the owner to agree before publishing. The tool
+asks the same way: `publish` of a public post, an `update` that makes a draft public, or an edit
+of a public post that has no license yet, needs `acceptLicense: true` — the user's explicit
+agreement, which the tool's prompt tells the model to ask for and never to pass on its own — and
+is refused with `LICENSE_REQUIRED_MESSAGE`, before any upload, without it. A draft needs none.
+The post document carries `license` (`"CC-BY-4.0"` or `null`), the host stamps
+`licenseAcceptedAt` as a server time beside a grant, and `get` / `getList` answer both. Exported:
+`SHAPE_LICENSE`, `SHAPE_LICENSE_LABEL`, `SHAPE_LICENSE_URL`, `licenseFor`,
+`LICENSE_REQUIRED_MESSAGE`, and the `ShapeLicense` type.
+
+**Breaking for hosts:** the `ShapeGalleryWriter` contract now requires `createPost` / `updatePost`
+to stamp `licenseAcceptedAt` as `serverTimestamp()` beside a `license` (and to drop both when the
+stored post is licensed already). A 5.x adapter would send the grant without its stamp and have
+every public write refused by the gallery's rules — hence the major. The MulmoClaude adapter is
+updated here; MulmoTerminal stays on 5.x until its adapter is.
+
+#### `@mulmoclaude/shapescript-plugin@5.1.0` — Download GLB and STL; Copy moves to the source bar
+
+The `presentShapeScript` view could save a model only as USDZ. Two more formats now sit beside
+it in the header, built the same way in the browser from the APPLIED script and disabled by the
+same rule while the editor holds unsaved edits:
+
+- **Download GLB** — binary glTF, for the web, game engines and most 3D tools. Vertex-coloured
+  meshes (`mesh { polygon { color … } }`, a `minkowski` result) keep their colours as `COLOR_0`;
+  no material splitting is needed as it is for USDZ.
+- **Download STL** — binary STL for slicers. Geometry only: hidden subtrees are pruned as they
+  are on screen, and every vertex is baked into world space (a posed skinned mesh included) so a `position` / `orient` in the
+  script lands where the viewport shows it.
+
+The **Copy** button leaves the header for the right end of the **Edit ShapeScript Source** bar,
+next to the text it copies; clicking it no longer toggles the editor open or closed.
+
+Exported for hosts: `shapeScriptToGlb` / `sceneToGlb` / `GLB_MIME_TYPE` / `GLB_EXTENSION`,
+`shapeScriptToStl` / `sceneToStl` / `STL_MIME_TYPE` / `STL_EXTENSION`, and `exportShapeScript`,
+the shared parse → build → serialise → dispose step the USDZ exporter now runs through too. New
+labels in all 8 locales.
+
+#### `@mulmoclaude/shapescript-plugin@5.0.0` — `manageShapeScript` replaces `publishShapeScript`: one gallery tool with `publish`, `update`, `delete`, `get`, `getList`
+
+The gallery had a way to post a model and, since 4.0.0, to update one — and no way to read one
+back or to see what the user has posted. Rather than a third and fourth tool, the gallery is now
+ONE tool with an `action`, the shape `manageCollection` has, and `publishShapeScript` is gone:
+
+- `publish` — what `publishShapeScript` did without `id`: a new post, its URL answered.
+- `update` — what it did with `id`, now explicit: the user's own post rewritten in place, only
+  the fields given sent, the same conditional field-level patch as 4.0.0.
+- `delete` — the user's own post removed: the document first, so it is gone from the gallery at
+  once — conditional on the object ids the read saw, as an update is, so an edit that landed
+  meanwhile is refused rather than deleted with its new objects left behind — then the script,
+  the thumbnail and any reference photos of the document AS DELETED (`deletePost` answers it),
+  so a photo the web editor swapped in meanwhile goes too; an object that will not go is a
+  warning, since nothing links to it any more.
+- `get` — one post's readable fields (title, description, keywords, prompt, aiModel, published,
+  source, forkedFrom, authorName, the two server stamps as ISO strings, its URL — never the
+  object ids) plus its ShapeScript source, downloaded from under the post's owner. Anyone's
+  published post, or the user's own draft; another account's draft reads as absent, as the
+  gallery shows it. `save: true` also writes the source as a new `.shape` under
+  `artifacts/shapes/`, where `presentShapeScript` opens it, so a model can be fetched, edited
+  and `update`d — or forked — in a round trip.
+- `getList` — the user's own posts, drafts included, newest first, at most `limit` (default 20,
+  up to 100): the gallery's own "My models" query, which the rules admit and the index serves.
+
+`action` is the one required argument; what each action needs beyond it (`title` and a source for
+`publish`, `id` for `update` / `delete` / `get`) the tool checks, since JSON Schema cannot. The
+reads answer JSON (`{ post, script, savedPath }` and `{ count, posts }`); the writes answer a
+sentence. Nothing runs without a Remote Host session, reads included, since the host reaches the
+gallery only through it.
+
+Major because the tool is renamed (`TOOL_NAMES.manageShapeScript`; a role granting
+`publishShapeScript` grants nothing) and `ShapeGalleryWriter` gains three required members —
+`deletePost(id, expect)`, `listPosts(uid, limit)` and `readScript(ownerUid, id, scriptId)` — with `readPost`
+now required to answer `null` for a document the rules hide rather than throw. Every `PUBLISH_*`
+export is `MANAGE_*` (`MANAGE_TOOL_TIMEOUT_MS` on `./render`), `executePublishShapeScript` is
+`executeManageShapeScript`, and its result is a union by `action`. MulmoClaude's host adapter
+supplies the three (a transactional delete, the `where("uid") + orderBy("createdAt", "desc") + limit`
+query, and a Storage `getBytes` under the owner's path) and maps `permission-denied` on a read to
+`null`; MulmoTerminal's `server/infra/shapescript-publish-tool.ts` needs the same before it takes
+5.0.0.
+
+#### `@mulmoclaude/shapescript-plugin@4.0.0` — `publishShapeScript` updates a published model by `id`
+
+A new optional `id` argument — the tail of a post's gallery URL, or the id an earlier call
+returned — rewrites that post in place under the same URL instead of publishing a second copy.
+Only the account that published it can update it. The tool reads the post first and refuses one
+whose `uid` is not the session's, naming the reason, where the gallery's rules would only say
+"permission denied". With `id` every other argument is optional — a field given replaces the
+post's (an explicit `""` clears `description` / `prompt` / `aiModel`), one omitted keeps it — so
+`{ id, script }` swaps the model and `{ id, title }` renames it. The write is a field-level
+patch of exactly what the call changes, never the whole document from the read, and it is
+conditional: it applies only while the post still carries the owner and object ids the read
+saw, so two edits racing on one post cannot put back or orphan each other's script object —
+the loser is refused with `POST_CHANGED_MESSAGE` and its uploads are taken back out. A new
+`script` / `path` uploads a new script object and thumbnail and removes the replaced ones once
+the document carries the new ids; a refused rewrite takes the new ones back out and leaves the
+post as it was. `title` and the source stay required for a NEW post, checked by the
+tool since JSON Schema cannot say "required unless `id`" (`PUBLISH_SCHEMA.required` is now `[]`).
+
+Major because `ShapeGalleryWriter` gains two required members, `readPost(id)` and
+`updatePost(id, patch, expect)`; a host built against 3.x fails every update with `readPost is
+not a function`. MulmoClaude's host adapter supplies both (a `getDoc`, and a `runTransaction`
+that re-reads the post, refuses it unless it still matches `expect`, and applies the patch
+field-level with a server `updatedAt` and no `createdAt`, which the rules freeze — never a
+`setDoc`); MulmoTerminal's
+`server/infra/shapescript-publish-tool.ts` needs the same two lines before it takes 4.0.0.
+
 #### `@mulmoclaude/shapescript-plugin@3.1.0` — `publishShapeScript` records which AI model wrote the script
 
 An optional `aiModel` argument — the model id the agent is running as, e.g. `claude-opus-5` —
@@ -19,6 +243,22 @@ rules accept the key from receptron/mulmoserver#268 on; a host on this plugin ag
 has its post refused, so deploy that first.
 
 ### Changed
+
+#### `@mulmoclaude/shapescript-plugin@6.1.0` — the view's header stacks, and the three Download buttons become one menu
+
+In a narrow pane the `presentShapeScript` header put the title and six buttons on one line: a
+CJK title, which has no break opportunity, was squeezed into a one-glyph column, and the
+buttons ran off the right edge. The title now sits on its own line (one line, ellipsised) with
+the toolbar under it, sized to the chrome-row standard in `docs/ui-controls.md` (32px controls,
+8px gaps) and wrapping rather than overflowing. **Download USDZ / GLB / STL** collapse into one
+**Download** menu whose items carry a hint of what each format is for (AR Quick Look, web and
+game engines, 3D printing). It is a disclosure rather than an ARIA `menu` (the items are plain
+buttons next in tab order); Escape closes it and returns focus to the trigger, an outside click
+closes it — tested with `composedPath()`, so it works inside MulmoTerminal's shadow-root
+PluginFrame — and it closes itself when the export is withdrawn (an unsaved edit or a parse
+error). The formats' `data-testid`s are unchanged;
+they now live under `shapescript-download-menu`. `download` is a new message key in all eight
+locales; the three `download*` keys now hold the hints.
 
 #### `@mulmoclaude/shapescript-plugin@3.0.0` — `publishShapeScript` uploads the script as a Storage object
 
@@ -37,6 +277,47 @@ upload `Cache-Control: public, max-age=31536000, immutable`, as the gallery's ow
 write is refused, not lost — so update the plugin before, or with, that deploy.
 
 ### Fixed
+
+#### Docker サンドボックス — ホストパスの扱い5件（#3186 #3191 #3194 #3198 #3200）
+
+サンドボックスがホストのパスを「綴りのまま」扱っていたことに起因する一連の不具合。どれも
+`server/` の変更なので、**npm 利用者には launcher の publish 経由でしか届かない**。
+
+| #     | 症状                                                                                                                                | 原因                                                                                                                                                              |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #3186 | サンドボックスで**すべての**プラグインが無効 — skill・コマンド・MCP・hook が警告もなく全滅                                          | CLI の 2 つの台帳がホスト絶対パスを持ち、コンテナの `HOME` では ENOENT になる。台帳をコンテナ表記に翻訳して read-only で被せる                                    |
+| #3191 | ワークスペースのパスにバックスラッシュがあると、agent の書き込みがホスト上の幻のディレクトリへ                                      | 全マウントが `\` を無条件に畳み、`:` で分割していた。`-v` と `--mount` は**相補的**（前者は `,` `"` を運べるが `:` を運べず、後者はその逆）なので、パスごとに選ぶ |
+| #3194 | 参照ディレクトリがマウントされていないのに、システムプロンプトが agent に「読める」と告げていた                                     | マウント引数とプロンプトが同じ入力から別々に導出されていた。判定を 1 箇所に集約                                                                                   |
+| #3198 | `plugin marketplace add <ローカルパス>` で入れたプラグインが、ホストでは動くのにサンドボックスで無効                                | 設定ディレクトリ外のツリーはどのマウントにも載っていなかった。`/mnt/plugin-src` に read-only で載せ、台帳をそこへ翻訳                                             |
+| #3200 | **参照ディレクトリの symlink で遮断対象をマウント・閲覧できた** — `~/notes -> ~/.ssh` がコンテナに渡り、`@ref/notes/…` からも読めた | ブロックリストは字面判定（contract 上 lexical）なのに、Docker もファイル API も symlink を辿る。解決後のパスで判定し、解決後のパスを bind する                    |
+
+#3200 と #3198 は同じ形の不具合で、いずれも実機の daemon で再現を確認したうえで修正している
+（`-v <symlink>:/mnt/…:ro` がリンク先の中身をコンテナに出すことを計測）。ブロックリストは
+`server/utils/sensitiveMountPaths.ts` に集約され、プラグインツリーと参照ディレクトリの両方が
+同じ規則を使う。この helper は **lexical** であることを contract として明記してあるので、
+今後マウントする呼び出し側は必ず自分で解決してから問い合わせること。
+
+#### `@mulmoclaude/shapescript-plugin@6.2.0` — the render page's navigation no longer inherits Puppeteer's default (#3201)
+
+`renderShapeScriptSheet` gave the browser launch and the rasterisation each an explicit budget and
+left the render page's NAVIGATION on Puppeteer's 30 s default — the one number
+`LAUNCH_TIMEOUT_MS`'s own comment says the others are explicit in order not to inherit. On a loaded
+CI runner that page load does not always finish inside it: five of the last twelve Windows daily
+runs downstream, and a required pull-request check, failing only as `TimeoutError: Navigation
+timeout of 30000 ms exceeded` with nothing naming this package (receptron/mulmoterminal#2095).
+
+It is not a network wait. `serveRenderAssets` answers every request from disk through interception,
+so what the page load waits for is Chromium parsing and evaluating three.js under software GL —
+about a second on a developer machine.
+
+`NAVIGATION_TIMEOUT_MS` is now passed to `page.goto` and exported, and `RENDER_BUDGET_MS` becomes
+launch + navigation + render. That second half is part of the fix rather than bookkeeping: a phase
+missing from the sum is a host transport sized to less than the work it waits for, which is what
+the constant exists to prevent. `RENDER_TOOL_TIMEOUT_MS` and `MANAGE_TOOL_TIMEOUT_MS` derive from
+it and move with it.
+
+A host could not work around this — `RenderShapeScriptOptions` carries no timeout, so MulmoTerminal's
+only lever was retrying the whole render (receptron/mulmoterminal#2096, a bridge until this ships).
 
 #### `@mulmoclaude/collection-plugin@4.7.0` — a Canvas card could not keep a custom collection view (#3061)
 
@@ -74,7 +355,7 @@ as a bare permission error, moves with it and measures the same way.
 
 ### Package releases
 
-Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`, `@mulmoclaude/collection-plugin@4.7.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.3`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.1`, `@mulmoclaude/html-plugin@4.0.1`, `@mulmoclaude/markdown-plugin@4.1.1`, `@mulmoclaude/markdown-utils@2.3.0`, `@mulmoclaude/mulmoscript-plugin@4.8.1`, `@mulmoclaude/shapescript-plugin@3.1.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@6.2.0`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 #### `@mulmoclaude/*` 12 本 + `@mulmobridge/relay` — 公開 manifest が source とずれていた分を上げる
 
@@ -94,17 +375,94 @@ Ships `@mulmoclaude/accounting-plugin@3.0.1`, `@mulmoclaude/chart-plugin@3.0.1`,
 `chore(release)` では触らない規則どおり据え置きで、**レンジだけ**を sweep した。
 
 `markdown-utils` に伴い `@mulmoclaude/core` と `markdown-plugin` のレンジも上げた
-（最終的な値は下の 2.3.0 の項を参照）。core は 4.9.3 が**まだ未公開**なので、追加の
-bump は要らない（未公開の 4.9.3 が新しいレンジごと出る）。
+（最終的な値は下の 3.0.0 の項を参照）。その後 4.9.3 が公開されたので、core は
+4.9.4 を別途出す（下の項）。
 
-#### `@mulmoclaude/markdown-utils@2.3.0` — コードブロックのコピーボタン (#3125)
+#### `@mulmoclaude/markdown-utils@3.0.0` — コピーボタン / 表示のなりすまし対策 / mermaid 12 (#3125, #3151, #3164, #3166)
 
-`codeCopyExtension`（marked の `code` renderer。fence にコピーボタンごと描画する）と
-`codeCopyClipboard`（document ごとに 1 つの委譲クリックリスナ）を追加。**新規 export が
-あるので minor** — 上の表は manifest だけが動いた patch の一覧なので、こちらは別項。
+**major の理由は peer の変更**。`mermaid` の `peerDependencies` が `^11.16.1` → `^12.0.0`
+になり、公開済みの 2.2.1 がサポートしていた mermaid 11 が範囲から外れる。
+`peerDependenciesMeta` は無い hard peer なので、11 を入れたまま上げると解決できない。
+番号は #3125 の時点で 2.3.0（新規 export → minor）と決めていたが、その後に #3166 が
+peer を動かしたので major に改めた。npm 上でこのパッケージを宣言しているのは
+`@mulmoclaude/core` / `markdown-plugin` / launcher の 3 本だけで、どれも既に
+mermaid `^12.0.0` を宣言している。
 
-レンジは `@mulmoclaude/core` / `markdown-plugin` / launcher の 3 箇所すべてを `^2.3.0` に
+中身は 4 本:
+
+- **#3125 — コードブロックのコピーボタン**: `codeCopyExtension`（marked の `code`
+  renderer。fence にコピーボタンごと描画する）と `codeCopyClipboard`（document ごとに
+  1 つの委譲クリックリスナ）を新規 export。
+- **#3151 — 著者の raw HTML が描画結果に重なれない**: `rawHtmlPolicy` を新規 export。
+  markdown 側が書いた生 HTML から `class` / `style` を落とし、CSS で本文の上に別の内容を
+  重ねてコピーボタンに隠れたテキストを掴ませる経路を塞ぐ。HTML の tokenizer と同じ
+  読み方（タグ名の終端、属性の区切り、bogus comment、`<!-->` / `--!>`、`<?…>`）で
+  タグを走査する。
+- **#3164 — `[[wiki-link]]` を marked 拡張に**: 文字列置換をやめたことで #3151 が入れた
+  nonce 機構（`APP_MARKUP_ATTR` ほか）が不要になり、`rawHtmlPolicy` から 114 行削除。
+- **#3166 — mermaid 12**: `mermaid.initialize` に `layout: "dagre"` と `look: "classic"`
+  を足して 12 以前の見た目を固定した（ピンを外すと 8 種中 5 種の図が色・レイアウトごと
+  引き直される）。
+
+レンジは `@mulmoclaude/core` / `markdown-plugin` / launcher の 3 箇所すべてを `^3.0.0` に
 sweep 済み。
+
+#### 依存レンジが npm に反映されていなかった 37 本を出す
+
+publish 済みの manifest が、その後に動いた依存レンジを反映しないまま止まっていたもの一式。
+**コード変更は無く、公開される `dependencies` / `peerDependencies` だけが tag からずれていた**
+ので、どれも patch（既に版が先行していた 3 本はその版のまま）。
+
+判定は `audit:releases` に任せた（変更ファイルが実際に tarball に入るかを知っているのは
+これだけで、`protocol` と `webhook-runtime` は変更が `eslint.config.mjs` / `tsconfig.json`
+だけなので clean のまま据え置き）。適用は `scripts/packages/bump-pending-releases.mjs`、
+公開は `scripts/packages/publish-pending.mjs` が依存順に回す。
+
+| 種類                     | パッケージ                                                                                                                                                                                                                                                     | 中身                                                                                                                                                                                                                            |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 版が先行済み             | `client@1.3.0` `chat-service@1.2.0` `telegram@1.2.0`                                                                                                                                                                                                           | src が動いていて版だけ上がっていた。**`client` が未公開のまま 28 ブリッジが `^1.3.0` を宣言していた**ので、これを先頭に出す                                                                                                     |
+| patch（ブリッジ 26 本）  | `bluesky` `chatwork` `discord` `email` `google-chat` `irc` `line` `line-works` `mastodon` `matrix` `mattermost` `messenger` `nostr` `rocketchat` `signal` `slack` `teams` `twilio-sms` `viber` `webhook` `whatsapp` `xmpp` `zulip` `cli` `mock-server` `relay` | `@mulmobridge/client` のレンジ `^1.2.0` → `^1.3.0`。`email` は `imapflow` `nodemailer` の major も、`mock-server` は README も反映                                                                                              |
+| patch（プラグイン 8 本） | `accounting@3.0.2` `chart@3.0.2` `collection@4.7.1` `email@2.0.2` `google@3.0.2` `html@4.0.2` `mulmoscript@4.8.2` `shapescript@5.1.1`                                                                                                                          | `@mulmoclaude/core` のレンジ（`^4.9.2` / `^4.9.3` → `^4.9.4`）。`collection` は `zod`、`email-plugin` は imapflow 2 への型追従と、日付が壊れていても list が落ちない `envelopeDateIso`（公開 entry からは出ていないので patch） |
+
+launcher (`mulmoclaude`) の `version` は `chore(release)` では触らない規則どおり据え置き。
+アプリ本体（`server/` / `src/`）が npm 利用者に届くのは `/publish-mulmoclaude` 経由なので、
+そちらは別途。
+
+#### `@mulmoclaude/markdown-plugin@4.2.0` — コピーボタンとなりすまし対策をプラグイン側で配線する (#3125, #3151)
+
+`markdown-utils@3.0.0` が出した拡張を、markdown ビューの `marked` に登録する側の変更。
+新機能なので minor。
+
+- `View.vue` が `rawHtmlPolicyExtension` → `codeCopyExtension` → `mermaidExtension` の順に
+  登録する。mermaid を最も外側に残すのが要点で、`mermaid` fence はコピーボタンを拾わずに
+  プレースホルダへ届き、それ以外の fence が mermaid から下へ落ちてくる。
+- ボタンの文言は `setCodeCopyLabelProvider` でホストの i18n に繋ぐ。`useT` は `inject` 経由
+  なので setup スコープでしか配線できず、モジュール直下の `marked.use` の隣には置けない。
+- `installCodeCopyHandler(document)` はホストが既に同じ document にリスナを入れていれば no-op。
+  ガードがモジュール状態ではなく document 側にあるので、このパッケージが 2 つバンドルされても
+  効く。
+- i18n キー `codeCopyLabel` / `codeCopiedLabel` を 8 ロケールすべてに追加。
+- `style.css` にボタンのスタイルを追加。
+
+レンジは launcher の 1 箇所を `^4.2.0` に sweep 済み（このパッケージを宣言しているのは
+launcher だけ）。
+
+#### `@mulmoclaude/core@4.9.4` — npm の core が markdown-utils 2.x を掴んだままだった
+
+コード変更は無い。公開済みの `core@4.9.3` は
+`"@mulmoclaude/markdown-utils": "^2.2.1"` を宣言していて、caret は major をまたがない
+ので、**npm 経由の利用者は 3.0.0 を受け取れない**。core を出さない限り #3125 / #3151 /
+#3164 / #3166 が届かないので、manifest だけの patch を出す。
+
+- `@mulmoclaude/markdown-utils` `^2.2.1` → `^3.0.0`
+- あわせて `@duckdb/node-api` `js-yaml` `zod` `@types/node` のレンジも tag からずれていた分を反映
+
+`src/wiki/render.ts` の `extraAttrs` 引数も削除した。#3151 が「アプリが出した markup だと
+証明する」ために足したものだが、#3164 で `[[wiki-link]]` が marked 拡張になり、
+nonce 機構ごと不要になっていた。呼び出し側は 0 件（MulmoTerminal も 1 引数呼び出し）で、
+削除後のファイルは **4.9.3 が公開した内容とバイト一致**する。
+
+レンジは 8 プラグイン（peer + dev）と launcher の 17 箇所すべてを `^4.9.4` に sweep 済み。
 
 #### `@mulmobridge/*` — 25 ブリッジが #3084 の常駐プロセス堅牢化を受け取る
 
@@ -760,6 +1118,70 @@ absence of a generation rather than a new one, so it means "keep waiting" — th
 exit there, which is a startup-only path.
 
 ---
+
+## [1.17.0] - 2026-09-15
+
+**Pick the model per chat, copy any code block, and export a 3D model to GLB or STL — plus a markdown security fix and bridges that run inside the server.**
+
+### Highlights
+
+#### Choose the model, per setting, per role, or per chat (#2554, #2923, #3104, #3130, #3147)
+
+Chats run on Claude Fable, Opus, Sonnet or Haiku, resolved with the per-chat override
+winning over the role's pinned model, which wins over the setting. The override control is
+the model chip in the sidebar's role header, and it doubles as the display: its closed
+state names the model actually in effect, so neither picking a model nor inheriting one is
+silent. The model list lives in one place (#3130), which is also what added Fable.
+
+#### A copy button on every fenced code block (#3125)
+
+Rendered markdown now carries a copy button on each fence. The button is minted by the
+renderer rather than bolted on afterwards, and one delegated listener per document handles
+every block.
+
+#### Author markdown can no longer cover the rendered output (#3151)
+
+Raw HTML written into a markdown document has its `class` and `style` attributes stripped.
+Without this, an author could position their own content over the rendered page with CSS so
+that the copy button handed the reader text they could not see. The scanner reads a tag the
+way the HTML tokenizer does — tag-name termination, attribute separators, bogus comments,
+`<!-->` / `--!>`, `<?…>` — rather than by pattern.
+
+#### ShapeScript: a gallery, and GLB / STL export (#3171)
+
+`manageShapeScript` replaces `publishShapeScript` with one tool covering `publish`,
+`update`, `delete`, `get` and `getList`, so a model posted to the gallery can be read back
+and listed, not only written. The viewer gains **Download GLB** and **Download STL**
+alongside USDZ, and Copy moves to the source bar. A custom shape may now recurse, and the
+object budget is charged per object rather than per instance (#3112).
+
+#### Bridges run inside the server process (#3080, #3084, #3078)
+
+Configured bridges start with the server instead of needing their own terminal, and a
+bridge that loses the server reconnects on its own rather than being restarted by hand.
+Receiving bridges now fail loudly on a bad port instead of claiming to listen, and
+SIGINT / SIGTERM shut them down with a line saying which bridge is going.
+
+#### `[[wiki-link]]` is a marked extension (#3164)
+
+Wiki links are produced during parsing rather than by rewriting the source beforehand, so
+they no longer reach the renderer as author raw HTML. That removed the nonce machinery
+#3151 had needed to tell app markup from author markup.
+
+### Also in this release
+
+- **mermaid 12** (#3166), with `layout: "dagre"` and `look: "classic"` pinned so existing
+  diagrams keep their pre-12 appearance.
+- **A Canvas card keeps its custom collection view** (#3061), and collection teardown now
+  drains in-flight reconciles instead of returning while they run (#3160).
+- **Node.js 22.19 is the new minimum** (#3126), which unblocked matrix-js-sdk 42 and
+  google-auth-library 11 (#3132).
+- **`yarn dev` honours its flags again** — every one of them was silently dropped (#3113).
+- **A second server on a workspace that already has one is refused** (#3079); pass
+  `--allow-multiple-instances` when that is what you want.
+- **`.server-port` is cleaned up** on shutdown and on startup (#3082).
+
+Ships `@mulmoclaude/accounting-plugin@3.0.2`, `@mulmoclaude/chart-plugin@3.0.2`, `@mulmoclaude/collection-plugin@4.7.1`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@4.9.4`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@3.0.2`, `@mulmoclaude/html-plugin@4.0.2`, `@mulmoclaude/markdown-plugin@4.2.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@4.8.2`, `@mulmoclaude/shapescript-plugin@5.1.1`, `@mulmoclaude/spotify-plugin@2.0.1`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [1.16.0] - 2026-09-12
 

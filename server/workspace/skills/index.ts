@@ -1,5 +1,5 @@
-// Public API for the skills module. Discovery (read-only) is phase
-// 0; save + delete (project scope only) is phase 1.
+// Public API for the skills module: discovery, which reads every scope, and the
+// writers, which touch the project scope only.
 
 export { discoverSkills, collectSkillsFromDir } from "./discovery.js";
 export { parseSkillFrontmatter } from "./parser.js";

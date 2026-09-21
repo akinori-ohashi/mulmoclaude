@@ -249,7 +249,10 @@ async function startEventsApp(opts: { ackBody?: string; onBody?: (raw: string) =
     verifyToken: VERIFY_TOKEN,
     appSecret: SECRET,
     label: "test",
-    ackBody: opts.ackBody,
+    // Spread rather than assign: `ackBody: undefined` is a different type from
+    // an absent `ackBody` under `exactOptionalPropertyTypes`, and the option is
+    // declared optional, not nullable.
+    ...(opts.ackBody === undefined ? {} : { ackBody: opts.ackBody }),
     onBody: async (raw) => {
       received.push(raw);
       await opts.onBody?.(raw);
@@ -343,14 +346,19 @@ describe("registerMetaWebhook", () => {
   it("acks before onBody finishes, so a slow agent can't trigger a Meta redelivery", async () => {
     // The ack must not wait on the handler. `release` is only called after the
     // response has been read, so a response that arrives at all proves ordering.
-    const gate = Promise.withResolvers<void>();
-    const fixture = await startEventsApp({ onBody: () => gate.promise });
+    let releaseGate: () => void = () => {
+      throw new Error("the gate was released before the promise armed it");
+    };
+    const gatePromise = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const fixture = await startEventsApp({ onBody: () => gatePromise });
     try {
       const res = await postWebhook(fixture.baseUrl, BODY, metaSignature(BODY));
       assert.equal(res.status, 200);
       assert.deepEqual(fixture.received, [BODY]);
     } finally {
-      gate.resolve();
+      releaseGate();
       await fixture.close();
     }
   });

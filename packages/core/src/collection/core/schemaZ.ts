@@ -498,6 +498,17 @@ export const CustomViewZ = z.object({
   // deliberately no "delete" — a view can never do more than the agent's own
   // manageCollection tool.
   capabilities: z.array(z.enum(["read", "write"])).optional(),
+  // Whether this view's `__MC_VIEW.startChat` SENDS instead of drafting (#3062).
+  // Default-deny (absent ⇒ draft): the prompt lands in the composer for the user
+  // to read / edit / send. Declaring it here rather than letting the view's own
+  // code ask is what keeps the decision reviewable — the schema is short and
+  // human-read, the view HTML is not — and it is why an already-shipped view
+  // cannot start auto-running turns just because the host was upgraded. The
+  // host reads THIS, never a flag the iframe posts up. Note the phone runtime
+  // (`target: "mobile"`) has always sent — it has no Enter key to press
+  // (receptron/mulmoterminal#1253) — so there the flag only affects the desktop
+  // phone-frame preview.
+  allowSendChat: z.boolean().optional(),
   // Mobile-only write policy (plans/done/feat-remote-writable-view.md). Default-deny:
   // a `target: "mobile"` view may patch ONLY these fields via
   // `__MC_VIEW.updateItem`, and may delete only when `allowDelete` is true. The

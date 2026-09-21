@@ -165,6 +165,136 @@ test("saving an edit returns to the record's detail (does not close) in the embe
   expect(pageErrors, pageErrors.join("\n")).toHaveLength(0);
 });
 
+// The record's "chat about this record" box, on the card surface (#3220).
+//
+// The detail lives in a `fixed inset-0` overlay. Embedded, the chat it seeds is
+// sent into the session ALREADY RUNNING and rendered behind that overlay, so
+// leaving the modal up hid the very thing the button started — with an emptied
+// textarea as the only sign anything had happened. This is the surface the bug
+// was reported on, and the only one where a closed modal is this fix's doing:
+// the standalone page navigates to /chat and the overlay goes with it either
+// way (collection-chat-button.spec.ts covers that the seed survives the trip).
+test("chatting about a record sends into the session AND dismisses the modal", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (err) => pageErrors.push(`${err.message}\n${err.stack ?? ""}`));
+
+  await setup(page);
+  await page.goto(SESSION_PATH);
+
+  await expect(page.getByTestId("collections-detail")).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId("collections-detail-chat-input").fill("  who else is in this?  ");
+
+  const agentPost = page.waitForRequest((req) => req.url().endsWith("/api/agent") && req.method() === "POST");
+  await page.getByTestId("collections-detail-chat-send").click();
+
+  // Scoped to the open record: the `id=` selector is read off the record
+  // BEFORE the modal closes, so closing must not cost the agent its subject.
+  expect((await agentPost).postDataJSON().message).toBe("/watchlist id=avatar who else is in this?");
+
+  // The overlay is gone, so the chat that just started is on screen.
+  await expect(page.getByTestId("collections-record-modal")).toHaveCount(0);
+  await expect(page.getByTestId("present-collection")).toBeVisible();
+
+  expect(pageErrors, pageErrors.join("\n")).toHaveLength(0);
+});
+
+// The same send, but from inside the calendar day popup — the OTHER full-screen
+// surface the record's detail can sit in (`CollectionDayView`, also
+// `fixed inset-0`). Two things have to hold and only the card can show both:
+// the popup goes down with the detail, and focus comes back to the day cell
+// that opened it. The standalone page cannot assert the second, because
+// `startChat` navigates to /chat and takes the cell with it; here the seed goes
+// into the running session and nothing moves.
+const DATED_DAY = (() => {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-15`;
+})();
+
+const DATED_DETAIL = {
+  collection: {
+    slug: "dated-events",
+    title: "Events",
+    icon: "event",
+    source: "user",
+    schema: {
+      title: "Events",
+      icon: "event",
+      dataPath: "data/dated-events/items",
+      primaryKey: "id",
+      fields: {
+        id: { type: "string", label: "ID", primary: true, required: true },
+        name: { type: "string", label: "Name", required: true },
+        on: { type: "date", label: "Date" },
+      },
+      displayField: "name",
+      calendarField: "on",
+    },
+  },
+  items: [{ id: "launch", name: "Launch party", on: DATED_DAY }],
+};
+
+test("record chat from the card's day popup closes it and restores focus", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (err) => pageErrors.push(`${err.message}\n${err.stack ?? ""}`));
+
+  // Open the card straight onto the calendar via the shared view-mode store,
+  // so the test drives the day popup rather than the toolbar.
+  await page.addInitScript(() => {
+    localStorage.setItem("collection_view_modes", JSON.stringify({ "dated-events": "calendar" }));
+  });
+  await mockAllApis(page, {
+    sessions: [{ id: "watchlist-session", title: "Events", roleId: "general", startedAt: "2026-05-29T10:00:00Z", updatedAt: "2026-05-29T10:05:00Z" }],
+  });
+  await page.route(
+    (url) => url.pathname === "/api/collections/dated-events",
+    (route) => route.fulfill({ json: DATED_DETAIL }),
+  );
+  await page.route(
+    (url) => url.pathname.startsWith("/api/sessions/") && url.pathname !== "/api/sessions",
+    (route) =>
+      route.fulfill({
+        json: [
+          { type: "session_meta", roleId: "general", sessionId: "watchlist-session" },
+          { type: "text", source: "user", message: "show me the events" },
+          {
+            type: "tool_result",
+            source: "tool",
+            result: {
+              uuid: "pc-result-3",
+              toolName: "presentCollection",
+              title: "Events",
+              message: "Presented collection dated-events",
+              data: { collectionSlug: "dated-events" },
+            },
+          },
+        ],
+      }),
+  );
+
+  await page.goto(SESSION_PATH);
+  await expect(page.getByTestId("collection-calendar")).toBeVisible({ timeout: 10_000 });
+
+  const cell = page.getByTestId(`collection-calendar-day-${DATED_DAY}`);
+  await cell.focus();
+  await cell.press("Enter");
+  await expect(page.getByTestId("collection-day-view")).toBeVisible();
+  await page.getByTestId("collection-day-view-allday-launch").click();
+  await expect(page.getByTestId("collections-detail")).toBeVisible();
+
+  await page.getByTestId("collections-detail-chat-input").fill("who is coming?");
+  const agentPost = page.waitForRequest((req) => req.url().endsWith("/api/agent") && req.method() === "POST");
+  await page.getByTestId("collections-detail-chat-send").click();
+
+  expect((await agentPost).postDataJSON().message).toBe("/dated-events id=launch who is coming?");
+  await expect(page.getByTestId("collection-day-view")).toHaveCount(0);
+  await expect(page.getByTestId("collections-detail")).toHaveCount(0);
+  // The send removed the focused textarea. Without the restore, focus sits on
+  // <body> and Tab restarts at the top of the document.
+  await expect(cell).toBeFocused();
+
+  expect(pageErrors, pageErrors.join("\n")).toHaveLength(0);
+});
+
 // ── Card viewState: the custom-view round trip (#3061) ────────────────
 //
 // The card persists its own view choice in the tool result's `viewState`

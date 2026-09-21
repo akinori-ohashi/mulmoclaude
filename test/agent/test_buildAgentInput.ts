@@ -66,9 +66,9 @@ const roleWith = (model: ChatModel | undefined): Role => ({
   ...(model ? { model } : {}),
 });
 
-const chatModelFor = (role: Role): ChatModel | undefined =>
+const chatModelFor = (role: Role, sessionChatModel?: ChatModel): ChatModel | undefined =>
   agent.buildAgentInput(
-    { message: "m", role, workspacePath: root, sessionId: "s", port: 0 },
+    { message: "m", role, workspacePath: root, sessionId: "s", port: 0, ...(sessionChatModel ? { sessionChatModel } : {}) },
     { activePlugins: [], useDocker: false, userServers: {}, backend: { id: "codex" } as LLMBackend },
     {
       systemPrompt: "sp",
@@ -117,5 +117,43 @@ describe("buildAgentInput — chatModel wiring", () => {
   it("gives a model-less role exactly what a built-in role would get", async () => {
     await setGlobalModel("opus");
     assert.equal(chatModelFor(roleWith(undefined)), config.loadSettings().chatModel);
+  });
+});
+
+// #3147 puts a fourth level on the front of the cascade. Same reasoning as the
+// suite above: `resolveChatModel` is pure and covered, and none of its tests
+// notice if THIS call site stops passing the session override. Reverting the
+// argument is the mutation these close.
+describe("buildAgentInput — session override", () => {
+  it("beats the role", async () => {
+    await setGlobalModel(undefined);
+    assert.equal(chatModelFor(roleWith("haiku"), "opus"), "opus");
+  });
+
+  it("beats the app-wide setting", async () => {
+    await setGlobalModel("sonnet");
+    assert.equal(chatModelFor(roleWith(undefined), "opus"), "opus");
+  });
+
+  it("beats both at once", async () => {
+    await setGlobalModel("sonnet");
+    assert.equal(chatModelFor(roleWith("haiku"), "opus"), "opus");
+  });
+
+  // Clearing the override has to leave the session exactly where it would have
+  // been without one — that is what "back to the default" means.
+  it("falls through to the role when absent", async () => {
+    await setGlobalModel("sonnet");
+    assert.equal(chatModelFor(roleWith("haiku"), undefined), "haiku");
+  });
+
+  it("falls through to the app-wide setting when absent and the role has none", async () => {
+    await setGlobalModel("sonnet");
+    assert.equal(chatModelFor(roleWith(undefined), undefined), "sonnet");
+  });
+
+  it("passes nothing when no level decides", async () => {
+    await setGlobalModel(undefined);
+    assert.equal(chatModelFor(roleWith(undefined), undefined), undefined);
   });
 });

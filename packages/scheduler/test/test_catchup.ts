@@ -3,6 +3,16 @@ import assert from "node:assert/strict";
 import { computeCatchUpPlan, type CatchUpTask } from "../src/catchup.ts";
 import { emptyState, MISSED_RUN_POLICIES, SCHEDULE_TYPES, TASK_TRIGGERS, type TaskExecutionState } from "../src/types.ts";
 
+/** `items[index]` is `T | undefined` under `noUncheckedIndexedAccess`. Asserting
+ *  states the precondition each case already relies on — the length was just
+ *  checked — and names the failure instead of throwing on a property of
+ *  undefined. */
+const elementAt = <T>(items: T[], index: number): T => {
+  const item = items[index];
+  assert.ok(item !== undefined, `expected an element at index ${index}, but the list holds ${items.length}`);
+  return item;
+};
+
 function makeTask(overrides: Partial<CatchUpTask> & { id: string }): CatchUpTask {
   return {
     name: overrides.id,
@@ -28,8 +38,8 @@ describe("computeCatchUpPlan — skip policy", () => {
 
     assert.equal(plan.runs.length, 0);
     assert.equal(plan.skipped.length, 1);
-    assert.equal(plan.skipped[0].taskId, "t");
-    assert.equal(plan.skipped[0].windowCount, 3);
+    assert.equal(elementAt(plan.skipped, 0).taskId, "t");
+    assert.equal(elementAt(plan.skipped, 0).windowCount, 3);
   });
 });
 
@@ -40,9 +50,9 @@ describe("computeCatchUpPlan — run-once policy", () => {
     const plan = computeCatchUpPlan(tasks, states, apr17_10);
 
     assert.equal(plan.runs.length, 1);
-    assert.equal(plan.runs[0].context.trigger, TASK_TRIGGERS.catchUp);
+    assert.equal(elementAt(plan.runs, 0).context.trigger, TASK_TRIGGERS.catchUp);
     // Latest window = Apr 17 08:00
-    assert.ok(plan.runs[0].context.scheduledFor.includes("2026-04-17"));
+    assert.ok(elementAt(plan.runs, 0).context.scheduledFor.includes("2026-04-17"));
   });
 });
 
@@ -53,9 +63,9 @@ describe("computeCatchUpPlan — run-all policy", () => {
     const plan = computeCatchUpPlan(tasks, states, apr17_10);
 
     assert.equal(plan.runs.length, 3);
-    assert.ok(plan.runs[0].context.scheduledFor.includes("2026-04-15"));
-    assert.ok(plan.runs[1].context.scheduledFor.includes("2026-04-16"));
-    assert.ok(plan.runs[2].context.scheduledFor.includes("2026-04-17"));
+    assert.ok(elementAt(plan.runs, 0).context.scheduledFor.includes("2026-04-15"));
+    assert.ok(elementAt(plan.runs, 1).context.scheduledFor.includes("2026-04-16"));
+    assert.ok(elementAt(plan.runs, 2).context.scheduledFor.includes("2026-04-17"));
     plan.runs.forEach((r) => assert.equal(r.context.trigger, TASK_TRIGGERS.catchUp));
   });
 

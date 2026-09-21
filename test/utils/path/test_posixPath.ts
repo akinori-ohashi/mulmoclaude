@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { stripFragmentAndQuery, normalizeWorkspacePath } from "../../../src/utils/path/posixPath.js";
+import { stripFragmentAndQuery, normalizeWorkspacePath, workspaceBasename } from "../../../src/utils/path/posixPath.js";
 
 describe("stripFragmentAndQuery", () => {
   it("returns the string unchanged when neither marker is present", () => {
@@ -121,5 +121,28 @@ describe("normalizeWorkspacePath", () => {
     it("does not treat a backslash as a separator (POSIX only)", () => {
       assert.equal(normalizeWorkspacePath("a\\..\\b"), "a\\..\\b");
     });
+  });
+});
+
+describe("workspaceBasename", () => {
+  it("returns the last segment of a nested path", () => {
+    assert.equal(workspaceBasename("artifacts/documents/talk.srt", "download"), "talk.srt");
+  });
+
+  it("returns a root-level name unchanged", () => {
+    assert.equal(workspaceBasename("README.md", "download"), "README.md");
+  });
+
+  it("falls back when the path is empty or ends in a separator", () => {
+    assert.equal(workspaceBasename("", "download"), "download");
+    assert.equal(workspaceBasename("artifacts/documents/", "download"), "download");
+  });
+
+  it("keeps a dotfile name", () => {
+    assert.equal(workspaceBasename("config/.editorconfig", "download"), ".editorconfig");
+  });
+
+  it("does not treat a backslash as a separator (POSIX only)", () => {
+    assert.equal(workspaceBasename("dir\\windows\\file.bin", "download"), "dir\\windows\\file.bin");
   });
 });

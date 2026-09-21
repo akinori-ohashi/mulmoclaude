@@ -1,5 +1,5 @@
 // USDZ export of a ShapeScript model — the pure part, shared by the
-// `exportShapeScriptUsdz` tool (server) and the View's "Download USDZ" button
+// `exportShapeScriptUsdz` tool (server) and the View's Download menu (USDZ)
 // (browser). It is browser-safe on purpose: three's `USDZExporter` needs a
 // canvas only to bake TEXTURES, and the converter emits untextured
 // `MeshStandardMaterial`s with plain colours, so no `document` is touched on
@@ -7,9 +7,7 @@
 
 import * as THREE from "three";
 import { USDZExporter } from "three/examples/jsm/exporters/USDZExporter.js";
-import { parseShapeScript } from "../shapescript/parser";
-import { astToThreeJS, type ConversionOptions } from "../shapescript/toThreeJS";
-import { disposeObject3D } from "../shapescript/dispose";
+import { exportShapeScript, type ExportOptions } from "./model";
 
 /** The MIME type a `.usdz` is served / downloaded as (Apple's registration). */
 export const USDZ_MIME_TYPE = "model/vnd.usdz+zip";
@@ -124,15 +122,7 @@ function facesOf(source: THREE.BufferGeometry, faces: readonly number[]): THREE.
   return geometry;
 }
 
-/** Parse, evaluate and export one ShapeScript source. Geometry is built the
- *  same way `presentShapeScript` validates it (same converter, same limits),
- *  solid rather than wireframe, and released once serialised — the CSG buffers
- *  are the expensive part and nothing keeps them after this. */
-export async function shapeScriptToUsdz(script: string, options: Omit<ConversionOptions, "wireframe"> = {}): Promise<Uint8Array<ArrayBuffer>> {
-  const group = astToThreeJS(parseShapeScript(script), { ...options, wireframe: false });
-  try {
-    return await sceneToUsdz(group);
-  } finally {
-    disposeObject3D(group);
-  }
+/** Parse, evaluate and export one ShapeScript source as a USDZ archive. */
+export function shapeScriptToUsdz(script: string, options: ExportOptions = {}): Promise<Uint8Array<ArrayBuffer>> {
+  return exportShapeScript(script, sceneToUsdz, options);
 }

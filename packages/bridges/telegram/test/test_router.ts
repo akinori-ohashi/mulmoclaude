@@ -5,20 +5,48 @@ import type { TelegramApi, TelegramMessage } from "../src/api.ts";
 import { createAllowlist } from "../src/allowlist.ts";
 import type { PushEvent } from "@mulmobridge/client";
 
+/** `items[index]` is `T | undefined` under `noUncheckedIndexedAccess`. Asserting
+ *  states the precondition each case already relies on — the length was just
+ *  checked — and names the failure instead of throwing on a property of
+ *  undefined. */
+const elementAt = <T>(items: T[], index: number): T => {
+  const item = items[index];
+  assert.ok(item !== undefined, `expected an element at index ${index}, but the list holds ${items.length}`);
+  return item;
+};
+
 interface SentMessage {
   chatId: number;
   text: string;
 }
 
-function stubApi(): TelegramApi & { sent: SentMessage[] } {
+interface EditedMessage {
+  chatId: number;
+  messageId: number;
+  text: string;
+}
+
+function stubApi(): TelegramApi & { sent: SentMessage[]; edited: EditedMessage[] } {
   const sent: SentMessage[] = [];
+  const edited: EditedMessage[] = [];
   return {
     sent,
+    edited,
     async getUpdates() {
       return [];
     },
     async sendMessage(chatId, text) {
       sent.push({ chatId, text });
+      // TelegramApi resolves to the new message id; the router does not read it
+      // here, but the stub has to keep the contract or it is not a stand-in.
+      return sent.length;
+    },
+    // The stub had no editMessageText at all until the tests were typechecked,
+    // so it was not the TelegramApi it claimed to be — a router that started
+    // editing messages would have thrown here rather than failed an assertion.
+    // Recorded rather than ignored, so a case can assert on the edits.
+    async editMessageText(chatId, messageId, text) {
+      edited.push({ chatId, messageId, text });
     },
     async downloadFile() {
       return "data:image/jpeg;base64,AAAA";
@@ -89,7 +117,7 @@ describe("router.handleMessage — allowed chat", () => {
     });
     await router.handleMessage(msg(42, "hi"));
     assert.equal(api.sent.length, 1);
-    assert.match(api.sent[0].text, /Error \(500\): boom/);
+    assert.match(elementAt(api.sent, 0).text, /Error \(500\): boom/);
   });
 
   it("splits replies longer than 4096 chars into multiple sendMessage calls", async () => {
@@ -106,9 +134,9 @@ describe("router.handleMessage — allowed chat", () => {
     });
     await router.handleMessage(msg(42, "tell me"));
     assert.equal(api.sent.length, 3);
-    assert.equal(api.sent[0].text.length, 4096);
-    assert.equal(api.sent[1].text.length, 4096);
-    assert.equal(api.sent[2].text.length, 100);
+    assert.equal(elementAt(api.sent, 0).text.length, 4096);
+    assert.equal(elementAt(api.sent, 1).text.length, 4096);
+    assert.equal(elementAt(api.sent, 2).text.length, 100);
   });
 
   it("empty reply becomes '(empty reply)' so the user sees something", async () => {
@@ -154,8 +182,8 @@ describe("router.handleMessage — allowed chat", () => {
       data: string;
     }>;
     assert.equal(atts.length, 1);
-    assert.equal(atts[0].mimeType, "image/jpeg");
-    assert.equal(atts[0].data, "AAAA");
+    assert.equal(elementAt(atts, 0).mimeType, "image/jpeg");
+    assert.equal(elementAt(atts, 0).data, "AAAA");
   });
 
   it("uses default text when photo has no caption", async () => {
@@ -197,7 +225,7 @@ describe("router.handleMessage — denied chat", () => {
     });
     await router.handleMessage(msg(999, "hi"));
     assert.equal(api.sent.length, 1);
-    assert.match(api.sent[0].text, /Access denied/);
+    assert.match(elementAt(api.sent, 0).text, /Access denied/);
     assert.equal(router.deniedAlreadyNotified().has(999), true);
   });
 
@@ -285,7 +313,7 @@ describe("router.handlePush", () => {
     const long = "y".repeat(5000);
     await router.handlePush(push("42", long));
     assert.equal(api.sent.length, 2);
-    assert.equal(api.sent[0].text.length, 4096);
-    assert.equal(api.sent[1].text.length, 904);
+    assert.equal(elementAt(api.sent, 0).text.length, 4096);
+    assert.equal(elementAt(api.sent, 1).text.length, 904);
   });
 });

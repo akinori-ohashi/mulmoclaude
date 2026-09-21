@@ -158,6 +158,11 @@ const zhMessages = {
   },
   sessionModelChip: {
     tooltip: "此会话正在使用的模型:{model}",
+    tooltipOverride: "此对话的模型:{model}(覆盖角色/全局设置)",
+    ariaLabel: "此对话的模型",
+    clear: "恢复默认",
+    unknown: "未知",
+    inherited: "{model}(继承)",
   },
   sidebarHeader: {
     newMessages: "新消息",
@@ -534,6 +539,8 @@ const zhMessages = {
     openInOs: "在系统中打开",
     openingInOs: "正在打开…",
     openInOsFailed: "无法在系统中打开",
+    downloadFile: "下载",
+    downloadingFile: "正在下载…",
   },
   filesView: {
     chatPlaceholder: "询问关于此文件的问题…",
@@ -936,13 +943,14 @@ const zhMessages = {
     sectionActive: "活动",
     sectionCatalog: "目录",
     sectionLegendActive:
-      "Claude 现在可以使用的技能。在对话过程中 Claude 会自动调用，你也可以输入技能名来调用。{system} 系统(自带 mc-) / {project} 项目(可编辑，仅此工作区) / {user} 用户(~/.claude/skills/ 中的技能)。",
+      "Claude 现在可以使用的技能。在对话过程中 Claude 会自动调用，你也可以输入技能名来调用。{system} 系统(自带 mc-) / {project} 项目(可编辑，仅此工作区) / {user} 用户(~/.claude/skills/ 中的技能) / {claudePlugin} 插件(来自已安装的 Claude Code 插件，只读)。",
     sectionLegendCatalog: "目录: 标记 {star} 后会成为活动的技能。从活动中取消 {star} 会回到目录 — Claude 将不再使用 (技能不会被删除)。",
     catalogEmpty: "没有可用的预设技能。",
     catalogPresetHeading: "预设",
     catalogStar: "收藏",
     catalogStarred: "已收藏",
     sourceUserTitle: "用户技能 (~/.claude/skills/，所有工作区通用)",
+    sourceClaudePluginTitle: "插件技能 (已安装的 Claude Code 插件 — 只读，由插件更新)",
     sourceSystemTitle: "系统技能 (随附，mc- 前缀 — 只读，启动器启动时覆盖)",
     sourceProjectTitle: "项目技能 (工作区的 .claude/skills/，仅当前工作区可用)",
     sourcePresetTitle: "预设目录 — 点击收藏在当前工作区启用",

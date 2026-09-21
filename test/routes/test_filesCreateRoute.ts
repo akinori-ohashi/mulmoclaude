@@ -191,6 +191,19 @@ describe("POST /api/files/create — security", () => {
     assert.equal(state.status, 400);
   });
 
+  it("refuses every executable suffix the upload route refuses, though they still PREVIEW", async () => {
+    // `/api/files/*` is exempt from bearer auth, and the upload route already
+    // refuses these as "things a later double-click would execute" — so
+    // authoring one through create is the same capability by another door.
+    // `.sh` was reachable this way before the text set was widened.
+    for (const name of ["deploy.sh", "run.bat", "run.cmd", "run.ps1"]) {
+      const { state, res } = mockRes();
+      await createHandler(req({ path: name, content: "echo hi" }), res);
+      assert.equal(state.status, 400, `expected 400 for ${name}, got ${state.status}`);
+      assert.match((state.body as ErrorBody).error, /not editable/i);
+    }
+  });
+
   it("refuses a sensitive basename (.env)", async () => {
     const { state, res } = mockRes();
     await createHandler(req({ path: ".env", content: "SECRET=1" }), res);

@@ -3,7 +3,12 @@
     <div class="shrink-0 flex items-center gap-1 text-xs text-gray-400 px-4 pt-3 pb-2" data-testid="stack-role-header">
       <span v-if="sessionRoleIcon" class="material-icons text-xs leading-none" :class="ROLE_ICON_CONTAINMENT">{{ sessionRoleIcon }}</span>
       <span v-if="sessionRoleName">{{ sessionRoleName }}</span>
-      <SessionModelChip :model="sessionModel" />
+      <SessionModelChip
+        v-if="sessionRoleName"
+        :model="sessionModel"
+        :override="sessionModelOverride"
+        @update:override="(model) => emit('update:sessionModelOverride', model)"
+      />
       <div class="ml-auto flex items-center gap-0.5">
         <CopyChatButton :results="toolResults" :result-timestamps="resultTimestamps" :session-role-name="sessionRoleName" />
         <button
@@ -135,6 +140,7 @@ import { isRecord } from "../utils/types";
 import { buildStackDisplayItems, pickActiveCardUuid, resolveLatestScrollTarget } from "../utils/canvas/stackGrouping";
 import CanvasViewToggle from "./CanvasViewToggle.vue";
 import SessionModelChip from "./SessionModelChip.vue";
+import type { ChatModel } from "../config/models";
 import CopyChatButton from "./CopyChatButton.vue";
 import type { LayoutMode } from "../utils/canvas/layoutMode";
 
@@ -208,6 +214,8 @@ const props = defineProps<{
   sessionRoleIcon?: string | undefined;
   /** Raw model id this session resolved to (#2554). */
   sessionModel?: string | undefined;
+  /** This conversation's one-off model override (#3147). */
+  sessionModelOverride?: ChatModel | undefined;
   layoutMode: LayoutMode;
   showRightSidebar: boolean;
   /** Google Maps JS API key forwarded from `App.vue` to plugin Views
@@ -232,6 +240,7 @@ const emit = defineEmits<{
   updateResult: [result: ToolResultComplete];
   "update:layoutMode": [mode: LayoutMode];
   "toggle-right-sidebar": [];
+  "update:sessionModelOverride": [model: ChatModel | undefined];
 }>();
 
 const containerRef = ref<HTMLDivElement | null>(null);

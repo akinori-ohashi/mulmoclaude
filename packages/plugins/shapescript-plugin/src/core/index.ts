@@ -19,6 +19,12 @@ export { isPresentableShapePath, isShapeArtifactPath, shapeArtifactPath, usdzArt
 // the `exportShapeScriptUsdz` tool, which needs only the generic `files`
 // capability — so it lives on `.` rather than a server-only entry.
 export { sceneToUsdz, shapeScriptToUsdz, USDZ_MIME_TYPE, USDZ_EXTENSION } from "../export/usdz";
+// GLB and STL: the same pure shape, browser-side only so far (the View's
+// download buttons); no tool wraps them yet.
+export { sceneToGlb, shapeScriptToGlb, GLB_MIME_TYPE, GLB_EXTENSION } from "../export/glb";
+export { sceneToStl, shapeScriptToStl, STL_MIME_TYPE, STL_EXTENSION } from "../export/stl";
+export { exportShapeScript } from "../export/model";
+export type { ExportOptions } from "../export/model";
 export {
   resolveShapeSource,
   executeExportShapeScriptUsdz,
@@ -30,23 +36,48 @@ export {
 } from "../export/tool";
 export type { ExportUsdzResult } from "../export/tool";
 export {
-  executePublishShapeScript,
+  executeManageShapeScript,
+  existingShapePost,
   shapePostFrom,
+  shapePostPatch,
+  shapePostSummary,
   shapePostUrl,
+  stampOf,
+  listLimitOf,
   normalizeKeywords as normalizeShapeKeywords,
-  PUBLISH_TOOL_NAME,
-  PUBLISH_DESCRIPTION,
-  PUBLISH_PROMPT,
-  PUBLISH_SCHEMA,
+  MANAGE_TOOL_NAME,
+  MANAGE_ACTIONS,
+  MANAGE_DESCRIPTION,
+  MANAGE_PROMPT,
+  MANAGE_SCHEMA,
+  GET_LIST_DEFAULT_LIMIT,
+  GET_LIST_MAX_LIMIT,
   SHAPE_GALLERY_URL,
   SHAPE_POST_KEYS,
   SHAPE_POST_LIMITS,
   SHAPE_SCRIPT_CONTENT_TYPE,
   SHAPE_OBJECT_CACHE_CONTROL,
   requireScriptBytes,
+  licenseFor,
+  expectOf,
   NOT_CONNECTED_MESSAGE,
-} from "./publish";
-export type { PublishShapeScriptContext, PublishShapeResult, ShapeGalleryWriter, ShapePostDoc } from "./publish";
+  POST_CHANGED_MESSAGE,
+  LICENSE_REQUIRED_MESSAGE,
+  SHAPE_LICENSE,
+  SHAPE_LICENSE_LABEL,
+  SHAPE_LICENSE_URL,
+} from "./manage";
+export type {
+  ShapeLicense,
+  ManageShapeAction,
+  ManageShapeScriptContext,
+  ManageShapeResult,
+  ShapeGalleryWriter,
+  ShapePostDoc,
+  ShapePostExpect,
+  ShapePostPatch,
+  ShapePostSummary,
+} from "./manage";
 export { samples } from "./samples";
 
 // Re-export ShapeScript utilities

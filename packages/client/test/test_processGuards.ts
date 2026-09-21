@@ -6,6 +6,7 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import type { EventEmitter } from "node:events";
 
 import { installProcessGuards, SHUTDOWN_GRACE_MS } from "../src/processGuards.ts";
 
@@ -15,19 +16,28 @@ const NAME = "line";
 // node:test installs its own handlers for some of these; take them out for the
 // duration of a case and put them back, so a guard under test never inherits or
 // clobbers them.
-const saved = new Map<string, ((...args: never[]) => void)[]>();
+// Reached through the EventEmitter surface rather than `process`'s own
+// overloads: those are keyed per event name, so a listener saved from a union
+// of four events cannot be handed back without a cast. `process` IS an
+// EventEmitter, so this is a widening, not an assertion about the value — and
+// each listener only ever goes back on the event it came off.
+const processEvents: EventEmitter = process;
+/** Derived from node's own declaration rather than spelled out, so this file
+ *  does not have to write the `any` that `EventEmitter.listeners` returns. */
+type ProcessListener = ReturnType<EventEmitter["listeners"]>[number];
+const saved = new Map<string, ProcessListener[]>();
 
 beforeEach(() => {
   EVENTS.forEach((event) => {
-    saved.set(event, process.listeners(event) as ((...args: never[]) => void)[]);
-    process.removeAllListeners(event);
+    saved.set(event, processEvents.listeners(event));
+    processEvents.removeAllListeners(event);
   });
 });
 
 afterEach(() => {
   EVENTS.forEach((event) => {
-    process.removeAllListeners(event);
-    (saved.get(event) ?? []).forEach((listener) => process.on(event, listener));
+    processEvents.removeAllListeners(event);
+    (saved.get(event) ?? []).forEach((listener) => processEvents.on(event, listener));
   });
   saved.clear();
 });
@@ -56,7 +66,9 @@ const capture = (): Capture => {
 
 const withGuards = async (onShutdown: (() => void | Promise<void>) | undefined, run: (cap: Capture) => Promise<void> | void): Promise<void> => {
   const cap = capture();
-  installProcessGuards({ name: NAME, onShutdown, exit: (code) => void cap.codes.push(code) });
+  // `onShutdown: undefined` is a different type from an absent key under
+  // `exactOptionalPropertyTypes`, and the option is optional, not nullable.
+  installProcessGuards({ name: NAME, ...(onShutdown === undefined ? {} : { onShutdown }), exit: (code) => void cap.codes.push(code) });
   try {
     await run(cap);
   } finally {

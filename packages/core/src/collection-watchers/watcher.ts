@@ -406,6 +406,13 @@ async function stopGeneration(key: string, gen: WatcherGeneration): Promise<void
     }
   }
   gen.watchers.clear();
+  // Drain reconcile passes that were already running. The clock tick is awaited
+  // above; these are the EVENT-driven ones, and they touch the notifier just
+  // the same — a pass still running here lands its write after the caller has
+  // moved on, which is how a bell entry ended up in the next test's notifier
+  // file (2 where 1 was expected). Unsubscribing first is what bounds this:
+  // no new event can extend a slot once the watchers are gone.
+  await Promise.allSettled([...gen.itemSlots.values(), ...gen.collectionSlots.values()].map((slot) => slot.running));
   gen.itemSlots.clear();
   gen.collectionSlots.clear();
   gen.started = false;

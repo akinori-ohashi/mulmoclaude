@@ -1,6 +1,7 @@
 // Request-body construction and dispatch for `POST /api/agent`.
 
 import type { Role } from "../../config/roles";
+import type { ChatModel } from "../../config/models";
 import { API_ROUTES } from "../../config/apiRoutes";
 import { apiFetchRaw } from "../api";
 import { errorMessage } from "../errors";
@@ -35,6 +36,12 @@ export interface AgentRequestBodyParams {
    *  path-passing tools (e.g. `editImages`) can quote it back.
    *  Empty / undefined when no file is attached. */
   attachments?: readonly ClientAttachment[] | undefined;
+  /** This conversation's model override (#3147), when it has one. Sent on
+   *  every turn but only USED on the first: a session minted in the browser
+   *  has no sidecar yet, so a choice made before the first message has
+   *  nowhere to be written and would otherwise be lost at exactly the moment
+   *  it is most worth making. */
+  chatModel?: ChatModel | undefined;
 }
 
 export interface AgentRequestBody {
@@ -48,6 +55,7 @@ export interface AgentRequestBody {
   // the browser can't resolve a timezone — the server then falls back
   // to its own local time and asks as before.
   userTimezone: string | undefined;
+  chatModel: ChatModel | undefined;
 }
 
 // `Intl.DateTimeFormat().resolvedOptions().timeZone` can, in theory,
@@ -81,6 +89,7 @@ export function buildAgentRequestBody(params: AgentRequestBodyParams): AgentRequ
     chatSessionId: params.chatSessionId,
     attachments: buildAttachments(params.attachments),
     userTimezone: resolveBrowserTimezone(),
+    chatModel: params.chatModel,
   };
 }
 

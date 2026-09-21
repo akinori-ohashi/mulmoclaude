@@ -7,6 +7,7 @@ import {
   backfillOrigin,
   incrementUserQueryCount,
   readSessionMetaFull,
+  updateSessionChatModel,
   updateResolvedModel,
   readSessionMeta,
   setAgentSession,
@@ -22,6 +23,7 @@ import { getRole } from "../../workspace/roles.js";
 import { runAgent } from "../../agent/index.js";
 import { getActiveBackend } from "../../agent/backend/index.js";
 import { AGENT_SESSION_EVENT_TYPE, INJECTED_TEXT, SESSION_MODEL } from "../../agent/stream.js";
+import { isChatModel, type ChatModel } from "../../../src/config/models.js";
 import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
 import {
@@ -46,7 +48,8 @@ import { decorateMessageForCli, sanitiseOriginalFilename, type AttachedFile } fr
 import { getOrCreateSession, beginRun, endRun, cancelRun, pushSessionEvent, pushToolResult, getActiveSessionIds } from "../../events/session-store/index.js";
 import { workspacePath } from "../../workspace/workspace.js";
 import { discoverSkills } from "../../workspace/skills/discovery.js";
-import type { Skill } from "../../workspace/skills/types.js";
+import { couldBeClaudePluginSkill } from "../../workspace/skills/claude-plugins.js";
+import type { Skill, SkillSource } from "../../workspace/skills/types.js";
 import { isNonEmptyString } from "../../utils/types.js";
 import { findLastSessionEntry } from "../../utils/sessionJsonl.js";
 import { maybeRunJournal } from "../../workspace/journal/index.js";
@@ -142,6 +145,9 @@ export interface StartChatParams extends ChatServiceStartChatParams {
    *  Validated server-side before it reaches the system prompt — an
    *  invalid or missing value falls back to server-local time. */
   userTimezone?: string | undefined;
+  /** This conversation's model override (#3147), carried by the FIRST turn
+   *  only. See `persistUserTurn`. */
+  chatModel?: unknown;
 }
 
 export type StartChatResult = { kind: "started"; chatSessionId: string } | { kind: "error"; error: string; status?: number };
@@ -198,23 +204,35 @@ export async function spawnSystemWorker(args: {
   return { ok: true, chatId };
 }
 
+/** Everything that can refuse the request before anything is created, derived
+ *  or stored. The second check is the one that matters: every step below takes
+ *  `resultsFilePath` — the in-memory session, the tool-trace appender, the
+ *  jsonl append queue — so a request that got past it would look persisted and
+ *  write somewhere it must not. */
+function validateStartChatRequest(params: StartChatParams): { kind: "ok"; resultsFilePath: string } | { kind: "error"; error: string; status: number } {
+  const { message, roleId, chatSessionId } = params;
+  if (!message || !roleId || !chatSessionId) {
+    return { kind: "error", error: "message, roleId, and chatSessionId are required", status: 400 };
+  }
+  const resultsFilePath = sessionJsonlAbsPath(chatSessionId);
+  if (resultsFilePath === null) {
+    log.warn("agent", "refused a chatSessionId that is not path-safe");
+    return { kind: "error", error: "chatSessionId is not valid", status: 400 };
+  }
+  return { kind: "ok", resultsFilePath };
+}
+
 export async function startChat(params: StartChatParams): Promise<StartChatResult> {
-  const { message, roleId, chatSessionId, selectedImageData, attachments } = params;
+  const { roleId, chatSessionId, selectedImageData, attachments } = params;
   // Bridge-only compat: external bridge clients may still populate
   // `selectedImageData`. Fold it into `attachments` so the rest of
   // this function only deals with one input shape.
   const normalisedAttachments = mergeBridgeSelectedImage(selectedImageData, attachments);
 
-  if (!message || !roleId || !chatSessionId) {
-    return {
-      kind: "error",
-      error: "message, roleId, and chatSessionId are required",
-      status: 400,
-    };
-  }
-
+  const validated = validateStartChatRequest(params);
+  if (validated.kind === "error") return validated;
+  const { resultsFilePath } = validated;
   ensureChatDir();
-  const resultsFilePath = sessionJsonlAbsPath(chatSessionId);
 
   // Discriminate missing (first turn) from corrupt (warn, don't clobber).
   const metaResult = await readSessionMetaFull(chatSessionId);
@@ -288,7 +306,16 @@ export async function startChat(params: StartChatParams): Promise<StartChatResul
 // append the user message to the jsonl, and broadcast it to other
 // tabs viewing this session. Returns the validated origin so the
 // dispatch phase can reuse it.
-async function persistUserTurn(params: StartChatParams, ctx: { isFirstTurn: boolean; attachedFiles: AttachedFile[] }): Promise<SessionOrigin | undefined> {
+/** Exported for testing. The first-turn model carry is applied by one line in
+ *  here, and deleting that line left the whole suite green — the only thing
+ *  covering it was a run against the real CLI, which does not stop a
+ *  regression. Driving `startChat` instead would need a real `~/.claude`
+ *  install; this function touches only files and pub/sub, so a test can call
+ *  it directly with the workspace redirected. */
+export async function persistUserTurn(
+  params: StartChatParams,
+  ctx: { isFirstTurn: boolean; attachedFiles: AttachedFile[] },
+): Promise<SessionOrigin | undefined> {
   const { message, roleId, chatSessionId } = params;
   const { isFirstTurn, attachedFiles } = ctx;
 
@@ -299,6 +326,15 @@ async function persistUserTurn(params: StartChatParams, ctx: { isFirstTurn: bool
   const validOrigin = isSessionOrigin(params.origin) ? params.origin : undefined;
   if (isFirstTurn) {
     await createSessionMeta(chatSessionId, roleId, message, undefined, validOrigin);
+    // The model picker is reachable before the first message — which is when a
+    // per-chat model is most worth choosing — but the session is minted in the
+    // browser and has no sidecar until the line above runs, so the override
+    // rides with this request and is applied the moment the file exists.
+    // Only on the first turn: after that the sidecar is authoritative, and
+    // taking the request's copy would let a stale tab undo a newer choice.
+    // `updateSessionChatModel` validates, so an unknown alias is refused here
+    // exactly as it is on the dedicated route.
+    if (isChatModel(params.chatModel)) await updateSessionChatModel(chatSessionId, params.chatModel);
   } else {
     await backfillMeta(chatSessionId, message);
     if (validOrigin) {
@@ -345,6 +381,10 @@ async function dispatchAgentRun(
   const backendId: AgentSessionRef["backendId"] = getActiveBackend().id === "codex" ? "codex" : "claude-code";
   const sessionRef = await readAgentSessionFromSession(chatSessionId);
   const sessionToken = sessionRef?.backendId === backendId ? sessionRef.token : undefined;
+  // Read per turn, not once per session: an override chosen mid-conversation
+  // takes effect from the NEXT turn, which is how every other model level in
+  // this app already behaves (#3147).
+  const sessionChatModel = (await readSessionMeta(chatSessionId))?.chatModel;
 
   const requestStartedAt = Date.now();
   log.info("agent", "request received", {
@@ -385,6 +425,7 @@ async function dispatchAgentRun(
     chatSessionId,
     backendId,
     sessionToken,
+    sessionChatModel,
     abortSignal: abortController.signal,
     resultsFilePath,
     requestStartedAt,
@@ -651,6 +692,7 @@ interface BackgroundRunParams {
   chatSessionId: string;
   backendId: AgentSessionRef["backendId"];
   sessionToken: string | undefined;
+  sessionChatModel: ChatModel | undefined;
   abortSignal: AbortSignal;
   resultsFilePath: string;
   requestStartedAt: number;
@@ -929,7 +971,7 @@ async function writeSkillEntry(ctx: EventContext, skillName: string, body: strin
 }
 
 interface SkillMetadata {
-  scope: "user" | "project" | "unknown";
+  scope: SkillSource | "unknown";
   path: string | null;
   /** From the SKILL.md frontmatter `description:` field. Used by the
    *  host's collapsed-skill card — Claude CLI strips frontmatter from
@@ -946,7 +988,13 @@ interface SkillMetadata {
 
 async function resolveSkillMetadata(skillName: string): Promise<SkillMetadata> {
   try {
-    const skills: Skill[] = await discoverSkills({ workspaceRoot: workspacePath });
+    // This runs once per Skill invocation, mid-turn, so it only pays for the
+    // plugin scan when the name it is resolving could be a plugin's (~170 ms of
+    // the ~180 ms a full scan costs with three plugins installed).
+    const skills: Skill[] = await discoverSkills({
+      workspaceRoot: workspacePath,
+      includeClaudePlugins: couldBeClaudePluginSkill(skillName),
+    });
     const found = skills.find((skill) => skill.name === skillName);
     if (!found) return { scope: "unknown", path: null, description: null, body: null };
     return { scope: found.source, path: found.path, description: found.description, body: found.body };
@@ -1060,6 +1108,7 @@ interface FailoverStreamArgs {
   chatSessionId: string;
   backendId: AgentSessionRef["backendId"];
   sessionToken: string | undefined;
+  sessionChatModel: ChatModel | undefined;
   abortSignal: AbortSignal;
   attachments: Attachment[] | undefined;
   userTimezone: string | undefined;
@@ -1124,7 +1173,7 @@ function discardAbortedPass(eventCtx: EventContext): void {
 // hidden-worker cleanup. Split out of `runAgentInBackground` to keep that
 // function under the max-lines-per-function budget.
 async function runAgentStreamWithFailover(args: FailoverStreamArgs, eventCtx: EventContext): Promise<boolean> {
-  const { decoratedMessage, role, chatSessionId, backendId, sessionToken, abortSignal, attachments, userTimezone } = args;
+  const { decoratedMessage, role, chatSessionId, backendId, sessionToken, sessionChatModel, abortSignal, attachments, userTimezone } = args;
 
   // One retry each. Stale-`--resume` only applies when we entered with an id (a
   // fresh session can't hit it); the broker race can hit a fresh session too.
@@ -1146,6 +1195,7 @@ async function runAgentStreamWithFailover(args: FailoverStreamArgs, eventCtx: Ev
       sessionId: chatSessionId,
       port: getBoundPort(),
       sessionToken: currentSessionToken,
+      sessionChatModel,
       abortSignal,
       attachments,
       userTimezone,
@@ -1194,6 +1244,7 @@ async function runAgentInBackground(params: BackgroundRunParams): Promise<void> 
     chatSessionId,
     backendId,
     sessionToken,
+    sessionChatModel,
     abortSignal,
     resultsFilePath,
     requestStartedAt,
@@ -1218,7 +1269,7 @@ async function runAgentInBackground(params: BackgroundRunParams): Promise<void> 
 
   try {
     didError = await runAgentStreamWithFailover(
-      { decoratedMessage, role, chatSessionId, backendId, sessionToken, abortSignal, attachments, userTimezone },
+      { decoratedMessage, role, chatSessionId, backendId, sessionToken, sessionChatModel, abortSignal, attachments, userTimezone },
       eventCtx,
     );
     // Flush any accumulated streaming text as a single consolidated

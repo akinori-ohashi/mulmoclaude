@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/slack",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Slack bridge for MulmoBridge — connect a Slack bot to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc",
     "prepack": "yarn build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
     "test": "tsx --test test/test_*.ts",
     "lint": "eslint src test"
   },
@@ -32,7 +32,7 @@
     "undici": "^7.29.0"
   },
   "devDependencies": {
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.2",
     "tsx": "^4.23.13",
     "typescript": "^6.0.3"
   },

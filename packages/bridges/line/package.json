@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/line",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "LINE bridge for MulmoBridge — connect a LINE bot to MulmoClaude",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,7 +15,7 @@
   "scripts": {
     "build": "tsc",
     "prepack": "yarn build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
     "test": "tsx --test test/test_*.ts",
     "lint": "eslint src test"
   },
@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.2",
     "tsx": "^4.23.13",
     "typescript": "^6.0.3"
   },

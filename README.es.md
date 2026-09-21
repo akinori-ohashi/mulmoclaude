@@ -213,20 +213,21 @@ MulmoClaude puede listar y lanzar los **skills de Claude Code** que ya tienes. U
 1. Abre MulmoClaude y permanece en uno de los roles con skills habilitados: **General**, **Office** o **Tutor**.
 2. Pídele a Claude que muestre tus skills — p. ej. _"muestra mis skills"_ o _"lista los skills"_.
 3. Claude invoca la herramienta `manageSkills` y se abre una vista **Skills** de panel dividido en el canvas:
-   - **Izquierda**: todos los skills descubiertos en tu máquina, con su descripción e insignia de alcance (`USER` / `PROJECT`).
+   - **Izquierda**: todos los skills descubiertos en tu máquina, con su descripción y una insignia del alcance del que proviene.
    - **Derecha**: el contenido completo del `SKILL.md` del skill seleccionado.
-4. Haz clic en **Run** en un skill. MulmoClaude envía `/<skill-name>` a Claude como un mensaje de chat normal; la maquinaria de slash-commands de Claude Code lo resuelve contra `~/.claude/skills/` y ejecuta las instrucciones del skill inline en la misma sesión de chat.
+4. Haz clic en **Run** en un skill. MulmoClaude envía `/<skill-name>` a Claude como un mensaje de chat normal; la maquinaria de slash-commands de Claude Code lo resuelve contra `~/.claude/skills/` — o contra el plugin propietario, si es un skill `<plugin>:<name>` — y ejecuta las instrucciones del skill inline en la misma sesión de chat.
 
 Sin escribir nada extra, sin copiar y pegar cuerpos de SKILL.md — el botón Run es un envoltorio de un solo clic alrededor de `/skill-name`.
 
-### Descubrimiento de skills — dos alcances
+### Descubrimiento de skills — tres alcances
 
 | Scope       | Location                               | Semantics                                                                                                                 |
 | ----------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | **User**    | `~/.claude/skills/<name>/SKILL.md`     | Skills personales, compartidos en cada proyecto que abras con la CLI de Claude.                                           |
 | **Project** | `~/mulmoclaude/.claude/skills/<name>/` | Skills con alcance al workspace de MulmoClaude. El alcance de proyecto **gana** si un nombre colisiona con el de usuario. |
+| **Claude Code plugin** | `<ruta de instalación del plugin>/skills/<name>/` (con `/plugin install`) | Se listan como `<plugin>:<name>`, igual que los direcciona la CLI de Claude. Solo lectura, la precedencia más baja; se omite un plugin desactivado en `enabledPlugins`. No se ofrecen como comando slash de bridge ni se pueden programar: un marketplace puede traer cientos y una respuesta `/help` es un solo mensaje. |
 
-Ambos alcances son de solo lectura en la fase 0 — las ediciones se hacen en el sistema de archivos. Una versión futura permitirá que MulmoClaude mismo cree / edite skills de alcance de proyecto.
+De los tres alcances MulmoClaude solo escribe el de proyecto — puede crearlos, editarlos y eliminarlos. Los skills de alcance de usuario y los de plugins son de solo lectura aquí; edítalos en sus propios archivos fuente.
 
 ### Sandbox de Docker vs sin Docker
 
@@ -291,7 +292,7 @@ Notas sobre guardar:
 
 ### Eliminar un skill guardado
 
-Los skills de alcance de proyecto obtienen un botón **Delete** junto al botón Run en la vista Skills (los skills de alcance de usuario son de solo lectura — no se muestra el botón Delete). Al confirmar el diálogo se elimina `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. Si además dejaste archivos adicionales en esa carpeta a mano, se dejan en su lugar; solo se elimina el SKILL.md.
+Los skills de alcance de proyecto obtienen un botón **Delete** junto al botón Run en la vista Skills (cualquier otro alcance es de solo lectura — los skills de alcance de usuario y los de plugins no muestran el botón Delete). Al confirmar el diálogo se elimina `~/mulmoclaude/.claude/skills/<slug>/SKILL.md`. Si además dejaste archivos adicionales en esa carpeta a mano, se dejan en su lugar; solo se elimina el SKILL.md.
 
 También puedes pedirle a Claude que elimine por nombre:
 

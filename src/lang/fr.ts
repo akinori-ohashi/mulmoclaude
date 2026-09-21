@@ -157,6 +157,11 @@ const frMessages = {
   },
   sessionModelChip: {
     tooltip: "Modèle utilisé par cette session : {model}",
+    tooltipOverride: "Modèle de cette conversation : {model} (remplace le rôle / le réglage global)",
+    ariaLabel: "Modèle de cette conversation",
+    clear: "Revenir au réglage par défaut",
+    unknown: "inconnu",
+    inherited: "{model} (hérité)",
   },
   sidebarHeader: {
     newMessages: "Nouveaux messages",
@@ -550,6 +555,8 @@ const frMessages = {
     openInOs: "Ouvrir dans le système",
     openingInOs: "Ouverture…",
     openInOsFailed: "Échec de l'ouverture dans le système",
+    downloadFile: "Télécharger",
+    downloadingFile: "Téléchargement…",
   },
   filesView: {
     chatPlaceholder: "Posez une question sur ce fichier…",
@@ -957,7 +964,7 @@ const frMessages = {
     sectionActive: "Actives",
     sectionCatalog: "Catalogue",
     sectionLegendActive:
-      "Skills que Claude peut utiliser dès maintenant. Claude les utilise automatiquement dans le fil de la conversation, ou vous pouvez en invoquer une en saisissant son nom. {system} Système (mc- intégrée) / {project} Projet (modifiable, uniquement dans ce workspace) / {user} Utilisateur (skills dans ~/.claude/skills/).",
+      "Skills que Claude peut utiliser dès maintenant. Claude les utilise automatiquement dans le fil de la conversation, ou vous pouvez en invoquer une en saisissant son nom. {system} Système (mc- intégrée) / {project} Projet (modifiable, uniquement dans ce workspace) / {user} Utilisateur (skills dans ~/.claude/skills/) / {claudePlugin} Plugin (d'un plugin Claude Code installé, en lecture seule).",
     sectionLegendCatalog:
       "Catalogue : skills qui deviennent Actives quand vous les marquez par {star}. Retirer {star} depuis Actives renvoie la skill au Catalogue — Claude cesse de l'utiliser (la skill n'est pas supprimée).",
     catalogEmpty: "Aucune skill de préréglage disponible.",
@@ -965,6 +972,7 @@ const frMessages = {
     catalogStar: "Favori",
     catalogStarred: "Favoris",
     sourceUserTitle: "Skill utilisateur (~/.claude/skills/, disponible dans tous les espaces)",
+    sourceClaudePluginTitle: "Skill de plugin (plugin Claude Code installé — en lecture seule, mis à jour par le plugin)",
     sourceSystemTitle: "Skill système (incluse, préfixe mc- — lecture seule, écrasée par le launcher)",
     sourceProjectTitle: "Skill de projet (.claude/skills/ de l'espace, espace courant uniquement)",
     sourcePresetTitle: "Catalogue de préréglages — cliquez sur Favori pour activer dans cet espace",

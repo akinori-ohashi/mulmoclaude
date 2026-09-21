@@ -1,8 +1,15 @@
 <template>
   <div class="present3d-container" data-testid="shapescript-view">
+    <!-- Title on its own line, then the toolbar: side by side, a long title
+         (CJK titles have no break opportunities) squeezed into a one-glyph
+         column and pushed the buttons off the edge. The toolbar follows the
+         chrome-row sizing in docs/ui-controls.md (32px controls, 8px gaps,
+         8/12px row padding). -->
     <div class="header">
-      <h1>{{ selectedResult.title || t.untitled }}</h1>
-      <div class="controls">
+      <h1 class="title" :title="selectedResult.title || t.untitled">
+        {{ selectedResult.title || t.untitled }}
+      </h1>
+      <div ref="toolbarRef" class="toolbar" data-testid="shapescript-toolbar">
         <button class="control-btn" @click="resetCamera">
           <span class="material-icons">refresh</span>
           {{ t.resetCamera }}
@@ -15,18 +22,52 @@
           <span class="material-icons">{{ showGrid ? "visibility_off" : "visibility" }}</span>
           {{ t.grid }}
         </button>
-        <button class="control-btn" data-testid="shapescript-copy-script" @click="copyScript">
-          <span class="material-icons">{{ copied ? "check" : "content_copy" }}</span>
-          {{ copied ? t.copied : t.copyScript }}
-        </button>
-        <!-- Disabled while the source panel holds unapplied edits: the export
-             is built from the APPLIED script, which is also what the viewport
-             renders, so a dirty editor would otherwise download a model the
-             user is no longer looking at. -->
-        <button class="control-btn" :disabled="!canExport" data-testid="shapescript-download-usdz" @click="downloadUsdz">
-          <span class="material-icons">download</span>
-          {{ t.downloadUsdz }}
-        </button>
+        <!-- One Download menu instead of a button per format: three
+             "Download X" buttons were most of the toolbar. Disabled while the
+             source panel holds unapplied edits: the export is built from the
+             APPLIED script, which is also what the viewport renders, so a
+             dirty editor would otherwise download a model the user is no
+             longer looking at. -->
+        <!-- A disclosure, not an ARIA `menu`: `role="menu"` promises
+             arrow-key focus movement this does not implement (codex on
+             #3187). As a disclosure the items are plain buttons next in
+             tab order, and Escape closes the panel and returns focus to
+             the trigger. -->
+        <div ref="downloadMenuRef" class="download-menu" @keydown.escape="closeDownloadMenu">
+          <button
+            ref="downloadTriggerRef"
+            class="control-btn"
+            :disabled="!canExport"
+            :aria-expanded="downloadMenuOpen"
+            :aria-controls="downloadPanelId"
+            data-testid="shapescript-download-menu"
+            @click="downloadMenuOpen = !downloadMenuOpen"
+          >
+            <span class="material-icons">download</span>
+            {{ t.download }}
+            <span class="material-icons">{{ downloadMenuOpen ? "expand_less" : "expand_more" }}</span>
+          </button>
+          <div
+            v-if="downloadMenuOpen"
+            :id="downloadPanelId"
+            ref="downloadPanelRef"
+            class="download-menu-panel"
+            :style="{ left: `${downloadPanelShift}px` }"
+            data-testid="shapescript-download-menu-panel"
+          >
+            <button
+              v-for="format in DOWNLOAD_FORMATS"
+              :key="format.extension"
+              class="download-menu-item"
+              :disabled="!canExport"
+              :data-testid="`shapescript-download-${format.testId}`"
+              @click="downloadModel(format)"
+            >
+              <span class="download-menu-format">{{ format.name }}</span>
+              <span class="download-menu-hint">{{ t[format.label] }}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -55,7 +96,16 @@
     <div ref="viewport" class="viewport" data-testid="shapescript-viewport" />
 
     <details class="script-source">
-      <summary>{{ t.editSource }}</summary>
+      <!-- The Copy button sits at the right end of the bar. A click inside a
+           <summary> toggles the panel, so it is stopped here: copying the
+           source must not open or close the editor. -->
+      <summary>
+        <span>{{ t.editSource }}</span>
+        <button class="control-btn copy-btn" data-testid="shapescript-copy-script" @click.prevent.stop="copyScript">
+          <span class="material-icons">{{ copied ? "check" : "content_copy" }}</span>
+          {{ copied ? t.copied : t.copyScript }}
+        </button>
+      </summary>
       <!-- `aria-label`, because the only visible text near this control is the
            <summary> that toggles the panel — a screen reader otherwise
            announces an unlabelled text area. -->
@@ -68,7 +118,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, useId } from "vue";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useRuntime } from "gui-chat-protocol/vue";
@@ -79,6 +129,9 @@ import { parseShapeScript } from "../shapescript/parser";
 import { astToThreeJS, sceneInfoOf } from "../shapescript/toThreeJS";
 import { removeAndDispose, disposeObject3D } from "../shapescript/dispose";
 import { shapeScriptToUsdz, USDZ_EXTENSION, USDZ_MIME_TYPE } from "../export/usdz";
+import { shapeScriptToGlb, GLB_EXTENSION, GLB_MIME_TYPE } from "../export/glb";
+import { shapeScriptToStl, STL_EXTENSION, STL_MIME_TYPE } from "../export/stl";
+import type { Messages } from "../lang/messages";
 import { slugify } from "../core/paths";
 import { useT } from "../lang";
 
@@ -140,12 +193,101 @@ const hasChanges = computed(() => {
   return editableScript.value !== props.selectedResult.data?.script;
 });
 
-/** Download USDZ is offered only for a model there is something to export
+/** One downloadable format: how it is built, and how the file is named. */
+interface DownloadFormat {
+  /** The format's name as shown in the menu; not translated. */
+  name: string;
+  /** What the format is for — the menu item's hint. */
+  label: keyof Messages;
+  testId: string;
+  extension: string;
+  mimeType: string;
+  serialise: (script: string) => Promise<Uint8Array<ArrayBuffer>>;
+}
+
+/** The formats the Download menu offers, in menu order: USDZ for AR Quick
+ *  Look, GLB for the web and game engines, STL for slicers. */
+const DOWNLOAD_FORMATS: readonly DownloadFormat[] = [
+  { name: "USDZ", label: "downloadUsdz", testId: "usdz", extension: USDZ_EXTENSION, mimeType: USDZ_MIME_TYPE, serialise: shapeScriptToUsdz },
+  { name: "GLB", label: "downloadGlb", testId: "glb", extension: GLB_EXTENSION, mimeType: GLB_MIME_TYPE, serialise: shapeScriptToGlb },
+  { name: "STL", label: "downloadStl", testId: "stl", extension: STL_EXTENSION, mimeType: STL_MIME_TYPE, serialise: shapeScriptToStl },
+];
+
+/** Download is offered only for a model there is something to export
  *  from: an applied, non-empty, valid script with no unapplied edits. An
  *  empty script is a valid way to clear the scene, but an empty USDZ helps
  *  nobody, so the button disables rather than clicking through to nothing
  *  (CodeRabbit on #3065). */
 const canExport = computed(() => !exporting.value && !parseError.value && !hasChanges.value && Boolean(props.selectedResult.data?.script));
+
+/** The Download menu: open state plus the wrapper that holds the trigger and
+ *  the panel. A document `mousedown` listener closes it from outside, tested
+ *  with `composedPath()` rather than `contains()`: a plugin mounted in
+ *  MulmoTerminal's PluginFrame lives in a shadow root, where `event.target`
+ *  is retargeted to the shadow host. The listener exists only while open. */
+const downloadMenuOpen = ref(false);
+const downloadMenuRef = ref<HTMLElement | null>(null);
+const downloadTriggerRef = ref<HTMLButtonElement | null>(null);
+
+/** Escape and a picked format: close, and put focus back on the trigger so
+ *  a keyboard user is not left on an item that no longer exists. */
+function closeDownloadMenu() {
+  if (!downloadMenuOpen.value) return;
+  downloadMenuOpen.value = false;
+  downloadTriggerRef.value?.focus();
+}
+
+function closeDownloadMenuFromOutside(event: MouseEvent) {
+  if (downloadMenuRef.value && event.composedPath().includes(downloadMenuRef.value)) return;
+  downloadMenuOpen.value = false;
+}
+
+watch(downloadMenuOpen, async (isOpen) => {
+  if (isOpen) document.addEventListener("mousedown", closeDownloadMenuFromOutside);
+  else document.removeEventListener("mousedown", closeDownloadMenuFromOutside);
+  downloadPanelShift.value = 0;
+  if (!isOpen) return;
+  await nextTick();
+  fitDownloadPanel();
+});
+
+/** Per instance: the stack layout mounts every result's view at once, and
+ *  `aria-controls` must name THIS view's panel, not the first one's (codex on
+ *  #3187). */
+const downloadPanelId = `shapescript-download-panel-${useId()}`;
+const toolbarRef = ref<HTMLElement | null>(null);
+const downloadPanelRef = ref<HTMLElement | null>(null);
+/** How far left of the trigger the panel is drawn, in px (0 or negative). */
+const downloadPanelShift = ref(0);
+/** The toolbar's side padding — the same 12px as `.toolbar` in the styles. */
+const TOOLBAR_SIDE_PADDING_PX = 12;
+
+/** The panel hangs off the trigger's left edge, and the trigger is the last
+ *  control in a row that wraps, so in a narrow pane the panel can run past
+ *  the canvas, which clips it (CodeRabbit on #3187). Its width is already
+ *  capped to the toolbar's, so pulling it left by the overrun always fits. */
+function fitDownloadPanel() {
+  const panel = downloadPanelRef.value;
+  const toolbar = toolbarRef.value;
+  if (!panel || !toolbar) return;
+  const overrun = panel.getBoundingClientRect().right - (toolbar.getBoundingClientRect().right - TOOLBAR_SIDE_PADDING_PX);
+  downloadPanelShift.value = overrun > 0 ? -overrun : 0;
+}
+
+/** Measure again from the trigger's own edge: the shift that fitted the old
+ *  width is wrong for the new one in both directions (codex on #3187). */
+async function refitDownloadPanel() {
+  if (!downloadMenuOpen.value) return;
+  downloadPanelShift.value = 0;
+  await nextTick();
+  fitDownloadPanel();
+}
+
+// An edit or a parse error while the menu is open takes the export away;
+// close rather than leave a panel of items that can no longer be clicked.
+watch(canExport, (ok) => {
+  if (!ok) downloadMenuOpen.value = false;
+});
 
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
@@ -283,6 +425,9 @@ function handleResize() {
   camera.updateProjectionMatrix();
 
   renderer.setSize(width, height);
+  // The viewport is as wide as the toolbar, so this fires for every pane
+  // resize (window, sidebar toggle) while the Download panel is open.
+  void refitDownloadPanel();
 }
 
 // `scene.remove` only drops the reference; the GPU buffers live until each
@@ -411,8 +556,8 @@ function updateCameraState() {
 const OBJECT_URL_REVOKE_DELAY_MS = 60_000;
 
 /** Hand the browser a file to save. */
-function triggerBlobDownload(bytes: Uint8Array<ArrayBuffer>, filename: string) {
-  const url = URL.createObjectURL(new Blob([bytes], { type: USDZ_MIME_TYPE }));
+function triggerBlobDownload(bytes: Uint8Array<ArrayBuffer>, filename: string, mimeType: string) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
@@ -420,20 +565,23 @@ function triggerBlobDownload(bytes: Uint8Array<ArrayBuffer>, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), OBJECT_URL_REVOKE_DELAY_MS);
 }
 
-/** Build the USDZ in the browser from the script the viewport is rendering —
+/** Build the file in the browser from the script the viewport is rendering —
  *  the APPLIED one — with no round trip and no file layer, so it works on a
- *  host with neither. The button is disabled unless `canExport`, and this
+ *  host with neither. The buttons are disabled unless `canExport`, and this
  *  re-checks so a stale click cannot export a model that differs from the one
  *  on screen. The scene is rebuilt solid rather than reusing the on-screen
  *  objects, which may be wireframe. */
-async function downloadUsdz() {
+async function downloadModel(format: DownloadFormat) {
+  // The same close as Escape: picking a format removes the focused item, so
+  // focus goes back to the trigger rather than to the document body.
+  closeDownloadMenu();
   const script = props.selectedResult.data?.script;
   if (!script || !canExport.value) return;
   exporting.value = true;
   exportError.value = null;
   try {
-    const bytes = await shapeScriptToUsdz(script);
-    triggerBlobDownload(bytes, `${slugify(props.selectedResult.title)}${USDZ_EXTENSION}`);
+    const bytes = await format.serialise(script);
+    triggerBlobDownload(bytes, `${slugify(props.selectedResult.title)}${format.extension}`, format.mimeType);
   } catch (error) {
     exportError.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -473,6 +621,7 @@ function toggleGrid() {
 
 function cleanup() {
   disposed = true;
+  document.removeEventListener("mousedown", closeDownloadMenuFromOutside);
   if (cameraChangeTimeout !== null) {
     clearTimeout(cameraChangeTimeout);
   }
@@ -577,36 +726,49 @@ watch(
 }
 
 .header {
-  padding: 1rem;
   background: #2a2a2a;
   border-bottom: 1px solid #444;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
 }
 
-.header h1 {
+/* One line, ellipsised: the title must never dictate the toolbar's width. */
+.title {
   margin: 0;
-  font-size: 1.5rem;
+  padding: 8px 12px 0;
+  min-width: 0;
+  font-size: 1.1rem;
   font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.controls {
+/* Chrome row per docs/ui-controls.md: 8px between groups, 12/8 outer padding,
+   32px-tall controls. Wraps rather than overflows when the pane is narrow. */
+.toolbar {
+  container-type: inline-size;
   display: flex;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
 }
 
 .control-btn {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.5rem 1rem;
+  gap: 4px;
+  height: 32px;
+  padding: 0 10px;
   background: #3a3a3a;
   color: #ffffff;
   border: 1px solid #555;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
   transition: background 0.2s;
 }
 
@@ -625,6 +787,62 @@ watch(
 
 .control-btn .material-icons {
   font-size: 1.2rem;
+}
+
+.download-menu {
+  position: relative;
+}
+
+.download-menu-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  width: max-content;
+  /* Never wider than the toolbar's inner width, so the shift computed in
+     fitDownloadPanel() can always bring it fully into view. */
+  max-width: min(18rem, calc(100cqw - 24px));
+  padding: 4px;
+  background: #2a2a2a;
+  border: 1px solid #555;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+
+.download-menu-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.download-menu-item:hover {
+  background: #4a4a4a;
+}
+
+.download-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.download-menu-format {
+  font-weight: 600;
+  min-width: 3.5em;
+}
+
+.download-menu-hint {
+  color: #aaa;
+  font-size: 0.8rem;
 }
 
 .viewport {
@@ -671,6 +889,31 @@ watch(
   padding: 0.5rem;
   background: #2a2a2a;
   border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* A flex <summary> loses the disclosure marker in Chromium and Safari; draw
+   one so the bar still reads as a toggle. */
+.script-source summary::before {
+  content: "▸";
+  margin-right: 0.5rem;
+}
+
+.script-source[open] summary::before {
+  content: "▾";
+}
+
+.script-source summary > span {
+  flex: 1;
+}
+
+.copy-btn {
+  height: 28px;
+  padding: 0 10px;
+  font-family: inherit;
 }
 
 .script-source[open] summary {

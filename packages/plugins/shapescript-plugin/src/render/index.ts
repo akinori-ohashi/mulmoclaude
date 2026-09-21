@@ -8,7 +8,15 @@
 // `renderShapeScript` MCP tool, MulmoTerminal serves the same tool through its
 // own MCP surface. Neither owns the renderer, which is the point — the two used
 // to be one copy each.
-export { renderShapeScriptSheet, RenderUnavailableError, CHROMIUM_HINT, RENDER_TIMEOUT_MS, LAUNCH_TIMEOUT_MS, RENDER_BUDGET_MS } from "./renderer";
+export {
+  renderShapeScriptSheet,
+  RenderUnavailableError,
+  CHROMIUM_HINT,
+  RENDER_TIMEOUT_MS,
+  LAUNCH_TIMEOUT_MS,
+  NAVIGATION_TIMEOUT_MS,
+  RENDER_BUDGET_MS,
+} from "./renderer";
 export type { RenderShapeScriptOptions } from "./renderer";
 export { buildRenderPage, gridFor } from "./page";
 export type { ViewAngle, RenderPageOptions } from "./page";
@@ -20,7 +28,7 @@ export {
   RENDER_SHAPE_SCRIPT_PROMPT,
   RENDER_SHAPE_SCRIPT_SCHEMA,
   RENDER_TOOL_TIMEOUT_MS,
-  PUBLISH_TOOL_TIMEOUT_MS,
+  MANAGE_TOOL_TIMEOUT_MS,
   renderOptionsFrom,
   savedMessage,
 } from "./tool";

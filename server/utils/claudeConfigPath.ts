@@ -76,3 +76,15 @@ export function claudeCredentialsPath(home?: string, dirOverride?: string): stri
 export function claudeSkillsDir(home?: string, dirOverride?: string): string {
   return join(claudeConfigDir(home, dirOverride), "skills");
 }
+
+/** Absolute path to the user's Claude Code settings file
+ *  (`<claudeConfigDir>/settings.json`). */
+export function claudeSettingsPath(home?: string, dirOverride?: string): string {
+  return join(claudeConfigDir(home, dirOverride), "settings.json");
+}
+
+/** Absolute path to the Claude Code CLI's record of installed plugins
+ *  (`<claudeConfigDir>/plugins/installed_plugins.json`). */
+export function claudePluginLedgerPath(home?: string, dirOverride?: string): string {
+  return join(claudeConfigDir(home, dirOverride), "plugins", "installed_plugins.json");
+}
