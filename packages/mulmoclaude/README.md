@@ -122,6 +122,8 @@ npx @mulmobridge/email@latest        # Email (IMAP + SMTP)
 
 Full bridge list and platform-specific setup: <https://github.com/receptron/mulmoclaude/blob/main/docs/mulmobridge-guide.md>
 
+**Long turns.** A bridge turn gets 5 minutes by default; after that the server replies with what it has so far. Set the limit on the bridge in milliseconds — `BRIDGE_REPLY_TIMEOUT_MS` for every bridge, `<TRANSPORT>_BRIDGE_REPLY_TIMEOUT_MS` for one (e.g. `DISCORD_BRIDGE_REPLY_TIMEOUT_MS=1800000`). It reaches the server in the handshake, so both sides use the same value; needs `@mulmobridge/client@1.4.0` or later.
+
 ### Auth token persistence across server restarts
 
 The server regenerates a fresh bearer token on every startup and writes it to `<workspace>/.session-token` (`$MULMOCLAUDE_WORKSPACE_PATH`, or `~/mulmoclaude` when unset), alongside the port it bound in `.server-port`.
