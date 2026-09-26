@@ -204,11 +204,12 @@ The fix is the same `claude /login` on the host; the next turn picks the new log
 without a restart. If the server itself would not start (it exited asking for this, and
 `yarn dev` did not restart it), start it again after `/login`. If `/login` succeeds and
 the "cannot be renewed" line keeps coming back, the Keychain may hold a second, empty
-`Claude Code-credentials` item that MulmoClaude reads instead of the real login (it looks
-the item up by service name only). `security find-generic-password -s "Claude Code-credentials"`
-runs that same lookup and prints the returned item's account (`acct`); an account that is
-not the user's login name (for example `unknown`) is the stray item. The user removes it
-with `security delete-generic-password -s "Claude Code-credentials" -a <that acct>`.
+`Claude Code-credentials` item. MulmoClaude reads both the item under the user's login
+name and whatever a lookup by service name returns, and uses the better one, so a stray
+item only matters when the real login is stored under another account name.
+`security find-generic-password -s "Claude Code-credentials"` prints the account (`acct`)
+of the item a service-only lookup returns; an account such as `unknown` is the stray item,
+removed with `security delete-generic-password -s "Claude Code-credentials" -a <that acct>`.
 
 You will usually be reading this AFTER the user re-logged in (a failing turn never
 reaches you); answer "why did that happen" with the cause above rather than

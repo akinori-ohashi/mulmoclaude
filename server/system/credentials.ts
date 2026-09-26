@@ -2,12 +2,14 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { chmodSync, existsSync, readdirSync, statSync } from "fs";
 import { createRequire } from "module";
+import { userInfo } from "os";
 import { dirname, join } from "path";
 import { log } from "./logger/index.js";
 import { ONE_SECOND_MS } from "../utils/time.js";
 import { writeFileAtomic } from "../utils/files/atomic.js";
 import { claudeCredentialsPath } from "../utils/claudeConfigPath.js";
 import { createCredentialsRefresher } from "./credentialsRefresh.js";
+import { pickCredentials } from "./credentialsState.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -36,17 +38,31 @@ export function looksLikeClaudeResponse(text: string): boolean {
   return RESPONSE_PATTERN_RE.test(text) && text.length >= MIN_RESPONSE_CHARS;
 }
 
-/**
- * Read the raw credentials string from macOS Keychain.
- */
-async function readFromKeychain(): Promise<string | null> {
+async function findKeychainPassword(lookupArgs: readonly string[]): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"]);
-    const credentials = stdout.trim();
-    return credentials || null;
+    const { stdout } = await execFileAsync("security", ["find-generic-password", ...lookupArgs, "-w"]);
+    return stdout.trim() || null;
   } catch {
     return null;
   }
+}
+
+function currentUserName(): string | null {
+  try {
+    return userInfo().username;
+  } catch {
+    return null;
+  }
+}
+
+/** Read the credentials from the macOS Keychain. Claude Code stores its own
+ *  item under the OS user name; the service-only lookup still covers installs
+ *  that use another account name, and the better of the two wins. */
+async function readFromKeychain(): Promise<string | null> {
+  const account = currentUserName();
+  const lookups = [...(account === null ? [] : [["-s", KEYCHAIN_SERVICE, "-a", account]]), ["-s", KEYCHAIN_SERVICE]];
+  const candidates = await Promise.all(lookups.map(findKeychainPassword));
+  return pickCredentials(candidates, Date.now());
 }
 
 /**
