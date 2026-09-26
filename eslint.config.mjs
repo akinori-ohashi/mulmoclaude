@@ -45,6 +45,9 @@ export default [
       // and eslint does not read `.gitignore` the way prettier does (#2873).
       "config",
       "lib",
+      // Vendored SheetJS CE, kept byte-identical to its CDN tarball so the
+      // provenance check in test/agent/test_vendoredSheetjs.ts can hold (#3316).
+      "server/vendor",
       "src/plugins/spreadsheet/engine",
       "packages/*/dist",
       "packages/bridges/*/dist",

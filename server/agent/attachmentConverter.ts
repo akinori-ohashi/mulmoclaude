@@ -13,7 +13,7 @@
 // Returns null when the type is not convertible — the caller skips it.
 
 import mammoth from "mammoth";
-import * as XLSX from "xlsx";
+import * as XLSX from "../vendor/sheetjs/xlsx.mjs";
 import { execFile } from "child_process";
 import { mkdtemp, readFile, writeFile, rm } from "fs/promises";
 import path from "path";
