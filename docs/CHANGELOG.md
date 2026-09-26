@@ -24,7 +24,7 @@ half (the chat-service dependency range and the relay allowlist) reaches npm use
 #### Credential renewal no longer spends Claude sessions in a loop (#3309)
 
 On macOS with the Docker sandbox, an expired login is renewed by launching the `claude` CLI, and each launch is a real
-Claude session. A Keychain item that no renewal can fix (empty token, `expiresAt` of 0) was renewed anyway, on every
+Claude session. A Keychain item that no renewal can fix (no refresh token, as in an empty item) was renewed anyway, on every
 turn and at every server start; under `yarn dev` the failing start restarted forever. Such credentials are now reported
 with a `claude /login` hint and never renewed, a failing renewal waits before the next try and stops after a few in a row,
 and a server that cannot start without the user's action exits with a code `yarn dev` does not restart.

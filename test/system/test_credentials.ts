@@ -131,26 +131,29 @@ describe("classifyCredentials", () => {
     assert.equal(classifyCredentials(empty, NOW_MS).kind, "unusable");
   });
 
-  it("rejects expiresAt 0 even with tokens present", () => {
-    assert.equal(classifyCredentials(blob({ expiresAt: 0 }), NOW_MS).kind, "unusable");
+  // With a refresh token the CLI can still renew, whatever the stored access token looks like.
+  it("sends a broken expiry to renewal while a refresh token exists", () => {
+    [0, -1, undefined, "not-a-date"].forEach((expiresAt) => {
+      assert.deepEqual(
+        classifyCredentials(blob({ expiresAt }), NOW_MS),
+        { kind: "expired", expiresMs: typeof expiresAt === "number" ? expiresAt : null },
+        String(expiresAt),
+      );
+    });
   });
 
-  it("rejects a negative expiry", () => {
-    assert.equal(classifyCredentials(blob({ expiresAt: -1 }), NOW_MS).kind, "unusable");
+  it("sends an empty or non-string access token to renewal while a refresh token exists", () => {
+    ["", 42, undefined].forEach((accessToken) => {
+      assert.equal(classifyCredentials(blob({ accessToken }), NOW_MS).kind, "expired", String(accessToken));
+    });
   });
 
-  it("rejects a missing or unparseable expiry", () => {
-    assert.equal(classifyCredentials(blob({ expiresAt: undefined }), NOW_MS).kind, "unusable");
-    assert.equal(classifyCredentials(blob({ expiresAt: "not-a-date" }), NOW_MS).kind, "unusable");
-  });
-
-  it("rejects an empty or non-string access token", () => {
-    assert.equal(classifyCredentials(blob({ accessToken: "" }), NOW_MS).kind, "unusable");
-    assert.equal(classifyCredentials(blob({ accessToken: 42 }), NOW_MS).kind, "unusable");
-    assert.equal(classifyCredentials(blob({ accessToken: undefined }), NOW_MS).kind, "unusable");
+  it("rejects an empty access token when there is no refresh token either", () => {
+    assert.equal(classifyCredentials(blob({ accessToken: "", refreshToken: "" }), NOW_MS).kind, "unusable");
   });
 
   it("rejects an expired token with no refresh token", () => {
+    assert.equal(classifyCredentials(blob({ expiresAt: 0, refreshToken: 42 }), NOW_MS).kind, "unusable");
     assert.equal(classifyCredentials(blob({ expiresAt: NOW_MS - ONE_HOUR_MS, refreshToken: "" }), NOW_MS).kind, "unusable");
     assert.equal(classifyCredentials(blob({ expiresAt: NOW_MS - ONE_HOUR_MS, refreshToken: null }), NOW_MS).kind, "unusable");
   });
@@ -166,8 +169,8 @@ describe("classifyCredentials", () => {
   });
 
   it("names the reason so the log says what is wrong", () => {
-    const verdict = classifyCredentials(blob({ expiresAt: 0 }), NOW_MS);
-    assert.ok(verdict.kind === "unusable" && verdict.reason.includes("expiresAt"));
+    const verdict = classifyCredentials(blob({ expiresAt: 0, refreshToken: "" }), NOW_MS);
+    assert.ok(verdict.kind === "unusable" && verdict.reason.includes("refresh token"));
   });
 });
 

@@ -8,7 +8,7 @@ const EXPIRY_MARGIN_MS = ONE_MINUTE_MS;
 export const RENEWAL_RETRY_COOLDOWN_MS = 5 * ONE_MINUTE_MS;
 export const MAX_CONSECUTIVE_RENEWAL_FAILURES = 3;
 
-export type CredentialsVerdict = { kind: "valid"; expiresMs: number } | { kind: "expired"; expiresMs: number } | { kind: "unusable"; reason: string };
+export type CredentialsVerdict = { kind: "valid"; expiresMs: number } | { kind: "expired"; expiresMs: number | null } | { kind: "unusable"; reason: string };
 
 export interface RenewalHistory {
   consecutiveFailures: number;
@@ -51,17 +51,15 @@ function isNonEmptyString(value: unknown): boolean {
   return typeof value === "string" && value.length > 0;
 }
 
-/** Decide what the Keychain blob allows. Only `expired` is worth a renewal:
- *  the post-renewal check re-classifies, so a blob that is `unusable` now
- *  would still be unusable after spending a session on it. */
+/** Decide what the Keychain blob allows. Renewal is the CLI spending its
+ *  refresh token, so without one no renewal can succeed and none is worth
+ *  a billed session. */
 export function classifyCredentials(raw: string, nowMs: number): CredentialsVerdict {
   const oauth = readOauth(raw);
   if (oauth === null) return { kind: "unusable", reason: "no claudeAiOauth block" };
-  if (!isNonEmptyString(oauth.accessToken)) return { kind: "unusable", reason: "access token is empty" };
   const expiresMs = readExpiresAt(raw);
-  if (expiresMs === null || expiresMs <= 0) return { kind: "unusable", reason: `expiresAt is not a real time (${String(oauth.expiresAt)})` };
-  if (nowMs < expiresMs - EXPIRY_MARGIN_MS) return { kind: "valid", expiresMs };
-  if (!isNonEmptyString(oauth.refreshToken)) return { kind: "unusable", reason: "token expired and the refresh token is empty" };
+  if (isNonEmptyString(oauth.accessToken) && expiresMs !== null && nowMs < expiresMs - EXPIRY_MARGIN_MS) return { kind: "valid", expiresMs };
+  if (!isNonEmptyString(oauth.refreshToken)) return { kind: "unusable", reason: "the token needs renewing and the refresh token is empty" };
   return { kind: "expired", expiresMs };
 }
 

@@ -192,8 +192,8 @@ On macOS with the sandbox on, MulmoClaude copies the login from the Keychain int
 once to renew it. Each launch is a real Claude session, so it deliberately stops early.
 Look for one of these server log lines:
 
-- `Keychain credentials cannot be renewed (<reason>)` — the Keychain item is empty or
-  broken (empty token, `expiresAt` of 0, no refresh token), so no renewal is attempted.
+- `Keychain credentials cannot be renewed (<reason>)` — the Keychain item has no
+  refresh token (for example an empty item), so no renewal is attempted.
 - `Token renewal failed N times in a row; not trying again` — renewals kept failing, so
   they stopped for this server process.
 - `Access token expired; last renewal failed, next attempt in Ns` — waiting before the

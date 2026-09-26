@@ -7,6 +7,7 @@ import { log } from "./logger/index.js";
 import { ONE_SECOND_MS } from "../utils/time.js";
 import { writeFileAtomic } from "../utils/files/atomic.js";
 import { claudeCredentialsPath } from "../utils/claudeConfigPath.js";
+import { makeSharedRun } from "../utils/sharedRun.js";
 import { classifyCredentials, NO_RENEWAL_FAILURES, recordRenewal, renewalDecision, type RenewalHistory } from "./credentialsState.js";
 
 const execFileAsync = promisify(execFile);
@@ -234,9 +235,13 @@ function canAttemptRenewal(): boolean {
   return false;
 }
 
-async function renewExpired(expiresMs: number): Promise<boolean> {
+function describeExpiry(expiresMs: number | null): string {
+  return expiresMs === null ? "(no usable expiry)" : `at ${new Date(expiresMs).toISOString()}`;
+}
+
+async function renewExpired(expiresMs: number | null): Promise<boolean> {
   if (!canAttemptRenewal()) return false;
-  log.warn("credentials", `Access token expired at ${new Date(expiresMs).toISOString()}, launching claude CLI to renew...`);
+  log.warn("credentials", `Access token expired ${describeExpiry(expiresMs)}, launching claude CLI to renew...`);
   const credentials = await renewAndReread();
   renewalHistory = recordRenewal(renewalHistory, credentials !== null, Date.now());
   if (credentials === null) {
@@ -263,6 +268,25 @@ async function exportCredentials(credentials: string): Promise<boolean> {
   return true;
 }
 
+async function refreshOnce(): Promise<boolean> {
+  try {
+    const credentials = await readFromKeychain();
+    if (!credentials) {
+      log.error("credentials", "No credentials found in macOS Keychain");
+      return false;
+    }
+    return await exportCredentials(credentials);
+  } catch (err) {
+    log.error("credentials", "Failed to refresh credentials from Keychain", {
+      error: String(err),
+    });
+    return false;
+  }
+}
+
+// Concurrent turns join one refresh, so they cannot each launch a billed renewal before any failure is recorded.
+const sharedRefresh = makeSharedRun(refreshOnce);
+
 /**
  * Extract the current OAuth credentials from the macOS Keychain and write them
  * to ~/.claude/.credentials.json so that the Docker-based sandbox can read them.
@@ -277,18 +301,5 @@ async function exportCredentials(credentials: string): Promise<boolean> {
  */
 export async function refreshCredentials(): Promise<boolean> {
   if (process.platform !== "darwin") return false;
-
-  try {
-    const credentials = await readFromKeychain();
-    if (!credentials) {
-      log.error("credentials", "No credentials found in macOS Keychain");
-      return false;
-    }
-    return await exportCredentials(credentials);
-  } catch (err) {
-    log.error("credentials", "Failed to refresh credentials from Keychain", {
-      error: String(err),
-    });
-    return false;
-  }
+  return sharedRefresh();
 }
