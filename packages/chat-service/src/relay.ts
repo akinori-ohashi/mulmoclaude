@@ -59,7 +59,7 @@ export function createRelay(deps: RelayDeps): RelayFn {
     // JSON pair is an unambiguous composite key for the two ids.
     const key = JSON.stringify([params.transportId, params.externalChatId]);
     const budget: ReplyBudget = {
-      receivedAtMs: Date.now(),
+      receivedAtMs: performance.now(),
       replyTimeoutMs: resolveBridgeReplyTimeout(params.bridgeOptions, deps.logger, params.transportId),
     };
     return serialize.run(key, () => processRelayMessage(deps, params, budget));
@@ -74,18 +74,13 @@ interface ReplyBudget {
 
 const QUEUE_EXPIRED_REPLY = "The request timed out while waiting for an earlier message in this chat to finish. Please send it again.";
 
-const remainingOf = (budget: ReplyBudget): number => remainingReplyMs(budget.receivedAtMs, budget.replyTimeoutMs, Date.now());
+// Monotonic, so a wall-clock step between receipt and processing cannot stretch or shrink the limit.
+const remainingOf = (budget: ReplyBudget): number => remainingReplyMs(budget.receivedAtMs, budget.replyTimeoutMs, performance.now());
 
 async function processRelayMessage(deps: RelayDeps, params: RelayParams, budget: ReplyBudget): Promise<RelayResult> {
   const { store, handleCommand, startChat, onSessionEvent, getRole, defaultRoleId, logger } = deps;
   const { transportId, externalChatId, attachments, bridgeOptions } = params;
   let { text } = params;
-
-  // Its sender has stopped waiting: running it now would produce a reply nobody receives.
-  if (remainingOf(budget) === 0) {
-    logger.info("chat-service", "message expired while queued", { transportId, externalChatId });
-    return { kind: "ok", reply: QUEUE_EXPIRED_REPLY };
-  }
 
   // Log attachment summary (count + mimeTypes) — NEVER log raw
   // base64 data (performance, log size, information leak risk).
@@ -123,6 +118,13 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams, budget:
     }
     if (commandResult.nextState) chatState = commandResult.nextState;
     text = commandResult.forwardAs;
+  }
+
+  // Checked here, not on entry: a command above still runs and answers at once, but an agent turn
+  // started after the limit would produce a reply nobody is waiting for.
+  if (remainingOf(budget) === 0) {
+    logger.info("chat-service", "message expired before its turn started", { transportId, externalChatId });
+    return { kind: "ok", reply: QUEUE_EXPIRED_REPLY };
   }
 
   const result = await startChat({

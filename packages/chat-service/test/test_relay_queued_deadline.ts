@@ -13,7 +13,7 @@ import type { Logger, OnSessionEventFn, SessionEventListener } from "../src/type
 
 const silentLogger: Logger = { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} };
 
-function makeStore(): ChatStateStore {
+function makeStore(stateReadDelayMs: number): ChatStateStore {
   const state: TransportChatState = {
     externalChatId: "chat-1",
     sessionId: "sess-1",
@@ -22,7 +22,10 @@ function makeStore(): ChatStateStore {
     updatedAt: "2026-01-01T00:00:00.000Z",
   };
   return {
-    getChatState: async () => state,
+    getChatState: async () => {
+      await new Promise((resolve) => setTimeout(resolve, stateReadDelayMs));
+      return state;
+    },
     setChatState: async () => {},
     resetChatState: async () => state,
     connectSession: async () => null,
@@ -31,14 +34,17 @@ function makeStore(): ChatStateStore {
 }
 
 interface Harness {
-  send: (replyTimeoutMs: number) => Promise<RelayResult>;
+  send: (replyTimeoutMs: number, text?: string) => Promise<RelayResult>;
   startChatCalls: () => number;
   /** Ends every agent turn still subscribed, so no limit timer outlives the test. */
   finishAll: () => void;
 }
 
-/** Each agent turn streams "turn-<n>" and then finishes after `finishAfterMs[n]`, or never. */
-function makeHarness(finishAfterMs: (number | undefined)[]): Harness {
+const COMMAND_REPLY = "command handled";
+
+/** Each agent turn streams "turn-<n>" and then finishes after `finishAfterMs[n]`, or never.
+ *  A message whose text is "/cmd" is a command that answers without reaching the agent. */
+function makeHarness(finishAfterMs: (number | undefined)[], stateReadDelayMs = 0): Harness {
   const listeners: SessionEventListener[] = [];
   const calls = { startChat: 0 };
   const onSessionEvent: OnSessionEventFn = (_sessionId, listener) => {
@@ -50,8 +56,8 @@ function makeHarness(finishAfterMs: (number | undefined)[]): Harness {
     return () => {};
   };
   const deps: RelayDeps = {
-    store: makeStore(),
-    handleCommand: async () => null,
+    store: makeStore(stateReadDelayMs),
+    handleCommand: async (text) => (text === "/cmd" ? { reply: COMMAND_REPLY } : null),
     startChat: async () => {
       calls.startChat += 1;
       return { kind: "started", chatSessionId: "sess-1" };
@@ -63,8 +69,8 @@ function makeHarness(finishAfterMs: (number | undefined)[]): Harness {
   };
   const relayMessage = createRelay(deps);
   return {
-    send: (replyTimeoutMs) =>
-      relayMessage({ transportId: "test", externalChatId: "chat-1", text: "hi", bridgeOptions: { replyTimeoutMs: String(replyTimeoutMs) } }),
+    send: (replyTimeoutMs, text = "hi") =>
+      relayMessage({ transportId: "test", externalChatId: "chat-1", text, bridgeOptions: { replyTimeoutMs: String(replyTimeoutMs) } }),
     startChatCalls: () => calls.startChat,
     finishAll: () => listeners.forEach((listener) => listener({ type: EVENT_TYPES.sessionFinished })),
   };
@@ -108,6 +114,34 @@ describe("relay — a queued turn's limit counts from receipt", () => {
       assert.equal(secondResult.kind, "ok");
       assert.match(secondResult.kind === "ok" ? secondResult.reply : "", /timed out while waiting for an earlier message/);
       assert.equal(harness.startChatCalls(), 1, "the expired turn must not reach the agent");
+    } finally {
+      harness.finishAll();
+    }
+  });
+
+  it("a limit used up before the agent starts — here by a slow state read — does not start it", async () => {
+    const LIMIT_MS = 50;
+    const STATE_READ_MS = 120;
+    const harness = makeHarness([undefined], STATE_READ_MS);
+    try {
+      const result = await harness.send(LIMIT_MS);
+      assert.match(result.kind === "ok" ? result.reply : "", /timed out while waiting/);
+      assert.equal(harness.startChatCalls(), 0);
+    } finally {
+      harness.finishAll();
+    }
+  });
+
+  it("a command whose limit ran out while queued still runs — it answers without the agent", async () => {
+    const FIRST_LIMIT_MS = 200;
+    const SECOND_LIMIT_MS = 100;
+    const harness = makeHarness([undefined]);
+    try {
+      const first = harness.send(FIRST_LIMIT_MS);
+      const second = harness.send(SECOND_LIMIT_MS, "/cmd");
+      await first;
+      assert.deepEqual(await second, { kind: "ok", reply: COMMAND_REPLY });
+      assert.equal(harness.startChatCalls(), 1);
     } finally {
       harness.finishAll();
     }
