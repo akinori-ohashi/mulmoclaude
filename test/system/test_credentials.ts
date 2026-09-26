@@ -2,12 +2,22 @@
 // `looksLikeClaudeResponse` decides whether PTY output looks like a real Claude
 // reply (conversational opener AND >= 20 chars) versus an error chunk that
 // should time out. `readExpiresAt` narrows the Keychain blob to the token's
-// expiry in epoch ms.
+// expiry in epoch ms. `classifyCredentials` / `renewalDecision` decide whether a
+// renewal — a billed `claude` session — is worth attempting at all.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { looksLikeClaudeResponse, readExpiresAt } from "../../server/system/credentials.js";
+import { looksLikeClaudeResponse } from "../../server/system/credentials.js";
+import {
+  classifyCredentials,
+  MAX_CONSECUTIVE_RENEWAL_FAILURES,
+  NO_RENEWAL_FAILURES,
+  readExpiresAt,
+  recordRenewal,
+  renewalDecision,
+  RENEWAL_RETRY_COOLDOWN_MS,
+} from "../../server/system/credentialsState.js";
 
 describe("looksLikeClaudeResponse", () => {
   it("returns true for a conversational opener with enough text", () => {
@@ -92,5 +102,104 @@ describe("readExpiresAt", () => {
   it("returns null for a non-object top-level value", () => {
     assert.equal(readExpiresAt("42"), null);
     assert.equal(readExpiresAt("null"), null);
+  });
+});
+
+const NOW_MS = Date.parse("2026-09-26T00:00:00Z");
+const ONE_HOUR_MS = 3_600_000;
+
+function blob(oauth: Record<string, unknown>): string {
+  return JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-oat", refreshToken: "sk-ant-ort", expiresAt: NOW_MS + ONE_HOUR_MS, ...oauth } });
+}
+
+describe("classifyCredentials", () => {
+  it("accepts a token that expires in the future", () => {
+    assert.deepEqual(classifyCredentials(blob({}), NOW_MS), { kind: "valid", expiresMs: NOW_MS + ONE_HOUR_MS });
+  });
+
+  it("marks a past token with a refresh token as expired (renewable)", () => {
+    assert.deepEqual(classifyCredentials(blob({ expiresAt: NOW_MS - ONE_HOUR_MS }), NOW_MS), { kind: "expired", expiresMs: NOW_MS - ONE_HOUR_MS });
+  });
+
+  it("treats a token inside the safety margin as expired", () => {
+    assert.equal(classifyCredentials(blob({ expiresAt: NOW_MS + 1_000 }), NOW_MS).kind, "expired");
+  });
+
+  // The #3309 blob: a second Keychain item with nothing in it.
+  it("rejects the empty shell (empty tokens, expiresAt 0) without renewing", () => {
+    const empty = JSON.stringify({ claudeAiOauth: { accessToken: "", refreshToken: "", expiresAt: 0, scopes: [] } });
+    assert.equal(classifyCredentials(empty, NOW_MS).kind, "unusable");
+  });
+
+  // With a refresh token the CLI can still renew, whatever the stored access token looks like.
+  it("sends a broken expiry to renewal while a refresh token exists", () => {
+    [0, -1, undefined, "not-a-date"].forEach((expiresAt) => {
+      assert.deepEqual(
+        classifyCredentials(blob({ expiresAt }), NOW_MS),
+        { kind: "expired", expiresMs: typeof expiresAt === "number" ? expiresAt : null },
+        String(expiresAt),
+      );
+    });
+  });
+
+  it("sends an empty or non-string access token to renewal while a refresh token exists", () => {
+    ["", 42, undefined].forEach((accessToken) => {
+      assert.equal(classifyCredentials(blob({ accessToken }), NOW_MS).kind, "expired", String(accessToken));
+    });
+  });
+
+  it("rejects an empty access token when there is no refresh token either", () => {
+    assert.equal(classifyCredentials(blob({ accessToken: "", refreshToken: "" }), NOW_MS).kind, "unusable");
+  });
+
+  it("rejects an expired token with no refresh token", () => {
+    assert.equal(classifyCredentials(blob({ expiresAt: 0, refreshToken: 42 }), NOW_MS).kind, "unusable");
+    assert.equal(classifyCredentials(blob({ expiresAt: NOW_MS - ONE_HOUR_MS, refreshToken: "" }), NOW_MS).kind, "unusable");
+    assert.equal(classifyCredentials(blob({ expiresAt: NOW_MS - ONE_HOUR_MS, refreshToken: null }), NOW_MS).kind, "unusable");
+  });
+
+  it("still accepts a valid token that carries no refresh token", () => {
+    assert.equal(classifyCredentials(blob({ refreshToken: undefined }), NOW_MS).kind, "valid");
+  });
+
+  it("rejects blobs with no claudeAiOauth block", () => {
+    ["{not json", "null", "42", "[]", JSON.stringify({ other: 1 }), JSON.stringify({ claudeAiOauth: "x" })].forEach((raw) => {
+      assert.equal(classifyCredentials(raw, NOW_MS).kind, "unusable", raw);
+    });
+  });
+
+  it("names the reason so the log says what is wrong", () => {
+    const verdict = classifyCredentials(blob({ expiresAt: 0, refreshToken: "" }), NOW_MS);
+    assert.ok(verdict.kind === "unusable" && verdict.reason.includes("refresh token"));
+  });
+});
+
+describe("renewalDecision / recordRenewal", () => {
+  it("attempts when nothing has failed yet", () => {
+    assert.deepEqual(renewalDecision(NO_RENEWAL_FAILURES, NOW_MS), { kind: "attempt" });
+  });
+
+  it("waits out the cooldown after a failure, then attempts again", () => {
+    const failed = recordRenewal(NO_RENEWAL_FAILURES, false, NOW_MS);
+    assert.deepEqual(renewalDecision(failed, NOW_MS + 1), { kind: "cooldown", retryInMs: RENEWAL_RETRY_COOLDOWN_MS - 1 });
+    assert.deepEqual(renewalDecision(failed, NOW_MS + RENEWAL_RETRY_COOLDOWN_MS), { kind: "attempt" });
+  });
+
+  it("gives up for good after the maximum consecutive failures, however long it waits", () => {
+    const history = Array.from({ length: MAX_CONSECUTIVE_RENEWAL_FAILURES }).reduce<typeof NO_RENEWAL_FAILURES>(
+      (acc) => recordRenewal(acc, false, NOW_MS),
+      NO_RENEWAL_FAILURES,
+    );
+    assert.deepEqual(renewalDecision(history, NOW_MS + 100 * ONE_HOUR_MS), { kind: "exhausted" });
+  });
+
+  it("allows one fewer failure than the cap to retry", () => {
+    const history = { consecutiveFailures: MAX_CONSECUTIVE_RENEWAL_FAILURES - 1, lastFailureMs: NOW_MS };
+    assert.deepEqual(renewalDecision(history, NOW_MS + RENEWAL_RETRY_COOLDOWN_MS), { kind: "attempt" });
+  });
+
+  it("resets on success", () => {
+    const failed = recordRenewal(recordRenewal(NO_RENEWAL_FAILURES, false, NOW_MS), false, NOW_MS);
+    assert.deepEqual(recordRenewal(failed, true, NOW_MS), NO_RENEWAL_FAILURES);
   });
 });

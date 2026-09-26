@@ -187,6 +187,29 @@ invalid`), what to check depends on the sandbox:
   `~/.claude`. Do not chase the environment variable here — the host login is the one
   that counts.
 
+On macOS with the sandbox on, MulmoClaude copies the login from the Keychain into
+`~/.claude/.credentials.json` and, when the token has expired and a refresh token exists,
+launches the `claude` CLI to renew it. Each launch is a real Claude session, so it waits a
+few minutes after a failed renewal and stops after a few failures in a row.
+Look for one of these server log lines:
+
+- `Keychain credentials cannot be renewed (<reason>)` — the Keychain item has no
+  refresh token (for example an empty item), so no renewal is attempted.
+- `Token renewal failed N times in a row; not trying again` — renewals kept failing, so
+  they stopped for this server process.
+- `Access token expired; last renewal failed, next attempt in Ns` — waiting before the
+  next try.
+
+The fix is the same `claude /login` on the host; the next turn picks the new login up
+without a restart. If the server itself would not start (it exited asking for this, and
+`yarn dev` did not restart it), start it again after `/login`. If `/login` succeeds and
+the "cannot be renewed" line keeps coming back, the Keychain may hold a second, empty
+`Claude Code-credentials` item that MulmoClaude reads instead of the real login (it looks
+the item up by service name only). `security find-generic-password -s "Claude Code-credentials"`
+runs that same lookup and prints the returned item's account (`acct`); an account that is
+not the user's login name (for example `unknown`) is the stray item. The user removes it
+with `security delete-generic-password -s "Claude Code-credentials" -a <that acct>`.
+
 You will usually be reading this AFTER the user re-logged in (a failing turn never
 reaches you); answer "why did that happen" with the cause above rather than
 investigating MulmoClaude's settings.

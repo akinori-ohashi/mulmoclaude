@@ -155,6 +155,7 @@ import { resolveHtmlFileRequestPath } from "@mulmoclaude/core/files";
 import { HTML_FILE_MOUNT } from "@mulmoclaude/html-plugin";
 import { ONE_SECOND_MS, ONE_MINUTE_MS, ONE_HOUR_MS, STARTUP_FAILURE_FORCE_EXIT_MS, FATAL_LOG_FLUSH_MS } from "./utils/time.js";
 import { isPortFree, findAvailablePort, MAX_PORT_PROBES } from "./utils/port.mjs";
+import { EXIT_CODE_NEEDS_USER_ACTION } from "./utils/exit-codes.mjs";
 import { findLiveInstancePort, instanceGuardMessage, shouldStopForRunningInstance } from "./utils/instance-guard.mjs";
 import { SCHEDULE_TYPES, MISSED_RUN_POLICIES } from "@receptron/task-scheduler";
 
@@ -936,10 +937,10 @@ async function ensureCredentialsAvailable(): Promise<void> {
     const refreshSucceeded = await refreshCredentials();
     if (refreshSucceeded) return;
     log.error("sandbox", "Failed to export credentials from macOS Keychain. Run `npm run sandbox:login` manually.");
-    process.exit(1);
+    process.exit(EXIT_CODE_NEEDS_USER_ACTION);
   }
   log.error("sandbox", "Missing credentials file at ~/.claude/.credentials.json. Run `claude auth login` to authenticate Claude Code.");
-  process.exit(1);
+  process.exit(EXIT_CODE_NEEDS_USER_ACTION);
 }
 
 async function setupSandbox(): Promise<boolean> {
