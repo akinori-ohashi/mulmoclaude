@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+#### Credential renewal no longer spends Claude sessions in a loop (#3309)
+
+On macOS with the Docker sandbox, an expired login is renewed by launching the `claude` CLI, and each launch is a real
+Claude session. A Keychain item that no renewal can fix (no refresh token, as in an empty item) was renewed anyway, on every
+turn and at every server start; under `yarn dev` the failing start restarted forever. Such credentials are now reported
+with a `claude /login` hint and never renewed, a failing renewal waits before the next try and stops after a few in a row,
+and a server that cannot start without the user's action exits with a code `yarn dev` does not restart.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.4.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.6.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ## [1.25.0] - 2026-09-27
 
 **A bridge turn can run longer than five minutes: one setting moves the server's reply limit and the bridge's wait together.**
@@ -27,16 +37,6 @@ the bridge together with the server — an older client still gives up after 6 m
 Ships with `@mulmobridge/protocol@1.1.0`, `@mulmobridge/client@1.4.0` and `@mulmobridge/chat-service@1.3.0` (PR #3315).
 
 Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.4.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.6.0`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
-
-#### Credential renewal no longer spends Claude sessions in a loop (#3309)
-
-On macOS with the Docker sandbox, an expired login is renewed by launching the `claude` CLI, and each launch is a real
-Claude session. A Keychain item that no renewal can fix (no refresh token, as in an empty item) was renewed anyway, on every
-turn and at every server start; under `yarn dev` the failing start restarted forever. Such credentials are now reported
-with a `claude /login` hint and never renewed, a failing renewal waits before the next try and stops after a few in a row,
-and a server that cannot start without the user's action exits with a code `yarn dev` does not restart.
-
-Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.4.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.6.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [1.24.0] - 2026-09-26
 
