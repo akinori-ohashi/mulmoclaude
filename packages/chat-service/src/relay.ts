@@ -11,6 +11,7 @@ import { EVENT_TYPES, resolveReplyTimeoutMs } from "@mulmobridge/protocol";
 import type { ChatStateStore } from "./chat-state.js";
 import type { CommandHandler } from "./commands.js";
 import { createKeyedSerializer } from "./keyed-serializer.js";
+import { remainingReplyMs } from "./reply-deadline.js";
 import type { Attachment, Logger, OnSessionEventFn, Role, StartChatFn } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────
@@ -57,14 +58,34 @@ export function createRelay(deps: RelayDeps): RelayFn {
     // sessions, and split the conversation across them (#1878). The
     // JSON pair is an unambiguous composite key for the two ids.
     const key = JSON.stringify([params.transportId, params.externalChatId]);
-    return serialize.run(key, () => processRelayMessage(deps, params));
+    const budget: ReplyBudget = {
+      receivedAtMs: Date.now(),
+      replyTimeoutMs: resolveBridgeReplyTimeout(params.bridgeOptions, deps.logger, params.transportId),
+    };
+    return serialize.run(key, () => processRelayMessage(deps, params, budget));
   };
 }
 
-async function processRelayMessage(deps: RelayDeps, params: RelayParams): Promise<RelayResult> {
+/** When the message arrived and how long its sender will wait for the reply. */
+interface ReplyBudget {
+  receivedAtMs: number;
+  replyTimeoutMs: number;
+}
+
+const QUEUE_EXPIRED_REPLY = "The request timed out while waiting for an earlier message in this chat to finish. Please send it again.";
+
+const remainingOf = (budget: ReplyBudget): number => remainingReplyMs(budget.receivedAtMs, budget.replyTimeoutMs, Date.now());
+
+async function processRelayMessage(deps: RelayDeps, params: RelayParams, budget: ReplyBudget): Promise<RelayResult> {
   const { store, handleCommand, startChat, onSessionEvent, getRole, defaultRoleId, logger } = deps;
   const { transportId, externalChatId, attachments, bridgeOptions } = params;
   let { text } = params;
+
+  // Its sender has stopped waiting: running it now would produce a reply nobody receives.
+  if (remainingOf(budget) === 0) {
+    logger.info("chat-service", "message expired while queued", { transportId, externalChatId });
+    return { kind: "ok", reply: QUEUE_EXPIRED_REPLY };
+  }
 
   // Log attachment summary (count + mimeTypes) — NEVER log raw
   // base64 data (performance, log size, information leak risk).
@@ -140,8 +161,7 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams): Promis
   }
 
   try {
-    const replyTimeoutMs = resolveBridgeReplyTimeout(bridgeOptions, logger, transportId);
-    const reply = await collectAgentReply(onSessionEvent, chatState.sessionId, replyTimeoutMs, params.onChunk);
+    const reply = await collectAgentReply(onSessionEvent, chatState.sessionId, remainingOf(budget), params.onChunk);
     await store.setChatState(transportId, {
       ...chatState,
       updatedAt: new Date().toISOString(),
