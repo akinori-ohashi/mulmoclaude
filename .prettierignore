@@ -15,3 +15,6 @@ packages/*/*/dist/
 
 # The i18n JSON cache `yarn dumpi18n` writes before every lint run.
 .i18n-cache/
+
+# Vendored SheetJS CE — must stay byte-identical to the CDN tarball (#3316).
+server/vendor/

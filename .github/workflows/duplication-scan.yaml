@@ -102,6 +102,9 @@ jobs:
       # duplicate by nature, and the 528 extra findings they bring would
       # drown the ~186 that are actually worth reading.
       #
+      # `**/vendor/**` is excluded: third-party code kept byte-identical to
+      # its upstream (server/vendor/sheetjs, #3316) is never refactored here.
+      #
       # `**/_generated/**` is excluded: codegen output (the plugin barrels
       # from scripts/codegen-plugin-barrels.ts) duplicates by nature and
       # is regenerated, never hand-refactored.
@@ -116,7 +119,7 @@ jobs:
           set -euo pipefail
           jscpd . \
             --format typescript \
-            --ignore "**/node_modules/**,**/dist/**,**/*.d.ts,**/test/**,**/e2e/**,**/e2e-live/**,**/spreadsheet/engine/**,**/_generated/**" \
+            --ignore "**/node_modules/**,**/dist/**,**/*.d.ts,**/test/**,**/e2e/**,**/e2e-live/**,**/spreadsheet/engine/**,**/_generated/**,**/vendor/**" \
             --reporters console,sarif \
             --output report
 
