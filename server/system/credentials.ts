@@ -7,8 +7,7 @@ import { log } from "./logger/index.js";
 import { ONE_SECOND_MS } from "../utils/time.js";
 import { writeFileAtomic } from "../utils/files/atomic.js";
 import { claudeCredentialsPath } from "../utils/claudeConfigPath.js";
-import { makeSharedRun } from "../utils/sharedRun.js";
-import { classifyCredentials, NO_RENEWAL_FAILURES, recordRenewal, renewalDecision, type RenewalHistory } from "./credentialsState.js";
+import { createCredentialsRefresher } from "./credentialsRefresh.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -193,12 +192,6 @@ async function renewTokenViaPty(): Promise<boolean> {
   return awaitTokenRenewal(pty);
 }
 
-const RELOGIN_HINT = "Run `claude /login` on the host; MulmoClaude picks the new login up on the next turn.";
-
-// In-process only: a restart starts over, which the dedicated startup exit code
-// (see ensureCredentialsAvailable) keeps `yarn dev` from doing in a loop.
-let renewalHistory: RenewalHistory = NO_RENEWAL_FAILURES;
-
 async function writeCredentialsFile(credentials: string): Promise<void> {
   // Atomic so a readers mid-refresh can't see a truncated creds
   // file; mode preserves the 0o600 we always set on this file.
@@ -206,86 +199,12 @@ async function writeCredentialsFile(credentials: string): Promise<void> {
   log.info("credentials", "Fresh credentials written to ~/.claude/.credentials.json");
 }
 
-/** Renew through the CLI and re-read the Keychain; the fresh blob, or null
- *  when the renewal did not produce a valid token. */
-async function renewAndReread(): Promise<string | null> {
-  if (!(await renewTokenViaPty())) {
-    log.error("credentials", "Token renewal via claude CLI failed");
-    return null;
-  }
-  const credentials = await readFromKeychain();
-  // The PTY check is a proxy for "Claude responded", not proof that the Keychain entry was refreshed.
-  const verdict = credentials === null ? null : classifyCredentials(credentials, Date.now());
-  if (verdict?.kind !== "valid") {
-    log.error("credentials", `Keychain still has no valid token after renewal (${verdict?.kind ?? "missing"})`);
-    return null;
-  }
-  log.info("credentials", "Token renewed successfully via claude CLI");
-  return credentials;
-}
-
-function canAttemptRenewal(): boolean {
-  const decision = renewalDecision(renewalHistory, Date.now());
-  if (decision.kind === "attempt") return true;
-  if (decision.kind === "cooldown") {
-    log.warn("credentials", `Access token expired; last renewal failed, next attempt in ${Math.ceil(decision.retryInMs / ONE_SECOND_MS)}s`);
-  } else {
-    log.debug("credentials", "Access token expired; renewal given up for this process");
-  }
-  return false;
-}
-
-function describeExpiry(expiresMs: number | null): string {
-  return expiresMs === null ? "(no usable expiry)" : `at ${new Date(expiresMs).toISOString()}`;
-}
-
-async function renewExpired(expiresMs: number | null): Promise<boolean> {
-  if (!canAttemptRenewal()) return false;
-  log.warn("credentials", `Access token expired ${describeExpiry(expiresMs)}, launching claude CLI to renew...`);
-  const credentials = await renewAndReread();
-  renewalHistory = recordRenewal(renewalHistory, credentials !== null, Date.now());
-  if (credentials === null) {
-    if (renewalDecision(renewalHistory, Date.now()).kind === "exhausted") {
-      log.error("credentials", `Token renewal failed ${renewalHistory.consecutiveFailures} times in a row; not trying again. ${RELOGIN_HINT}`);
-    }
-    return false;
-  }
-  await writeCredentialsFile(credentials);
-  return true;
-}
-
-async function exportCredentials(credentials: string): Promise<boolean> {
-  const verdict = classifyCredentials(credentials, Date.now());
-  if (verdict.kind === "unusable") {
-    log.error("credentials", `Keychain credentials cannot be renewed (${verdict.reason}). ${RELOGIN_HINT}`);
-    return false;
-  }
-  if (verdict.kind === "expired") return renewExpired(verdict.expiresMs);
-  // A valid token means the user logged in again, so earlier failures no longer apply.
-  renewalHistory = NO_RENEWAL_FAILURES;
-  log.info("credentials", `Access token is valid, expires at ${new Date(verdict.expiresMs).toISOString()}`);
-  await writeCredentialsFile(credentials);
-  return true;
-}
-
-async function refreshOnce(): Promise<boolean> {
-  try {
-    const credentials = await readFromKeychain();
-    if (!credentials) {
-      log.error("credentials", "No credentials found in macOS Keychain");
-      return false;
-    }
-    return await exportCredentials(credentials);
-  } catch (err) {
-    log.error("credentials", "Failed to refresh credentials from Keychain", {
-      error: String(err),
-    });
-    return false;
-  }
-}
-
-// Concurrent turns join one refresh, so they cannot each launch a billed renewal before any failure is recorded.
-const sharedRefresh = makeSharedRun(refreshOnce);
+const sharedRefresh = createCredentialsRefresher({
+  readKeychain: readFromKeychain,
+  renewViaCli: renewTokenViaPty,
+  writeCredentials: writeCredentialsFile,
+  nowMs: () => Date.now(),
+});
 
 /**
  * Extract the current OAuth credentials from the macOS Keychain and write them
