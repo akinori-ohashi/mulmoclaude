@@ -33,9 +33,11 @@ passes `Number.isFinite`) → `renewTokenViaPty`.
     each failure, give up after a small number of consecutive failures; success resets. A valid
     token seen in the Keychain (the user re-logged in) also resets.
   - `readExpiresAt` moves here (pure).
-- `credentials.ts` keeps the I/O and holds the in-process history. Concurrent callers join one
-  refresh (`makeSharedRun`, `server/utils/sharedRun.ts`) so they cannot each launch a renewal
-  before a failure is recorded.
+- `server/system/credentialsRefresh.ts`: `createCredentialsRefresher(io)` runs read → classify →
+  renew → write with the I/O injected, and holds the in-process renewal history. A renewal that
+  throws counts as a failure. Concurrent callers join one refresh (`makeSharedRun`,
+  `server/utils/sharedRun.ts`) so they cannot each launch a renewal before a failure is recorded.
+- `credentials.ts` keeps only the real I/O (Keychain, PTY, file write) and wires it in.
 - Startup: `ensureCredentialsAvailable()` exits with a dedicated code from a shared
   `server/utils/exit-codes.mjs`; `dev-server.mjs`'s `restartPlan` gives up on that code instead of
   restarting.
