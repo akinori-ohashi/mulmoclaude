@@ -117,6 +117,36 @@ describe("createCredentialsRefresher", () => {
     assert.equal(fakeRefreshIo.renewals, MAX_CONSECUTIVE_RENEWAL_FAILURES + 1);
   });
 
+  it("counts a renewal that throws toward the cap", async () => {
+    const fakeRefreshIo = makeFakeRefreshIo([EXPIRED]);
+    fakeRefreshIo.renewViaCli = async () => {
+      fakeRefreshIo.renewals += 1;
+      throw new Error("posix_spawnp failed");
+    };
+    const refresh = createCredentialsRefresher(fakeRefreshIo);
+    for (let call = 0; call < MAX_CONSECUTIVE_RENEWAL_FAILURES + 5; call += 1) {
+      assert.equal(await refresh(), false);
+      fakeRefreshIo.clockMs += RENEWAL_RETRY_COOLDOWN_MS;
+    }
+    assert.equal(fakeRefreshIo.renewals, MAX_CONSECUTIVE_RENEWAL_FAILURES);
+  });
+
+  it("counts a Keychain read that throws after the CLI ran toward the cap", async () => {
+    const fakeRefreshIo = makeFakeRefreshIo([EXPIRED]);
+    let reads = 0;
+    fakeRefreshIo.readKeychain = async () => {
+      reads += 1;
+      if (reads % 2 === 0) throw new Error("security exited 44");
+      return EXPIRED;
+    };
+    const refresh = createCredentialsRefresher(fakeRefreshIo);
+    for (let call = 0; call < MAX_CONSECUTIVE_RENEWAL_FAILURES + 5; call += 1) {
+      await refresh();
+      fakeRefreshIo.clockMs += RENEWAL_RETRY_COOLDOWN_MS;
+    }
+    assert.equal(fakeRefreshIo.renewals, MAX_CONSECUTIVE_RENEWAL_FAILURES);
+  });
+
   it("launches the CLI once for concurrent calls", async () => {
     const fakeRefreshIo = makeFakeRefreshIo([EXPIRED], false);
     const refresh = createCredentialsRefresher(fakeRefreshIo);

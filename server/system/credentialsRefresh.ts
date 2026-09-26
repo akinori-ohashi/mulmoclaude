@@ -38,6 +38,16 @@ async function renewAndReread({ refreshIo }: RefreshContext): Promise<string | n
   return credentials;
 }
 
+/** A throw still counts as a failed attempt; otherwise it would slip past the cap on every call. */
+async function renewAndRereadOrNull(context: RefreshContext): Promise<string | null> {
+  try {
+    return await renewAndReread(context);
+  } catch (err) {
+    log.error("credentials", "Token renewal threw", { error: String(err) });
+    return null;
+  }
+}
+
 function canAttemptRenewal(context: RefreshContext): boolean {
   const decision = renewalDecision(context.history, context.refreshIo.nowMs());
   if (decision.kind === "attempt") return true;
@@ -56,7 +66,7 @@ function describeExpiry(expiresMs: number | null): string {
 async function renewExpired(context: RefreshContext, expiresMs: number | null): Promise<boolean> {
   if (!canAttemptRenewal(context)) return false;
   log.warn("credentials", `Access token expired ${describeExpiry(expiresMs)}, launching claude CLI to renew...`);
-  const credentials = await renewAndReread(context);
+  const credentials = await renewAndRereadOrNull(context);
   context.history = recordRenewal(context.history, credentials !== null, context.refreshIo.nowMs());
   if (credentials === null) {
     if (renewalDecision(context.history, context.refreshIo.nowMs()).kind === "exhausted") {
