@@ -188,8 +188,9 @@ invalid`), what to check depends on the sandbox:
   that counts.
 
 On macOS with the sandbox on, MulmoClaude copies the login from the Keychain into
-`~/.claude/.credentials.json` and, when the token has expired, launches the `claude` CLI
-once to renew it. Each launch is a real Claude session, so it deliberately stops early.
+`~/.claude/.credentials.json` and, when the token has expired and a refresh token exists,
+launches the `claude` CLI to renew it. Each launch is a real Claude session, so it waits a
+few minutes after a failed renewal and stops after a few failures in a row.
 Look for one of these server log lines:
 
 - `Keychain credentials cannot be renewed (<reason>)` — the Keychain item has no
