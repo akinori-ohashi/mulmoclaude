@@ -112,7 +112,7 @@ describe("relay — a queued turn's limit counts from receipt", () => {
       assert.deepEqual(await first, { kind: "ok", reply: "turn-0" });
       const secondResult = await second;
       assert.equal(secondResult.kind, "ok");
-      assert.match(secondResult.kind === "ok" ? secondResult.reply : "", /timed out while waiting for an earlier message/);
+      assert.match(secondResult.kind === "ok" ? secondResult.reply : "", /timed out before the agent could start/);
       assert.equal(harness.startChatCalls(), 1, "the expired turn must not reach the agent");
     } finally {
       harness.finishAll();
@@ -125,7 +125,7 @@ describe("relay — a queued turn's limit counts from receipt", () => {
     const harness = makeHarness([undefined], STATE_READ_MS);
     try {
       const result = await harness.send(LIMIT_MS);
-      assert.match(result.kind === "ok" ? result.reply : "", /timed out while waiting/);
+      assert.match(result.kind === "ok" ? result.reply : "", /timed out before the agent could start/);
       assert.equal(harness.startChatCalls(), 0);
     } finally {
       harness.finishAll();

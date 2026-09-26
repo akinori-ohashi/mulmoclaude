@@ -129,7 +129,7 @@ past Node's timer ceiling (about 24.8 days) is clamped with a warning.
 
 While a turn is running, the next message in the same chat waits for it, and
 that waiting counts against the next message's own limit: if the limit runs out
-before its turn comes, it is answered with a "timed out while waiting" reply
+before its turn comes, it is answered with a "timed out before the agent could start" reply
 instead of being run. Upgrade the
 bridge together with the server: an older client keeps its fixed 6-minute wait
 and gives up before a longer server limit ends.

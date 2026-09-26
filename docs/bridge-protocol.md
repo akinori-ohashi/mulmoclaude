@@ -286,7 +286,7 @@ the message, so time spent queued behind an earlier message in the
 same chat counts against it. It then replies with whatever text has
 streamed so far; text produced after that is not delivered. A message
 whose limit runs out while it is still queued is answered with a
-"timed out while waiting" reply and never reaches the agent. Wait
+"timed out before the agent could start" reply and never reaches the agent. Wait
 `ackTimeoutMsFor()` of that same resolved value on your side, so the
 server's timeout wins and you get a textual reply rather than a
 client-side cancellation. `@mulmobridge/client` does this for you.

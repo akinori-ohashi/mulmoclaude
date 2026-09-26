@@ -72,7 +72,8 @@ interface ReplyBudget {
   replyTimeoutMs: number;
 }
 
-const QUEUE_EXPIRED_REPLY = "The request timed out while waiting for an earlier message in this chat to finish. Please send it again.";
+// Neutral about the cause: a queue behind an earlier message, or slow setup on an idle chat.
+const EXPIRED_BEFORE_START_REPLY = "The request timed out before the agent could start on it. Please send it again.";
 
 // Monotonic, so a wall-clock step between receipt and processing cannot stretch or shrink the limit.
 const remainingOf = (budget: ReplyBudget): number => remainingReplyMs(budget.receivedAtMs, budget.replyTimeoutMs, performance.now());
@@ -124,7 +125,7 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams, budget:
   // started after the limit would produce a reply nobody is waiting for.
   if (remainingOf(budget) === 0) {
     logger.info("chat-service", "message expired before its turn started", { transportId, externalChatId });
-    return { kind: "ok", reply: QUEUE_EXPIRED_REPLY };
+    return { kind: "ok", reply: EXPIRED_BEFORE_START_REPLY };
   }
 
   const result = await startChat({

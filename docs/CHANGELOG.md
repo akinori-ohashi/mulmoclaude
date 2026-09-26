@@ -13,7 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 A bridge message's reply limit is now counted from when the server received it, not from when its turn came up. Before,
 a message queued behind a long one in the same chat could still be running on the server after the bridge had given up
 (`timeout: no ack`), so its reply went nowhere. It now gets what is left of its limit; one whose limit runs out while
-queued is answered with "timed out while waiting" and is not run. Ships in `@mulmobridge/chat-service`'s next release
+queued is answered with "timed out before the agent could start" and is not run. Ships in `@mulmobridge/chat-service`'s next release
 and the next `mulmoclaude` release.
 
 ## [1.25.0] - 2026-09-27

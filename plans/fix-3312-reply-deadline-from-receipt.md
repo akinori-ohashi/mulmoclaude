@@ -15,7 +15,8 @@ Count the limit from when `relay()` received the message (issue comment on #3312
 
 - `createRelay` records `receivedAtMs` and resolves `replyTimeoutMs` at receipt.
 - When the turn starts, a message with no time left is answered with a
-  "timed out while waiting" reply and never reaches the agent.
+  "timed out before the agent could start" reply and never reaches the agent
+  (checked just before `startChat()`, so commands still run).
 - Otherwise the reply is collected for the remaining time only.
 - Rule: `remainingReplyMs(receivedAtMs, replyTimeoutMs, nowMs)` in
   `packages/chat-service/src/reply-deadline.ts` (pure).
