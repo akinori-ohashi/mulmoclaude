@@ -8,6 +8,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+#### Configurable bridge reply timeout (#3305, PR #3310)
+
+A bridge turn used to be cut off after a fixed 5 minutes: the chat-service replied with whatever text had streamed so far
+and dropped the rest. One bridge option now sets that limit, in milliseconds: `BRIDGE_REPLY_TIMEOUT_MS` for every bridge,
+`<TRANSPORT>_BRIDGE_REPLY_TIMEOUT_MS` for one, and `RELAY_REPLY_TIMEOUT_MS` / `RELAY_<PLATFORM>_REPLY_TIMEOUT_MS` on the
+relay path. It travels in the handshake, so the chat-service and `@mulmobridge/client` (which waits one minute longer for
+the ack) always use the same value. Unset keeps 5 minutes; an unusable value falls back with a warning; a value past the
+timer ceiling is clamped. The rule lives in `@mulmobridge/protocol` (`resolveReplyTimeoutMs`, `ackTimeoutMsFor`). Upgrade
+the bridge together with the server — an older client still gives up after 6 minutes.
+
+Releases `@mulmobridge/protocol@1.1.0`, `@mulmobridge/client@1.4.0`, `@mulmobridge/chat-service@1.3.0`. The host-side
+half (the chat-service dependency range and the relay allowlist) reaches npm users with the next `mulmoclaude` release.
+
 ## [1.24.0] - 2026-09-26
 
 **A `datetime` field can hold an all-day date, so a calendar that mixes timed and all-day events can create both from a collection.**
