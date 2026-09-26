@@ -24,6 +24,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { EXIT_CODE_NEEDS_USER_ACTION } from "../server/utils/exit-codes.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.dirname(__dirname);
@@ -43,8 +44,13 @@ const MAX_FAST_CRASHES = 5;
  * Pure restart policy: given how long the child ran and the crash-loop
  * state so far, decide whether to respawn and after how long.
  * `prevDelayMs` is the previous backoff (`0` on the first crash).
+ * `exitCode` is the child's exit code (`null` when a signal ended it).
  */
-export function restartPlan({ ranForMs, prevDelayMs, fastCrashes }) {
+export function restartPlan({ ranForMs, prevDelayMs, fastCrashes, exitCode = null }) {
+  // However long it ran, the backend said a restart cannot help (e.g. a login is needed).
+  if (exitCode === EXIT_CODE_NEEDS_USER_ACTION) {
+    return { action: "needs-user", delayMs: 0, fastCrashes };
+  }
   if (ranForMs >= FAST_CRASH_MS) {
     return { action: "restart", delayMs: MIN_DELAY_MS, fastCrashes: 0 };
   }
@@ -112,9 +118,13 @@ function onChildExit(code, signal, startedAt) {
   state.child = null;
   if (state.shuttingDown) return;
   const ranForMs = Date.now() - startedAt;
-  const plan = restartPlan({ ranForMs, prevDelayMs: state.delayMs, fastCrashes: state.fastCrashes });
+  const plan = restartPlan({ ranForMs, prevDelayMs: state.delayMs, fastCrashes: state.fastCrashes, exitCode: code });
   state.delayMs = plan.delayMs;
   state.fastCrashes = plan.fastCrashes;
+  if (plan.action === "needs-user") {
+    log(`backend exited (${describeExit(code, signal)}) and needs you to fix something first (see the message above) — not restarting`);
+    process.exit(1);
+  }
   if (plan.action === "giveup") {
     log(`backend exited (${describeExit(code, signal)}) after ${ranForMs}ms — ${plan.fastCrashes} fast crashes in a row, giving up (see the stack above)`);
     process.exit(1);

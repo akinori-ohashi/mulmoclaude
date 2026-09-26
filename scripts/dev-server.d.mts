@@ -9,10 +9,12 @@ export interface RestartPlanInput {
   prevDelayMs: number;
   /** Consecutive fast crashes seen so far. */
   fastCrashes: number;
+  /** The child's exit code; null (the default) when a signal ended it. */
+  exitCode?: number | null;
 }
 
 export interface RestartPlanResult {
-  action: "restart" | "giveup";
+  action: "restart" | "giveup" | "needs-user";
   delayMs: number;
   fastCrashes: number;
 }
