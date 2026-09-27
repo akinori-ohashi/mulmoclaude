@@ -12,6 +12,7 @@ import type { ChatStateStore } from "./chat-state.js";
 import type { CommandHandler } from "./commands.js";
 import { createKeyedSerializer } from "./keyed-serializer.js";
 import { remainingReplyMs } from "./reply-deadline.js";
+import { startChatWhenIdle } from "./start-when-idle.js";
 import type { Attachment, Logger, OnSessionEventFn, Role, StartChatFn } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────
@@ -132,7 +133,8 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams, budget:
     return { kind: "ok", reply: EXPIRED_BEFORE_START_REPLY };
   }
 
-  const result = await startChat({
+  const idleStartDeps = { startChat, onSessionEvent, remainingMs: () => remainingOf(budget, deps) };
+  const result = await startChatWhenIdle(idleStartDeps, {
     message: text,
     roleId: chatState.roleId,
     chatSessionId: chatState.sessionId,
@@ -143,18 +145,12 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams, budget:
     bridgeOptions,
   });
 
+  if (result.kind === "expired") {
+    logger.info("chat-service", "message expired waiting for the session to finish", { transportId, externalChatId });
+    return { kind: "ok", reply: EXPIRED_BEFORE_START_REPLY };
+  }
   if (result.kind === "error") {
     const status = result.status ?? 500;
-    if (status === 409) {
-      // Session busy — tell the bridge to retry. Keep the HTTP
-      // response shape the old handler returned (status 409 on
-      // the HTTP side, "ok" reply text on the socket side — both
-      // layers decide how to serialise).
-      return {
-        kind: "ok",
-        reply: "A previous message is still being processed. Please wait.",
-      };
-    }
     logger.error("chat-service", "startChat failed", {
       transportId,
       externalChatId,
