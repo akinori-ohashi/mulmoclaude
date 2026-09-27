@@ -10,6 +10,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { crashHint, describeExit, restartPlan } from "../../scripts/dev-server.mjs";
+import { EXIT_CODE_NEEDS_USER_ACTION } from "../../server/utils/exit-codes.mjs";
 
 describe("restartPlan", () => {
   it("restarts briskly after a backend that ran a while", () => {
@@ -40,6 +41,31 @@ describe("restartPlan", () => {
     const plan = restartPlan({ ranForMs: 100, prevDelayMs: 5000, fastCrashes: 4 });
     assert.equal(plan.action, "giveup");
     assert.equal(plan.fastCrashes, 5);
+  });
+});
+
+describe("restartPlan — backend asks for user action", () => {
+  // A credentials failure takes ~33 s per cycle, long enough to reset the
+  // fast-crash counter, and each cycle can spend a billed Claude session.
+  it("does not restart, even after a long run", () => {
+    const plan = restartPlan({ ranForMs: 33_000, prevDelayMs: 300, fastCrashes: 0, exitCode: EXIT_CODE_NEEDS_USER_ACTION });
+    assert.equal(plan.action, "needs-user");
+  });
+
+  it("does not restart after a fast exit either", () => {
+    const plan = restartPlan({ ranForMs: 100, prevDelayMs: 0, fastCrashes: 0, exitCode: EXIT_CODE_NEEDS_USER_ACTION });
+    assert.equal(plan.action, "needs-user");
+  });
+
+  it("keeps restarting on an ordinary crash code", () => {
+    assert.equal(restartPlan({ ranForMs: 33_000, prevDelayMs: 300, fastCrashes: 0, exitCode: 1 }).action, "restart");
+    assert.equal(restartPlan({ ranForMs: 33_000, prevDelayMs: 300, fastCrashes: 0, exitCode: null }).action, "restart");
+  });
+
+  // 1 is the generic crash code the supervisor must keep restarting on.
+  it("uses a code distinct from a generic crash", () => {
+    assert.notEqual(EXIT_CODE_NEEDS_USER_ACTION, 1);
+    assert.notEqual(EXIT_CODE_NEEDS_USER_ACTION, 0);
   });
 });
 
