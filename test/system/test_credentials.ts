@@ -13,6 +13,7 @@ import {
   classifyCredentials,
   MAX_CONSECUTIVE_RENEWAL_FAILURES,
   NO_RENEWAL_FAILURES,
+  pickCredentials,
   readExpiresAt,
   recordRenewal,
   renewalDecision,
@@ -201,5 +202,45 @@ describe("renewalDecision / recordRenewal", () => {
   it("resets on success", () => {
     const failed = recordRenewal(recordRenewal(NO_RENEWAL_FAILURES, false, NOW_MS), false, NOW_MS);
     assert.deepEqual(recordRenewal(failed, true, NOW_MS), NO_RENEWAL_FAILURES);
+  });
+});
+
+describe("pickCredentials", () => {
+  const valid = blob({});
+  const expired = blob({ expiresAt: NOW_MS - ONE_HOUR_MS });
+  const emptyItem = JSON.stringify({ claudeAiOauth: { accessToken: "", refreshToken: "", expiresAt: 0, scopes: [] } });
+
+  // #3309: the service-only lookup returned the empty item while the user's own item held the login.
+  it("prefers the valid login over an empty item, whichever order they come in", () => {
+    assert.equal(pickCredentials([valid, emptyItem], NOW_MS), valid);
+    assert.equal(pickCredentials([emptyItem, valid], NOW_MS), valid);
+  });
+
+  it("prefers a renewable token over an unusable one", () => {
+    assert.equal(pickCredentials([emptyItem, expired], NOW_MS), expired);
+  });
+
+  it("prefers a valid token over an expired one", () => {
+    assert.equal(pickCredentials([expired, valid], NOW_MS), valid);
+  });
+
+  it("keeps the earlier candidate on a tie", () => {
+    const otherValid = blob({ accessToken: "other" });
+    assert.equal(pickCredentials([valid, otherValid], NOW_MS), valid);
+    assert.equal(pickCredentials([otherValid, valid], NOW_MS), otherValid);
+  });
+
+  it("still returns an unusable blob when nothing better exists, so its reason gets logged", () => {
+    assert.equal(pickCredentials([null, emptyItem], NOW_MS), emptyItem);
+  });
+
+  it("skips missing reads", () => {
+    assert.equal(pickCredentials([null, valid], NOW_MS), valid);
+    assert.equal(pickCredentials([valid, null], NOW_MS), valid);
+  });
+
+  it("returns null when every read is missing or there are none", () => {
+    assert.equal(pickCredentials([null, null], NOW_MS), null);
+    assert.equal(pickCredentials([], NOW_MS), null);
   });
 });
