@@ -584,6 +584,28 @@ guide it returns says `data/skills/`, this root does have a bridge and the
 problem is something else — check that `schema.json` passed validation (a
 schema that fails is silently skipped at discovery).
 
+## A `schema.json` change is not reflected — it was written with Bash or a script
+
+You changed `data/skills/<slug>/schema.json`, and `getSchema` shows the new
+content, but the collection still behaves as before — the old fields, a missing
+view, or a 404. No tool reported an error.
+
+### Why
+
+The server runs `.claude/skills/<slug>/schema.json`, not the staging copy. The
+skill-bridge hook copies staging files across only when they are written with
+the **Write / Edit** tools. A `schema.json` written through Bash (`cat >`,
+`sed -i`, `python`, `jq`) or by a script is never mirrored, so the two copies
+drift apart silently. When they differ, `getSchema` says so in a
+`manageCollection: NOTE` line above the JSON.
+
+### Fix
+
+Pass the schema to `manageCollection` `putSchema`. It validates the schema,
+writes the staging copy and mirrors it into `.claude/skills/<slug>/` in one
+step, and the collection reloads without a restart. Make every later schema
+change the same way — `getSchema`, edit, `putSchema` — never with Bash.
+
 ## dataSource (CSV) collection reads fail — "DuckDB is unavailable on this host"
 
 A collection whose schema declares `dataSource` (external CSV) reads its rows

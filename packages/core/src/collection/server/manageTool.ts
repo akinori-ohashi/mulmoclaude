@@ -67,6 +67,7 @@ import { getWorkspaceRoot, stagingSkillDir } from "./host";
 import { writeFileAtomic } from "../../files/atomic.js";
 import { mirrorSkillWrite } from "../../skill-bridge/index.js";
 import { renderSchemaDocs, type AuthoringVariant } from "./schemaDocs";
+import { schemaReadReply } from "./schemaReadReply";
 // NOTE: only the browser-safe `slug` module — workspace-setup's assets.ts uses
 // `import.meta.url` and is ESM-only (build pass 2), while this entry builds
 // dual ESM+CJS. The bundled-docs dir is injected instead (`bundledHelpsDir`).
@@ -842,6 +843,14 @@ async function handleSchemaDocs(deps: ManageCollectionDeps, topic?: string): Pro
   return `manageCollection: could not read the collection-authoring reference (${SCHEMA_DOCS_FILE}).`;
 }
 
+async function readTextOrNull(filePath: string): Promise<string | null> {
+  try {
+    return await readFile(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
 /** Return the raw schema.json of an existing collection, for editing.
  *  Staging (the canonical writable copy) first, the active mirror as a
  *  fallback for user-scope skills that have no staging copy. Raw text —
@@ -851,15 +860,9 @@ async function handleGetSchema(slug: string, deps: ManageCollectionDeps): Promis
   if (!collection) return unknownCollection(slug);
   // Path from the discovered (sanitized) slug, never the raw arg.
   const { stagingDir } = authoringTarget(deps, collection.slug);
-  const candidates = [...(stagingDir === null ? [] : [path.join(stagingDir, SCHEMA_FILE)]), path.join(collection.skillDir, SCHEMA_FILE)];
-  for (const candidate of candidates) {
-    try {
-      return await readFile(candidate, "utf-8");
-    } catch {
-      // fall through to the next location
-    }
-  }
-  return `manageCollection: '${defangForPrompt(slug)}' has no readable ${SCHEMA_FILE}.`;
+  const staging = stagingDir === null ? null : await readTextOrNull(path.join(stagingDir, SCHEMA_FILE));
+  const active = await readTextOrNull(path.join(collection.skillDir, SCHEMA_FILE));
+  return schemaReadReply(collection.slug, staging, active) ?? `manageCollection: '${defangForPrompt(slug)}' has no readable ${SCHEMA_FILE}.`;
 }
 
 /** Where the agent should CREATE a collection skill in this root, named in the

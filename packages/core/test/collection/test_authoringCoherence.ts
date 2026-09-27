@@ -132,3 +132,20 @@ test("the create-it-here message names the directory this root actually reads", 
   const stagedMessage = await run(staged, undefined, { action: "putSchema", slug: "nope", schema: renamed });
   assert.match(stagedMessage, /under data\/skills\/nope\//);
 });
+
+test("getSchema flags a staging copy the mirror never received, and putSchema clears it", async () => {
+  // A staging schema.json written outside Write / Edit (Bash, a script) is not
+  // mirrored, so the server keeps running the old active copy while getSchema
+  // reads the new one. The reply has to say so rather than look authoritative.
+  stagingEnabled = true;
+  const root = makeRoot("ac-diverged-");
+  writeFileSync(path.join(root, "data", "skills", "tasks", "schema.json"), JSON.stringify(renamed));
+
+  const flagged = await run(root, undefined, { action: "getSchema", slug: "tasks" });
+  assert.match(flagged, /^manageCollection: NOTE — .*DIFFERS from \.claude\/skills\/tasks\/schema\.json/);
+  const [, staged] = flagged.split("\n\n");
+  assert.equal(JSON.parse(staged ?? "").title, "Renamed", "the JSON after the note is the staging copy, still usable as-is");
+
+  await run(root, undefined, { action: "putSchema", slug: "tasks", schema: renamed });
+  assert.equal(JSON.parse(await run(root, undefined, { action: "getSchema", slug: "tasks" })).title, "Renamed", "applied: bare JSON again");
+});
