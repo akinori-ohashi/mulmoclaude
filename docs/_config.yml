@@ -1,0 +1,54 @@
+title: MulmoClaude
+description: >-
+  Build your own small apps ("collections") just by talking to Claude, use them in the
+  browser and on your phone, and share them. 日本語 / English.
+# Built by .github/workflows/pages.yml with Jekyll 4 + the just-the-docs gem (docs/Gemfile).
+theme: just-the-docs
+
+url: https://receptron.github.io
+
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+search_enabled: true
+color_scheme: light
+heading_anchors: true
+aux_links:
+  "GitHub":
+    - "https://github.com/receptron/mulmoclaude"
+  "npm":
+    - "https://www.npmjs.com/package/mulmoclaude"
+
+# The developer docs next to the guide have no front matter, so Jekyll copies them as plain
+# files and they stay out of the navigation. These are excluded because they are large or
+# are source material rather than pages.
+exclude:
+  - papers/
+  - releases/
+  - "*.json"
+  - Gemfile
+  - Gemfile.lock
+  - vendor/
+
+lang: ja
+defaults:
+  - scope:
+      path: "guide/en"
+    values:
+      lang: en
+  - scope:
+      path: "guide/ja"
+    values:
+      lang: ja
+
+callouts:
+  note:
+    title: Note
+    color: blue
+  tip:
+    title: Tip
+    color: green
+  warning:
+    title: Warning
+    color: red
