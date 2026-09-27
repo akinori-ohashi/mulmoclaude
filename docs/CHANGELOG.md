@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Highlights
+
+#### `getSchema` says when a collection's schema was changed but not applied (#3346, PR #3347)
+
+A `schema.json` changed with Bash or a script is not copied to the place the server reads it from, so the collection kept
+its old schema while `getSchema` showed the new one, with no hint that they differed. `getSchema` now says so and points
+at `putSchema`, which applies it. The error-recovery guide covers the same case.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.7.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ## [1.26.1] - 2026-09-28
 
 **A chat that failed to start no longer stays "running" until restart, and pinned collection shortcuts keep their colour across app starts.**
