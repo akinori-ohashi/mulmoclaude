@@ -14,7 +14,7 @@ When a bridge turn was cut off at its reply limit, its agent kept running, and t
 with "A previous message is still being processed. Please wait." — it never reached the agent. The next message now
 waits for that run to finish, within its own reply limit, and then runs. If the run outlasts the limit, it is answered
 "timed out before the agent could start" and is not run. The same applies while the session is busy from the web UI.
-Ships in `@mulmobridge/chat-service`'s next release and the next `mulmoclaude` release.
+Released as `@mulmobridge/chat-service@1.3.2`; reaches `npx mulmoclaude` users with the next `mulmoclaude` release.
 
 #### A queued bridge message no longer outlives the bridge's wait (#3312)
 
