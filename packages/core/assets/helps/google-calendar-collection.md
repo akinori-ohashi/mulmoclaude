@@ -179,8 +179,11 @@ by typing two dates is pushed as a real all-day event.
 
 Google's all-day `end` is **exclusive** — it is the day AFTER the last day, so a
 single day on the 17th is `on: 2026-07-17`, `until: 2026-07-18`. Records
-mirrored from Google already carry it that way. Say so when the user asks why
-the end date "looks a day late"; do not offset it, because the push sends the
+mirrored from Google already carry it that way, and the calendar view reads the
+field mapped to `end` the same way: an end that is a bare date or `00:00` stops
+the span on the day before, so that event shows on the 17th only. The stored
+value itself stays exclusive — say so when the user asks why the end date in
+the table "looks a day late", and do not offset it, because the push sends the
 stored value straight back.
 
 An existing all-day event stays all-day when its dates are edited, whatever the
