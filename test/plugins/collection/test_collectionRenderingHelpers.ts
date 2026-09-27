@@ -28,6 +28,7 @@ import {
   inputTypeFor,
   isAllDayValue,
   withAllDay,
+  canSwitchToAllDay,
   isExternalUrl,
   isServerStamped,
   resolveCurrency,
@@ -337,5 +338,10 @@ describe("All day toggle", () => {
       assert.equal(withAllDay(value, true), value);
       assert.equal(withAllDay(value, false), value);
     });
+  });
+
+  it("allows switching to all day only for an empty draft or one that becomes a real date", () => {
+    ["", "  ", "2026-09-28", "2026-09-28T09:30", "2026-09-28T09:30:15"].forEach((value) => assert.equal(canSwitchToAllDay(value), true, value));
+    ["2026-02-30T10:00", "not a date", "2026-08-15T01:45:54.605987654Z"].forEach((value) => assert.equal(canSwitchToAllDay(value), false, value));
   });
 });

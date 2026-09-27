@@ -588,7 +588,7 @@ import { COMPUTED_TYPES, fieldVisible, resolveEnumColor, emptyRow } from "@mulmo
 import { useCollectionUi } from "../scopedUi";
 import { useRefLinkActivators } from "../refLink";
 import type { CollectionRendering } from "../useCollectionRendering";
-import { isAllDayValue, withAllDay } from "../useCollectionRendering.helpers";
+import { canSwitchToAllDay, isAllDayValue, withAllDay } from "../useCollectionRendering.helpers";
 import type {
   CollectionAction,
   CollectionDetail,
@@ -671,6 +671,7 @@ function isAllDay(key: string): boolean {
 }
 
 function setAllDay(key: string, allDay: boolean): void {
+  if (allDay && !canSwitchToAllDay(editing.value?.text[key] ?? "")) return;
   const next = new Set(allDayKeys.value);
   if (allDay) next.add(key);
   else next.delete(key);
@@ -679,7 +680,11 @@ function setAllDay(key: string, allDay: boolean): void {
 }
 
 function onAllDayChange(key: string, event: Event): void {
-  if (event.target instanceof HTMLInputElement) setAllDay(key, event.target.checked);
+  if (!(event.target instanceof HTMLInputElement)) return;
+  setAllDay(key, event.target.checked);
+  // A refused switch changes no state, so nothing re-renders the box: undo the
+  // browser's own toggle here.
+  event.target.checked = isAllDay(key);
 }
 
 const chatMessage = ref("");

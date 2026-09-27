@@ -31,6 +31,7 @@ const MEETINGS = {
   items: [
     { id: "offsite", name: "Offsite", at: ALL_DAY, slots: [{ when: ALL_DAY }] },
     { id: "standup", name: "Standup", at: "2026-09-28T09:30", slots: [{ when: "2026-09-28T09:30" }] },
+    { id: "broken", name: "Broken", at: "2026-02-30T10:00" },
   ],
 };
 
@@ -104,5 +105,12 @@ test.describe("datetime field holding an all-day bare date", () => {
     const saved = page.waitForRequest((request) => request.method() === "PUT" && new URL(request.url()).pathname === "/api/collections/meetings/items/standup");
     await page.getByTestId("collections-editor-save").click();
     expect(JSON.stringify((await saved).postDataJSON())).toContain(`"at":"${ALL_DAY}"`);
+  });
+  test("refuses All day for a value the date picker cannot hold", async ({ page }) => {
+    await openEditor(page, "broken");
+    const allDay = page.getByTestId("collections-all-day-at");
+    await allDay.click();
+    await expect(allDay).not.toBeChecked();
+    await expect(page.getByTestId("collections-input-at")).toHaveAttribute("type", "datetime-local");
   });
 });

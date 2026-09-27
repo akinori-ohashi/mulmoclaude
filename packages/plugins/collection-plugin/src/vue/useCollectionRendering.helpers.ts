@@ -80,6 +80,13 @@ export function withAllDay(value: string, allDay: boolean): string {
   return isAllDayValue(value) ? `${value.trim()}${ALL_DAY_TO_TIMED_CLOCK}` : value;
 }
 
+/** Whether All day may be switched on for this draft: an empty one (a date is
+ *  picked next) or one that converts to a real date. A value the date picker
+ *  cannot hold would otherwise render blank while still being submitted. */
+export function canSwitchToAllDay(value: string): boolean {
+  return value.trim() === "" || isAllDayValue(withAllDay(value, true));
+}
+
 export function isExternalUrl(value: unknown): boolean {
   return typeof value === "string" && /^https?:\/\//i.test(value);
 }
