@@ -74,3 +74,14 @@ export function recordRenewal(history: RenewalHistory, succeeded: boolean, nowMs
   if (succeeded) return NO_RENEWAL_FAILURES;
   return { consecutiveFailures: history.consecutiveFailures + 1, lastFailureMs: nowMs };
 }
+
+const VERDICT_RANK: Record<CredentialsVerdict["kind"], number> = { valid: 2, expired: 1, unusable: 0 };
+
+/** The most usable of several Keychain reads (valid, then expired, then
+ *  unusable); ties keep the earlier one. Several items can share the service
+ *  name, and `security` does not promise which one a service-only lookup returns. */
+export function pickCredentials(candidates: readonly (string | null)[], nowMs: number): string | null {
+  const ranked = candidates.flatMap((raw) => (raw === null ? [] : [{ raw, rank: VERDICT_RANK[classifyCredentials(raw, nowMs).kind] }]));
+  const best = ranked.reduce<(typeof ranked)[number] | null>((top, entry) => (top === null || entry.rank > top.rank ? entry : top), null);
+  return best?.raw ?? null;
+}

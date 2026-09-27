@@ -930,7 +930,7 @@ Notes:
 
 ### Custom views
 
-When the built-in views (table / calendar / kanban / dashboard) don't fit what
+When the built-in views (table / calendar / kanban) don't fit what
 the user wants to _see_ — a year/quarter overview, a Gantt bar, a printable
 report — author a **custom view**: an HTML file the host renders in a sandboxed
 iframe over the records. Register it in `views[]` (above); it becomes a button
