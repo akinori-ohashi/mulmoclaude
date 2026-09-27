@@ -205,7 +205,7 @@ You never set these by hand; the server constructs them when spawning Claude ins
 | Script                | Notes                                                                                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `yarn sandbox:remove` | `docker rmi mulmoclaude-sandbox` — rebuild on next run. Reuses the cached layers, so it does NOT refresh the bundled Claude CLI; add `docker builder prune -a -f` for that (#2202). |
-| `yarn sandbox:login`  | macOS only. Exports the Claude CLI keychain entry to `~/.claude/.credentials.json` so the sandbox container can reuse it. |
+| `yarn sandbox:login`  | macOS only. Exports the Claude CLI keychain entry to `~/.claude/.credentials.json` so the sandbox container can reuse it; picks the same item the server does and refuses a login that cannot be used. |
 | `yarn sandbox:logout` | Removes that file.                                                                                                        |
 
 ---

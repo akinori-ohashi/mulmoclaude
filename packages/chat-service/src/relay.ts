@@ -11,6 +11,7 @@ import { EVENT_TYPES, resolveReplyTimeoutMs } from "@mulmobridge/protocol";
 import type { ChatStateStore } from "./chat-state.js";
 import type { CommandHandler } from "./commands.js";
 import { createKeyedSerializer } from "./keyed-serializer.js";
+import { remainingReplyMs } from "./reply-deadline.js";
 import type { Attachment, Logger, OnSessionEventFn, Role, StartChatFn } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────
@@ -44,6 +45,8 @@ export interface RelayDeps {
   getRole: (roleId: string) => Role;
   defaultRoleId: string;
   logger: Logger;
+  /** Monotonic milliseconds for the reply limit. Defaults to `performance.now()`. */
+  now?: () => number;
 }
 
 // ── Factory ──────────────────────────────────────────────────
@@ -57,11 +60,29 @@ export function createRelay(deps: RelayDeps): RelayFn {
     // sessions, and split the conversation across them (#1878). The
     // JSON pair is an unambiguous composite key for the two ids.
     const key = JSON.stringify([params.transportId, params.externalChatId]);
-    return serialize.run(key, () => processRelayMessage(deps, params));
+    const budget: ReplyBudget = {
+      receivedAtMs: clockOf(deps)(),
+      replyTimeoutMs: resolveBridgeReplyTimeout(params.bridgeOptions, deps.logger, params.transportId),
+    };
+    return serialize.run(key, () => processRelayMessage(deps, params, budget));
   };
 }
 
-async function processRelayMessage(deps: RelayDeps, params: RelayParams): Promise<RelayResult> {
+/** When the message arrived and how long its sender will wait for the reply. */
+interface ReplyBudget {
+  receivedAtMs: number;
+  replyTimeoutMs: number;
+}
+
+// Neutral about the cause: a queue behind an earlier message, or slow setup on an idle chat.
+const EXPIRED_BEFORE_START_REPLY = "The request timed out before the agent could start on it. Please send it again.";
+
+// Monotonic by default, so a wall-clock step between receipt and processing cannot move the limit.
+const clockOf = (deps: RelayDeps): (() => number) => deps.now ?? (() => performance.now());
+
+const remainingOf = (budget: ReplyBudget, deps: RelayDeps): number => remainingReplyMs(budget.receivedAtMs, budget.replyTimeoutMs, clockOf(deps)());
+
+async function processRelayMessage(deps: RelayDeps, params: RelayParams, budget: ReplyBudget): Promise<RelayResult> {
   const { store, handleCommand, startChat, onSessionEvent, getRole, defaultRoleId, logger } = deps;
   const { transportId, externalChatId, attachments, bridgeOptions } = params;
   let { text } = params;
@@ -104,6 +125,13 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams): Promis
     text = commandResult.forwardAs;
   }
 
+  // Checked here, not on entry: a command above still runs and answers at once, but an agent turn
+  // started after the limit would produce a reply nobody is waiting for.
+  if (remainingOf(budget, deps) === 0) {
+    logger.info("chat-service", "message expired before its turn started", { transportId, externalChatId });
+    return { kind: "ok", reply: EXPIRED_BEFORE_START_REPLY };
+  }
+
   const result = await startChat({
     message: text,
     roleId: chatState.roleId,
@@ -140,8 +168,7 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams): Promis
   }
 
   try {
-    const replyTimeoutMs = resolveBridgeReplyTimeout(bridgeOptions, logger, transportId);
-    const reply = await collectAgentReply(onSessionEvent, chatState.sessionId, replyTimeoutMs, params.onChunk);
+    const reply = await collectAgentReply(onSessionEvent, chatState.sessionId, remainingOf(budget, deps), params.onChunk);
     await store.setChatState(transportId, {
       ...chatState,
       updatedAt: new Date().toISOString(),
