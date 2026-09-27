@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+#### A bridge message sent while the agent is still busy waits instead of being dropped (#3320)
+
+When a bridge turn was cut off at its reply limit, its agent kept running, and the next message in that chat was refused
+with "A previous message is still being processed. Please wait." — it never reached the agent. The next message now
+waits for that run to finish, within its own reply limit, and then runs. If the run outlasts the limit, it is answered
+"timed out before the agent could start" and is not run. The same applies while the session is busy from the web UI.
+Ships in `@mulmobridge/chat-service`'s next release and the next `mulmoclaude` release.
+
 #### A queued bridge message no longer outlives the bridge's wait (#3312)
 
 A bridge message's reply limit is now counted from when the server received it, not from when its turn came up. Before,

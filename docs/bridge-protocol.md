@@ -275,8 +275,9 @@ type MessageAck =
   finished without producing text (e.g. a tool-only turn).
 - `error` — human-readable reason. `status` mirrors the HTTP path's
   status code where meaningful (`400` for validation, `500` for
-  internal, `409` is turned into `ok: true` with a "please wait"
-  reply).
+  internal). A session that is still busy with an earlier run is not
+  an error: the server waits for that run to finish, within the
+  message's reply timeout, and then starts the turn.
 
 Timeout strategy: the server stops waiting for the agent after the
 reply timeout, which is `resolveReplyTimeoutMs(options.replyTimeoutMs)`
