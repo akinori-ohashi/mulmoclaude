@@ -6,6 +6,8 @@ Guides for using MulmoClaude. No programming knowledge required.
 
 | Document                                                    | Language | Description                                             |
 | ----------------------------------------------------------- | -------- | ------------------------------------------------------- |
+| [コレクション ガイド](guide/ja/index.md)                     | 日本語   | コレクション（自分専用の小さなアプリ）の作り方・使い方・共有・スマホでの利用。[Web 版](https://receptron.github.io/mulmoclaude/guide/ja/) |
+| [Collections Guide](guide/en/index.md)                      | English  | Build, use and share collections — your own small apps. [Web version](https://receptron.github.io/mulmoclaude/guide/en/) |
 | [MulmoBridge ガイド](mulmobridge-guide.md)                  | 日本語   | メッセージアプリから自宅PCのAIと話す方法                |
 | [MulmoBridge Guide](mulmobridge-guide.en.md)                | English  | Connect messaging apps to your home PC's AI agent       |
 | [スケジューラー ガイド](scheduler-guide.md)                 | 日本語   | 定期実行される自動タスクの使い方                        |
