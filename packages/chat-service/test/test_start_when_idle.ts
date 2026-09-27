@@ -121,6 +121,18 @@ describe("startChatWhenIdle — session busy", () => {
     assert.equal(session.liveListeners(), 0);
   });
 
+  it("unsubscribes even when the finish is reported during subscription", async () => {
+    const session = fakeSession([BUSY, BUSY, STARTED]);
+    const subscribe = session.deps.onSessionEvent;
+    session.deps.onSessionEvent = (sessionId, listener) => {
+      const unsubscribe = subscribe(sessionId, listener);
+      listener({ type: EVENT_TYPES.sessionFinished });
+      return unsubscribe;
+    };
+    assert.deepEqual(await startChatWhenIdle(session.deps, PARAMS), STARTED);
+    assert.equal(session.liveListeners(), 0);
+  });
+
   it("releases the wait when the retry itself throws", async () => {
     const session = fakeSession([BUSY]);
     const failure = new Error("startChat blew up");

@@ -27,25 +27,24 @@ interface FinishWait {
 }
 
 function waitForSessionFinished(onSessionEvent: OnSessionEventFn, sessionId: string, timeoutMs: number): FinishWait {
-  const handles: { timer?: ReturnType<typeof setTimeout>; unsubscribe?: () => void } = {};
+  const handles: { timer?: ReturnType<typeof setTimeout>; unsubscribe?: () => void; settle?: (value: boolean) => void; done?: boolean } = {};
   const finished = new Promise<boolean>((resolve) => {
-    const settle = (value: boolean): void => {
+    handles.settle = (value: boolean): void => {
+      handles.done = true;
       clearTimeout(handles.timer);
       handles.unsubscribe?.();
       resolve(value);
     };
-    handles.timer = setTimeout(() => settle(false), timeoutMs);
-    handles.unsubscribe = onSessionEvent(sessionId, (event) => {
-      if (event.type === EVENT_TYPES.sessionFinished) settle(true);
-    });
   });
-  return {
-    finished,
-    cancel: () => {
-      clearTimeout(handles.timer);
-      handles.unsubscribe?.();
-    },
-  };
+  const settle = (value: boolean): void => handles.settle?.(value);
+  handles.timer = setTimeout(() => settle(false), timeoutMs);
+  handles.unsubscribe = onSessionEvent(sessionId, (event) => {
+    if (event.type === EVENT_TYPES.sessionFinished) settle(true);
+  });
+  // A listener fired during subscription settled before `unsubscribe` existed.
+  if (handles.done) handles.unsubscribe();
+  // A cancelled wait still settles, so nothing is left pending behind it.
+  return { finished, cancel: () => settle(false) };
 }
 
 async function retryWhenFinished(deps: IdleStartDeps, params: StartChatParams): Promise<IdleStartResult> {
