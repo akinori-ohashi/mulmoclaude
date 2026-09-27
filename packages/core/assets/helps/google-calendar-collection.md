@@ -162,7 +162,9 @@ To create an all-day event in a `datetime` column (a calendar that mixes timed
 and all-day events), write a **bare date** on both ends instead:
 `start: "2026-07-17"`, `end: "2026-07-18"`. A bare date is a valid `datetime`
 value, it is pushed as Google's `start.date` / `end.date`, and the record form
-edits it with a date picker. After the next sync it reads back as `…T00:00`
+edits it with a date picker. In the form, the **All day** checkbox beside a
+`datetime` field switches between the two shapes (checking drops the clock,
+unchecking starts the day at `00:00`), so the user can also do this by hand. After the next sync it reads back as `…T00:00`
 and stays all-day.
 
 For a calendar whose events are ALL all-day, give start/end a **`date`** column

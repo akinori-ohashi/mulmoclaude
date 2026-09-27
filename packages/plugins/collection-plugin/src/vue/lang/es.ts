@@ -72,6 +72,7 @@ const esMessages: CollectionMessages = {
     inlineSaveFailed: "No se pudo guardar el cambio: {error}",
     addRow: "Añadir fila",
     removeRow: "Quitar fila",
+    allDay: "Todo el día",
     noRows: "Aún no hay filas",
     tableSummary: "{count} elementos",
     embedMissing: "No se encontró el registro «{id}» en {collection}.",

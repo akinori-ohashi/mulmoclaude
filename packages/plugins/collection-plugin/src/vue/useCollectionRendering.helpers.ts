@@ -4,7 +4,7 @@
 // function of its arguments. The composable imports these and calls them
 // from inside its computed/watch closures; behaviour is identical.
 
-import { deriveAll, fieldText, isCanonicalServerTime, parseIsoDate } from "@mulmoclaude/core/collection";
+import { deriveAll, fieldText, isCanonicalServerTime, parseIsoDate, parseIsoDateTime } from "@mulmoclaude/core/collection";
 import type {
   CollectionDetailResponse,
   CollectionItem,
@@ -61,6 +61,23 @@ export function inputTypeFor(type: FieldType, value?: unknown): string {
   if (type === "date") return "date";
   if (type === "datetime") return dateTimeInputType(value);
   return "text";
+}
+
+/** Whether a `datetime` value is an all-day one (a bare `YYYY-MM-DD`). */
+export function isAllDayValue(value: unknown): boolean {
+  return parseIsoDate(value) !== null;
+}
+
+const ALL_DAY_TO_TIMED_CLOCK = "T00:00";
+const ISO_DATE_LENGTH = "YYYY-MM-DD".length;
+
+/** A `datetime` draft switched to or from all day. Checking keeps the date and
+ *  drops the clock; unchecking starts the day at midnight. Anything else — an
+ *  empty draft, a server-stamped instant, text that is not a date — is left as
+ *  it is, so the toggle never invents or destroys a value. */
+export function withAllDay(value: string, allDay: boolean): string {
+  if (allDay) return parseIsoDateTime(value) === null ? value : value.trim().slice(0, ISO_DATE_LENGTH);
+  return isAllDayValue(value) ? `${value.trim()}${ALL_DAY_TO_TIMED_CLOCK}` : value;
 }
 
 export function isExternalUrl(value: unknown): boolean {

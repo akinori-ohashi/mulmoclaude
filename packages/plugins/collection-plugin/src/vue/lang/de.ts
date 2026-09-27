@@ -72,6 +72,7 @@ const deMessages: CollectionMessages = {
     inlineSaveFailed: "Änderung konnte nicht gespeichert werden: {error}",
     addRow: "Zeile hinzufügen",
     removeRow: "Zeile entfernen",
+    allDay: "Ganztägig",
     noRows: "Noch keine Zeilen",
     tableSummary: "{count} Einträge",
     embedMissing: "Kein Datensatz {id} in {collection} gefunden.",
