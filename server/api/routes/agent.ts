@@ -288,15 +288,27 @@ export async function startChat(params: StartChatParams): Promise<StartChatResul
     extras = await prepareRequestExtras(persistedAttachments);
   } catch (err) {
     log.warn("agent", "attachment processing failed — rolling back run", { chatSessionId, error: errorMessage(err) });
-    abortController.abort();
-    endRun(chatSessionId);
+    rollBackRun(chatSessionId, abortController);
     return { kind: "error", error: "Invalid attachments payload", status: 400 };
   }
 
-  const validOrigin = await persistUserTurn(params, { isFirstTurn, attachedFiles });
-  await dispatchAgentRun(params, { extras, resultsFilePath, abortController, validOrigin });
+  // Same rollback for the session writes and the pre-launch reads: a throw here
+  // would otherwise leave the session "running" (409 on every turn) until restart.
+  try {
+    const validOrigin = await persistUserTurn(params, { isFirstTurn, attachedFiles });
+    await dispatchAgentRun(params, { extras, resultsFilePath, abortController, validOrigin });
+  } catch (err) {
+    log.error("agent", "starting the run failed — rolling back run", { chatSessionId, error: errorMessage(err) });
+    rollBackRun(chatSessionId, abortController);
+    return { kind: "error", error: "Failed to start the agent run", status: 500 };
+  }
 
   return { kind: "started", chatSessionId };
+}
+
+function rollBackRun(chatSessionId: string, abortController: AbortController): void {
+  abortController.abort();
+  endRun(chatSessionId);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
