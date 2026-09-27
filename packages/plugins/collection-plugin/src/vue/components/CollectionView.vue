@@ -951,8 +951,8 @@ const isFeedRoute = computed<boolean>(() => !embedded.value && cui.isFeedRoute()
 // the card's own `initialView` first; lacking that (a freshly-rendered
 // presentCollection card), they fall back to the same per-collection store
 // the standalone page uses, so a card also opens in the last-used view.
-// `CollectionViewMode` ("table" | "calendar" | "kanban" | "dashboard" |
-// `custom:<id>`) is imported from the view-mode util.
+// `CollectionViewMode` ("table" | "calendar" | "kanban" | `custom:<id>`) is
+// imported from the view-mode util.
 
 // The raw `view` ref + its init/restore live in `useViewMode` (created below,
 // once the field lists it gates on — hasCalendar / hasKanban / customViews —
