@@ -13,8 +13,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 A bridge message's reply limit is now counted from when the server received it, not from when its turn came up. Before,
 a message queued behind a long one in the same chat could still be running on the server after the bridge had given up
 (`timeout: no ack`), so its reply went nowhere. It now gets what is left of its limit; one whose limit runs out while
-queued is answered with "timed out before the agent could start" and is not run. Ships in `@mulmobridge/chat-service`'s next release
-and the next `mulmoclaude` release.
+queued is answered with "timed out before the agent could start" and is not run; a chat command still runs. Released as
+`@mulmobridge/chat-service@1.3.1`; reaches `npx mulmoclaude` users with the next `mulmoclaude` release.
 
 #### Credential renewal no longer spends Claude sessions in a loop (#3309)
 
@@ -25,6 +25,9 @@ with a `claude /login` hint and never renewed, a failing renewal waits before th
 and a server that cannot start without the user's action exits with a code `yarn dev` does not restart. When the Keychain
 holds more than one `Claude Code-credentials` item, the one under the user's login name is read as well and the usable
 one wins, instead of whichever a lookup by service name happens to return (`yarn sandbox:login` now uses the same selection).
+A renewal now counts as done when the Keychain holds a valid token, instead of when the CLI's reply matched an English
+greeting, so it works whatever language Claude answers in and stops the CLI as soon as the token is in. `yarn dev` also
+stops restarting a backend that crashed 10 times in 10 minutes, however long each run lasted.
 
 Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.4.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.6.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
 
