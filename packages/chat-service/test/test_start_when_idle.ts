@@ -121,6 +121,19 @@ describe("startChatWhenIdle — session busy", () => {
     assert.equal(session.liveListeners(), 0);
   });
 
+  it("releases the wait when the retry itself throws", async () => {
+    const session = fakeSession([BUSY]);
+    const failure = new Error("startChat blew up");
+    const answers = { calls: 0 };
+    session.deps.startChat = async () => {
+      answers.calls += 1;
+      if (answers.calls === 1) return BUSY;
+      throw failure;
+    };
+    await assert.rejects(startChatWhenIdle(session.deps, PARAMS), failure);
+    assert.equal(session.liveListeners(), 0, "no listener may outlive the failed call");
+  });
+
   it("waits again when another run took the session before the retry", async () => {
     // first try, retry after subscribing, retry after the first finish — all busy; the next one starts.
     const session = fakeSession([BUSY, BUSY, BUSY, STARTED]);

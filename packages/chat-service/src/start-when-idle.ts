@@ -54,7 +54,10 @@ async function retryWhenFinished(deps: IdleStartDeps, params: StartChatParams): 
   // Subscribe BEFORE trying again: a run that ends between the 409 and the
   // subscription would otherwise never be seen, and this would wait out the limit.
   const wait = waitForSessionFinished(deps.onSessionEvent, params.chatSessionId, remainingMs);
-  const retried = await deps.startChat(params);
+  const retried = await deps.startChat(params).catch((err: unknown) => {
+    wait.cancel();
+    throw err;
+  });
   if (!isBusy(retried)) {
     wait.cancel();
     return retried;
