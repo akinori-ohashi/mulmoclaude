@@ -852,15 +852,18 @@ async function readTextOrNull(filePath: string): Promise<string | null> {
 }
 
 /** Return the raw schema.json of an existing collection, for editing.
- *  Staging (the canonical writable copy) first, the active mirror as a
- *  fallback for user-scope skills that have no staging copy. Raw text —
+ *  A project collection's staging copy (the canonical writable one) first,
+ *  else the discovered skill dir's copy. Raw text —
  *  not the parsed schema — so the agent edits the true on-disk source. */
 async function handleGetSchema(slug: string, deps: ManageCollectionDeps): Promise<string> {
   const collection = await loadCollection(slug, deps);
   if (!collection) return unknownCollection(slug);
-  // Path from the discovered (sanitized) slug, never the raw arg.
+  // Path from the discovered (sanitized) slug, never the raw arg. Only a
+  // project collection is authored in the workspace staging tree; a same-slug
+  // staging file next to a user-scope collection belongs to something else.
   const { stagingDir } = authoringTarget(deps, collection.slug);
-  const staging = stagingDir === null ? null : await readTextOrNull(path.join(stagingDir, SCHEMA_FILE));
+  const hasStaging = stagingDir !== null && collection.source === "project";
+  const staging = hasStaging ? await readTextOrNull(path.join(stagingDir, SCHEMA_FILE)) : null;
   const active = await readTextOrNull(path.join(collection.skillDir, SCHEMA_FILE));
   return schemaReadReply(collection.slug, staging, active) ?? `manageCollection: '${defangForPrompt(slug)}' has no readable ${SCHEMA_FILE}.`;
 }

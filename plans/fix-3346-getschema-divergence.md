@@ -13,8 +13,10 @@ the new content — a schema the server is not running — with no hint of it.
 ## Fix
 
 - A: extract the reply into a pure helper,
-  `packages/core/src/collection/server/schemaReadReply.ts`. Same choice of copy
-  as before (staging, else active); when both are readable and differ, prefix a
+  `packages/core/src/collection/server/schemaReadReply.ts`. Staging, else
+  active, as before — but staging only for a project collection: a same-slug
+  `data/skills/<slug>/` next to a user-scope collection is not its authoring
+  copy, and `putSchema` refuses user scope anyway. When both are readable and differ, prefix a
   `manageCollection: NOTE` naming both paths and pointing at `putSchema`. The
   JSON follows after a blank line so it stays copyable. The unchanged case
   keeps returning bare JSON.
@@ -33,3 +35,6 @@ commands or sweeping after every Bash call; a separate design question.
 - `packages/core/test/collection/test_authoringCoherence.ts` — a real tmpdir
   root with staging written behind the mirror's back: getSchema flags it, and
   putSchema clears it.
+- `packages/core/test/collection/test_getSchemaUserScope.ts` — a user-scope
+  collection with a same-slug workspace staging file: getSchema returns the
+  collection's own schema, with no note.
