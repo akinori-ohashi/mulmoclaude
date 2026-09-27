@@ -8,6 +8,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-09-27
+
+**`npx mulmoclaude` installs on npm 12 again, a queued bridge message waits for the agent instead of being dropped, and a Google Calendar mirror can hold all-day events properly.**
+
+### Highlights
+
+#### `npx mulmoclaude` installs on npm 12 (#3316, PR #3317)
+
+npm 12 refuses a dependency declared as a remote tarball URL, and the launcher declared SheetJS (`xlsx`) that way,
+because SheetJS publishes its fixed versions only on its own CDN. So on npm 12 a fresh `npx mulmoclaude` failed with
+`EALLOWREMOTE` before anything ran. SheetJS CE 0.20.3 is now vendored under `server/vendor/sheetjs/` (byte-identical to
+the CDN file, with its Apache-2.0 license), and the launcher no longer declares `xlsx`, so npm 12 installs it with its
+default settings. `.xlsx` attachments are still read the same way, and the install no longer downloads the 2.4 MB SheetJS package.
+
 #### A bridge message sent while the agent is still busy waits instead of being dropped (#3320)
 
 When a bridge turn was cut off at its reply limit, its agent kept running, and the next message in that chat was refused
