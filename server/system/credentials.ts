@@ -1,15 +1,17 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { setTimeout as sleep } from "timers/promises";
 import { chmodSync, existsSync, readdirSync, statSync } from "fs";
 import { createRequire } from "module";
 import { userInfo } from "os";
 import { dirname, join } from "path";
 import { log } from "./logger/index.js";
-import { ONE_SECOND_MS } from "../utils/time.js";
+import { ONE_SECOND_MS, SUBPROCESS_PROBE_TIMEOUT_MS } from "../utils/time.js";
 import { writeFileAtomic } from "../utils/files/atomic.js";
 import { claudeCredentialsPath } from "../utils/claudeConfigPath.js";
 import { createCredentialsRefresher } from "./credentialsRefresh.js";
-import { pickCredentials } from "./credentialsState.js";
+import { classifyCredentials, pickCredentials } from "./credentialsState.js";
+import { pollUntil } from "../utils/pollUntil.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -18,29 +20,16 @@ const SPAWN_HELPER_EXEC_BITS = 0o111;
 const CREDENTIALS_PATH = claudeCredentialsPath();
 const KEYCHAIN_SERVICE = "Claude Code-credentials";
 
-/** Maximum time to wait for the claude CLI to respond. */
+/** Maximum time to wait for the renewed token to reach the Keychain. */
 const PTY_TIMEOUT_MS = 30 * ONE_SECOND_MS;
 /** Delay before sending input to the claude CLI. */
 const PTY_INPUT_DELAY_MS = 3 * ONE_SECOND_MS;
-
-// After the echo, only treat output as a successful renewal when it
-// looks like a real Claude response — a conversational opener
-// (Hello / Hi / I'm / …) AND a non-trivial amount of text. Error
-// chunks ("Please log in", "Invalid credentials", network blips)
-// don't match both conditions, so they fall through to the timeout and
-// we treat the renewal as failed. A final safety net: the Keychain is
-// re-read and re-classified before writing, so even a false positive
-// here can't persist a stale token.
-const RESPONSE_PATTERN_RE = /\b(Hello|Hi|I['’]m|I can|How can)\b/i;
-const MIN_RESPONSE_CHARS = 20;
-
-export function looksLikeClaudeResponse(text: string): boolean {
-  return RESPONSE_PATTERN_RE.test(text) && text.length >= MIN_RESPONSE_CHARS;
-}
+const RENEWAL_POLL_INTERVAL_MS = ONE_SECOND_MS;
 
 async function findKeychainPassword(lookupArgs: readonly string[]): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync("security", ["find-generic-password", ...lookupArgs, "-w"]);
+    // Bounded: a locked Keychain can hold `security` on a prompt, and the renewal's deadline depends on every read returning.
+    const { stdout } = await execFileAsync("security", ["find-generic-password", ...lookupArgs, "-w"], { timeout: SUBPROCESS_PROBE_TIMEOUT_MS });
     return stdout.trim() || null;
   } catch {
     return null;
@@ -65,83 +54,52 @@ export async function readFromKeychain(): Promise<string | null> {
   return pickCredentials(candidates, Date.now());
 }
 
+async function keychainHasValidToken(): Promise<boolean> {
+  const credentials = await readFromKeychain();
+  return credentials !== null && classifyCredentials(credentials, Date.now()).kind === "valid";
+}
+
+function spawnClaude(pty: typeof import("node-pty")): import("node-pty").IPty {
+  return pty.spawn("claude", [], { name: "xterm-color", cols: 80, rows: 30, cwd: process.cwd() });
+}
+
 /**
- * Spawn `claude` interactively via a PTY to force the CLI to refresh its
- * OAuth token. The CLI handles the refresh internally and writes the new
- * token back to the macOS Keychain.
+ * Spawn `claude` interactively via a PTY and send it a message: the API call
+ * that follows makes the CLI refresh its expired OAuth token and write it back
+ * to the macOS Keychain. Success is judged by the Keychain holding a valid
+ * token, not by the CLI's reply, so the reply's language does not matter and
+ * the CLI is stopped as soon as the token is in.
  */
-function awaitTokenRenewal(pty: typeof import("node-pty")): Promise<boolean> {
-  return new Promise((resolve) => {
-    const proc = pty.spawn("claude", [], {
-      name: "xterm-color",
-      cols: 80,
-      rows: 30,
-      cwd: process.cwd(),
-    });
-
-    let responded = false;
-    let buffer = "";
-    let settled = false;
-    // Mutual reference: `finish`'s body needs `timeout` (clearTimeout)
-    // and `timeout`'s callback needs `finish`. Predeclared with `let`
-    // and assigned exactly once below. `prefer-const` would prefer a
-    // direct `const timeout = setTimeout(...)` form, but that needs
-    // `finish` already in scope inside the callback, which then
-    // forces `clearTimeout(timeout)` inside `finish`'s body to
-    // reference an undefined-at-textual-position const — i.e. the
-    // chicken-and-egg pair has no const-only spelling. The actual
-    // value is single-write at runtime; lint heuristic disagrees.
-    // eslint-disable-next-line prefer-const -- mutual-reference pair, see comment above
-    let timeout: ReturnType<typeof setTimeout>;
-
-    const finish = (success: boolean) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      proc.kill();
-      resolve(success);
-    };
-
-    timeout = setTimeout(() => {
-      log.error("credentials", `Token renewal timed out after ${PTY_TIMEOUT_MS / ONE_SECOND_MS}s`);
-      finish(false);
-    }, PTY_TIMEOUT_MS);
-
-    // Match "hi" as a whole token so unrelated output containing those
-    // bytes (e.g. ANSI sequences, words like "This" or "high") can't
-    // false-positive the echo detection.
-    const ECHO_RE = /\bhi\b/;
-
-    let echoEndIdx = -1;
-
-    proc.onData((data: string) => {
-      buffer += data;
-
-      if (!responded) {
-        const match = ECHO_RE.exec(buffer);
-        if (match) {
-          // Claude echoed our "hi" — remember where the response
-          // window starts so the success check looks only at bytes
-          // that arrived AFTER the echo.
-          responded = true;
-          echoEndIdx = match.index + match[0].length;
-        }
-        return;
-      }
-
-      const response = buffer.slice(echoEndIdx);
-      if (looksLikeClaudeResponse(response)) {
-        finish(true);
-      }
-    });
-
-    // Wait for initial prompt before sending input
-    setTimeout(() => {
-      if (!settled) {
-        proc.write("hi\r");
-      }
-    }, PTY_INPUT_DELAY_MS);
+async function awaitTokenRenewal(pty: typeof import("node-pty")): Promise<boolean> {
+  const proc = spawnClaude(pty);
+  const state = { exited: false };
+  proc.onExit(() => {
+    state.exited = true;
   });
+  // Drain the output so a full PTY buffer cannot stall the CLI; its content is not needed.
+  proc.onData(() => {});
+  const promptTimer = setTimeout(() => {
+    if (!state.exited) proc.write("hi\r");
+  }, PTY_INPUT_DELAY_MS);
+  try {
+    const renewed = await pollUntil({
+      check: keychainHasValidToken,
+      shouldStop: () => state.exited,
+      timeoutMs: PTY_TIMEOUT_MS,
+      intervalMs: RENEWAL_POLL_INTERVAL_MS,
+      now: () => Date.now(),
+      sleep,
+    });
+    if (!renewed)
+      log.error(
+        "credentials",
+        state.exited ? "claude CLI exited before the Keychain token was renewed" : `Token renewal timed out after ${PTY_TIMEOUT_MS / ONE_SECOND_MS}s`,
+      );
+    return renewed;
+  } finally {
+    clearTimeout(promptTimer);
+    if (!state.exited) proc.kill();
+  }
 }
 
 /** node-pty's prebuilds directory, resolved from wherever it's installed

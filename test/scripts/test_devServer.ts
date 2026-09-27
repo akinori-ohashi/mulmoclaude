@@ -9,7 +9,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { crashHint, describeExit, restartPlan } from "../../scripts/dev-server.mjs";
+import { crashHint, describeExit, recentCrashTimes, restartPlan, tooManyRecentCrashes } from "../../scripts/dev-server.mjs";
 import { EXIT_CODE_NEEDS_USER_ACTION } from "../../server/utils/exit-codes.mjs";
 
 describe("restartPlan", () => {
@@ -66,6 +66,38 @@ describe("restartPlan — backend asks for user action", () => {
   it("uses a code distinct from a generic crash", () => {
     assert.notEqual(EXIT_CODE_NEEDS_USER_ACTION, 1);
     assert.notEqual(EXIT_CODE_NEEDS_USER_ACTION, 0);
+  });
+});
+
+describe("recentCrashTimes / tooManyRecentCrashes", () => {
+  const ONE_MINUTE_MS = 60_000;
+  const NOW_MS = 100 * ONE_MINUTE_MS;
+
+  function crashesEvery(intervalMs: number, count: number): number[] {
+    return Array.from({ length: count }, (_, index) => NOW_MS - (count - index) * intervalMs);
+  }
+
+  it("adds the current crash and keeps those inside the window", () => {
+    assert.deepEqual(recentCrashTimes([NOW_MS - 11 * ONE_MINUTE_MS, NOW_MS - ONE_MINUTE_MS], NOW_MS), [NOW_MS - ONE_MINUTE_MS, NOW_MS]);
+  });
+
+  it("drops a crash exactly one window old", () => {
+    assert.deepEqual(recentCrashTimes([NOW_MS - 10 * ONE_MINUTE_MS], NOW_MS), [NOW_MS]);
+  });
+
+  // #3309: a backend that died about 33 s in, every time, was restarted for days.
+  it("stops a loop of slow crashes that the fast-crash counter never sees", () => {
+    const recent = recentCrashTimes(crashesEvery(33_000, 9), NOW_MS);
+    assert.equal(tooManyRecentCrashes(recent), true);
+  });
+
+  it("keeps restarting a backend that crashes now and then", () => {
+    const recent = recentCrashTimes(crashesEvery(5 * ONE_MINUTE_MS, 9), NOW_MS);
+    assert.equal(tooManyRecentCrashes(recent), false);
+  });
+
+  it("allows one fewer crash than the limit inside the window", () => {
+    assert.equal(tooManyRecentCrashes(recentCrashTimes(crashesEvery(33_000, 8), NOW_MS)), false);
   });
 });
 
