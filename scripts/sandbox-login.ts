@@ -1,8 +1,9 @@
 // `yarn sandbox:login`: export the Claude Code login from the macOS Keychain to
-// ~/.claude/.credentials.json with the same item selection the server uses.
+// the Claude config dir's .credentials.json with the same item selection the server uses.
 
 import { readFromKeychain, writeCredentialsFile } from "../server/system/credentials.js";
 import { classifyCredentials } from "../server/system/credentialsState.js";
+import { claudeCredentialsPath } from "../server/utils/claudeConfigPath.js";
 
 async function main(): Promise<number> {
   const credentials = await readFromKeychain();
@@ -16,7 +17,7 @@ async function main(): Promise<number> {
     return 1;
   }
   await writeCredentialsFile(credentials);
-  console.log(`Credentials exported to ~/.claude/.credentials.json (token ${verdict.kind}).`);
+  console.log(`Credentials exported to ${claudeCredentialsPath()} (token ${verdict.kind}).`);
   return 0;
 }
 
