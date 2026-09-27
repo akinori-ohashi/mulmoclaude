@@ -18,6 +18,7 @@ import {
   recordSpan,
   spanOptionsFor,
   withExclusiveEnd,
+  endsAtDayBoundary,
   spanCoversDay,
   bucketRecords,
   daySlice,
@@ -283,10 +284,23 @@ describe("recordSpan — exclusive end", () => {
     assert.deepEqual([pulled?.end, pulled?.endMin], [d18, 0]);
   });
 
-  it("withExclusiveEnd keeps a span with no end field as it is", () => {
+  it("withExclusiveEnd keeps a span with no end value as it is", () => {
     const span = recordSpan({ s: "2026-09-17" }, "s", "e");
     assert.ok(span);
-    assert.deepEqual(withExclusiveEnd(span), span);
+    assert.deepEqual(withExclusiveEnd(span, undefined), span);
+  });
+
+  it("judges the boundary from the end field, not from a separate time column", () => {
+    // A bare-date end is all day even when a time column supplies a range.
+    const span = recordSpan({ s: "2026-09-17", e: "2026-09-18", t: "09:00-10:00" }, "s", "e", "t", exclusive);
+    assert.deepEqual([span?.end, span?.startMin, span?.endMin], [d17, 540, 600]);
+  });
+
+  it("does not treat a clock seconds past midnight as the day boundary", () => {
+    const span = recordSpan({ s: "2026-09-17T09:00", e: "2026-09-18T00:00:30" }, "s", "e", undefined, exclusive);
+    assert.deepEqual([span?.end, span?.endMin], [d18, 0]);
+    const exact = recordSpan({ s: "2026-09-17T09:00", e: "2026-09-18T00:00:00" }, "s", "e", undefined, exclusive);
+    assert.deepEqual([exact?.end, exact?.endMin], [d17, MINUTES_PER_DAY]);
   });
 
   it("puts an exclusive all-day event on one day of the day view", () => {
@@ -294,6 +308,15 @@ describe("recordSpan — exclusive end", () => {
     assert.ok(span);
     assert.equal(spanCoversDay(span, d18), false);
     assert.deepEqual(daySlice(span, d17), { kind: "block", startMin: 0, endMin: MINUTES_PER_DAY, bleedsBefore: false, bleedsAfter: false });
+  });
+});
+
+describe("endsAtDayBoundary", () => {
+  it("is true only for a bare date or a datetime at exactly 00:00", () => {
+    ["2026-09-18", "2026-09-18T00:00", "2026-09-18T00:00:00", " 2026-09-18T00:00 "].forEach((value) => assert.equal(endsAtDayBoundary(value), true, value));
+    ["2026-09-18T00:00:30", "2026-09-18T00:01", "2026-09-18T09:00", "2026-02-30", "2026-02-30T00:00", "", undefined, null, 0].forEach((value) =>
+      assert.equal(endsAtDayBoundary(value), false, String(value)),
+    );
   });
 });
 

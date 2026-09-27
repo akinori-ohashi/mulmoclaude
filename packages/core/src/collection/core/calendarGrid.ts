@@ -230,8 +230,12 @@ export function recordSpan<T extends Record<string, unknown>>(
   timeField?: string,
   options: SpanOptions = {},
 ): RecordSpan<T> | null {
-  const span = inclusiveRecordSpan(item, anchorField, endField, timeField);
-  return span && options.endExclusive ? withExclusiveEnd(span) : span;
+  const dated = dateSpan(item, anchorField, endField);
+  if (!dated) return null;
+  // The day boundary is judged from the end FIELD, before a separate time
+  // column can supply a clock the end field never had.
+  const bounded = options.endExclusive && endField !== undefined ? withExclusiveEnd(dated, item[endField]) : dated;
+  return withTimeFieldFallback(bounded, timeField ? item[timeField] : undefined);
 }
 
 /** How a collection reads its end field. */
@@ -249,40 +253,45 @@ export function spanOptionsFor(schema: { googleCalendar?: { map: Record<string, 
   return { endExclusive: mappedTo === "end" };
 }
 
-/** An exclusive end that falls at a day boundary — a bare date, or `00:00` of a
- *  later day — does not occupy that day, so the span stops on the day before.
- *  An end with any other clock does occupy its day and is left alone. */
-export function withExclusiveEnd<T>(span: RecordSpan<T>): RecordSpan<T> {
-  const endsAtDayBoundary = span.endMin === null || span.endMin === 0;
-  if (!endsAtDayBoundary || compareYmd(span.end, span.start) <= 0) return span;
+/** `…T00:00` or `…T00:00:00` — midnight to the second. `timeOf` keeps minutes
+ *  only, so `…T00:00:30` would otherwise read as midnight too. */
+const MIDNIGHT_CLOCK_RE = /T00:00(?::00)?$/;
+
+/** Whether an end value names the very start of its day: a bare date, or a
+ *  datetime at exactly `00:00`. */
+export function endsAtDayBoundary(endRaw: unknown): boolean {
+  if (parseIsoDate(endRaw) !== null) return true;
+  return typeof endRaw === "string" && parseIsoDateTime(endRaw) !== null && MIDNIGHT_CLOCK_RE.test(endRaw.trim());
+}
+
+/** An exclusive end that falls at a day boundary on a later day does not
+ *  occupy that day, so the span stops on the day before. An end with any other
+ *  clock does occupy its day and is left alone. `endRaw` is the end field's
+ *  own value — the span may already carry a clock from elsewhere. */
+export function withExclusiveEnd<T>(span: RecordSpan<T>, endRaw: unknown): RecordSpan<T> {
+  if (!endsAtDayBoundary(endRaw) || compareYmd(span.end, span.start) <= 0) return span;
   const end = utcMsToYmd(ymdToUtcMs(span.end) - MS_PER_DAY);
   return { ...span, end, endMin: span.endMin === 0 ? MINUTES_PER_DAY : null };
 }
 
-function inclusiveRecordSpan<T extends Record<string, unknown>>(item: T, anchorField: string, endField?: string, timeField?: string): RecordSpan<T> | null {
+/** The span the date fields alone describe: an end that is missing, invalid,
+ *  or earlier than the start collapses to the start day. */
+function dateSpan<T extends Record<string, unknown>>(item: T, anchorField: string, endField?: string): RecordSpan<T> | null {
   const startRaw = item[anchorField];
   const start = dateOf(startRaw);
   if (!start) return null;
-  let end = start;
-  let startMin = timeOf(startRaw);
-  let endMin: number | null = null;
-  if (endField) {
-    const endRaw = item[endField];
-    const parsedEnd = dateOf(endRaw);
-    if (parsedEnd && compareYmd(parsedEnd, start) >= 0) {
-      end = parsedEnd;
-      endMin = timeOf(endRaw);
-    }
-  }
-  // Fall back to a separate time-string field only when the date fields
-  // carried no clock (the date-only anchor + `time` column shape).
-  if (timeField && startMin === null && endMin === null) {
-    const range = parseTimeRange(item[timeField]);
-    if (range) {
-      ({ startMin, endMin } = range);
-    }
-  }
-  return { item, start, end, startMin, endMin };
+  const endRaw = endField ? item[endField] : undefined;
+  const parsedEnd = dateOf(endRaw);
+  const usableEnd = parsedEnd !== null && compareYmd(parsedEnd, start) >= 0 ? parsedEnd : null;
+  return { item, start, end: usableEnd ?? start, startMin: timeOf(startRaw), endMin: usableEnd ? timeOf(endRaw) : null };
+}
+
+/** Fall back to a separate time-string field only when the date fields
+ *  carried no clock (the date-only anchor + `time` column shape). */
+function withTimeFieldFallback<T>(span: RecordSpan<T>, timeValue: unknown): RecordSpan<T> {
+  if (span.startMin !== null || span.endMin !== null) return span;
+  const range = parseTimeRange(timeValue);
+  return range ? { ...span, startMin: range.startMin, endMin: range.endMin } : span;
 }
 
 /** Split records into those that land on the calendar (with their spans)
