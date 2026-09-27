@@ -27,3 +27,9 @@ export declare function describeExit(code: number | null, signal: NodeJS.Signals
 
 /** Trailing hint naming the likely cause of a signal-only exit; "" when there is none. */
 export declare function crashHint(signal: NodeJS.Signals | null): string;
+
+/** The crash times still inside the recent window, including one at `nowMs`. */
+export declare function recentCrashTimes(crashTimesMs: readonly number[], nowMs: number): number[];
+
+/** Whether the backend has crashed too often lately to keep restarting it. */
+export declare function tooManyRecentCrashes(recentCrashTimesMs: readonly number[]): boolean;
