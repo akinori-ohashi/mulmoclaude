@@ -296,6 +296,14 @@ describe("recordSpan — exclusive end", () => {
     assert.deepEqual([span?.end, span?.startMin, span?.endMin], [d17, 540, 600]);
   });
 
+  it("runs a timed start with a bare-date end to 24:00 of its last day", () => {
+    // A mirror whose `start` is a datetime field and whose `end` is a date field.
+    const span = recordSpan({ s: "2026-09-17T09:00", e: "2026-09-18" }, "s", "e", undefined, exclusive);
+    assert.deepEqual([span?.end, span?.startMin, span?.endMin], [d17, 540, MINUTES_PER_DAY]);
+    assert.ok(span);
+    assert.equal(daySlice(span, d17)?.kind, "block");
+  });
+
   it("does not treat a clock seconds past midnight as the day boundary", () => {
     const span = recordSpan({ s: "2026-09-17T09:00", e: "2026-09-18T00:00:30" }, "s", "e", undefined, exclusive);
     assert.deepEqual([span?.end, span?.endMin], [d18, 0]);

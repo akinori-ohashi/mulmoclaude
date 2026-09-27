@@ -271,7 +271,10 @@ export function endsAtDayBoundary(endRaw: unknown): boolean {
 export function withExclusiveEnd<T>(span: RecordSpan<T>, endRaw: unknown): RecordSpan<T> {
   if (!endsAtDayBoundary(endRaw) || compareYmd(span.end, span.start) <= 0) return span;
   const end = utcMsToYmd(ymdToUtcMs(span.end) - MS_PER_DAY);
-  return { ...span, end, endMin: span.endMin === 0 ? MINUTES_PER_DAY : null };
+  // A clocked span runs to the end of its new last day; a clock-less one stays
+  // all day. The start decides too: a `datetime` start with a bare `date` end.
+  const clocked = span.endMin === 0 || span.startMin !== null;
+  return { ...span, end, endMin: clocked ? MINUTES_PER_DAY : null };
 }
 
 /** The span the date fields alone describe: an end that is missing, invalid,
