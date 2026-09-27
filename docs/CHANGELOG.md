@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Highlights
+
+#### `getSchema` says when a collection's schema was changed but not applied (#3346, PR #3347)
+
+A `schema.json` changed with Bash or a script is not copied to the place the server reads it from, so the collection kept
+its old schema while `getSchema` showed the new one, with no hint that they differed. `getSchema` now says so and points
+at `putSchema`, which applies it. The error-recovery guide covers the same case.
+
+Ships `@mulmoclaude/core@5.7.1`.
+
 ## [1.26.1] - 2026-09-28
 
 **A chat that failed to start no longer stays "running" until restart, and pinned collection shortcuts keep their colour across app starts.**
