@@ -8,6 +8,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [1.26.1] - 2026-09-28
+
+**A chat that failed to start no longer stays "running" until restart, and pinned collection shortcuts keep their colour across app starts.**
+
+### Highlights
+
+#### A chat that fails to start is released again (#3337, PR #3343)
+
+If saving the user's message or reading the session failed right after a chat turn was accepted (for example a disk
+write error), the chat stayed marked as running. Every later message to it was refused with "Session is already
+running" in the web UI, and bridges waited out their reply limit, until the server was restarted. The turn is now
+rolled back and answered with an error, so the next message runs normally.
+
+#### Pinned collection shortcuts keep their accent colour (#3340, PR #3344)
+
+A pinned collection shortcut lost its accent colour on every app start and got it back only after the Collections
+index was opened. The startup refresh now keeps it.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.7.0`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ## [1.26.0] - 2026-09-27
 
 **`npx mulmoclaude` installs on npm 12 again, a queued bridge message waits for the agent instead of being dropped, and a Google Calendar mirror can hold all-day events properly.**
