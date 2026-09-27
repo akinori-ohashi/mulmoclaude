@@ -3,7 +3,7 @@
 // the start of collection let a turn queued behind a long one outlive the
 // client's wait, and its reply went nowhere.
 
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { EVENT_TYPES } from "@mulmobridge/protocol";
 import { createRelay } from "../src/relay.ts";
@@ -23,7 +23,7 @@ function makeStore(stateReadDelayMs: number): ChatStateStore {
   };
   return {
     getChatState: async () => {
-      await new Promise((resolve) => setTimeout(resolve, stateReadDelayMs));
+      if (stateReadDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, stateReadDelayMs));
       return state;
     },
     setChatState: async () => {},
@@ -44,7 +44,7 @@ const COMMAND_REPLY = "command handled";
 
 /** Each agent turn streams "turn-<n>" and then finishes after `finishAfterMs[n]`, or never.
  *  A message whose text is "/cmd" is a command that answers without reaching the agent. */
-function makeHarness(finishAfterMs: (number | undefined)[], stateReadDelayMs = 0): Harness {
+function makeHarness(finishAfterMs: (number | undefined)[], stateReadDelayMs = 0, now?: () => number): Harness {
   const listeners: SessionEventListener[] = [];
   const calls = { startChat: 0 };
   const onSessionEvent: OnSessionEventFn = (_sessionId, listener) => {
@@ -66,6 +66,7 @@ function makeHarness(finishAfterMs: (number | undefined)[], stateReadDelayMs = 0
     getRole: (id) => ({ id, name: id }),
     defaultRoleId: "general",
     logger: silentLogger,
+    ...(now ? { now } : {}),
   };
   const relayMessage = createRelay(deps);
   return {
@@ -76,29 +77,45 @@ function makeHarness(finishAfterMs: (number | undefined)[], stateReadDelayMs = 0
   };
 }
 
-async function timed(turn: Promise<RelayResult>): Promise<{ result: RelayResult; elapsedMs: number }> {
-  const startedAt = Date.now();
-  const result = await turn;
-  return { result, elapsedMs: Date.now() - startedAt };
+/** Lets every promise chain the last tick released run to its next timer. */
+async function settle(): Promise<void> {
+  const ROUNDS = 10;
+  for (let round = 0; round < ROUNDS; round += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+async function advance(ms: number): Promise<void> {
+  mock.timers.tick(ms);
+  await settle();
 }
 
 describe("relay — a queued turn's limit counts from receipt", () => {
   it("a turn queued behind a finishing one gets only what is left of its limit", async () => {
     const LIMIT_MS = 400;
     const FIRST_TURN_MS = 300;
-    // Counted from the start of collection, the second turn would run until FIRST_TURN_MS + LIMIT_MS.
-    const COUNTED_FROM_COLLECTION_MS = FIRST_TURN_MS + LIMIT_MS;
-    const harness = makeHarness([FIRST_TURN_MS, undefined]);
+    // The clock is mocked: every timer, and the relay's own clock, move only when the test ticks.
+    mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    const harness = makeHarness([FIRST_TURN_MS, undefined], 0, () => Date.now());
+    const outcome: { second?: RelayResult } = {};
+    const first = harness.send(LIMIT_MS);
+    const second = harness.send(LIMIT_MS).then((result) => {
+      outcome.second = result;
+    });
     try {
-      const first = harness.send(LIMIT_MS);
-      const second = timed(harness.send(LIMIT_MS));
+      await settle();
+      await advance(FIRST_TURN_MS);
       assert.deepEqual(await first, { kind: "ok", reply: "turn-0" });
-      const { result, elapsedMs } = await second;
-      assert.deepEqual(result, { kind: "ok", reply: "turn-1" });
-      assert.ok(elapsedMs < (LIMIT_MS + COUNTED_FROM_COLLECTION_MS) / 2, `second turn settled after ${elapsedMs} ms`);
+      await settle();
+
+      await advance(LIMIT_MS - FIRST_TURN_MS - 1);
+      assert.equal(outcome.second, undefined, "the second turn gave up before its limit");
+      // Counted from the start of collection, it would keep running until FIRST_TURN_MS + LIMIT_MS.
+      await advance(1);
+      assert.deepEqual(outcome.second, { kind: "ok", reply: "turn-1" });
       assert.equal(harness.startChatCalls(), 2);
     } finally {
       harness.finishAll();
+      mock.timers.reset();
+      await second;
     }
   });
 

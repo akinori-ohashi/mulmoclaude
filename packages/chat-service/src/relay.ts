@@ -45,6 +45,8 @@ export interface RelayDeps {
   getRole: (roleId: string) => Role;
   defaultRoleId: string;
   logger: Logger;
+  /** Monotonic milliseconds for the reply limit. Defaults to `performance.now()`. */
+  now?: () => number;
 }
 
 // ── Factory ──────────────────────────────────────────────────
@@ -59,7 +61,7 @@ export function createRelay(deps: RelayDeps): RelayFn {
     // JSON pair is an unambiguous composite key for the two ids.
     const key = JSON.stringify([params.transportId, params.externalChatId]);
     const budget: ReplyBudget = {
-      receivedAtMs: performance.now(),
+      receivedAtMs: clockOf(deps)(),
       replyTimeoutMs: resolveBridgeReplyTimeout(params.bridgeOptions, deps.logger, params.transportId),
     };
     return serialize.run(key, () => processRelayMessage(deps, params, budget));
@@ -75,8 +77,10 @@ interface ReplyBudget {
 // Neutral about the cause: a queue behind an earlier message, or slow setup on an idle chat.
 const EXPIRED_BEFORE_START_REPLY = "The request timed out before the agent could start on it. Please send it again.";
 
-// Monotonic, so a wall-clock step between receipt and processing cannot stretch or shrink the limit.
-const remainingOf = (budget: ReplyBudget): number => remainingReplyMs(budget.receivedAtMs, budget.replyTimeoutMs, performance.now());
+// Monotonic by default, so a wall-clock step between receipt and processing cannot move the limit.
+const clockOf = (deps: RelayDeps): (() => number) => deps.now ?? (() => performance.now());
+
+const remainingOf = (budget: ReplyBudget, deps: RelayDeps): number => remainingReplyMs(budget.receivedAtMs, budget.replyTimeoutMs, clockOf(deps)());
 
 async function processRelayMessage(deps: RelayDeps, params: RelayParams, budget: ReplyBudget): Promise<RelayResult> {
   const { store, handleCommand, startChat, onSessionEvent, getRole, defaultRoleId, logger } = deps;
@@ -123,7 +127,7 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams, budget:
 
   // Checked here, not on entry: a command above still runs and answers at once, but an agent turn
   // started after the limit would produce a reply nobody is waiting for.
-  if (remainingOf(budget) === 0) {
+  if (remainingOf(budget, deps) === 0) {
     logger.info("chat-service", "message expired before its turn started", { transportId, externalChatId });
     return { kind: "ok", reply: EXPIRED_BEFORE_START_REPLY };
   }
@@ -164,7 +168,7 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams, budget:
   }
 
   try {
-    const reply = await collectAgentReply(onSessionEvent, chatState.sessionId, remainingOf(budget), params.onChunk);
+    const reply = await collectAgentReply(onSessionEvent, chatState.sessionId, remainingOf(budget, deps), params.onChunk);
     await store.setChatState(transportId, {
       ...chatState,
       updatedAt: new Date().toISOString(),
