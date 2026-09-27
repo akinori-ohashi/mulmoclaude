@@ -37,7 +37,22 @@ A renewal now counts as done when the Keychain holds a valid token, instead of w
 greeting, so it works whatever language Claude answers in and stops the CLI as soon as the token is in. `yarn dev` also
 stops restarting a backend that crashed 10 times in 10 minutes, however long each run lasted.
 
-Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.4.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.6.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+#### A Google Calendar mirror's all-day event no longer spills onto the next day (#3323)
+
+Google's all-day `end` is exclusive (a one-day event on the 17th ends on the 18th), but the calendar drew a record through
+its end date inclusively, so a mirrored or locally created all-day event also covered the next day. In a collection with a
+`googleCalendar` block, the field mapped to `end` is now read as exclusive at a day boundary: an end that is a bare date or
+exactly `00:00` stops the span on the day before, running to 24:00 when it carries a clock. Plain collections keep an
+inclusive end date, and no stored value changes. Released as `@mulmoclaude/core@5.7.0` / `@mulmoclaude/collection-plugin@5.5.0`.
+
+#### An All day checkbox for datetime fields (#3324)
+
+The record form now has an **All day** checkbox beside each `datetime` field. Checking it drops the clock (`2026-09-28`,
+pushed to Google as an all-day event); unchecking starts the day at `00:00`. A new record can be ticked before a date is
+picked, so an all-day event can be created from the calendar's Add button. A value that is not a real date cannot be
+switched. Released as `@mulmoclaude/collection-plugin@5.5.0`.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.7.0`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [1.25.0] - 2026-09-27
 
