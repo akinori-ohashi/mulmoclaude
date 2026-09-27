@@ -31,6 +31,7 @@ const MEETINGS = {
   items: [
     { id: "offsite", name: "Offsite", at: ALL_DAY, slots: [{ when: ALL_DAY }] },
     { id: "standup", name: "Standup", at: "2026-09-28T09:30", slots: [{ when: "2026-09-28T09:30" }] },
+    { id: "broken", name: "Broken", at: "2026-02-30T10:00" },
   ],
 };
 
@@ -67,5 +68,49 @@ test.describe("datetime field holding an all-day bare date", () => {
     await openEditor(page, "standup");
     await expect(page.getByTestId("collections-input-at")).toHaveAttribute("type", "datetime-local");
     await expect(page.getByTestId("collections-table-slots").locator("input").first()).toHaveAttribute("type", "datetime-local");
+  });
+  test("the All day checkbox switches a draft between a timed value and a bare date", async ({ page }) => {
+    await openEditor(page, "standup");
+    const input = page.getByTestId("collections-input-at");
+    const allDay = page.getByTestId("collections-all-day-at");
+    await expect(allDay).not.toBeChecked();
+
+    await allDay.check();
+    await expect(input).toHaveAttribute("type", "date");
+    await expect(input).toHaveValue(ALL_DAY);
+
+    await allDay.uncheck();
+    await expect(input).toHaveAttribute("type", "datetime-local");
+    await expect(input).toHaveValue(`${ALL_DAY}T00:00`);
+  });
+
+  test("a new record can start all day before a date is picked", async ({ page }) => {
+    await page.goto("/collections/meetings");
+    await page.getByTestId("collections-add-item").click();
+    const input = page.getByTestId("collections-input-at");
+    await expect(input).toHaveAttribute("type", "datetime-local");
+    await page.getByTestId("collections-all-day-at").check();
+    await expect(input).toHaveAttribute("type", "date");
+    await input.fill(ALL_DAY);
+    await expect(input).toHaveValue(ALL_DAY);
+    await expect(page.getByTestId("collections-all-day-at")).toBeChecked();
+  });
+  test("saving after ticking All day sends the bare date", async ({ page }) => {
+    await page.route(
+      (url) => url.pathname === "/api/collections/meetings/items/standup",
+      (route) => route.fulfill({ json: { item: { ...MEETINGS.items[1], at: ALL_DAY } } }),
+    );
+    await openEditor(page, "standup");
+    await page.getByTestId("collections-all-day-at").check();
+    const saved = page.waitForRequest((request) => request.method() === "PUT" && new URL(request.url()).pathname === "/api/collections/meetings/items/standup");
+    await page.getByTestId("collections-editor-save").click();
+    expect(JSON.stringify((await saved).postDataJSON())).toContain(`"at":"${ALL_DAY}"`);
+  });
+  test("refuses All day for a value the date picker cannot hold", async ({ page }) => {
+    await openEditor(page, "broken");
+    const allDay = page.getByTestId("collections-all-day-at");
+    await allDay.click();
+    await expect(allDay).not.toBeChecked();
+    await expect(page.getByTestId("collections-input-at")).toHaveAttribute("type", "datetime-local");
   });
 });

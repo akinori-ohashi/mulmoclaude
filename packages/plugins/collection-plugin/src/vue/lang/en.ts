@@ -69,6 +69,7 @@ const enMessages = {
     inlineSaveFailed: "Couldn't save change: {error}",
     addRow: "Add row",
     removeRow: "Remove row",
+    allDay: "All day",
     noRows: "No rows yet",
     tableSummary: "{count} items",
     embedMissing: "No “{id}” record found in {collection}.",

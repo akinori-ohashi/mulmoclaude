@@ -26,6 +26,9 @@ import {
   formatMoney,
   hasTableRows,
   inputTypeFor,
+  isAllDayValue,
+  withAllDay,
+  canSwitchToAllDay,
   isExternalUrl,
   isServerStamped,
   resolveCurrency,
@@ -305,5 +308,40 @@ describe("buildEmbedOptions", () => {
   });
   it("returns an empty array for no items", () => {
     assert.deepEqual(buildEmbedOptions(makeSchema({ id: field("text") }), []), []);
+  });
+});
+
+describe("All day toggle", () => {
+  it("recognises only a real bare date as all day", () => {
+    assert.equal(isAllDayValue("2026-09-28"), true);
+    assert.equal(isAllDayValue("2026-09-28T09:30"), false);
+    assert.equal(isAllDayValue("2026-02-30"), false);
+    assert.equal(isAllDayValue(""), false);
+    assert.equal(isAllDayValue(undefined), false);
+  });
+
+  it("drops the clock when checked and restores midnight when unchecked", () => {
+    assert.equal(withAllDay("2026-09-28T09:30", true), "2026-09-28");
+    assert.equal(withAllDay("2026-09-28T09:30:15", true), "2026-09-28");
+    assert.equal(withAllDay("2026-09-28", false), "2026-09-28T00:00");
+    assert.equal(withAllDay(withAllDay("2026-09-28T00:00", true), false), "2026-09-28T00:00");
+  });
+
+  it("is idempotent in each direction", () => {
+    assert.equal(withAllDay("2026-09-28", true), "2026-09-28");
+    assert.equal(withAllDay("2026-09-28T09:30", false), "2026-09-28T09:30");
+  });
+
+  it("never invents or destroys a value it cannot read", () => {
+    const stamped = "2026-08-15T01:45:54.605987654Z";
+    ["", "not a date", stamped, "2026-02-30T10:00"].forEach((value) => {
+      assert.equal(withAllDay(value, true), value);
+      assert.equal(withAllDay(value, false), value);
+    });
+  });
+
+  it("allows switching to all day only for an empty draft or one that becomes a real date", () => {
+    ["", "  ", "2026-09-28", "2026-09-28T09:30", "2026-09-28T09:30:15"].forEach((value) => assert.equal(canSwitchToAllDay(value), true, value));
+    ["2026-02-30T10:00", "not a date", "2026-08-15T01:45:54.605987654Z"].forEach((value) => assert.equal(canSwitchToAllDay(value), false, value));
   });
 });

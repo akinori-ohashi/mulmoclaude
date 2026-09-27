@@ -71,6 +71,7 @@ const jaMessages: CollectionMessages = {
     inlineSaveFailed: "変更を保存できませんでした: {error}",
     addRow: "行を追加",
     removeRow: "行を削除",
+    allDay: "終日",
     noRows: "行がありません",
     tableSummary: "{count}件",
     embedMissing: "{collection} に「{id}」のレコードが見つかりません。",
