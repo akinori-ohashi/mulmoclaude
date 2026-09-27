@@ -223,7 +223,43 @@ export function buildMonthGrid(year: number, month: number, weekStartsOn = 0): D
  *    1. the clock on a `datetime` anchor/end value, else
  *    2. `timeField` — a separate free-form time-string column (e.g. "14:00-17:00").
  *  A record with no resolvable clock has `startMin === endMin === null`. */
-export function recordSpan<T extends Record<string, unknown>>(item: T, anchorField: string, endField?: string, timeField?: string): RecordSpan<T> | null {
+export function recordSpan<T extends Record<string, unknown>>(
+  item: T,
+  anchorField: string,
+  endField?: string,
+  timeField?: string,
+  options: SpanOptions = {},
+): RecordSpan<T> | null {
+  const span = inclusiveRecordSpan(item, anchorField, endField, timeField);
+  return span && options.endExclusive ? withExclusiveEnd(span) : span;
+}
+
+/** How a collection reads its end field. */
+export interface SpanOptions {
+  /** The end names the first moment AFTER the record, as Google Calendar's
+   *  `end` does: an all-day event on the 17th ends on the 18th. */
+  endExclusive?: boolean;
+}
+
+/** The span options a collection's calendar uses for `endField`. Only a
+ *  Google Calendar mirror reads its end as exclusive — the field its sync maps
+ *  to `end` — because a plain collection may mean its end date inclusively. */
+export function spanOptionsFor(schema: { googleCalendar?: { map: Record<string, string> } | undefined }, endField: string | undefined): SpanOptions {
+  const mappedTo = endField === undefined ? undefined : schema.googleCalendar?.map[endField];
+  return { endExclusive: mappedTo === "end" };
+}
+
+/** An exclusive end that falls at a day boundary — a bare date, or `00:00` of a
+ *  later day — does not occupy that day, so the span stops on the day before.
+ *  An end with any other clock does occupy its day and is left alone. */
+export function withExclusiveEnd<T>(span: RecordSpan<T>): RecordSpan<T> {
+  const endsAtDayBoundary = span.endMin === null || span.endMin === 0;
+  if (!endsAtDayBoundary || compareYmd(span.end, span.start) <= 0) return span;
+  const end = utcMsToYmd(ymdToUtcMs(span.end) - MS_PER_DAY);
+  return { ...span, end, endMin: span.endMin === 0 ? MINUTES_PER_DAY : null };
+}
+
+function inclusiveRecordSpan<T extends Record<string, unknown>>(item: T, anchorField: string, endField?: string, timeField?: string): RecordSpan<T> | null {
   const startRaw = item[anchorField];
   const start = dateOf(startRaw);
   if (!start) return null;
@@ -257,11 +293,12 @@ export function bucketRecords<T extends Record<string, unknown>>(
   anchorField: string,
   endField?: string,
   timeField?: string,
+  options: SpanOptions = {},
 ): { spans: RecordSpan<T>[]; noDate: T[] } {
   const spans: RecordSpan<T>[] = [];
   const noDate: T[] = [];
   for (const item of items) {
-    const span = recordSpan(item, anchorField, endField, timeField);
+    const span = recordSpan(item, anchorField, endField, timeField, options);
     if (span) spans.push(span);
     else noDate.push(item);
   }

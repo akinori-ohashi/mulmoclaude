@@ -16,6 +16,8 @@ import {
   compareYmd,
   buildMonthGrid,
   recordSpan,
+  spanOptionsFor,
+  withExclusiveEnd,
   spanCoversDay,
   bucketRecords,
   daySlice,
@@ -237,6 +239,76 @@ describe("recordSpan — times", () => {
     const span = recordSpan({ date: "2026-06-12", time: "17:00-" }, "date", undefined, "time");
     assert.equal(span?.startMin, 1020);
     assert.equal(span?.endMin, null);
+  });
+});
+
+// A Google Calendar mirror's end is exclusive: an all-day event on the 17th
+// ends on the 18th (#3323). A plain collection's end stays inclusive.
+describe("recordSpan — exclusive end", () => {
+  const exclusive = { endExclusive: true };
+  const d17 = { year: 2026, month: 9, day: 17 };
+  const d18 = { year: 2026, month: 9, day: 18 };
+
+  it("stops an all-day bare-date span on the day before its end", () => {
+    const span = recordSpan({ s: "2026-09-17", e: "2026-09-18" }, "s", "e", undefined, exclusive);
+    assert.deepEqual([span?.start, span?.end, span?.startMin, span?.endMin], [d17, d17, null, null]);
+  });
+
+  it("stops a pulled all-day span (…T00:00 → next …T00:00) on the day before, ending at 24:00", () => {
+    const span = recordSpan({ s: "2026-09-17T00:00", e: "2026-09-18T00:00" }, "s", "e", undefined, exclusive);
+    assert.deepEqual([span?.end, span?.startMin, span?.endMin], [d17, 0, MINUTES_PER_DAY]);
+  });
+
+  it("keeps a multi-day all-day span one day short of its end", () => {
+    const span = recordSpan({ s: "2026-09-17", e: "2026-09-20" }, "s", "e", undefined, exclusive);
+    assert.deepEqual(span?.end, { year: 2026, month: 9, day: 19 });
+  });
+
+  it("leaves an end with a clock after midnight on its own day", () => {
+    const span = recordSpan({ s: "2026-09-17T22:00", e: "2026-09-18T01:30" }, "s", "e", undefined, exclusive);
+    assert.deepEqual([span?.end, span?.endMin], [d18, 90]);
+  });
+
+  it("leaves a same-day end alone, even at midnight", () => {
+    const bare = recordSpan({ s: "2026-09-17", e: "2026-09-17" }, "s", "e", undefined, exclusive);
+    assert.deepEqual(bare?.end, d17);
+    const midnight = recordSpan({ s: "2026-09-17T00:00", e: "2026-09-17T00:00" }, "s", "e", undefined, exclusive);
+    assert.deepEqual([midnight?.end, midnight?.endMin], [d17, 0]);
+  });
+
+  it("is inclusive without the option (a plain collection is unchanged)", () => {
+    const span = recordSpan({ s: "2026-09-17", e: "2026-09-18" }, "s", "e");
+    assert.deepEqual(span?.end, d18);
+    const pulled = recordSpan({ s: "2026-09-17T00:00", e: "2026-09-18T00:00" }, "s", "e");
+    assert.deepEqual([pulled?.end, pulled?.endMin], [d18, 0]);
+  });
+
+  it("withExclusiveEnd keeps a span with no end field as it is", () => {
+    const span = recordSpan({ s: "2026-09-17" }, "s", "e");
+    assert.ok(span);
+    assert.deepEqual(withExclusiveEnd(span), span);
+  });
+
+  it("puts an exclusive all-day event on one day of the day view", () => {
+    const span = recordSpan({ s: "2026-09-17T00:00", e: "2026-09-18T00:00" }, "s", "e", undefined, exclusive);
+    assert.ok(span);
+    assert.equal(spanCoversDay(span, d18), false);
+    assert.deepEqual(daySlice(span, d17), { kind: "block", startMin: 0, endMin: MINUTES_PER_DAY, bleedsBefore: false, bleedsAfter: false });
+  });
+});
+
+describe("spanOptionsFor", () => {
+  const google = { googleCalendar: { map: { start: "start", end: "end", title: "summary" } } };
+
+  it("reads the end as exclusive only for the field a Google sync maps to end", () => {
+    assert.deepEqual(spanOptionsFor(google, "end"), { endExclusive: true });
+    assert.deepEqual(spanOptionsFor(google, "start"), { endExclusive: false });
+    assert.deepEqual(spanOptionsFor(google, "title"), { endExclusive: false });
+  });
+
+  it("keeps the end inclusive without a Google sync or without an end field", () => {
+    assert.deepEqual(spanOptionsFor({}, "end"), { endExclusive: false });
+    assert.deepEqual(spanOptionsFor(google, undefined), { endExclusive: false });
   });
 });
 

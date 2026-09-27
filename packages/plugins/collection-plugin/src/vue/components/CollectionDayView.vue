@@ -117,6 +117,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useCollectionI18n } from "../lang";
 import {
   bucketRecords,
+  spanOptionsFor,
   daySlice,
   assignLanes,
   ymdKey,
@@ -227,7 +228,7 @@ function colorOf(item: CollectionItem): EnumColorClasses | null {
 
 // Every record whose span covers this day, projected onto it.
 const dayEntries = computed<DayEntry[]>(() => {
-  const { spans } = bucketRecords(props.items, props.anchorField, props.endField, props.timeField);
+  const { spans } = bucketRecords(props.items, props.anchorField, props.endField, props.timeField, spanOptionsFor(props.schema, props.endField));
   const entries: DayEntry[] = [];
   for (const span of spans) {
     const slice = daySlice(span, props.day);
