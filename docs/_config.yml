@@ -10,6 +10,7 @@ url: https://receptron.github.io
 plugins:
   - jekyll-seo-tag
   - jekyll-sitemap
+  - jekyll-relative-links
 
 search_enabled: true
 color_scheme: light
