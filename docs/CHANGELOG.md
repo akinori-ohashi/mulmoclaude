@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+#### A queued bridge message no longer outlives the bridge's wait (#3312)
+
+A bridge message's reply limit is now counted from when the server received it, not from when its turn came up. Before,
+a message queued behind a long one in the same chat could still be running on the server after the bridge had given up
+(`timeout: no ack`), so its reply went nowhere. It now gets what is left of its limit; one whose limit runs out while
+queued is answered with "timed out before the agent could start" and is not run; a chat command still runs. Released as
+`@mulmobridge/chat-service@1.3.1`; reaches `npx mulmoclaude` users with the next `mulmoclaude` release.
+
 #### Credential renewal no longer spends Claude sessions in a loop (#3309)
 
 On macOS with the Docker sandbox, an expired login is renewed by launching the `claude` CLI, and each launch is a real
