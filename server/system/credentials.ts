@@ -58,7 +58,7 @@ function currentUserName(): string | null {
 /** Read the credentials from the macOS Keychain. Claude Code stores its own
  *  item under the OS user name; the service-only lookup still covers installs
  *  that use another account name, and the better of the two wins. */
-async function readFromKeychain(): Promise<string | null> {
+export async function readFromKeychain(): Promise<string | null> {
   const account = currentUserName();
   const lookups = [...(account === null ? [] : [["-s", KEYCHAIN_SERVICE, "-a", account]]), ["-s", KEYCHAIN_SERVICE]];
   const candidates = await Promise.all(lookups.map(findKeychainPassword));
@@ -208,7 +208,7 @@ async function renewTokenViaPty(): Promise<boolean> {
   return awaitTokenRenewal(pty);
 }
 
-async function writeCredentialsFile(credentials: string): Promise<void> {
+export async function writeCredentialsFile(credentials: string): Promise<void> {
   // Atomic so a readers mid-refresh can't see a truncated creds
   // file; mode preserves the 0o600 we always set on this file.
   await writeFileAtomic(CREDENTIALS_PATH, `${credentials}\n`, { mode: 0o600 });

@@ -80,7 +80,7 @@
     "test:e2e:live:calendar": "cross-env E2E_LIVE_REPORT_SUBDIR=calendar playwright test --config e2e-live/playwright.config.ts calendar-push.spec.ts",
     "test:coverage": "tsx --test --experimental-test-coverage ./test/*/test_*.ts ./test/*/*/test_*.ts && yarn workspaces run test",
     "sandbox:remove": "docker rmi mulmoclaude-sandbox",
-    "sandbox:login": "(security find-generic-password -s 'Claude Code-credentials' -a \"$USER\" -w 2>/dev/null || security find-generic-password -s 'Claude Code-credentials' -w) > ~/.claude/.credentials.json && echo 'Credentials exported to ~/.claude/.credentials.json'",
+    "sandbox:login": "tsx scripts/sandbox-login.ts",
     "sandbox:logout": "rm -f ~/.claude/.credentials.json && echo 'Credentials file removed'",
     "package": "node scripts/package.mjs"
   },

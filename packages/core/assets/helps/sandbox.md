@@ -90,7 +90,7 @@ On macOS, the Docker container uses a separate credential store from the host. B
 yarn sandbox:login
 ```
 
-This copies the Claude Code login from the macOS Keychain to `~/.claude/.credentials.json`, which the container reads. The server also does this on its own at startup and before each turn, so the command is only needed when that fails; run `claude /login` on the host first if the login itself has expired.
+This copies the Claude Code login from the macOS Keychain to `~/.claude/.credentials.json`, which the container reads. The server also does this before each turn while the sandbox is on, and at startup when the file is missing, so the command is only needed when that fails; run `claude /login` on the host first if the login itself has expired.
 
 ## Building the Image
 
