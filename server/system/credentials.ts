@@ -6,7 +6,7 @@ import { createRequire } from "module";
 import { userInfo } from "os";
 import { dirname, join } from "path";
 import { log } from "./logger/index.js";
-import { ONE_SECOND_MS } from "../utils/time.js";
+import { ONE_SECOND_MS, SUBPROCESS_PROBE_TIMEOUT_MS } from "../utils/time.js";
 import { writeFileAtomic } from "../utils/files/atomic.js";
 import { claudeCredentialsPath } from "../utils/claudeConfigPath.js";
 import { createCredentialsRefresher } from "./credentialsRefresh.js";
@@ -28,7 +28,8 @@ const RENEWAL_POLL_INTERVAL_MS = ONE_SECOND_MS;
 
 async function findKeychainPassword(lookupArgs: readonly string[]): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync("security", ["find-generic-password", ...lookupArgs, "-w"]);
+    // Bounded: a locked Keychain can hold `security` on a prompt, and the renewal's deadline depends on every read returning.
+    const { stdout } = await execFileAsync("security", ["find-generic-password", ...lookupArgs, "-w"], { timeout: SUBPROCESS_PROBE_TIMEOUT_MS });
     return stdout.trim() || null;
   } catch {
     return null;
