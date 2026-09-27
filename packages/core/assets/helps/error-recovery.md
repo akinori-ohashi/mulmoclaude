@@ -238,7 +238,7 @@ Tell the user to enable the two opt-in mounts on the next agent spawn
 ```bash
 # Forward the host's SSH agent into the container.
 # Private keys stay on the host; only the signing oracle is exposed.
-SANDBOX_FORWARD_SSH_AGENT=1 \
+SANDBOX_SSH_AGENT_FORWARD=1 \
 # Mount allowlisted config files/dirs read-only — including ~/.config/gh.
 SANDBOX_MOUNT_CONFIGS=gh \
   yarn dev   # or: npx mulmoclaude

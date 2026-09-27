@@ -89,7 +89,7 @@ When Docker is available, the Claude Code agent runs inside a credential-free Do
 The sandbox is off by default for credentials (`gh auth`, SSH keys). Opt into the host's credential flow for the agent's `git` / `gh` commands:
 
 ```bash
-SANDBOX_FORWARD_SSH_AGENT=1 \
+SANDBOX_SSH_AGENT_FORWARD=1 \
 SANDBOX_MOUNT_CONFIGS=gh \
   npx mulmoclaude
 ```
