@@ -16,7 +16,7 @@ A `schema.json` changed with Bash or a script is not copied to the place the ser
 its old schema while `getSchema` showed the new one, with no hint that they differed. `getSchema` now says so and points
 at `putSchema`, which applies it. The error-recovery guide covers the same case.
 
-Ships `@mulmoclaude/core@5.7.1`.
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.7.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [1.26.1] - 2026-09-28
 
