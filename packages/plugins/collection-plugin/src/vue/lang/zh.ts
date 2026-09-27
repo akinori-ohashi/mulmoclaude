@@ -70,6 +70,7 @@ const zhMessages: CollectionMessages = {
     inlineSaveFailed: "无法保存更改：{error}",
     addRow: "添加行",
     removeRow: "删除行",
+    allDay: "全天",
     noRows: "暂无行",
     tableSummary: "{count} 项",
     embedMissing: "在 {collection} 中找不到「{id}」记录。",

@@ -73,6 +73,7 @@ const frMessages: CollectionMessages = {
     inlineSaveFailed: "Impossible d'enregistrer la modification : {error}",
     addRow: "Ajouter une ligne",
     removeRow: "Supprimer la ligne",
+    allDay: "Toute la journée",
     noRows: "Aucune ligne pour l'instant",
     tableSummary: "{count} éléments",
     embedMissing: "Aucun enregistrement « {id} » trouvé dans {collection}.",

@@ -98,6 +98,7 @@ import { computed, ref } from "vue";
 import { useCollectionI18n } from "../lang";
 import {
   bucketRecords,
+  spanOptionsFor,
   buildMonthGrid,
   ymdKey,
   daySlice,
@@ -117,7 +118,8 @@ const props = defineProps<{
   items: CollectionItem[];
   /** The `date`/`datetime` field whose value places each record on the grid. */
   anchorField: string;
-  /** Optional second `date`/`datetime` field — records span anchor→end inclusive. */
+  /** Optional second `date`/`datetime` field — records span anchor→end
+   *  (exclusive at a day boundary for a Google Calendar mirror's `end`). */
   endField?: string | undefined;
   /** Optional free-form time-string field driving the day (time-allocation) view. */
   timeField?: string | undefined;
@@ -146,7 +148,7 @@ const todayKey = ymdKey({ year: now.getFullYear(), month: now.getMonth() + 1, da
 
 const grid = computed(() => buildMonthGrid(viewYear.value, viewMonth.value));
 
-const bucketed = computed(() => bucketRecords(props.items, props.anchorField, props.endField, props.timeField));
+const bucketed = computed(() => bucketRecords(props.items, props.anchorField, props.endField, props.timeField, spanOptionsFor(props.schema, props.endField)));
 
 const labelField = computed<string | null>(() => labelFieldFor(props.schema));
 

@@ -72,6 +72,7 @@ const ptBRMessages: CollectionMessages = {
     inlineSaveFailed: "Não foi possível salvar a alteração: {error}",
     addRow: "Adicionar linha",
     removeRow: "Remover linha",
+    allDay: "Dia inteiro",
     noRows: "Ainda não há linhas",
     tableSummary: "{count} itens",
     embedMissing: "Nenhum registro '{id}' encontrado em {collection}.",

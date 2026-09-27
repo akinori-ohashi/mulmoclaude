@@ -71,6 +71,7 @@ const koMessages: CollectionMessages = {
     inlineSaveFailed: "변경 사항을 저장하지 못했습니다: {error}",
     addRow: "행 추가",
     removeRow: "행 삭제",
+    allDay: "종일",
     noRows: "행이 없습니다",
     tableSummary: "{count}개",
     embedMissing: "{collection}에 '{id}' 레코드가 없습니다.",

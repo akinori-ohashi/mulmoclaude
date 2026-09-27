@@ -162,7 +162,9 @@ To create an all-day event in a `datetime` column (a calendar that mixes timed
 and all-day events), write a **bare date** on both ends instead:
 `start: "2026-07-17"`, `end: "2026-07-18"`. A bare date is a valid `datetime`
 value, it is pushed as Google's `start.date` / `end.date`, and the record form
-edits it with a date picker. After the next sync it reads back as `…T00:00`
+edits it with a date picker. In the form, the **All day** checkbox beside a
+`datetime` field switches between the two shapes (checking drops the clock,
+unchecking starts the day at `00:00`), so the user can also do this by hand. After the next sync it reads back as `…T00:00`
 and stays all-day.
 
 For a calendar whose events are ALL all-day, give start/end a **`date`** column
@@ -179,8 +181,11 @@ by typing two dates is pushed as a real all-day event.
 
 Google's all-day `end` is **exclusive** — it is the day AFTER the last day, so a
 single day on the 17th is `on: 2026-07-17`, `until: 2026-07-18`. Records
-mirrored from Google already carry it that way. Say so when the user asks why
-the end date "looks a day late"; do not offset it, because the push sends the
+mirrored from Google already carry it that way, and the calendar view reads the
+field mapped to `end` the same way: an end that is a bare date or `00:00` stops
+the span on the day before, so that event shows on the 17th only. The stored
+value itself stays exclusive — say so when the user asks why the end date in
+the table "looks a day late", and do not offset it, because the push sends the
 stored value straight back.
 
 An existing all-day event stays all-day when its dates are edited, whatever the
