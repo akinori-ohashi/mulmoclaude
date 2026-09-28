@@ -82,7 +82,8 @@ import { getBoundPort } from "../../workspace/serverPort.js";
 import type { Attachment } from "@mulmobridge/protocol";
 import type { StartChatParams as ChatServiceStartChatParams } from "@mulmobridge/chat-service";
 import { isImagePath, loadImageBase64 } from "../../utils/files/image-store.js";
-import { isAttachmentPath, loadAttachmentBase64, inferMimeFromExtension, saveAttachment } from "../../utils/files/attachment-store.js";
+import { isAttachmentPath, loadAttachmentBase64, attachmentExists, saveAttachment } from "../../utils/files/attachment-store.js";
+import { inferMimeFromExtension } from "../../utils/files/attachment-mime.js";
 
 const router = Router();
 // The port the server actually BOUND, read per-call rather than frozen at
@@ -289,15 +290,27 @@ export async function startChat(params: StartChatParams): Promise<StartChatResul
     extras = await prepareRequestExtras(persistedAttachments);
   } catch (err) {
     log.warn("agent", "attachment processing failed — rolling back run", { chatSessionId, error: errorMessage(err) });
-    abortController.abort();
-    endRun(chatSessionId);
+    rollBackRun(chatSessionId, abortController);
     return { kind: "error", error: "Invalid attachments payload", status: 400 };
   }
 
-  const validOrigin = await persistUserTurn(params, { isFirstTurn, attachedFiles });
-  await dispatchAgentRun(params, { extras, resultsFilePath, abortController, validOrigin });
+  // Same rollback for the session writes and the pre-launch reads: a throw here
+  // would otherwise leave the session "running" (409 on every turn) until restart.
+  try {
+    const validOrigin = await persistUserTurn(params, { isFirstTurn, attachedFiles });
+    await dispatchAgentRun(params, { extras, resultsFilePath, abortController, validOrigin });
+  } catch (err) {
+    log.error("agent", "starting the run failed — rolling back run", { chatSessionId, error: errorMessage(err) });
+    rollBackRun(chatSessionId, abortController);
+    return { kind: "error", error: "Failed to start the agent run", status: 500 };
+  }
 
   return { kind: "started", chatSessionId };
+}
+
+function rollBackRun(chatSessionId: string, abortController: AbortController): void {
+  abortController.abort();
+  endRun(chatSessionId);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -556,7 +569,7 @@ async function persistInlineBytesAsPaths(attachments: Attachment[] | undefined):
       continue;
     }
     if (typeof att.data === "string" && att.data.length > 0 && typeof att.mimeType === "string" && att.mimeType.length > 0) {
-      const saved = await saveAttachment(att.data, att.mimeType);
+      const saved = await saveAttachment(att.data, att.mimeType, att.filename);
       // Carry `filename` across the rewrite. Bridges that know the
       // sender's filename already send it (Telegram documents pass
       // `doc.file_name`), and dropping it here is what kept the name
@@ -569,13 +582,16 @@ async function persistInlineBytesAsPaths(attachments: Attachment[] | undefined):
   return result.length > 0 ? result : undefined;
 }
 
+/** An existing attachment whose type cannot become a content block. */
+const FILE_ONLY = "file-only";
+
 /** Walk `attachments[]` once, loading bytes from disk for every
  *  path-bearing entry, and collect every path so the caller can emit
  *  one `[Attached file: <path>]` marker per file. Two path roots
  *  are accepted:
  *
  *    - `data/attachments/...` — paste/drop/file-picker uploads (any
- *      MIME type from the chat input's accept list) and the persisted
+ *      file type; unreadable ones are file-only) and the persisted
  *      form of bridge inline-bytes attachments. MIME is inferred from
  *      the extension chosen at save time.
  *    - `artifacts/images/...png` — generated / canvas / edited images
@@ -604,12 +620,13 @@ export async function prepareRequestExtras(attachments: Attachment[] | undefined
       log.warn("agent", "attachment has no path after normalisation — dropping");
       continue;
     }
-    const resolved = await loadFromPath(att.path, att.mimeType);
+    const resolved = await loadFromPath(att.path);
     if (!resolved) continue;
-    // Only emit the `[Attached file: …]` marker when the file was
-    // actually loaded — otherwise the LLM gets told a bogus path
-    // exists (Codex review on PR #1084 follow-up to #1052).
-    result.push(resolved);
+    // Only emit the `[Attached file: …]` marker when the file exists —
+    // otherwise the LLM gets told a bogus path exists (Codex review on
+    // PR #1084 follow-up to #1052). A file-only entry has no bytes: the
+    // agent reaches it by path, and no content block is built for it.
+    if (resolved !== FILE_ONLY) result.push(resolved);
     attachedFiles.push({ path: att.path, ...(att.filename ? { filename: att.filename } : {}) });
   }
   return {
@@ -618,19 +635,21 @@ export async function prepareRequestExtras(attachments: Attachment[] | undefined
   };
 }
 
-async function loadFromPath(value: string, declaredMimeType: string | undefined): Promise<Attachment | undefined> {
-  if (isAttachmentPath(value)) return loadAttachmentFromPath(value, declaredMimeType);
-  if (isImagePath(value)) return loadImageFromPath(value, declaredMimeType);
+async function loadFromPath(value: string): Promise<Attachment | typeof FILE_ONLY | undefined> {
+  if (isAttachmentPath(value)) return loadAttachmentFromPath(value);
+  if (isImagePath(value)) return loadImageFromPath(value);
   log.warn("agent", "attachment path is outside allowed roots — dropping", { path: value });
   return undefined;
 }
 
-async function loadAttachmentFromPath(value: string, declaredMimeType: string | undefined): Promise<Attachment | undefined> {
-  const mimeType = declaredMimeType ?? inferMimeFromExtension(value);
-  if (!mimeType) {
-    log.warn("agent", "attachment path has unknown extension — skipping bytes", { path: value });
-    return undefined;
-  }
+// The stored extension, not a caller's declared MIME, decides: it was chosen
+// from the MIME at save time, and trusting a declared one would let `.bin`
+// bytes be sent as text. Image paths are `.png` only (`isImagePath`).
+const IMAGE_PATH_MIME = "image/png";
+
+async function loadAttachmentFromPath(value: string): Promise<Attachment | typeof FILE_ONLY | undefined> {
+  const mimeType = inferMimeFromExtension(value);
+  if (!mimeType) return (await attachmentExists(value)) ? FILE_ONLY : missingAttachment(value);
   try {
     const data = await loadAttachmentBase64(value);
     return { mimeType, data, path: value };
@@ -640,10 +659,15 @@ async function loadAttachmentFromPath(value: string, declaredMimeType: string | 
   }
 }
 
-async function loadImageFromPath(value: string, declaredMimeType: string | undefined): Promise<Attachment | undefined> {
+function missingAttachment(value: string): undefined {
+  log.warn("agent", "attachment path does not exist — dropping", { path: value });
+  return undefined;
+}
+
+async function loadImageFromPath(value: string): Promise<Attachment | undefined> {
   try {
     const data = await loadImageBase64(value);
-    return { mimeType: declaredMimeType ?? "image/png", data, path: value };
+    return { mimeType: IMAGE_PATH_MIME, data, path: value };
   } catch (err) {
     log.warn("agent", "failed to load selected-image bytes from path", { path: value, error: errorMessage(err) });
     return undefined;
@@ -725,7 +749,7 @@ interface BackgroundRunParams {
 // a different `toolUseId` (or a `claudeSessionId`, or a flush at
 // run-end) would otherwise leave `pendingSkill` set so a much-later
 // unrelated assistant text gets mis-tagged as `type: "skill"`.
-interface EventContext {
+export interface EventContext {
   chatSessionId: string;
   resultsFilePath: string;
   toolArgsCache: ReturnType<typeof createArgsCache>;
@@ -774,7 +798,7 @@ export async function applyResolvedModel(
   deps.publish(chatSessionId, { type: EVENT_TYPES.sessionMeta, resolvedModel: model });
 }
 
-async function handleAgentEvent(event: AgentStreamEvent, ctx: EventContext): Promise<void> {
+export async function handleAgentEvent(event: AgentStreamEvent, ctx: EventContext): Promise<void> {
   if (event.type === AGENT_SESSION_EVENT_TYPE || event.type === EVENT_TYPES.claudeSessionId) {
     await flushTextAccumulator(ctx);
     // claudeSessionId is a meta event — never part of a Skill→body
@@ -806,6 +830,7 @@ async function handleAgentEvent(event: AgentStreamEvent, ctx: EventContext): Pro
   // Any non-text event marks the end of a text burst — flush so
   // jsonl order matches the live stream and crashes mid-run don't
   // lose already-streamed text.
+  if (await recordIfError(ctx, event)) return;
   await flushTextAccumulator(ctx);
   if (event.type === EVENT_TYPES.toolCall) {
     updatePendingSkillOnToolCall(ctx, event);
@@ -865,6 +890,43 @@ async function handleInjectedText(ctx: EventContext, message: string): Promise<v
   // (as plain text, the flag is already cleared) so jsonl order is preserved.
   await flushTextAccumulator(ctx);
   await writeSkillEntry(ctx, skill.skillName, message);
+}
+
+// Keep an agent error in the transcript so a failed turn still explains itself
+// after a reload. Best-effort: it is also called from the run's catch block,
+// where a second throw would escape the background run unhandled.
+async function appendErrorEntry(chatSessionId: string, message: string): Promise<void> {
+  try {
+    await appendSessionLine(chatSessionId, JSON.stringify({ source: "assistant", type: EVENT_TYPES.error, message }));
+  } catch (err) {
+    log.warn("agent", "failed to persist error entry", { chatSessionId, error: String(err) });
+  }
+}
+
+// Record an error in the transcript after the text streamed before it. The
+// flush keeps the file in live order, but its own failure must never swallow
+// the error it was only meant to precede — so it is logged, not thrown.
+async function recordAgentError(ctx: EventContext, message: string): Promise<void> {
+  await flushTextAccumulator(ctx).catch((flushErr: unknown) => {
+    log.warn("agent", "failed to flush text before recording an error", { chatSessionId: ctx.chatSessionId, error: String(flushErr) });
+  });
+  await appendErrorEntry(ctx.chatSessionId, message);
+}
+
+// Errors take `recordAgentError` instead of the shared flush below, so a failed
+// flush cannot throw before the error is kept. True when the event was one.
+async function recordIfError(ctx: EventContext, event: AgentStreamEvent): Promise<boolean> {
+  if (event.type !== EVENT_TYPES.error) return false;
+  await recordAgentError(ctx, event.message);
+  return true;
+}
+
+// A run that threw still has to tell the user — live and in the transcript.
+export async function reportRunFailure(ctx: EventContext, err: unknown): Promise<void> {
+  const message = String(err);
+  log.error("agent", "request failed", { chatSessionId: ctx.chatSessionId, error: message });
+  pushSessionEvent(ctx.chatSessionId, { type: EVENT_TYPES.error, message });
+  await recordAgentError(ctx, message);
 }
 
 // Write the accumulated streaming text chunks as one consolidated
@@ -1283,15 +1345,7 @@ async function runAgentInBackground(params: BackgroundRunParams): Promise<void> 
     });
   } catch (err) {
     didError = true;
-    await flushTextAccumulator(eventCtx);
-    log.error("agent", "request failed", {
-      chatSessionId,
-      error: String(err),
-    });
-    pushSessionEvent(chatSessionId, {
-      type: EVENT_TYPES.error,
-      message: String(err),
-    });
+    await reportRunFailure(eventCtx, err);
   } finally {
     await finalizeRun(chatSessionId, params.origin, didError, requestStartedAt, eventCtx.lastAssistantText);
   }

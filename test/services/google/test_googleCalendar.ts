@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 
 import {
   buildEventPatch,
+  resolveEventSpan,
   calendarApiError,
   collectCalendarPages,
   toCalendarMeta,
@@ -13,7 +14,27 @@ import {
   type CalendarListPage,
 } from "@mulmoclaude/core/google";
 
-const emptyEvent = { id: "", summary: "", start: "", end: "", htmlLink: "", status: "", colorId: "", description: "", location: "" };
+// Pins the SHAPE, not just the values: a field added to CalendarEventSummary
+// without a projection makes the three deepEqual cases below go red.
+const emptyEvent = {
+  id: "",
+  summary: "",
+  start: "",
+  end: "",
+  htmlLink: "",
+  status: "",
+  colorId: "",
+  description: "",
+  location: "",
+  recurringEventId: "",
+  originalStartTime: "",
+  updated: "",
+  transparency: "",
+  eventType: "",
+  hangoutLink: "",
+  selfResponseStatus: "",
+  conferenceVideoUri: "",
+};
 
 describe("toEventSummary", () => {
   it("maps a timed event (dateTime) with its colour", () => {
@@ -27,6 +48,7 @@ describe("toEventSummary", () => {
       end: { dateTime: "2026-07-17T09:15:00+09:00" },
     });
     assert.deepEqual(summary, {
+      ...emptyEvent,
       id: "ev1",
       summary: "Standup",
       start: "2026-07-17T09:00:00+09:00",
@@ -34,8 +56,6 @@ describe("toEventSummary", () => {
       htmlLink: "https://calendar.google.com/event?eid=ev1",
       status: "confirmed",
       colorId: "7",
-      description: "",
-      location: "",
     });
   });
 
@@ -74,6 +94,46 @@ describe("toEventSummary", () => {
   it("ignores non-string field values", () => {
     const summary = toEventSummary({ id: 42, summary: ["x"], start: "not-an-object", colorId: 7 });
     assert.deepEqual(summary, emptyEvent);
+  });
+
+  // An expanded instance of a recurring series: the parent key and the slot the
+  // occurrence originally held are what tell a series edit apart from a batch of
+  // unrelated changes, and a dragged occurrence apart from a delete plus insert.
+  it("maps an expanded instance back to its series", () => {
+    const summary = toEventSummary({
+      id: "ev4_20260717T000000Z",
+      recurringEventId: "ev4",
+      originalStartTime: { dateTime: "2026-07-17T09:00:00+09:00", timeZone: "Asia/Tokyo" },
+      start: { dateTime: "2026-07-17T11:00:00+09:00" },
+    });
+    assert.equal(summary.recurringEventId, "ev4");
+    assert.equal(summary.originalStartTime, "2026-07-17T09:00:00+09:00");
+    // The instance was moved, so the two disagree — which is the whole point.
+    assert.notEqual(summary.originalStartTime, summary.start);
+  });
+
+  it("flattens an all-day instance's originalStartTime to its date", () => {
+    const summary = toEventSummary({ recurringEventId: "ev5", originalStartTime: { date: "2026-07-17" } });
+    assert.equal(summary.originalStartTime, "2026-07-17");
+  });
+
+  it("maps the remaining read-only fields", () => {
+    const summary = toEventSummary({
+      updated: "2026-07-17T02:11:43.000Z",
+      transparency: "transparent",
+      eventType: "birthday",
+      hangoutLink: "https://meet.google.com/abc-defg-hij",
+    });
+    assert.equal(summary.updated, "2026-07-17T02:11:43.000Z");
+    assert.equal(summary.transparency, "transparent");
+    assert.equal(summary.eventType, "birthday");
+    assert.equal(summary.hangoutLink, "https://meet.google.com/abc-defg-hij");
+  });
+
+  // Google omits `transparency` on an ordinary event rather than sending
+  // "opaque", so a consumer must read "" as opaque.
+  it("leaves transparency empty when Google omits the default", () => {
+    assert.equal(toEventSummary({ id: "ev6", summary: "Busy" }).transparency, "");
   });
 });
 
@@ -219,6 +279,27 @@ describe("buildEventPatch (#2569)", () => {
     assert.deepEqual(buildEventPatch({ eventId: "e1", endDateTime: "2026-07-17T11:00:00+09:00" }), { end: { dateTime: "2026-07-17T11:00:00+09:00" } });
   });
 
+  // The structured span is how an all-day event is expressed. `resolveEventSpan`
+  // and this patch builder are the last hop before the request body, so an
+  // all-day `date` surviving both is what makes #3240 reach Google.
+  it("carries a structured all-day span straight into the body", () => {
+    assert.deepEqual(buildEventPatch({ eventId: "e1", start: { date: "2026-07-17" }, end: { date: "2026-07-18" } }), {
+      start: { date: "2026-07-17" },
+      end: { date: "2026-07-18" },
+    });
+  });
+
+  it("prefers the structured span over the flat pair when both are given", () => {
+    const patch = buildEventPatch({
+      eventId: "e1",
+      start: { date: "2026-07-17" },
+      end: { date: "2026-07-18" },
+      startDateTime: "2026-07-17T09:00:00Z",
+      endDateTime: "2026-07-17T10:00:00Z",
+    });
+    assert.deepEqual(patch, { start: { date: "2026-07-17" }, end: { date: "2026-07-18" } });
+  });
+
   it("carries every field together", () => {
     const patch = buildEventPatch({
       eventId: "e1",
@@ -230,6 +311,22 @@ describe("buildEventPatch (#2569)", () => {
       calendarId: "ignored",
     });
     assert.deepEqual(Object.keys(patch).sort(), ["colorId", "description", "end", "start", "summary"]);
+  });
+});
+
+describe("resolveEventSpan", () => {
+  it("wraps the flat pair as date-times", () => {
+    assert.deepEqual(resolveEventSpan({ startDateTime: "2026-07-17T09:00:00+09:00", endDateTime: "2026-07-17T10:00:00+09:00" }), {
+      start: { dateTime: "2026-07-17T09:00:00+09:00" },
+      end: { dateTime: "2026-07-17T10:00:00+09:00" },
+    });
+  });
+
+  it("passes an all-day span through untouched — the shape a create needs for #3240", () => {
+    assert.deepEqual(resolveEventSpan({ start: { date: "2026-07-17" }, end: { date: "2026-07-18" } }), {
+      start: { date: "2026-07-17" },
+      end: { date: "2026-07-18" },
+    });
   });
 });
 

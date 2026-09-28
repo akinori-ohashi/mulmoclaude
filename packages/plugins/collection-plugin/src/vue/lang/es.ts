@@ -72,6 +72,7 @@ const esMessages: CollectionMessages = {
     inlineSaveFailed: "No se pudo guardar el cambio: {error}",
     addRow: "Añadir fila",
     removeRow: "Quitar fila",
+    allDay: "Todo el día",
     noRows: "Aún no hay filas",
     tableSummary: "{count} elementos",
     embedMissing: "No se encontró el registro «{id}» en {collection}.",
@@ -104,6 +105,9 @@ const esMessages: CollectionMessages = {
     pushFailed: "Error al enviar: {error}",
     pushDone:
       "Enviado a Google: {created} creados, {updated} actualizados, {conflicts} conflictos omitidos, {localDeletes} eliminaciones locales no aplicadas.",
+    pushKeptDeletes: "Se dejaron en Google: {reasons}",
+    pushDoneWithDeletes:
+      "Enviado a Google: {created} creados, {updated} actualizados, {conflicts} conflictos omitidos, {deletedInGoogle} eliminados en Google, {localDeletes} eliminaciones locales no aplicadas.",
     feedChatSeed:
       "El feed «{slug}» está definido por el esquema `feeds/{slug}/schema.json` y sus registros se guardan en `{dataPath}/` (un archivo `<id>.json` por registro). Usa ese esquema y esos datos para responder a esta solicitud: {message}",
     feedsTitle: "Fuentes de datos",

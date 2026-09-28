@@ -1,88 +1,22 @@
 <script setup lang="ts">
-// Preview shown inline in the chat thread (alongside the LLM's text
-// response) when the LLM calls one of `manageSpotify`'s read kinds.
-// The full View opens on click via the parent thread's standard
-// "open in canvas" affordance — Preview just gives a glanceable
-// summary so the user knows what data was returned without needing
-// to expand the canvas.
+// Compact summary shown in the session sidebar for a `manageSpotify` result,
+// so the user can see what came back without opening the canvas. The full View
+// opens on click via the parent's standard "open in canvas" affordance.
 
 import { computed } from "vue";
+import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import { useT } from "./lang";
-import type { NormalisedPlaylist, NormalisedTrack, RecentlyPlayedItem, SearchResult } from "./types";
+import { summarisePreview } from "./previewSummary";
 
-// Exported because `vite-plugin-dts` rolls Preview into
-// `dist/vue.d.ts` via the `plugin = { previewComponent: Preview }`
-// re-export in `vue.ts`. Without `export`, the inferred component
-// type names this interface as a type the public surface can't see
-// → TS4023 (same fix bookmarks-plugin's View.vue carries).
-export interface Props {
-  selectedResult: {
-    ok?: boolean;
-    data?:
-      | NormalisedTrack[]
-      | NormalisedPlaylist[]
-      | RecentlyPlayedItem[]
-      | NormalisedTrack
-      | SearchResult
-      | null
-      | { connected?: boolean; clientIdConfigured?: boolean };
-    error?: string;
-    message?: string;
-  };
-}
-const props = defineProps<Props>();
+// `result` is what SessionSidebar hands every previewComponent, and the only
+// thing it hands them. This component declared `selectedResult` — the prop the
+// VIEW slot takes — so it arrived undefined and the computed threw on
+// `result.ok` (#3226). The props of a dynamic `<component :is>` are not
+// typechecked, so nothing caught it.
+const props = defineProps<{ result: ToolResultComplete }>();
 const t = useT();
 
-const summary = computed<string>(() => {
-  const result = props.selectedResult;
-  // `ok` is optional on the props (selectedResult is whatever the
-  // last tool call returned) — only treat an explicit `false` as
-  // failure. An undefined `ok` typically means "no call yet" or
-  // "non-listening kind whose response we don't recognise"; fall
-  // through to the generic summary instead of misrendering as an
-  // error (Sourcery review on PR #1166).
-  if (result.ok === false) return result.message ?? t.value.notConnected;
-  const data = result.data;
-  if (Array.isArray(data)) return summariseArray(data);
-  if (data === null) return t.value.emptyNowPlaying;
-  if (data && typeof data === "object" && "connected" in data) {
-    return data.connected ? t.value.connected : data.clientIdConfigured ? t.value.notConnected : t.value.notConfigured;
-  }
-  // SearchResult is a per-category grouped object — no `name`, no
-  // `connected`. Tally the totals so the chip reads e.g.
-  // "5 tracks · 2 artists".
-  if (data && typeof data === "object" && isSearchResult(data)) {
-    return summariseSearchResult(data);
-  }
-  if (data && typeof data === "object" && "name" in data) {
-    return (data as NormalisedTrack).name;
-  }
-  return t.value.previewSummary;
-});
-
-function isSearchResult(value: object): value is SearchResult {
-  return "tracks" in value || "artists" in value || "albums" in value || "playlists" in value;
-}
-
-function summariseSearchResult(result: SearchResult): string {
-  const parts: string[] = [];
-  if (result.tracks?.length) parts.push(`${result.tracks.length} ${t.value.searchTracks}`);
-  if (result.artists?.length) parts.push(`${result.artists.length} ${t.value.searchArtists}`);
-  if (result.albums?.length) parts.push(`${result.albums.length} ${t.value.searchAlbums}`);
-  if (result.playlists?.length) parts.push(`${result.playlists.length} ${t.value.searchPlaylists}`);
-  return parts.length > 0 ? parts.join(" · ") : t.value.searchEmpty;
-}
-
-// Different listening kinds carry different element shapes; pick the
-// label that matches the array's element type so a 5-playlist result
-// doesn't read as "5 tracks" (CodeRabbit review on PR #1166).
-function summariseArray(data: NormalisedTrack[] | NormalisedPlaylist[] | RecentlyPlayedItem[]): string {
-  const [head] = data;
-  if (head === undefined) return t.value.empty;
-  if ("trackCount" in head) return `${data.length} ${t.value.tabPlaylists}`;
-  if ("playedAt" in head) return `${data.length} ${t.value.tabRecent}`;
-  return `${data.length} ${t.value.tracksCount}`;
-}
+const summary = computed<string>(() => summarisePreview(props.result.data, t.value));
 </script>
 
 <template>

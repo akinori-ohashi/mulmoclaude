@@ -18,6 +18,7 @@ import { renderErrorPage, renderLauncherPage } from "./launcher-page.mjs";
 import { browserOpenArgv, launcherPaths, npxCommand } from "./platform.mjs";
 import { runPreflight } from "./preflight.mjs";
 import { findAvailablePort } from "../port.mjs";
+import { LAUNCHED_FROM_ICON, LAUNCHED_FROM_VAR } from "../launch-vars.mjs";
 
 const DEFAULT_PORT = 3001;
 const LOG_SIZE_CAP_BYTES = 1_000_000;
@@ -150,13 +151,31 @@ export function serverSpawnPlan({ port, home = homedir(), platform = process.pla
   };
 }
 
+/**
+ * The environment the server is started with: whatever the launcher was
+ * handed, plus a mark saying this came from the icon.
+ *
+ * The mark is what lets the server tell the user the truth about where a
+ * key goes. A shell `export` cannot reach here — `resolve-path.sh`
+ * harvests PATH from the login shell and deliberately nothing else — so
+ * the advice "or export it before starting" is wrong on this route and
+ * right on the other, and nothing downstream can tell the two apart
+ * without being told (#2626).
+ *
+ * @param {Record<string, string | undefined>} env
+ * @returns {Record<string, string | undefined>}
+ */
+export function serverSpawnEnv(env) {
+  return { ...env, [LAUNCHED_FROM_VAR]: LAUNCHED_FROM_ICON };
+}
+
 function spawnServer({ port, logPath, env }) {
   mkdirSync(dirname(logPath), { recursive: true });
   const logFd = openSync(logPath, "a");
   const { command, args, cwd } = serverSpawnPlan({ port });
   try {
     const child = spawn(command, args, {
-      env,
+      env: serverSpawnEnv(env),
       cwd,
       detached: true,
       stdio: ["ignore", logFd, logFd],

@@ -1,13 +1,17 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { setTimeout as sleep } from "timers/promises";
 import { chmodSync, existsSync, readdirSync, statSync } from "fs";
 import { createRequire } from "module";
+import { userInfo } from "os";
 import { dirname, join } from "path";
 import { log } from "./logger/index.js";
-import { isRecord } from "../utils/types.js";
-import { ONE_SECOND_MS, ONE_MINUTE_MS } from "../utils/time.js";
+import { ONE_SECOND_MS, SUBPROCESS_PROBE_TIMEOUT_MS } from "../utils/time.js";
 import { writeFileAtomic } from "../utils/files/atomic.js";
 import { claudeCredentialsPath } from "../utils/claudeConfigPath.js";
+import { createCredentialsRefresher } from "./credentialsRefresh.js";
+import { classifyCredentials, pickCredentials } from "./credentialsState.js";
+import { pollUntil } from "../utils/pollUntil.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -16,150 +20,86 @@ const SPAWN_HELPER_EXEC_BITS = 0o111;
 const CREDENTIALS_PATH = claudeCredentialsPath();
 const KEYCHAIN_SERVICE = "Claude Code-credentials";
 
-/** Safety margin — treat tokens as expired 60s before actual expiry. */
-const EXPIRY_MARGIN_MS = ONE_MINUTE_MS;
-/** Maximum time to wait for the claude CLI to respond. */
+/** Maximum time to wait for the renewed token to reach the Keychain. */
 const PTY_TIMEOUT_MS = 30 * ONE_SECOND_MS;
 /** Delay before sending input to the claude CLI. */
 const PTY_INPUT_DELAY_MS = 3 * ONE_SECOND_MS;
+const RENEWAL_POLL_INTERVAL_MS = ONE_SECOND_MS;
 
-// After the echo, only treat output as a successful renewal when it
-// looks like a real Claude response — a conversational opener
-// (Hello / Hi / I'm / …) AND a non-trivial amount of text. Error
-// chunks ("Please log in", "Invalid credentials", network blips)
-// don't match both conditions, so they fall through to the timeout and
-// we treat the renewal as failed. A final safety net: refreshCredentials()
-// re-reads the Keychain and calls isTokenExpired() before writing, so
-// even a false positive here can't persist a stale token.
-const RESPONSE_PATTERN_RE = /\b(Hello|Hi|I['’]m|I can|How can)\b/i;
-const MIN_RESPONSE_CHARS = 20;
-
-export function looksLikeClaudeResponse(text: string): boolean {
-  return RESPONSE_PATTERN_RE.test(text) && text.length >= MIN_RESPONSE_CHARS;
-}
-
-/**
- * Read the raw credentials string from macOS Keychain.
- */
-async function readFromKeychain(): Promise<string | null> {
+async function findKeychainPassword(lookupArgs: readonly string[]): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"]);
-    const credentials = stdout.trim();
-    return credentials || null;
+    // Bounded: a locked Keychain can hold `security` on a prompt, and the renewal's deadline depends on every read returning.
+    const { stdout } = await execFileAsync("security", ["find-generic-password", ...lookupArgs, "-w"], { timeout: SUBPROCESS_PROBE_TIMEOUT_MS });
+    return stdout.trim() || null;
   } catch {
     return null;
   }
 }
 
-/** The token's expiry as epoch milliseconds, or null when the JSON is
- *  unparseable or carries no usable expiry.
- *
- *  Claude's Keychain blob stores `expiresAt` as a number (epoch ms); older CLI
- *  builds wrote an ISO string. Accept both. A prior `typeof === "string"` guard
- *  silently rejected the numeric form, so every token read as "no expiry →
- *  expired" and forced a PTY renew of the CLI on every Docker run. */
-export function readExpiresAt(raw: string): number | null {
-  let parsed: unknown;
+function currentUserName(): string | null {
   try {
-    parsed = JSON.parse(raw);
+    return userInfo().username;
   } catch {
     return null;
   }
-  if (!isRecord(parsed)) return null;
-  const oauth = parsed.claudeAiOauth;
-  if (!isRecord(oauth)) return null;
-  const { expiresAt } = oauth;
-  if (typeof expiresAt === "number") return Number.isFinite(expiresAt) ? expiresAt : null;
-  if (typeof expiresAt === "string") {
-    const parsedMs = Date.parse(expiresAt);
-    return Number.isNaN(parsedMs) ? null : parsedMs;
-  }
-  return null;
 }
 
-function isTokenExpired(raw: string): boolean {
-  const expiresMs = readExpiresAt(raw);
-  if (expiresMs === null) return true; // no usable expiry — treat as expired
-  return Date.now() >= expiresMs - EXPIRY_MARGIN_MS;
+/** Read the credentials from the macOS Keychain. Claude Code stores its own
+ *  item under the OS user name; the service-only lookup still covers installs
+ *  that use another account name, and the better of the two wins. */
+export async function readFromKeychain(): Promise<string | null> {
+  const account = currentUserName();
+  const lookups = [...(account === null ? [] : [["-s", KEYCHAIN_SERVICE, "-a", account]]), ["-s", KEYCHAIN_SERVICE]];
+  const candidates = await Promise.all(lookups.map(findKeychainPassword));
+  return pickCredentials(candidates, Date.now());
+}
+
+async function keychainHasValidToken(): Promise<boolean> {
+  const credentials = await readFromKeychain();
+  return credentials !== null && classifyCredentials(credentials, Date.now()).kind === "valid";
+}
+
+function spawnClaude(pty: typeof import("node-pty")): import("node-pty").IPty {
+  return pty.spawn("claude", [], { name: "xterm-color", cols: 80, rows: 30, cwd: process.cwd() });
 }
 
 /**
- * Spawn `claude` interactively via a PTY to force the CLI to refresh its
- * OAuth token. The CLI handles the refresh internally and writes the new
- * token back to the macOS Keychain.
+ * Spawn `claude` interactively via a PTY and send it a message: the API call
+ * that follows makes the CLI refresh its expired OAuth token and write it back
+ * to the macOS Keychain. Success is judged by the Keychain holding a valid
+ * token, not by the CLI's reply, so the reply's language does not matter and
+ * the CLI is stopped as soon as the token is in.
  */
-function awaitTokenRenewal(pty: typeof import("node-pty")): Promise<boolean> {
-  return new Promise((resolve) => {
-    const proc = pty.spawn("claude", [], {
-      name: "xterm-color",
-      cols: 80,
-      rows: 30,
-      cwd: process.cwd(),
-    });
-
-    let responded = false;
-    let buffer = "";
-    let settled = false;
-    // Mutual reference: `finish`'s body needs `timeout` (clearTimeout)
-    // and `timeout`'s callback needs `finish`. Predeclared with `let`
-    // and assigned exactly once below. `prefer-const` would prefer a
-    // direct `const timeout = setTimeout(...)` form, but that needs
-    // `finish` already in scope inside the callback, which then
-    // forces `clearTimeout(timeout)` inside `finish`'s body to
-    // reference an undefined-at-textual-position const — i.e. the
-    // chicken-and-egg pair has no const-only spelling. The actual
-    // value is single-write at runtime; lint heuristic disagrees.
-    // eslint-disable-next-line prefer-const -- mutual-reference pair, see comment above
-    let timeout: ReturnType<typeof setTimeout>;
-
-    const finish = (success: boolean) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      proc.kill();
-      resolve(success);
-    };
-
-    timeout = setTimeout(() => {
-      log.error("credentials", `Token renewal timed out after ${PTY_TIMEOUT_MS / ONE_SECOND_MS}s`);
-      finish(false);
-    }, PTY_TIMEOUT_MS);
-
-    // Match "hi" as a whole token so unrelated output containing those
-    // bytes (e.g. ANSI sequences, words like "This" or "high") can't
-    // false-positive the echo detection.
-    const ECHO_RE = /\bhi\b/;
-
-    let echoEndIdx = -1;
-
-    proc.onData((data: string) => {
-      buffer += data;
-
-      if (!responded) {
-        const match = ECHO_RE.exec(buffer);
-        if (match) {
-          // Claude echoed our "hi" — remember where the response
-          // window starts so the success check looks only at bytes
-          // that arrived AFTER the echo.
-          responded = true;
-          echoEndIdx = match.index + match[0].length;
-        }
-        return;
-      }
-
-      const response = buffer.slice(echoEndIdx);
-      if (looksLikeClaudeResponse(response)) {
-        finish(true);
-      }
-    });
-
-    // Wait for initial prompt before sending input
-    setTimeout(() => {
-      if (!settled) {
-        proc.write("hi\r");
-      }
-    }, PTY_INPUT_DELAY_MS);
+async function awaitTokenRenewal(pty: typeof import("node-pty")): Promise<boolean> {
+  const proc = spawnClaude(pty);
+  const state = { exited: false };
+  proc.onExit(() => {
+    state.exited = true;
   });
+  // Drain the output so a full PTY buffer cannot stall the CLI; its content is not needed.
+  proc.onData(() => {});
+  const promptTimer = setTimeout(() => {
+    if (!state.exited) proc.write("hi\r");
+  }, PTY_INPUT_DELAY_MS);
+  try {
+    const renewed = await pollUntil({
+      check: keychainHasValidToken,
+      shouldStop: () => state.exited,
+      timeoutMs: PTY_TIMEOUT_MS,
+      intervalMs: RENEWAL_POLL_INTERVAL_MS,
+      now: () => Date.now(),
+      sleep,
+    });
+    if (!renewed)
+      log.error(
+        "credentials",
+        state.exited ? "claude CLI exited before the Keychain token was renewed" : `Token renewal timed out after ${PTY_TIMEOUT_MS / ONE_SECOND_MS}s`,
+      );
+    return renewed;
+  } finally {
+    clearTimeout(promptTimer);
+    if (!state.exited) proc.kill();
+  }
 }
 
 /** node-pty's prebuilds directory, resolved from wherever it's installed
@@ -226,70 +166,33 @@ async function renewTokenViaPty(): Promise<boolean> {
   return awaitTokenRenewal(pty);
 }
 
+export async function writeCredentialsFile(credentials: string): Promise<void> {
+  // Atomic so a readers mid-refresh can't see a truncated creds
+  // file; mode preserves the 0o600 we always set on this file.
+  await writeFileAtomic(CREDENTIALS_PATH, `${credentials}\n`, { mode: 0o600 });
+  log.info("credentials", "Fresh credentials written to ~/.claude/.credentials.json");
+}
+
+const sharedRefresh = createCredentialsRefresher({
+  readKeychain: readFromKeychain,
+  renewViaCli: renewTokenViaPty,
+  writeCredentials: writeCredentialsFile,
+  nowMs: () => Date.now(),
+});
+
 /**
  * Extract the current OAuth credentials from the macOS Keychain and write them
  * to ~/.claude/.credentials.json so that the Docker-based sandbox can read them.
  *
  * If the access token is expired, spawns `claude` interactively via a PTY to
  * force the CLI to refresh its token, then re-reads the fresh credentials.
+ * Each spawn is a billed Claude session, so credentials that no renewal can fix
+ * are rejected up front and repeated failures stop further attempts.
  *
  * Returns true if credentials were successfully refreshed, false otherwise.
  * Only works on macOS (darwin).
  */
 export async function refreshCredentials(): Promise<boolean> {
   if (process.platform !== "darwin") return false;
-
-  try {
-    let credentials = await readFromKeychain();
-    if (!credentials) {
-      log.error("credentials", "No credentials found in macOS Keychain");
-      return false;
-    }
-
-    if (isTokenExpired(credentials)) {
-      const expiresMs = readExpiresAt(credentials);
-      log.warn(
-        "credentials",
-        expiresMs !== null
-          ? `Access token expired at ${new Date(expiresMs).toISOString()}, launching claude CLI to renew...`
-          : "Access token expired (could not parse expiry), launching claude CLI to renew...",
-      );
-
-      const renewed = await renewTokenViaPty();
-      if (!renewed) {
-        log.error("credentials", "Token renewal via claude CLI failed");
-        return false;
-      }
-
-      log.info("credentials", "Token renewed successfully via claude CLI");
-
-      // Re-read the now-fresh credentials from Keychain
-      credentials = await readFromKeychain();
-      if (!credentials) {
-        log.error("credentials", "No credentials in Keychain after renewal — unexpected");
-        return false;
-      }
-      // Guard against writing a still-expired token as "fresh": the PTY
-      // echo check is a proxy for "Claude responded", not proof that the
-      // Keychain entry was actually refreshed.
-      if (isTokenExpired(credentials)) {
-        log.error("credentials", "Token still expired after renewal — Keychain was not refreshed");
-        return false;
-      }
-    } else {
-      const expiresMs = readExpiresAt(credentials);
-      log.info("credentials", expiresMs !== null ? `Access token is valid, expires at ${new Date(expiresMs).toISOString()}` : "Access token appears valid");
-    }
-
-    // Atomic so a readers mid-refresh can't see a truncated creds
-    // file; mode preserves the 0o600 we always set on this file.
-    await writeFileAtomic(CREDENTIALS_PATH, `${credentials}\n`, { mode: 0o600 });
-    log.info("credentials", "Fresh credentials written to ~/.claude/.credentials.json");
-    return true;
-  } catch (err) {
-    log.error("credentials", "Failed to refresh credentials from Keychain", {
-      error: String(err),
-    });
-    return false;
-  }
+  return sharedRefresh();
 }

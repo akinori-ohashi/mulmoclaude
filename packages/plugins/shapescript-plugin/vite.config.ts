@@ -7,11 +7,14 @@ import { createVuePluginConfig } from "../../../scripts/lib/pluginViteConfig";
 // only type-imports gui-chat-protocol) and the browser `./vue` (View/Preview +
 // the Three.js renderer). `vue` and `gui-chat-protocol/vue` are externalised so
 // the plugin and host share ONE instance (the injected PLUGIN_RUNTIME_KEY
-// Symbol must match). `three` and the CSG helpers are intentionally bundled —
-// the runtime loader extracts the tarball into a cache dir with no
-// node_modules underneath, so bare imports left external cannot resolve.
-// `@mulmoclaude/core` is a peer (the host provides it) — its browser-safe
-// `./artifacts` entry supplies the shared artifact path rules.
+// Symbol must match). `three` itself is external for the same reason: a host
+// that draws the model with its own three (mulmoserver's scene and exporters)
+// must share ONE copy. Only the bare `three` — the `three/examples/jsm/*`
+// modules and the CSG helpers stay bundled and import it from here. Leaving
+// them external splits three in Node: `three-bvh-csg` has no `exports`, so
+// Node loads its UMD build, which `require`s three.cjs next to our three.module.js.
+// This package is never loaded by the runtime loader (its cache has no
+// node_modules) — `@mulmoclaude/core` is external too, which it could not resolve.
 export default createVuePluginConfig({
   plugins: [vue(), tailwindcss()],
   entry: {
@@ -30,6 +33,7 @@ export default createVuePluginConfig({
     "gui-chat-protocol",
     "gui-chat-protocol/vue",
     "puppeteer",
+    "three",
     "node:fs/promises",
     "node:module",
     "node:path",

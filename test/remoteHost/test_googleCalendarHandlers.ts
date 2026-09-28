@@ -35,6 +35,14 @@ const sampleEvent: CalendarEventSummary = {
   colorId: "7",
   description: "",
   location: "",
+  recurringEventId: "",
+  originalStartTime: "",
+  updated: "",
+  transparency: "",
+  eventType: "",
+  hangoutLink: "",
+  selfResponseStatus: "",
+  conferenceVideoUri: "",
 };
 
 const sampleCalendar: CalendarSummary = {
@@ -99,7 +107,14 @@ describe("createGoogleCalendarCreateEvent", () => {
     assert.deepEqual(result, { event: sampleEvent });
     assert.equal(calls.tokenRequests, 1);
     assert.deepEqual(calls.createInputs, [
-      { summary: "Standup", startDateTime: validParams.start, endDateTime: validParams.end, description: "daily", calendarId: undefined, colorId: undefined },
+      {
+        summary: "Standup",
+        start: { dateTime: validParams.start },
+        end: { dateTime: validParams.end },
+        description: "daily",
+        calendarId: undefined,
+        colorId: undefined,
+      },
     ]);
   });
 
@@ -136,7 +151,6 @@ describe("createGoogleCalendarCreateEvent", () => {
 
   const badDateTimes: { given: string; label: string }[] = [
     { given: "not-a-date", label: "rejects a non-date start" },
-    { given: "2026-07-17", label: "rejects a date-only start (Google would 400 on dateTime)" },
     { given: "2026-07-17T09:00:00", label: "rejects a start without a timezone offset" },
     { given: "2026-13-01T09:00:00Z", label: "rejects a well-shaped but impossible month" },
     { given: "2026-02-31T09:00:00Z", label: "rejects an overflowed day that Date would silently normalize" },
@@ -162,10 +176,11 @@ describe("createGoogleCalendarCreateEvent", () => {
       const { deps, calls } = stubDeps();
       await createGoogleCalendarCreateEvent(deps)({ ...validParams, start: given });
       // `CalendarEventInput`'s span is a union since #2598 (the flat pair or a
-      // structured one), so reading the flat field needs the narrowing.
+      // structured one); the handler passes the structured one since #3240, so
+      // reading the value needs the narrowing.
       const [input] = calls.createInputs;
-      assert.ok(input && "startDateTime" in input, "the remote-host handler passes the flat span");
-      assert.equal(input.startDateTime, given);
+      assert.ok(input && "start" in input, "the remote-host handler passes the structured span");
+      assert.deepEqual(input.start, { dateTime: given });
     });
   }
 
@@ -186,8 +201,6 @@ describe("createGoogleCalendarUpdateEvent", () => {
       {
         eventId: "ev1",
         summary: "Renamed",
-        startDateTime: undefined,
-        endDateTime: undefined,
         description: undefined,
         calendarId: undefined,
         colorId: undefined,
@@ -244,7 +257,60 @@ describe("createGoogleCalendarUpdateEvent", () => {
         new RegExp(`${key} must be an ISO 8601 date-time`),
       );
     });
+
+    it(`rejects a lone all-day ${key} — the stored event's kind is not knowable here`, async () => {
+      const { deps, calls } = stubDeps();
+      await assert.rejects(Promise.resolve(createGoogleCalendarUpdateEvent(deps)({ eventId: "ev1", [key]: "2026-07-17" })), /BOTH start and end/);
+      assert.equal(calls.updateInputs.length, 0);
+    });
   }
+
+  it("moves an all-day event when both ends are given", async () => {
+    const { deps, calls } = stubDeps();
+    await createGoogleCalendarUpdateEvent(deps)({ eventId: "ev1", start: "2026-07-17", end: "2026-07-19" });
+    assert.deepEqual(calls.updateInputs[0]?.start, { date: "2026-07-17" });
+    assert.deepEqual(calls.updateInputs[0]?.end, { date: "2026-07-19" });
+  });
+});
+
+// The `google` tool and this channel validate the SAME Calendar operation, so
+// the all-day rules have to hold on both. These pin this side of that pair.
+describe("createGoogleCalendarCreateEvent — all-day events (#3240)", () => {
+  const allDay = { summary: "Holiday", start: "2026-07-17", end: "2026-07-18" };
+
+  it("sends `date` on both ends, never a midnight `dateTime`", async () => {
+    const { deps, calls } = stubDeps();
+    await createGoogleCalendarCreateEvent(deps)(allDay);
+    const [input] = calls.createInputs;
+    assert.ok(input && "start" in input);
+    assert.deepEqual(input.start, { date: "2026-07-17" });
+    assert.deepEqual(input.end, { date: "2026-07-18" });
+  });
+
+  it("keeps the EXCLUSIVE end untouched", async () => {
+    const { deps, calls } = stubDeps();
+    await createGoogleCalendarCreateEvent(deps)({ ...allDay, end: "2026-07-21" });
+    const [input] = calls.createInputs;
+    assert.ok(input && "end" in input);
+    assert.deepEqual(input.end, { date: "2026-07-21" });
+  });
+
+  it("rejects an end equal to the start, without calling the engine", async () => {
+    const { deps, calls } = stubDeps();
+    await assert.rejects(Promise.resolve(createGoogleCalendarCreateEvent(deps)({ ...allDay, end: "2026-07-17" })), /EXCLUSIVE/);
+    assert.equal(calls.createInputs.length, 0);
+    assert.equal(calls.tokenRequests, 0);
+  });
+
+  it("rejects one end of each kind", async () => {
+    const { deps } = stubDeps();
+    await assert.rejects(Promise.resolve(createGoogleCalendarCreateEvent(deps)({ ...allDay, end: "2026-07-18T10:00:00+09:00" })), /not one of each/);
+  });
+
+  it("still rejects an impossible day", async () => {
+    const { deps } = stubDeps();
+    await assert.rejects(Promise.resolve(createGoogleCalendarCreateEvent(deps)({ ...allDay, start: "2026-02-30" })), /start must be an ISO 8601/);
+  });
 });
 
 describe("createGoogleCalendarDeleteEvent", () => {

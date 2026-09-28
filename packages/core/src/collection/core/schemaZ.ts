@@ -504,10 +504,11 @@ export const CustomViewZ = z.object({
   // code ask is what keeps the decision reviewable — the schema is short and
   // human-read, the view HTML is not — and it is why an already-shipped view
   // cannot start auto-running turns just because the host was upgraded. The
-  // host reads THIS, never a flag the iframe posts up. Note the phone runtime
-  // (`target: "mobile"`) has always sent — it has no Enter key to press
-  // (receptron/mulmoterminal#1253) — so there the flag only affects the desktop
-  // phone-frame preview.
+  // host reads THIS, never a flag the iframe posts up. It governs the phone
+  // (`target: "mobile"`) as well as the desktop: the phone runtime once always
+  // sent, on the grounds that it has no Enter key to press
+  // (receptron/mulmoterminal#1253), but that silently overrode default-deny on a
+  // device the view's author never tested (receptron/mulmoserver#273).
   allowSendChat: z.boolean().optional(),
   // Mobile-only write policy (plans/done/feat-remote-writable-view.md). Default-deny:
   // a `target: "mobile"` view may patch ONLY these fields via
@@ -619,8 +620,37 @@ export const AgentIngestZ = z.object({
 
 /** The Google event fields a collection may pull from. `id` is absent on
  *  purpose — it always lands in the primary field, since upsert-by-event-id
- *  is what makes the sync idempotent. */
-export const GOOGLE_CALENDAR_SOURCE_FIELDS = ["summary", "start", "end", "htmlLink", "colorId", "status", "description", "location"] as const;
+ *  is what makes the sync idempotent.
+ *
+ *  A superset of `PUSHABLE_SOURCE_FIELDS` (`google/pushPlan.ts`), listed with
+ *  the pushable ones first. Mapping one of the rest gives a PULL-ONLY column
+ *  that the push filters out — a choice of this sync, not only a Google
+ *  limitation: `transparency` is writable and `eventType` is writable at
+ *  creation, yet neither is sent. That is also why
+ *  widening this enum needs no `.push-state.json` migration: the push baseline
+ *  (`ShadowEvent`) is keyed off the pushable list, not off this one.
+ *
+ *  The last two are not Google field names but DERIVED scalars
+ *  (`google/eventDerived.ts`): the structures they come from are arrays, and a
+ *  collection field holds one value. */
+export const GOOGLE_CALENDAR_SOURCE_FIELDS = [
+  "summary",
+  "start",
+  "end",
+  "description",
+  "location",
+  "colorId",
+  "htmlLink",
+  "status",
+  "recurringEventId",
+  "originalStartTime",
+  "updated",
+  "transparency",
+  "eventType",
+  "hangoutLink",
+  "selfResponseStatus",
+  "conferenceVideoUri",
+] as const;
 
 /** Marks a collection as the destination of the LLM-free Google Calendar
  *  sync (#2095). `map` is collectionField → Google event field, so the user's
@@ -640,6 +670,15 @@ export const GoogleCalendarSyncZ = z.object({
    *  Opt-in and absent by default: a push writes to a calendar other people may
    *  read, so turning it on is the user's decision, not a default. */
   autoPush: z.boolean().optional(),
+  /** Delete the Google event when its record is deleted in the collection
+   *  (#3234). Absent by default, and absent means what it has always meant:
+   *  the deletion is reported and Google is left alone.
+   *
+   *  Separate from `autoPush` rather than folded into it, because the two are
+   *  different sizes of decision — `autoPush` changes WHEN a write happens,
+   *  this one makes a write irreversible. Even on, the push refuses an event
+   *  with attendees (`google/deletePlan.ts`). */
+  propagateDeletes: z.boolean().optional(),
 });
 
 /** `ingest` is a discriminated union on `kind`: the three declarative

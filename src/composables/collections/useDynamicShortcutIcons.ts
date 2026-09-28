@@ -14,6 +14,7 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import { collectionUi } from "@mulmoclaude/collection-plugin/vue";
 import { useShortcuts } from "../useShortcuts";
+import { collectionShortcutRows } from "./collectionShortcutRows";
 import type { CollectionSummary } from "@mulmoclaude/core/collection";
 
 /** Wait for a burst of source-collection changes to settle (e.g. a feed
@@ -77,10 +78,7 @@ async function refresh(): Promise<void> {
   if (!result.ok) return;
   summaries.value = result.data.collections.filter((summary) => summary.source !== "feed");
   resubscribe();
-  await useShortcuts().reconcile(
-    "collection",
-    summaries.value.map((summary) => ({ slug: summary.slug, title: summary.title, icon: summary.icon })),
-  );
+  await useShortcuts().reconcile("collection", collectionShortcutRows(summaries.value));
 }
 
 /** Mount once at app level. No template — side effects only. */

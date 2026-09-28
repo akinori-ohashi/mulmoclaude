@@ -71,6 +71,7 @@ const koMessages: CollectionMessages = {
     inlineSaveFailed: "변경 사항을 저장하지 못했습니다: {error}",
     addRow: "행 추가",
     removeRow: "행 삭제",
+    allDay: "종일",
     noRows: "행이 없습니다",
     tableSummary: "{count}개",
     embedMissing: "{collection}에 '{id}' 레코드가 없습니다.",
@@ -102,6 +103,9 @@ const koMessages: CollectionMessages = {
     pushCalendar: "Google로 내보내기",
     pushFailed: "내보내기 실패: {error}",
     pushDone: "Google로 내보냈습니다: {created}건 생성, {updated}건 수정, 충돌 {conflicts}건 건너뜀, 로컬 삭제 {localDeletes}건 미반영.",
+    pushKeptDeletes: "Google에 그대로 두었습니다: {reasons}",
+    pushDoneWithDeletes:
+      "Google로 내보냈습니다: {created}건 생성, {updated}건 수정, 충돌 {conflicts}건 건너뜀, Google에서 {deletedInGoogle}건 삭제, 로컬 삭제 {localDeletes}건 미반영.",
     feedChatSeed:
       "“{slug}” 피드는 스키마 `feeds/{slug}/schema.json`로 정의되며, 레코드는 `{dataPath}/`(레코드당 `<id>.json` 파일 하나)에 저장됩니다. 이 스키마와 데이터를 사용하여 다음 요청에 응답하세요: {message}",
     feedsTitle: "데이터 소스 피드",

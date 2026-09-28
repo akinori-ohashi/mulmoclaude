@@ -1,4 +1,5 @@
 import { EVENT_TYPES } from "../../src/types/events.js";
+import { authFailureMessage, isAuthFailureFrame } from "./authFailure.js";
 
 export const AGENT_SESSION_EVENT_TYPE = "agent_session" as const;
 
@@ -89,6 +90,9 @@ export interface RawStreamEvent {
   subtype?: string;
   /** Present on `system`/`init`: the model id this session resolved to. */
   model?: string;
+  /** Present on a synthetic `assistant` frame the CLI emits in place of a
+   *  reply when the API call failed (`authentication_failed`, …). */
+  error?: string;
   /** Present when type === "stream_event". Carries partial text
    *  deltas for real-time streaming. */
   event?: StreamEventDelta | { type: string };
@@ -187,6 +191,14 @@ function initModelEvents(event: RawStreamEvent): AgentEvent[] | null {
   return model ? [{ type: SESSION_MODEL, model }] : [];
 }
 
+/** A failed CLI login arrives as ordinary assistant text; re-route it as an
+ *  error carrying the fix, or null when this is not that frame. */
+function authFailureEvents(event: RawStreamEvent): AgentEvent[] | null {
+  if (!isAuthFailureFrame(event)) return null;
+  const cliText = (event.message?.content ?? []).map((block) => (block.type === "text" && typeof block.text === "string" ? block.text : "")).join("");
+  return [{ type: EVENT_TYPES.error, message: authFailureMessage(cliText) }];
+}
+
 export function createStreamParser(): {
   parse: (event: RawStreamEvent) => AgentEvent[];
 } {
@@ -208,6 +220,13 @@ export function createStreamParser(): {
       textStreamedFromDeltas = false;
       textEmitted = false;
       return events;
+    }
+
+    const authEvents = authFailureEvents(event);
+    if (authEvents) {
+      // The closing `result` frame repeats the same text; don't let it through as a reply.
+      textEmitted = true;
+      return authEvents;
     }
 
     // `system`/`init` arrives once per spawn, before any content.

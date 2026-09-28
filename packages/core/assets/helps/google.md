@@ -32,13 +32,23 @@ from `calendarListCalendars` — to target another.
 | `calendarColors` | Palettes mapping a `colorId` to hex, for events and for calendars |
 | `calendarListEvents` | Upcoming events. Optional `calendarId`, `timeMin`, `maxResults` (1-50, default 10) |
 | `calendarSync` | Only what CHANGED since the last sync, via a stored token. Returns counts plus a capped sample |
-| `calendarCreateEvent` | Create. Requires `summary`, `start`, `end`; optional `description`, `calendarId`, `colorId` |
+| `calendarCreateEvent` | Create, timed or all-day. Requires `summary`, `start`, `end`; optional `description`, `calendarId`, `colorId` |
 | `calendarUpdateEvent` | Edit in place. Requires `eventId` + at least one of `summary`, `start`, `end`, `description`, `colorId` |
 | `calendarDeleteEvent` | Delete. Requires `eventId` |
 
-**Date-times must carry a timezone offset** — `2026-07-17T09:00:00+09:00`, not
-`2026-07-17` and not `2026-07-17T09:00:00`. Calendar rejects the others with an
-opaque 400.
+**A timed event's ends must carry a timezone offset** —
+`2026-07-17T09:00:00+09:00`, not `2026-07-17T09:00:00`. Calendar rejects an
+offset-less value with an opaque 400. The same goes for `timeMin`.
+
+**An all-day event takes a bare date on BOTH ends** — `start: "2026-07-17"`,
+`end: "2026-07-18"`. Its `end` is **exclusive**: it is the day AFTER the last
+day, so a single day on the 17th ends on the 18th, and a three-day event
+starting the 17th ends on the 20th. This is Google's own convention and the
+values it reports back, so do not "correct" it.
+
+One end of each kind is rejected. Editing an all-day event needs **both** ends —
+a lone date is refused, because whether the stored event is all-day cannot be
+told from the argument.
 
 **Editing is a patch.** Fields you omit keep their current value, so changing a
 title needs `eventId` + `summary` and nothing else. `description: ""` clears the

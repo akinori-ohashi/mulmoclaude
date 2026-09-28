@@ -677,6 +677,7 @@ function makeFakeDocs(seed: Record<string, unknown>[]): FakeDocs {
         if (index >= 0) listeners.splice(index, 1);
       };
     },
+    timestamp: (seconds, nanoseconds) => ({ seconds, nanoseconds }),
   };
 }
 

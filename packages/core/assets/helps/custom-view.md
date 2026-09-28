@@ -442,8 +442,8 @@ to reword.
 - Whatever you compose becomes an agent turn verbatim, with every tool
   available. Build the prompt from your own records, and don't paste text you
   fetched from somewhere else into it.
-- **On the phone (`target: "mobile"`) the prompt is always sent**, declared or
-  not: there is no Enter key to press, so a draft would simply strand the work.
+- **The phone (`target: "mobile"`) follows the same declaration** — undeclared
+  drafts, declared sends. See `config/helps/custom-view-remote.md`.
 
 Use this — not a hidden flag the user has to reconcile later — whenever a button
 should _start backend work_: the user stays in the loop through trusted first-

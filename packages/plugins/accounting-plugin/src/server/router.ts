@@ -241,13 +241,26 @@ const ACTION_HANDLERS: Record<string, ActionHandler> = {
   [ACCOUNTING_ACTIONS.rebuildSnapshots]: (rest, root) => rebuildSnapshots({ bookId: optionalString(rest.bookId) }, root),
 };
 
-// Actions whose tool-result envelope should carry a `data` field so
-// the sidebar renders a preview card. Everything else returns
-// without `data` and the host gates the preview off (silent action).
-// Reads (lists / reports) and View-driven maintenance ops stay
-// silent — they're invoked from inside the canvas and the LLM will
-// summarise reads in its text reply anyway.
-const PREVIEW_ACTIONS = new Set<string>([
+// Actions whose tool-result envelope carries a `data` field. On the live path
+// that is what decides whether a card appears AT ALL: the MCP bridge posts a
+// result to the session only when `data` is set
+// (`server/agent/mcp-server.ts`), so an action left out of this set never
+// reaches `toolResults` and never renders. Adding one here makes a NEW card
+// appear; it does not fill an existing one.
+//
+// The sidebar's own `v-if` reads `getPlugin(...)?.previewComponent` and never
+// looks at `data`, which is easy to mistake for "the host does not gate on
+// data" — it does, one layer up. A directly-injected envelope with no `data`
+// does render, but nothing on the live path produces one.
+//
+// Reads and View-driven maintenance ops stay out: the ops are invoked from
+// inside the canvas, where a card is noise about something the user is already
+// looking at, and a read the LLM will narrate in its reply does not need one.
+//
+// `getReport` was weighed for inclusion under #2716 and deliberately left out
+// (2026-09-21) — a card per report call is noise the narration already covers.
+// The consequence is stated where it bites, on `summarisePl` / `summariseBs`.
+export const PREVIEW_ACTIONS = new Set<string>([
   ACCOUNTING_ACTIONS.openBook,
   ACCOUNTING_ACTIONS.createBook,
   ACCOUNTING_ACTIONS.updateBook,
@@ -381,10 +394,9 @@ async function dispatch(body: AccountingActionBody, root: string | undefined): P
   // `{0: …, 1: …}`. Every service function returns a plain object, so
   // nothing changes today; an array would now arrive as `{ value: [...] }`.
   const handlerFields = isRecord(result) ? result : { value: result };
-  // `data` is the host's preview-eligibility signal (see
-  // SessionSidebar.vue's v-if gate). Mirror the handler payload
-  // into it for the actions that should render a card; leave it
-  // off for silent ones so the gate suppresses the preview.
+  // Mirror the handler payload into `data` for the actions that should render a
+  // card. Leaving it off keeps the action silent: the bridge drops the result
+  // rather than posting it to the session (see PREVIEW_ACTIONS).
   const dataField = PREVIEW_ACTIONS.has(action) ? { data: { action, ...handlerFields } } : {};
   // The MCP bridge only forwards `message` / `instructions` to the
   // LLM (`data` / `jsonData` reach the view but not the model). So

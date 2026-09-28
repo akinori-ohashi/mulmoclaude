@@ -73,6 +73,19 @@ export function makeTextResult(
   };
 }
 
+/** The card an agent / transport error renders as — built the same way live
+ *  and when a persisted error entry is replayed on session load. */
+export function makeErrorResult(message: string): ToolResultComplete {
+  const text = `[Error] ${message}`;
+  return {
+    uuid: uuidv4(),
+    toolName: "text-response",
+    message: text,
+    title: "Error",
+    data: { text, role: "assistant", transportKind: "text-rest" },
+  };
+}
+
 export interface SkillResultData {
   skillName: string;
   skillScope: SkillScope;

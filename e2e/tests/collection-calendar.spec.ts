@@ -135,6 +135,36 @@ const COLORED = {
   items: [{ id: "review", name: "Review", on: MID, status: "doing" }],
 };
 
+// A Google Calendar mirror: its `end` is exclusive, so an all-day event on the
+// 15th is stored ending at 16T00:00 and must not spill onto the 16th (#3323).
+// PLAIN holds the same dates without a sync, where the end stays inclusive.
+const NEXT = `${MID.slice(0, 8)}16`;
+const gcalSchema = (slug: string, sync: boolean) => ({
+  title: "Mirror",
+  icon: "event",
+  dataPath: `data/${slug}/items`,
+  primaryKey: "id",
+  fields: {
+    id: { type: "string", label: "ID", primary: true, required: true },
+    name: { type: "string", label: "Name", required: true },
+    start: { type: "datetime", label: "Start" },
+    end: { type: "datetime", label: "End" },
+  },
+  displayField: "name",
+  calendarField: "start",
+  calendarEndField: "end",
+  ...(sync ? { googleCalendar: { calendarId: "primary", map: { name: "summary", start: "start", end: "end" } } } : {}),
+});
+const ALL_DAY_ITEM = { id: "offsite", name: "Offsite", start: `${MID}T00:00`, end: `${NEXT}T00:00` };
+const MIRROR = {
+  collection: { slug: "mirror", title: "Mirror", icon: "event", source: "user", schema: gcalSchema("mirror", true) },
+  items: [ALL_DAY_ITEM],
+};
+const PLAIN = {
+  collection: { slug: "plain", title: "Plain", icon: "event", source: "user", schema: gcalSchema("plain", false) },
+  items: [ALL_DAY_ITEM],
+};
+
 // A collection with NO date field — must never show the calendar toggle.
 const CONTACTS = {
   collection: {
@@ -180,6 +210,14 @@ async function mockCollections(page: Page): Promise<void> {
   await page.route(
     (url) => url.pathname === "/api/collections/colored-events",
     (route) => route.fulfill({ json: COLORED }),
+  );
+  await page.route(
+    (url) => url.pathname === "/api/collections/mirror",
+    (route) => route.fulfill({ json: MIRROR }),
+  );
+  await page.route(
+    (url) => url.pathname === "/api/collections/plain",
+    (route) => route.fulfill({ json: PLAIN }),
   );
 }
 
@@ -413,6 +451,19 @@ test.describe("collection calendar view", () => {
     await expect(chip).toBeVisible();
     await expect(chip).toHaveClass(/bg-sky-100/);
     await expect(chip).not.toHaveClass(/bg-slate-50/);
+  });
+
+  test("a Google mirror's all-day event stays on its day; the same dates in a plain collection span both", async ({ page }) => {
+    const chipIn = (day: string) => page.getByTestId(`collection-calendar-day-${day}`).getByTestId("collection-calendar-chip-offsite");
+    await page.goto("/collections/mirror");
+    await page.getByTestId("collection-view-toggle-calendar").click();
+    await expect(chipIn(MID)).toBeVisible();
+    await expect(chipIn(NEXT)).toHaveCount(0);
+
+    await page.goto("/collections/plain");
+    await page.getByTestId("collection-view-toggle-calendar").click();
+    await expect(chipIn(MID)).toBeVisible();
+    await expect(chipIn(NEXT)).toBeVisible();
   });
 
   test("day-view create on a datetime-anchored collection prefills a valid datetime", async ({ page }) => {

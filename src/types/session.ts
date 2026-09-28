@@ -156,6 +156,18 @@ export interface ToolResultEntry extends SessionEntry {
   result: ToolResultComplete;
 }
 
+/** An agent error, kept so a failed turn still explains itself after reload.
+ *  Its own `type` (not an assistant `text` line) so readers that treat
+ *  assistant text as the model's reply never ingest it. */
+export interface ErrorEntry extends SessionEntry {
+  source: "assistant";
+  type: typeof EVENT_TYPES.error;
+  message: string;
+}
+
+export const isErrorEntry = (entry: SessionEntry): entry is ErrorEntry =>
+  entry.source === "assistant" && entry.type === EVENT_TYPES.error && typeof entry.message === "string";
+
 export const isTextEntry = (entry: SessionEntry): entry is TextEntry =>
   (entry.source === "user" || entry.source === "assistant") && entry.type === EVENT_TYPES.text && typeof entry.message === "string";
 

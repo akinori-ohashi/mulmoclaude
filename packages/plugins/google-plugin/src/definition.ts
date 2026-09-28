@@ -22,8 +22,8 @@ export const TOOL_DEFINITION = {
     " - `calendarColors`: palettes that map an event/calendar `colorId` to hex — `event` for per-event colours, `calendar` for calendar colours.\n" +
     " - `calendarListEvents`: list upcoming events (each carries `colorId`, empty when it inherits the calendar colour). Optional `calendarId`, `timeMin` (ISO 8601 date-time with timezone offset; default now), `maxResults` (1-50, default 10).\n" +
     " - `calendarSync`: fetch only what CHANGED since the last sync of this calendar, using a stored sync token. Use this for repeated/periodic syncing — it does not re-fetch the whole calendar, so it stays cheap. The FIRST call (or after `fullResync: true`) walks the entire calendar to establish the token. Returns counts (`changed`, `cancelled`) plus a capped `events` sample — never the full list, so it will not flood the conversation; `truncated: true` means more changed than are shown. Deletions are reported as the `cancelled` count. `pagesExhausted: true` means the calendar had more pages than one pass walks, so this is a PARTIAL read and no cursor was stored — say so rather than reporting the sync as complete; the usual cause is a recurring event with no end date. Optional `calendarId`, `fullResync` (discard the stored token and start over).\n" +
-    ' - `calendarCreateEvent`: create an event. Requires `summary`, `start`, `end` — ISO 8601 date-times WITH a timezone offset (e.g. 2026-07-17T09:00:00+09:00); optional `description`, `calendarId`, `colorId` (event palette id "1"-"11").\n' +
-    ' - `calendarUpdateEvent`: edit an existing event. Requires `eventId` (from `calendarListEvents` / `calendarSync`) plus AT LEAST ONE of `summary`, `start`, `end`, `description`, `colorId`; fields you omit keep their current value, and `description: ""` clears the body. Optional `calendarId`. Moving only one end of the event still has to leave start before end, or Calendar rejects it.\n' +
+    ' - `calendarCreateEvent`: create an event. Requires `summary`, `start`, `end`; optional `description`, `calendarId`, `colorId` (event palette id "1"-"11"). A TIMED event takes ISO 8601 date-times WITH a timezone offset on both ends (e.g. 2026-07-17T09:00:00+09:00). An ALL-DAY event takes a bare date on both ends (e.g. 2026-07-17) — and its `end` is EXCLUSIVE, so a single day on 2026-07-17 needs `end` 2026-07-18. One of each is rejected.\n' +
+    ' - `calendarUpdateEvent`: edit an existing event. Requires `eventId` (from `calendarListEvents` / `calendarSync`) plus AT LEAST ONE of `summary`, `start`, `end`, `description`, `colorId`; fields you omit keep their current value, and `description: ""` clears the body. Optional `calendarId`. Moving only one end of the event still has to leave start before end, or Calendar rejects it. Moving an ALL-DAY event needs BOTH ends as bare dates — a lone date is refused, because whether the stored event is all-day is not knowable from the argument.\n' +
     " - `calendarDeleteEvent`: delete an event. Requires `eventId`; optional `calendarId`. This removes it for every attendee and cannot be undone — confirm with the user before calling. For a recurring event, an instance id (as returned by the list kinds) deletes that single occurrence.\n" +
     "\n" +
     "Tasks:\n" +
@@ -72,8 +72,14 @@ export const TOOL_DEFINITION = {
       fullResync: { type: "boolean", description: "calendarSync: discard the stored sync token and re-walk the whole calendar (default false)" },
       maxResults: { type: "number", description: "list kinds: max items to return, 1-50 (default 10)" },
       summary: { type: "string", description: "calendarCreateEvent / calendarUpdateEvent: event title" },
-      start: { type: "string", description: "calendarCreateEvent / calendarUpdateEvent: start, ISO 8601 with timezone offset" },
-      end: { type: "string", description: "calendarCreateEvent / calendarUpdateEvent: end, ISO 8601 with timezone offset" },
+      start: {
+        type: "string",
+        description: "calendarCreateEvent / calendarUpdateEvent: start — ISO 8601 with timezone offset, or a bare date (2026-07-17) for an all-day event",
+      },
+      end: {
+        type: "string",
+        description: "calendarCreateEvent / calendarUpdateEvent: end — same shape as start. All-day ends are EXCLUSIVE: one day on 2026-07-17 ends 2026-07-18",
+      },
       description: { type: "string", description: 'calendarCreateEvent / calendarUpdateEvent: event body ("" on update clears it)' },
       taskListId: { type: "string", description: "tasks kinds: target list id (default: the user's default list)" },
       showCompleted: { type: "boolean", description: "tasksList: include completed tasks (default false)" },

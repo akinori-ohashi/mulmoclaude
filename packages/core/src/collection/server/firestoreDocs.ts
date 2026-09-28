@@ -26,6 +26,7 @@ import {
   onSnapshot,
   runTransaction,
   setDoc,
+  Timestamp,
   type Firestore,
 } from "firebase/firestore";
 
@@ -67,6 +68,16 @@ export interface FirestoreDocs {
    *
    *  Returns the detach function synchronously — `onSnapshot` is not async. */
   watch: (collectionPath: string, onChanged: (ids: string[], meta: { initial: boolean }) => void, onError: (error: unknown) => void) => () => void;
+  /** Firestore's own instant, for a field the store must hand back as the type
+   *  it was stored as.
+   *
+   *  Here rather than in the store because this is the seam that owns the SDK:
+   *  `firebase` is an OPTIONAL peer, and the store is reachable from
+   *  `collection/server` (the factory registry in `store.ts` names it), so a
+   *  top-level `import { Timestamp }` there makes the peer required for every
+   *  consumer of that entry — including hosts with no Firestore at all. Typed
+   *  `unknown` so no SDK type crosses back out. */
+  timestamp: (seconds: number, nanoseconds: number) => unknown;
 }
 
 /** The real implementation over the modular SDK.
@@ -143,5 +154,6 @@ export function createFirestoreDocs(database: Firestore): FirestoreDocs {
         onError,
       );
     },
+    timestamp: (seconds, nanoseconds) => new Timestamp(seconds, nanoseconds),
   };
 }

@@ -24,16 +24,16 @@
     "lint": "eslint src test"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260917.1",
+    "@cloudflare/workers-types": "^5.20260922.1",
     "typescript": "^6.0.3",
-    "wrangler": "^4.133.0"
+    "wrangler": "^4.136.3"
   },
   "engines": {
     "node": ">=20"
   },
   "license": "MIT",
   "dependencies": {
-    "@mulmobridge/client": "^1.3.0",
+    "@mulmobridge/client": "^1.4.0",
     "@mulmoclaude/common": "^1.3.0"
   },
   "homepage": "https://github.com/receptron/mulmoclaude/tree/main/packages/relay#readme",

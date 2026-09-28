@@ -67,6 +67,7 @@ import { getWorkspaceRoot, stagingSkillDir } from "./host";
 import { writeFileAtomic } from "../../files/atomic.js";
 import { mirrorSkillWrite } from "../../skill-bridge/index.js";
 import { renderSchemaDocs, type AuthoringVariant } from "./schemaDocs";
+import { schemaReadReply } from "./schemaReadReply";
 // NOTE: only the browser-safe `slug` module — workspace-setup's assets.ts uses
 // `import.meta.url` and is ESM-only (build pass 2), while this entry builds
 // dual ESM+CJS. The bundled-docs dir is injected instead (`bundledHelpsDir`).
@@ -842,24 +843,29 @@ async function handleSchemaDocs(deps: ManageCollectionDeps, topic?: string): Pro
   return `manageCollection: could not read the collection-authoring reference (${SCHEMA_DOCS_FILE}).`;
 }
 
+async function readTextOrNull(filePath: string): Promise<string | null> {
+  try {
+    return await readFile(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
 /** Return the raw schema.json of an existing collection, for editing.
- *  Staging (the canonical writable copy) first, the active mirror as a
- *  fallback for user-scope skills that have no staging copy. Raw text —
+ *  A project collection's staging copy (the canonical writable one) first,
+ *  else the discovered skill dir's copy. Raw text —
  *  not the parsed schema — so the agent edits the true on-disk source. */
 async function handleGetSchema(slug: string, deps: ManageCollectionDeps): Promise<string> {
   const collection = await loadCollection(slug, deps);
   if (!collection) return unknownCollection(slug);
-  // Path from the discovered (sanitized) slug, never the raw arg.
+  // Path from the discovered (sanitized) slug, never the raw arg. Only a
+  // project collection is authored in the workspace staging tree; a same-slug
+  // staging file next to a user-scope collection belongs to something else.
   const { stagingDir } = authoringTarget(deps, collection.slug);
-  const candidates = [...(stagingDir === null ? [] : [path.join(stagingDir, SCHEMA_FILE)]), path.join(collection.skillDir, SCHEMA_FILE)];
-  for (const candidate of candidates) {
-    try {
-      return await readFile(candidate, "utf-8");
-    } catch {
-      // fall through to the next location
-    }
-  }
-  return `manageCollection: '${defangForPrompt(slug)}' has no readable ${SCHEMA_FILE}.`;
+  const hasStaging = stagingDir !== null && collection.source === "project";
+  const staging = hasStaging ? await readTextOrNull(path.join(stagingDir, SCHEMA_FILE)) : null;
+  const active = await readTextOrNull(path.join(collection.skillDir, SCHEMA_FILE));
+  return schemaReadReply(collection.slug, staging, active) ?? `manageCollection: '${defangForPrompt(slug)}' has no readable ${SCHEMA_FILE}.`;
 }
 
 /** Where the agent should CREATE a collection skill in this root, named in the
@@ -981,7 +987,7 @@ const MANAGE_COLLECTION_PROMPT =
   'For a question that spans collections ("which clients have unpaid invoices?"), start with `getOntology`: it lists every collection with its primaryKey, record count, and outbound `ref`/`embed` relations, so you know which collections to join before reading any records. ' +
   "`putItems` GATES every row on what would make the record unopenable — required fields, enum values, primaryKey = record id — and returns `{ written, rejected }`; fix each rejected row using its `problem` text and retry just those rows. Never include computed fields in a row you write. " +
   "That gate does NOT check the SHAPE of a value: a `datetime` written as an instant (`2026-08-17T15:00:00.000Z`, what `toISOString()` produces) rather than as a wall clock, a `number` holding something that is not a number at all, a `date` that is not a real day are all WRITTEN, and come back in a `lint` block beside `written`. Read it — a full `getItems` listing warns about the same rows and publishing a shared app REFUSES them, so a silent `lint` is the only proof the values are right. " +
-  'Before generating a large set, read the exact stored form of each type in the `Field types` section of `schemaDocs` (`topic: "Field types"` fetches just that one), then write ONE batch and check that `lint` is absent. `datetime` in particular is a local wall clock (`YYYY-MM-DDTHH:MM`, no timezone suffix), so `new Date(...).toISOString()` is wrong twice over — the suffix, and the hours the conversion moved. The one `Z`-suffixed datetime the strict tier accepts is a shared app\'s server-stamped instant, written by the SERVER with nine fractional digits; you never produce that value. ' +
+  'Before generating a large set, read the exact stored form of each type in the `Field types` section of `schemaDocs` (`topic: "Field types"` fetches just that one), then write ONE batch and check that `lint` is absent. `datetime` in particular is a local wall clock (`YYYY-MM-DDTHH:MM`, no timezone suffix; a bare `YYYY-MM-DD` means ALL DAY and is not the same as `…T00:00`, a real midnight start), so `new Date(...).toISOString()` is wrong twice over — the suffix, and the hours the conversion moved. The one `Z`-suffixed datetime the strict tier accepts is a shared app\'s server-stamped instant, written by the SERVER with nine fractional digits; you never produce that value. ' +
   "When the rows come from a script rather than from you (a generated schedule, an imported set, anything past a few dozen records), write them to a JSON file UNDER THE WORKSPACE and pass its absolute path as `itemsFile` instead of `items` — the host reads the file, so the rows never pass through your context. Do NOT hand-transcribe a generated file into `items`, and never drive the collection by spawning the MCP bridge yourself. " +
   'To update a few fields of an existing record, use `mode: "merge"` with a partial row ({ id, <changed fields> }) — the default upsert replaces the WHOLE record, so a partial upsert would silently erase every optional field it omits. ' +
   "`deleteItems` removes records by id and returns `{ deleted, rejected }`; an id that doesn't exist comes back rejected rather than counted as deleted, so check `rejected` before reporting a deletion as done. " +

@@ -156,6 +156,29 @@ export function buildExitErrorEvent(
   return { type: EVENT_TYPES.error, message: stderrOutput || exitSummary };
 }
 
+// The CLI exits 1 with empty stderr after an error frame (a failed login); the
+// bare "claude exited with code 1" that follows only buries the surfaced error.
+// Any other code, a signal, or stderr content is new information and is kept.
+const STREAM_ERROR_EXIT_CODE = 1;
+
+export function isRedundantExitError(streamErrorSurfaced: boolean, exitCode: number | null, stderrOutput: string): boolean {
+  return streamErrorSurfaced && exitCode === STREAM_ERROR_EXIT_CODE && stderrOutput.trim() === "";
+}
+
+interface ProcessExit {
+  exitCode: number | null;
+  signal: string | null;
+  abortSignal: AbortSignal | undefined;
+  stderrOutput: string;
+  streamErrorSurfaced: boolean;
+}
+
+function exitErrorToSurface(processExit: ProcessExit): { type: typeof EVENT_TYPES.error; message: string } | null {
+  const { exitCode, signal, abortSignal, stderrOutput, streamErrorSurfaced } = processExit;
+  if (isRedundantExitError(streamErrorSurfaced, exitCode, stderrOutput)) return null;
+  return buildExitErrorEvent(exitCode, signal, abortSignal, stderrOutput) ?? brokerNotReadyErrorEvent(stderrOutput);
+}
+
 // The broker startup race (#2057) can leave the CLI exiting 0 — the model gives
 // up after the first tool call fails, so `buildExitErrorEvent` sees a clean exit
 // and returns null. Scan stderr for the permission-prompt-tool phrase and
@@ -334,6 +357,7 @@ async function* readAgentEvents(proc: ClaudeProc, turn: TurnMcpContext, abortSig
   // read loop risks missing it and hanging on the await below.
   const closed = new Promise<{ code: number | null; signal: string | null }>((resolve) => proc.on("close", (code, sig) => resolve({ code, signal: sig })));
 
+  let streamErrorSurfaced = false;
   let buffer = "";
   for await (const chunk of proc.stdout) {
     buffer += String(chunk);
@@ -351,6 +375,7 @@ async function* readAgentEvents(proc: ClaudeProc, turn: TurnMcpContext, abortSig
       for (const agentEvent of parser.parse(event)) {
         builtinMcpToolWatcher.track(agentEvent);
         mcpFailureMonitor.track(agentEvent);
+        streamErrorSurfaced ||= agentEvent.type === EVENT_TYPES.error;
         yield agentEvent;
       }
     }
@@ -362,7 +387,7 @@ async function* readAgentEvents(proc: ClaudeProc, turn: TurnMcpContext, abortSig
   log.info("agent", "claude exited", { exitCode, signal });
   logIfMcpUnavailable(turn, builtinMcpToolWatcher.count(), abortSignal?.aborted === true);
 
-  const errorEvent = buildExitErrorEvent(exitCode, signal, abortSignal, stderrOutput) ?? brokerNotReadyErrorEvent(stderrOutput);
+  const errorEvent = exitErrorToSurface({ exitCode, signal, abortSignal, stderrOutput, streamErrorSurfaced });
   if (errorEvent) yield errorEvent;
 }
 

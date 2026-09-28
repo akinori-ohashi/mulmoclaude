@@ -71,6 +71,7 @@ const jaMessages: CollectionMessages = {
     inlineSaveFailed: "変更を保存できませんでした: {error}",
     addRow: "行を追加",
     removeRow: "行を削除",
+    allDay: "終日",
     noRows: "行がありません",
     tableSummary: "{count}件",
     embedMissing: "{collection} に「{id}」のレコードが見つかりません。",
@@ -102,6 +103,9 @@ const jaMessages: CollectionMessages = {
     pushCalendar: "Googleへ書き出し",
     pushFailed: "書き出しに失敗しました: {error}",
     pushDone: "Googleへ書き出しました: {created}件作成、{updated}件更新、{conflicts}件は競合のためスキップ、{localDeletes}件のローカル削除は未反映。",
+    pushKeptDeletes: "Google側に残しました: {reasons}",
+    pushDoneWithDeletes:
+      "Googleへ書き出しました: {created}件作成、{updated}件更新、{conflicts}件は競合のためスキップ、{deletedInGoogle}件をGoogleから削除、{localDeletes}件のローカル削除は未反映。",
     feedChatSeed:
       "フィード「{slug}」はスキーマ `feeds/{slug}/schema.json` で定義され、レコードは `{dataPath}/`（1 レコードにつき `<id>.json` 1 ファイル）に保存されています。このスキーマとデータを使って、次のリクエストに応えてください: {message}",
     feedsTitle: "データソースフィード",

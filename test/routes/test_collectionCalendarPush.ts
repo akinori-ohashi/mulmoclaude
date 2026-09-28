@@ -16,7 +16,9 @@ const result = (overrides: Partial<CalendarCollectionPushResult> = {}): Calendar
   updated: 0,
   conflicts: 0,
   localDeletes: 0,
+  deletedInGoogle: 0,
   skipped: [],
+  keptInGoogle: [],
   errors: [],
   unpushedIds: [],
   ...overrides,
@@ -109,8 +111,27 @@ describe("reportedAccessRole — what an unlisted calendar says about itself", (
 
 describe("calendarPushBody — a real push", () => {
   it("passes the counts through", () => {
-    const body = calendarPushBody({ kind: "pushed", result: result({ created: 2, updated: 3, conflicts: 1, localDeletes: 4 }) });
-    assert.deepEqual(body, { pushed: true, created: 2, updated: 3, conflicts: 1, localDeletes: 4, skipped: [], errors: [] });
+    const body = calendarPushBody({ kind: "pushed", result: result({ created: 2, updated: 3, conflicts: 1, localDeletes: 4, deletedInGoogle: 1 }) });
+    assert.deepEqual(body, {
+      pushed: true,
+      created: 2,
+      updated: 3,
+      conflicts: 1,
+      localDeletes: 4,
+      deletedInGoogle: 1,
+      skipped: [],
+      keptInGoogle: [],
+      errors: [],
+    });
+  });
+
+  // `localDeletes` counts what went away HERE and `deletedInGoogle` what the
+  // push then removed there. Reporting the first as if it were the second is
+  // how a click would claim to have deleted events it deliberately left alone.
+  it("keeps the two delete counts apart — reported here is not deleted there", () => {
+    const body = calendarPushBody({ kind: "pushed", result: result({ localDeletes: 4, deletedInGoogle: 0 }) });
+    assert.equal(body.localDeletes, 4);
+    assert.equal(body.deletedInGoogle, 0);
   });
 
   it("keeps skipped reasons separate from errors — they need different wording", () => {
@@ -120,6 +141,19 @@ describe("calendarPushBody — a real push", () => {
     });
     assert.deepEqual(body.skipped, ["abcde: needs a mapped start and end"]);
     assert.deepEqual(body.errors, ["ev9: HTTP 500"]);
+  });
+
+  // A refused deletion rides its OWN list to the caller. Merged into `skipped` it
+  // took the caller's problem branch with it, and one refusal then hid every
+  // create and update the same push made (#3272).
+  it("carries a refused deletion apart from records that could not be pushed", () => {
+    const body = calendarPushBody({
+      kind: "pushed",
+      result: result({ created: 10, keptInGoogle: ["ev1: left in Google because it has attendees"], skipped: ["abcde: needs a mapped start and end"] }),
+    });
+    assert.deepEqual(body.keptInGoogle, ["ev1: left in Google because it has attendees"]);
+    assert.deepEqual(body.skipped, ["abcde: needs a mapped start and end"]);
+    assert.equal(body.created, 10);
   });
 
   it("reports a conflict count without touching either side", () => {

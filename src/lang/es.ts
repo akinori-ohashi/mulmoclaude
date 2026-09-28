@@ -44,7 +44,8 @@ const esMessages = {
     removeBuffered: "Eliminar mensaje en cola",
     attachFile: "Adjuntar archivo",
     fileTooLarge: "El archivo es demasiado grande ({sizeMB} MB). El máximo es 30 MB.",
-    unsupportedFileType: "Tipo de archivo no admitido. Se aceptan: imágenes, PDF, DOCX, XLSX, PPTX y archivos de texto.",
+    fileOnlyAttachment: "No se puede leer el contenido: se pasa como archivo",
+    readFileFailed: "No se pudo leer el archivo.",
     attachImageFailed: "No se pudo adjuntar la imagen: {error}",
     stopFailed: "No se pudo detener la ejecución: {error}",
     dropHint: "Suelta el archivo para adjuntar",
@@ -306,6 +307,21 @@ const esMessages = {
       connectError: "No se pudo iniciar el flujo de autorización de Google.",
       unlinkError: "No se pudo desvincular la cuenta de Google.",
     },
+    geminiTab: {
+      required: "La generación de imágenes requiere {envKey}. Pega la clave abajo y guárdala.",
+      apiKeyLabel: "Clave de API de Gemini",
+      apiKeyPlaceholder: "AIza…",
+      helperText: "Crea o copia una clave en {studioLink}.",
+      storageNote: "Se guarda solo en este equipo, fuera del espacio de trabajo, y solo tú puedes leerla. Se aplica al instante: no hace falta reiniciar.",
+      storedHere: "Guardada en la app",
+      storedInEnvironment: "Procede del entorno",
+      notConfigured: "Sin configurar",
+      clear: "Borrar",
+      fromEnvironment: "Esta clave viene del shell que inició la app o de {envFile}. Una clave guardada aquí tiene prioridad.",
+      loadError: "No se pudo cargar el estado de la clave",
+      saveError: "No se pudo guardar la clave",
+      clearError: "No se pudo borrar la clave",
+    },
     mapTab: {
       description: "Configura la clave de la API de Google Maps que usa el plugin de mapas. La clave se guarda localmente y solo se envía a Google Maps.",
       apiKeyLabel: "Clave API de Google Maps",
@@ -443,7 +459,6 @@ const esMessages = {
     // como `<code>` en línea en SettingsModal.vue, por lo que los
     // literales de variable y nombre de archivo se mantienen sin
     // traducir.
-    geminiRequired: "La generación de imágenes requiere {envKey}. Añádelo a {envFile} y reinicia la app.",
     geminiAskButton: "Preguntar a Claude",
     geminiAskMessage: "¿Cuál es el rol de la clave API de Gemini en esta app?",
     toolNamesLabel: "Nombres de herramientas",

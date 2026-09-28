@@ -19,6 +19,7 @@ import {
 import { readManifest, removeSessionFromIndex } from "../../workspace/chat-index/indexer.js";
 import type { ChatIndexEntry } from "../../workspace/chat-index/types.js";
 import { markRead, getSession, evictSession, publishSessionsChanged } from "../../events/session-store/index.js";
+import { snapshotMayBeMidRun, type RunSample } from "./snapshotRunState.js";
 import { notFound, type ApiResponse, type ErrorBody } from "../../utils/httpError.js";
 import { singleLineForLog } from "../../utils/logPreview.js";
 import { createStampedCache } from "../../utils/stampedCache.js";
@@ -376,6 +377,11 @@ async function parseSessionEntry(line: string): Promise<unknown> {
   return entry;
 }
 
+function sampleRunState(sessionId: string): RunSample {
+  const live = getSession(sessionId);
+  return { isRunning: live?.isRunning ?? false, runGeneration: live?.runGeneration ?? 0 };
+}
+
 router.get(API_ROUTES.sessions.detail, async (req: Request<SessionIdParams>, res: ApiResponse<unknown[]>) => {
   const { id: sessionId } = req.params;
   const sessionIdForLog = singleLineForLog(sessionId);
@@ -383,6 +389,7 @@ router.get(API_ROUTES.sessions.detail, async (req: Request<SessionIdParams>, res
   log.info("sessions", "detail: start", { sessionId: sessionIdForLog });
   try {
     const meta = await readSessionMeta(chatDir, sessionId);
+    const runBeforeRead = sampleRunState(sessionId);
     const content = await readSessionJsonl(sessionId);
     if (!content) {
       log.warn("sessions", "detail: not found", { sessionId: sessionIdForLog });
@@ -390,8 +397,13 @@ router.get(API_ROUTES.sessions.detail, async (req: Request<SessionIdParams>, res
       return;
     }
     const entries = (await Promise.all(content.split("\n").filter(Boolean).map(parseSessionEntry))).filter(Boolean);
-    // Prepend metadata as session_meta entry for the frontend
-    const result = meta ? [{ type: EVENT_TYPES.sessionMeta, ...meta }, ...entries] : entries;
+    // Prepend metadata as session_meta entry for the frontend, with two run
+    // facts a catch-up needs: `isRunning` is whether a run is live now, and
+    // `snapshotMayBeIncomplete` is whether one was live at any point of the read
+    // — while a run is in progress the text being streamed is not in the file.
+    const runAfterRead = sampleRunState(sessionId);
+    const runFacts = { isRunning: runAfterRead.isRunning, snapshotMayBeIncomplete: snapshotMayBeMidRun(runBeforeRead, runAfterRead) };
+    const result = [{ type: EVENT_TYPES.sessionMeta, ...(meta ?? {}), ...runFacts }, ...entries];
     log.info("sessions", "detail: ok", { sessionId: sessionIdForLog, entries: result.length });
     res.json(result);
   } catch (err) {

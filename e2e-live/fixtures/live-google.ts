@@ -104,7 +104,14 @@ const SLUG_NONCE_LENGTH = 6;
 const dataPathFor = (slug: string): string => path.posix.join(...DATA_ROOT_SEGMENTS, slug, ITEMS_DIR);
 const dataDirFor = (root: string, slug: string): string => path.join(root, ...DATA_ROOT_SEGMENTS, slug, ITEMS_DIR);
 
-const schemaFor = (slug: string, calendarId: string): Record<string, unknown> => ({
+/** What the throwaway collection opts into. Absent means the shipped default,
+ *  which is what most of these specs exercise. */
+export interface CalendarWorkspaceOptions {
+  /** Delete the Google event when its record file is removed (#3234). */
+  propagateDeletes?: boolean;
+}
+
+const schemaFor = (slug: string, calendarId: string, options: CalendarWorkspaceOptions): Record<string, unknown> => ({
   title: "e2e-live calendar push",
   icon: "event",
   dataPath: dataPathFor(slug),
@@ -118,6 +125,7 @@ const schemaFor = (slug: string, calendarId: string): Record<string, unknown> =>
   googleCalendar: {
     calendarId,
     map: { [CALENDAR_FIELDS.summary]: "summary", [CALENDAR_FIELDS.start]: "start", [CALENDAR_FIELDS.end]: "end" },
+    ...(options.propagateDeletes === true ? { propagateDeletes: true } : {}),
   },
 });
 
@@ -148,22 +156,27 @@ export interface CalendarCollectionWorkspace {
   slug: string;
   /** Write (or overwrite) one record file. */
   putRecord: (recordId: string, record: Record<string, unknown>) => Promise<void>;
+  /** Remove one record file — what a user deleting the row leaves behind. */
+  deleteRecord: (recordId: string) => Promise<void>;
   cleanup: () => Promise<void>;
 }
 
-export async function createCalendarCollectionWorkspace(calendarId: string): Promise<CalendarCollectionWorkspace> {
+export async function createCalendarCollectionWorkspace(calendarId: string, options: CalendarWorkspaceOptions = {}): Promise<CalendarCollectionWorkspace> {
   const root = await mkdtemp(path.join(tmpdir(), "e2e-live-calendar-"));
   const slug = `e2e-live-push-${randomUUID().slice(0, SLUG_NONCE_LENGTH)}`;
   const skillDir = path.join(root, ".claude", "skills", slug);
   const dataDir = dataDirFor(root, slug);
   await mkdir(skillDir, { recursive: true });
   await mkdir(dataDir, { recursive: true });
-  await writeFile(path.join(skillDir, "schema.json"), JSON.stringify(schemaFor(slug, calendarId), null, 2), "utf-8");
+  await writeFile(path.join(skillDir, "schema.json"), JSON.stringify(schemaFor(slug, calendarId, options), null, 2), "utf-8");
   return {
     root,
     slug,
     putRecord: async (recordId, record) => {
       await writeFile(path.join(dataDir, `${recordId}.json`), JSON.stringify(record, null, 2), "utf-8");
+    },
+    deleteRecord: async (recordId) => {
+      await rm(path.join(dataDir, `${recordId}.json`), { force: true });
     },
     cleanup: async () => {
       await rm(root, { recursive: true, force: true });

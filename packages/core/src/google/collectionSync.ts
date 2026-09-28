@@ -186,12 +186,15 @@ export function pullableEvents(events: readonly CalendarEventSummary[], unpushed
  *  A conflict or an error means that record now diverges from Google until
  *  someone resolves it, which must not be silent. */
 function reportAutoPush(slug: string, result: CalendarCollectionPushResult): void {
-  const { created, updated, conflicts, skipped, errors, unpushedIds } = result;
+  const { created, updated, conflicts, skipped, keptInGoogle, errors, unpushedIds } = result;
   if (created + updated > 0) log.info("google", "auto-pushed local calendar edits", { slug, created, updated });
   if (unpushedIds.length > 0) {
     log.warn("google", "records the auto push could not send — the pull will leave them alone", { slug, conflicts, unpushedIds });
   }
   if (skipped.length > 0) log.warn("google", "records the auto push skipped", { slug, skipped });
+  // Recorded separately: the record went away here and the event is still
+  // standing there, which is divergence nobody is watching on a scheduled run.
+  if (keptInGoogle.length > 0) log.warn("google", "deletions the auto push left standing in Google", { slug, keptInGoogle });
   if (errors.length > 0) log.warn("google", "auto push errors", { slug, errors });
 }
 

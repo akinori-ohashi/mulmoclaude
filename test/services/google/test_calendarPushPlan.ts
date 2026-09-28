@@ -69,6 +69,25 @@ describe("pushableMap", () => {
   it("is empty when a schema maps only read-only fields", () => {
     assert.deepEqual(pushableMap({ link: "htmlLink" }), {});
   });
+
+  // The executable form of "widening the pullable set needs no push-state
+  // migration": every field the pull gained beyond the writable set is dropped
+  // here, so it never reaches a PATCH and never enters the baseline.
+  it("drops every pull-only field, so none of them can reach Google", () => {
+    const pullOnly = {
+      series: "recurringEventId",
+      originalSlot: "originalStartTime",
+      lastChanged: "updated",
+      busy: "transparency",
+      kind: "eventType",
+      meet: "hangoutLink",
+      rsvp: "selfResponseStatus",
+      join: "conferenceVideoUri",
+      link: "htmlLink",
+      state: "status",
+    } as const;
+    assert.deepEqual(pushableMap({ title: "summary", ...pullOnly }), { title: "summary" });
+  });
 });
 
 // When a push cannot run AT ALL (a calendar whose role degraded to reader, a

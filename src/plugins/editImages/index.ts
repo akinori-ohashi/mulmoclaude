@@ -1,6 +1,6 @@
 import type { PluginRegistration, ToolPlugin } from "../../tools/types";
-import toolDefinition, { TOOL_NAME, type ImageEndpoints, type ImageToolData } from "./definition";
-import { makePostExecute } from "../execute";
+import toolDefinition, { TOOL_NAME, type ImageToolData } from "./definition";
+import { makeGuardedImageExecute } from "../imageRouteResult";
 import { wrapWithScope } from "../scope";
 import View from "./View.vue";
 import Preview from "./Preview.vue";
@@ -8,7 +8,7 @@ import Preview from "./Preview.vue";
 const editImagesPlugin: ToolPlugin<ImageToolData> = {
   toolDefinition,
 
-  execute: makePostExecute<ImageEndpoints, ImageToolData>("image", "edit", TOOL_NAME),
+  execute: makeGuardedImageExecute<ImageToolData>("edit", TOOL_NAME),
 
   isEnabled: () => true,
   generatingMessage: "Editing images...",

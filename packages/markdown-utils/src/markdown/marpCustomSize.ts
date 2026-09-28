@@ -15,7 +15,7 @@
 // and Just Works.
 
 import { dump as yamlDump } from "js-yaml";
-import { parseFrontmatter } from "./frontmatter";
+import { parseFrontmatter } from "./frontmatter.js";
 
 interface MarpThemeSet {
   add: (css: string) => void;

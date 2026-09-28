@@ -69,6 +69,7 @@ const enMessages = {
     inlineSaveFailed: "Couldn't save change: {error}",
     addRow: "Add row",
     removeRow: "Remove row",
+    allDay: "All day",
     noRows: "No rows yet",
     tableSummary: "{count} items",
     embedMissing: "No “{id}” record found in {collection}.",
@@ -100,6 +101,9 @@ const enMessages = {
     pushCalendar: "Push to Google",
     pushFailed: "Push failed: {error}",
     pushDone: "Pushed to Google: {created} created, {updated} updated, {conflicts} conflicts skipped, {localDeletes} local deletions not applied.",
+    pushKeptDeletes: "Left in Google: {reasons}",
+    pushDoneWithDeletes:
+      "Pushed to Google: {created} created, {updated} updated, {conflicts} conflicts skipped, {deletedInGoogle} deleted in Google, {localDeletes} local deletions not applied.",
     feedChatSeed:
       'The "{slug}" feed is defined by the schema at `feeds/{slug}/schema.json` and its records live in `{dataPath}/` (one `<id>.json` per record). Using that schema and data, respond to this request: {message}',
     feedsTitle: "Data-source feeds",

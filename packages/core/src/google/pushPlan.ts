@@ -6,13 +6,17 @@
 import type { CollectionFieldSpec, CollectionItem } from "../collection/core/schema.js";
 import type { CalendarEventSummary } from "./calendar.js";
 import type { ShadowEvent } from "./calendarPushState.js";
-import { toCollectionRecord } from "./collectionProjection.js";
+import { toCollectionRecord, type GoogleCalendarSourceField } from "./collectionProjection.js";
 
-/** The event fields Google lets a caller write. `htmlLink` and `status` are
- *  read-only, so a record column mapped to either is ignored here rather than
- *  rejected — the mapping was authored for the pull, and a push has no business
- *  invalidating it. */
-export const PUSHABLE_SOURCE_FIELDS = ["summary", "start", "end", "colorId", "description", "location"] as const;
+/** The event fields Google lets a caller write — a SUBSET of what the pull can
+ *  read (`GOOGLE_CALENDAR_SOURCE_FIELDS`). A column mapped to one of the
+ *  pull-only fields is ignored here rather than rejected: the mapping was
+ *  authored for the pull, and a push has no business invalidating it.
+ *
+ *  `satisfies` is what keeps the two lists honest. A field pushable but not
+ *  pullable could never have its baseline rebuilt from a pull, so "unchanged"
+ *  would stop meaning anything — this fails the build instead of shipping. */
+export const PUSHABLE_SOURCE_FIELDS = ["summary", "start", "end", "colorId", "description", "location"] as const satisfies readonly GoogleCalendarSourceField[];
 
 export type PushableSourceField = (typeof PUSHABLE_SOURCE_FIELDS)[number];
 
@@ -75,10 +79,29 @@ const comparableText = (value: unknown): string => {
   return SECONDLESS_DATETIME_RE.test(text) ? `${text}${WHOLE_MINUTE}` : text;
 };
 
+/** The event fields a baseline does NOT carry, because none of them is pushable
+ *  — the baseline exists to answer "did the local side change a field we could
+ *  send?", and a pull-only field is by definition not one.
+ *
+ *  Typed as the exact complement of `ShadowEvent` + `id`, so a field added to
+ *  `CalendarEventSummary` without being made pushable must be zeroed here or
+ *  the build fails. */
+const UNPUSHABLE_EVENT_FIELDS: Omit<CalendarEventSummary, keyof ShadowEvent | "id"> = {
+  htmlLink: "",
+  status: "",
+  recurringEventId: "",
+  originalStartTime: "",
+  updated: "",
+  transparency: "",
+  eventType: "",
+  hangoutLink: "",
+  selfResponseStatus: "",
+  conferenceVideoUri: "",
+};
+
 /** A baseline shaped as the event it came from, so the comparison can run
- *  through the very projection that wrote the record. `htmlLink`/`status` are
- *  never pushable, so their absence from the baseline cannot matter. */
-const asEventSummary = (eventId: string, shadow: ShadowEvent): CalendarEventSummary => ({ id: eventId, htmlLink: "", status: "", ...shadow });
+ *  through the very projection that wrote the record. */
+const asEventSummary = (eventId: string, shadow: ShadowEvent): CalendarEventSummary => ({ id: eventId, ...UNPUSHABLE_EVENT_FIELDS, ...shadow });
 
 /** What the record WOULD hold if nobody had edited it since the baseline.
  *

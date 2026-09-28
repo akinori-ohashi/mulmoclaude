@@ -40,6 +40,7 @@ import { spawnSystemWorker } from "../../api/routes/agent.js";
 import { loadCollection } from "../../workspace/collections/index.js";
 import { loadAllRoles } from "../../workspace/roles.js";
 import { DEFAULT_ROLE_ID } from "../../../src/config/roles.js";
+import { resolveRequestedRoleId } from "../../../src/utils/session/roleSelection.js";
 import type { CommandHandler, JsonObject, JsonValue } from "../commandChannel.js";
 import { ingestAttachments } from "./ingestAttachments.js";
 
@@ -106,17 +107,17 @@ const composeCollectionSeed = async (deps: StartChatDeps, params: JsonObject, me
 const hasSlug = (value: JsonValue | undefined): boolean => value != null && value !== "";
 
 // Resolve the optional `role` param to a concrete roleId. Absent / null / "" ⇒
-// the host default. A provided id must be a string that matches an existing
-// role (built-in or custom) — reject an unknown one so we never seed the chat
-// with the wrong (default-fallback) assistant. `isDebugRole` roles are excluded:
-// the desktop picker hides them from new sessions outside dev mode
-// (RoleSelector.vue), and the remote channel is a production-facing entry point,
-// so a debug role id is treated as not selectable here (rejected as unknown).
+// the host default. Anything else goes through the shared rule (known, and not a
+// debug role — `roleSelection.ts` says why), and an id it refuses is rejected
+// rather than silently defaulted, so we never seed the chat with the wrong
+// assistant. This entry point is production-facing, so a refusal is the answer;
+// the desktop entry points fall back to a role the user chose instead.
 const resolveRoleId = (deps: StartChatDeps, role: JsonValue | undefined): string => {
   if (role == null || role === "") return DEFAULT_ROLE_ID;
   if (typeof role !== "string") throw new Error("role must be a string");
-  if (!deps.loadRoles().some((candidate) => candidate.id === role && !candidate.isDebugRole)) throw new Error(`role '${role}' not found`);
-  return role;
+  const resolved = resolveRequestedRoleId(role, deps.loadRoles());
+  if (!resolved) throw new Error(`role '${role}' not found`);
+  return resolved;
 };
 
 export const createStartChat =

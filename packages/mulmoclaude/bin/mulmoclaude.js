@@ -19,6 +19,7 @@ import { isPortFree, findAvailablePort, MAX_PORT_PROBES } from "../server/utils/
 import { parseDevPluginArgs } from "../server/utils/dev-plugin-args.mjs";
 import { cliFlagHelpLines, flagEnvOverrides } from "../server/utils/cli-flags.mjs";
 import { parseEnvFile, mergeLaunchEnv, describeLaunchEnvLoad } from "../server/utils/launch-env.mjs";
+import { LAUNCH_ENV_PATH_VAR } from "../server/utils/launch-vars.mjs";
 import { findLiveInstancePort, instanceGuardMessage, serverPortPathIn, shouldStopForRunningInstance } from "../server/utils/instance-guard.mjs";
 import { resolveWorkspacePath } from "../server/utils/workspace-path.mjs";
 
@@ -300,6 +301,12 @@ delete serverEnv.MULMOCLAUDE_SHADOWED_ENV_KEYS;
 if (skippedKeys.length > 0) {
   serverEnv.MULMOCLAUDE_SHADOWED_ENV_KEYS = skippedKeys.join(",");
 }
+// Hand over WHICH `.env` this was, so the server can name it when a key
+// is missing (#2626). Set whether or not the file exists — "put it here"
+// is exactly the case where it doesn't. An icon launch has no launch
+// directory to name, and the server cannot recompute this: its own cwd is
+// the package directory, not the user's.
+serverEnv[LAUNCH_ENV_PATH_VAR] = launchEnvPath;
 // Boolean CLI flags that mirror an env var (#1089 + bundle): inject
 // the corresponding VAR=1 into the spawned server so the flag is
 // equivalent to the env-var prefix. The server reads these via

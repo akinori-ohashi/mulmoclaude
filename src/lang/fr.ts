@@ -39,7 +39,8 @@ const frMessages = {
     removeBuffered: "Supprimer le message en file",
     attachFile: "Joindre un fichier",
     fileTooLarge: "Fichier trop volumineux ({sizeMB} Mo). La limite est de 30 Mo.",
-    unsupportedFileType: "Type de fichier non pris en charge. Acceptés : images, PDF, DOCX, XLSX, PPTX, fichiers texte.",
+    fileOnlyAttachment: "Contenu illisible — transmis en tant que fichier",
+    readFileFailed: "Impossible de lire le fichier.",
     attachImageFailed: "Échec de l'attache de l'image : {error}",
     stopFailed: "Échec de l'arrêt du traitement : {error}",
     dropHint: "Déposez le fichier pour joindre",
@@ -301,6 +302,22 @@ const frMessages = {
       connectError: "Échec du démarrage du flux d'autorisation Google.",
       unlinkError: "Échec de la dissociation du compte Google.",
     },
+    geminiTab: {
+      required: "La génération d'images nécessite {envKey}. Collez la clé ci-dessous et enregistrez-la.",
+      apiKeyLabel: "Clé d'API Gemini",
+      apiKeyPlaceholder: "AIza…",
+      helperText: "Créez ou copiez une clé depuis {studioLink}.",
+      storageNote:
+        "Enregistrée uniquement sur cet ordinateur, en dehors de l'espace de travail, et lisible par vous seul. Elle prend effet immédiatement, sans redémarrage.",
+      storedHere: "Enregistrée dans l'application",
+      storedInEnvironment: "Provient de l'environnement",
+      notConfigured: "Non configurée",
+      clear: "Effacer",
+      fromEnvironment: "Cette clé vient du shell qui a lancé l'application ou de {envFile}. Une clé enregistrée ici est prioritaire.",
+      loadError: "Impossible de charger l'état de la clé",
+      saveError: "Impossible d'enregistrer la clé",
+      clearError: "Impossible d'effacer la clé",
+    },
     mapTab: {
       description: "Définit la clé API Google Maps utilisée par le plugin de carte. La clé est stockée localement et n'est envoyée qu'à Google Maps.",
       apiKeyLabel: "Clé API Google Maps",
@@ -438,7 +455,6 @@ const frMessages = {
     // Slots `<i18n-t>` — les noms `envKey` / `envFile` sont rendus sous
     // forme de `<code>` inline dans SettingsModal.vue ; les littéraux
     // (nom de variable et nom de fichier) restent donc non traduits.
-    geminiRequired: "La génération d'images nécessite {envKey}. Ajoutez-le à {envFile} et redémarrez l'application.",
     geminiAskButton: "Demander à Claude",
     geminiAskMessage: "Quel est le rôle de la clé API Gemini dans cette application ?",
     toolNamesLabel: "Noms d'outils",

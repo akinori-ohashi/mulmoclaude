@@ -61,7 +61,8 @@ const enMessages = {
     removeBuffered: "Remove queued message",
     attachFile: "Attach file",
     fileTooLarge: "File too large ({sizeMB} MB). Maximum is 30 MB.",
-    unsupportedFileType: "File type not supported. Accepted: images, PDF, DOCX, XLSX, PPTX, text files.",
+    fileOnlyAttachment: "Content can't be read — passed as a file",
+    readFileFailed: "Could not read the file.",
     attachImageFailed: "Failed to attach image: {error}",
     stopFailed: "Failed to stop the run: {error}",
     dropHint: "Drop file to attach",
@@ -320,6 +321,24 @@ const enMessages = {
       connectError: "Failed to start the Google authorization flow.",
       unlinkError: "Failed to unlink the Google account.",
     },
+    // `<i18n-t>` slots — `envKey` / `envFile` / `studioLink` render as inline
+    // `<code>` or a link in SettingsGeminiTab.vue, so a variable name, a file
+    // path and a product name stay untranslated inside localised copy.
+    geminiTab: {
+      required: "Image generation needs {envKey}. Paste the key below and save it.",
+      apiKeyLabel: "Gemini API key",
+      apiKeyPlaceholder: "AIza…",
+      helperText: "Create or copy a key from {studioLink}.",
+      storageNote: "Stored on this machine only, outside the workspace, readable by you alone. It takes effect right away — no restart.",
+      storedHere: "Saved in the app",
+      storedInEnvironment: "Coming from the environment",
+      notConfigured: "Not configured",
+      clear: "Clear",
+      fromEnvironment: "This key comes from the shell that started the app, or from {envFile}. A key saved here takes precedence.",
+      loadError: "Failed to load the key status",
+      saveError: "Failed to save the key",
+      clearError: "Failed to clear the key",
+    },
     mapTab: {
       description: "Set the Google Maps API key used by the map plugin. The key is stored locally and never transmitted anywhere except to Google Maps.",
       apiKeyLabel: "Google Maps API key",
@@ -456,10 +475,6 @@ const enMessages = {
       loadError: "Failed to load settings",
       saveError: "Failed to save",
     },
-    // `<i18n-t>` slots — named `envKey` / `envFile` render as inline
-    // `<code>` in SettingsModal.vue, so the literal variable and file
-    // names stay untranslated while the surrounding copy is localised.
-    geminiRequired: "Image generation requires {envKey}. Add it to {envFile} and restart the app.",
     geminiAskButton: "Ask Claude",
     geminiAskMessage: "What is the role of the Gemini API key in this app?",
     toolNamesLabel: "Tool names",

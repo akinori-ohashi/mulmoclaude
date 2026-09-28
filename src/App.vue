@@ -326,10 +326,11 @@
       :open="showSettings"
       :docker-mode="sandboxEnabled"
       :gemini-available="geminiAvailable"
+      :gemini-env-file-path="geminiEnvFilePath"
       :mcp-tools-error="mcpToolsError"
       @update:open="onSettingsOpenChange"
       @ask-gemini="handleAskGemini"
-      @saved="refreshGoogleMapsApiKey"
+      @saved="onSettingsSaved"
       @stopped="onServerStopped"
     />
 
@@ -391,6 +392,7 @@ import { resolvePastedAttachment, type ResolvedAttachment } from "./utils/agent/
 import { applyAgentEvent, type AgentEventContext } from "./utils/agent/eventDispatch";
 import { parseSseEvent } from "./utils/agent/parseSseEvent";
 import { pushErrorMessage, beginUserTurn, updateResult, applyToolResultToSession } from "./utils/session/sessionHelpers";
+import { resolveRequestedRoleId } from "./utils/session/roleSelection";
 import { parseCollectionSlashSeed, makeSyntheticCollectionResult, hasRealCollectionResult } from "./utils/collections/presentSeed";
 import { mergeBufferedIntoDraft } from "./utils/chat/buffer";
 import { createInFlightShare } from "./utils/inFlightShare";
@@ -512,7 +514,7 @@ const currentBufferedMessages = computed<string[]>({
 const activePane = ref<"sidebar" | "main">("sidebar");
 
 const { sessions, historyError, fetchSessions, setBookmark, deleteSession: deleteSessionFromHistory } = useSessionHistory();
-const { geminiAvailable, sandboxEnabled, cpuLoadRatio, fetchHealth } = useHealth();
+const { geminiAvailable, geminiEnvFilePath, sandboxEnabled, cpuLoadRatio, fetchHealth } = useHealth();
 
 const { activeSession, toolResults, sidebarResults, isRunning, activeSessionRunning, statusMessage, toolCallHistory, activeSessionCount, unreadCount } =
   useSessionDerived({ sessionMap, currentSessionId, sessions });
@@ -724,6 +726,14 @@ const { markSessionRead, refreshSessionStates } = useSessionSync({
   // hard delete on the sessions channel, so this is the one place a
   // deleted session's draft has to be forgotten.
   onSessionDeleted: dropSessionDraft,
+  // A missed `session_finished` skipped its refresh and read mark; the
+  // session list is what noticed the run ended.
+  onSessionStopped: (sessionId) => {
+    handleRecoveredStop(sessionId).catch((err: unknown) => {
+      console.warn("[chat-ui] recovering a missed session_finished failed:", err);
+    });
+  },
+  lastFetchFailed: () => historyError.value !== null,
 });
 
 // External URL changes (back/forward button, typed URL) → update ref.
@@ -877,6 +887,13 @@ async function refreshGoogleMapsApiKey(): Promise<void> {
     googleMapsApiKey.value = response.data.settings.googleMapsApiKey ?? null;
   }
 }
+// Any Settings save. The Map key and the Gemini key live in different
+// stores and the modal emits one event for both, so both are re-read: the
+// Gemini one through `/api/health`, which is what clears the gear badge.
+async function onSettingsSaved(): Promise<void> {
+  await Promise.all([refreshGoogleMapsApiKey(), fetchHealth()]);
+}
+
 void refreshGoogleMapsApiKey();
 void loadCspExtra();
 installCspViolationListener();
@@ -993,6 +1010,16 @@ function handleSessionFinished(sessionId: string): void {
   }
 }
 
+// A stop the session list found rather than `session_finished` announced. The
+// finished turn may not be on screen yet, so unlike `handleSessionFinished` this
+// never marks the session read — opening the session does that, once the user
+// can see it.
+async function handleRecoveredStop(sessionId: string): Promise<void> {
+  const decision = await refreshSessionTranscript(sessionId);
+  if (currentSessionId.value === sessionId || decision === "running") return;
+  if (!hasPendingGenerations(sessionId)) unsubscribeSession(sessionId);
+}
+
 // After the client silently loses events, this pulls fresh state from the
 // server so the UI recovers without a page reload (#1915). Two trigger
 // surfaces:
@@ -1034,11 +1061,13 @@ function catchUpMissedEvents(reason: "reconnect" | "visibility"): void {
     }),
   );
   if (!currentId) return;
-  void catchUpShare.run(`transcript:${currentId}`, () =>
-    refreshSessionTranscript(currentId).catch((err: unknown) => {
+  void catchUpShare.run(`transcript:${currentId}`, async () => {
+    try {
+      await refreshSessionTranscript(currentId);
+    } catch (err: unknown) {
       console.warn("[chat-ui] refreshSessionTranscript failed:", err);
-    }),
-  );
+    }
+  });
 }
 
 // Capture the unsubscribe so remount / HMR doesn't accumulate stale
@@ -1227,7 +1256,12 @@ function startNewChat(message: string, roleId?: string): void {
   // in the new session rather than whatever was previously active.
   // Cross-route push behaviour (so browser Back returns to /wiki)
   // is now handled inside createNewSession via the isChatPage check.
-  createNewSession(roleId);
+  //
+  // The id arrives from a plugin, and behind it possibly a sandboxed custom view.
+  // Asking for nothing still inherits the selector's current pick, but an id this
+  // refuses falls to General rather than to that pick — the more suspicious input
+  // must not get the broader answer, and the draft path already answers General.
+  createNewSession(roleId === undefined ? undefined : (resolveRequestedRoleId(roleId, roles.value) ?? BUILTIN_ROLE_IDS.general));
   void sendMessage(message);
   void seedCollectionPresentation(message);
 }
@@ -1269,12 +1303,13 @@ async function isKnownCollectionSlug(slug: string): Promise<boolean> {
 // DRAFT instead of sending it — the user reviews / edits / sends (or clears) it.
 // Used by custom collection views (`__MC_VIEW.startChat`) so a view button can
 // propose a chat without the view's code triggering an agent run on its own.
-// `roleId` is validated against the known roles and falls back to General
-// (createNewSession does not validate the id it is handed). When the draft is a
-// collection slash command, the collection is presented in the canvas up front
-// (#1768) — presentCollection first, then the prefilled draft.
+// `roleId` comes from a plugin and is honoured only when `roleSelection.ts`
+// allows it; anything else opens in General (createNewSession does
+// not validate the id it is handed). When the draft is a collection slash
+// command, the collection is presented in the canvas up front (#1768) —
+// presentCollection first, then the prefilled draft.
 function startNewChatDraft(message: string, roleId?: string): void {
-  const rId = roleId && roles.value.some((role) => role.id === roleId) ? roleId : BUILTIN_ROLE_IDS.general;
+  const rId = resolveRequestedRoleId(roleId, roles.value) ?? BUILTIN_ROLE_IDS.general;
   createNewSession(rId);
   userInput.value = message;
   chatInputRef.value?.collapseSuggestions();

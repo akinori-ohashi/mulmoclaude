@@ -2,6 +2,7 @@
 // user can access (default: their primary); the calendar list and colour
 // palette let callers show non-primary calendars and their colours.
 import { asRecord, googleApiError, googleRequest, isGoogleApiError, itemsOf, stringField, DEFAULT_LIST_MAX_RESULTS } from "./apiClient.js";
+import { conferenceVideoUri, selfResponseStatus } from "./eventDerived.js";
 import { isRecord } from "./util.js";
 
 const CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3";
@@ -25,7 +26,11 @@ const HTTP_GONE = 410;
 const HTTP_NOT_FOUND = 404;
 // A GET on an event that is not there: 404 when it never existed on this
 // calendar, 410 when it was deleted and the tombstone is no longer served.
-const EVENT_ABSENT_STATUSES: readonly number[] = [HTTP_NOT_FOUND, HTTP_GONE];
+/** A GET or DELETE on an event that is not there. Exported because the push's
+ *  delete sweep has to read "already gone" as success, not as a failure to
+ *  retry — a retained baseline would announce the same phantom deletion on
+ *  every run. */
+export const EVENT_ABSENT_STATUSES: readonly number[] = [HTTP_NOT_FOUND, HTTP_GONE];
 /** An `If-Match` write whose etag no longer matches — someone else changed the
  *  event since it was read. */
 export const HTTP_PRECONDITION_FAILED = 412;
@@ -99,6 +104,12 @@ export interface UpdateCalendarEventInput {
 export interface DeleteCalendarEventInput {
   eventId: string;
   calendarId?: string | undefined;
+  /** Etag of the version this decision was made against. Sent as `If-Match`, so
+   *  Google answers 412 rather than removing an event that changed after it was
+   *  read — the same guard `updateCalendarEvent` takes, and it matters more
+   *  here: a delete cannot be undone from this side. Omit for an unconditional
+   *  delete. */
+  ifMatch?: string | undefined;
 }
 
 export interface ListEventsInput {
@@ -123,6 +134,35 @@ export interface CalendarEventSummary {
    *  belongs to whatever displays it. */
   description: string;
   location: string;
+  /** The series an expanded instance belongs to, "" for a one-off. The sync
+   *  expands recurrences, so a weekly meeting arrives once per occurrence; with
+   *  no key pointing back, one edit to the series is indistinguishable from a
+   *  batch of unrelated changes. */
+  recurringEventId: string;
+  /** Where an expanded instance sat BEFORE anyone moved it, so a dragged
+   *  occurrence reads as a move rather than a delete plus an insert. Flattened
+   *  to the instant like `start`/`end`, so an all-day series yields the date. */
+  originalStartTime: string;
+  /** Google's last-modified time (RFC3339). Google sets it on every write, so
+   *  it is readable and never pushable. */
+  updated: string;
+  /** "transparent" when the event does not consume the attendee's time. Google
+   *  omits the default, so "" reads as opaque. */
+  transparency: string;
+  /** Which KIND of entry this is, and how the ones Google generates get kept out
+   *  of a mirror. Google's whole set: "default", "birthday", "focusTime",
+   *  "fromGmail", "outOfOffice", "workingLocation". */
+  eventType: string;
+  /** Google Meet URL, "" when nothing is attached. */
+  hangoutLink: string;
+  /** The signed-in user's own `responseStatus`, folded out of `attendees`.
+   *  `""` when Google reported none — which is every event that HAS no
+   *  attendees, so it reads as "nothing said", never as "not going". */
+  selfResponseStatus: string;
+  /** The URL that joins this event's meeting, folded out of
+   *  `conferenceData.entryPoints`. Covers the conferences `hangoutLink` does
+   *  not: Zoom, Teams, anything attached as conference data. */
+  conferenceVideoUri: string;
 }
 
 export interface CalendarSummary {
@@ -154,6 +194,11 @@ export interface CalendarColors {
   calendar: Record<string, CalendarColorEntry>;
 }
 
+/** People Google lists on the event, `0` when it carries none. Counts EVERY
+ *  entry, including the one Google adds for the organiser: see `deletePlan.ts`
+ *  for why the guard is not cleverer than that. */
+const attendeeCount = (record: Record<string, unknown>): number => (Array.isArray(record.attendees) ? record.attendees.length : 0);
+
 // All-day events carry `date`, timed events carry `dateTime`.
 const eventTime = (value: unknown): string => {
   if (!isRecord(value)) return "";
@@ -174,6 +219,14 @@ export const toEventSummary = (value: unknown): CalendarEventSummary => {
     colorId: stringField(record, "colorId"),
     description: stringField(record, "description"),
     location: stringField(record, "location"),
+    recurringEventId: stringField(record, "recurringEventId"),
+    originalStartTime: eventTime(record.originalStartTime),
+    updated: stringField(record, "updated"),
+    transparency: stringField(record, "transparency"),
+    eventType: stringField(record, "eventType"),
+    hangoutLink: stringField(record, "hangoutLink"),
+    selfResponseStatus: selfResponseStatus(record.attendees),
+    conferenceVideoUri: conferenceVideoUri(record.conferenceData),
   };
 };
 
@@ -263,6 +316,11 @@ export interface FetchedCalendarEvent {
   /** Google's `etag` for this version, `""` when absent. Sent back as
    *  `If-Match` so a PATCH cannot overwrite a version we never read. */
   etag: string;
+  /** How many people the event lists, `0` for a solo one. Carried here rather
+   *  than on the summary because only the delete guard reads it, and it is the
+   *  one thing that guard cannot get from the record — by then the record is
+   *  gone (`deletePlan.ts`). */
+  attendeeCount: number;
 }
 
 /** Read ONE event, or null when it is gone (404 / 410).
@@ -274,7 +332,8 @@ export interface FetchedCalendarEvent {
 export async function getCalendarEvent(accessToken: string, input: DeleteCalendarEventInput): Promise<FetchedCalendarEvent | null> {
   try {
     const fetched = await googleRequest(CALENDAR_API_LABEL, accessToken, eventUrl(input.calendarId, input.eventId));
-    return { event: toEventSummary(fetched), etag: stringField(asRecord(fetched), "etag") };
+    const record = asRecord(fetched);
+    return { event: toEventSummary(fetched), etag: stringField(record, "etag"), attendeeCount: attendeeCount(record) };
   } catch (error) {
     if (isGoogleApiError(error) && EVENT_ABSENT_STATUSES.includes(error.status)) return null;
     throw error;
@@ -285,7 +344,10 @@ export async function getCalendarEvent(accessToken: string, input: DeleteCalenda
  *  return; a second delete of the same id answers 410, which surfaces as a
  *  GoogleApiError rather than being swallowed. */
 export async function deleteCalendarEvent(accessToken: string, input: DeleteCalendarEventInput): Promise<void> {
-  await googleRequest(CALENDAR_API_LABEL, accessToken, eventUrl(input.calendarId, input.eventId), { method: "DELETE" });
+  await googleRequest(CALENDAR_API_LABEL, accessToken, eventUrl(input.calendarId, input.eventId), {
+    method: "DELETE",
+    ...(input.ifMatch ? { extraHeaders: { "If-Match": input.ifMatch } } : {}),
+  });
 }
 
 export async function listCalendarEvents(accessToken: string, input: ListEventsInput = {}): Promise<CalendarEventSummary[]> {

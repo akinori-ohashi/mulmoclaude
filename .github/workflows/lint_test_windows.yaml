@@ -38,10 +38,18 @@ on:
   #     here, and that difference took main red for a day (#3084 → #3122): the
   #     test passed on every POSIX runner and could not pass on Windows, and
   #     nothing ran Windows before the merge that broke it.
+  #
+  #   server/system, test/system — POSIX file modes, which Windows does not
+  #     carry: it maps only the read-only bit, so a `0o600` write reads back as
+  #     `0o666` and an assertion on the mode cannot pass there. The secret store
+  #     took main red the same way (#3238 → #3251), for half a day, and again
+  #     the test was green on every POSIX runner.
   pull_request:
     paths:
       - 'server/utils/launcher/**'
       - 'test/utils/launcher/**'
+      - 'server/system/**'
+      - 'test/system/**'
       - 'packages/client/**'
       - '.github/workflows/lint_test_windows.yaml'
   workflow_dispatch:

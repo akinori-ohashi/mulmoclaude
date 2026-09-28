@@ -16,11 +16,13 @@ import { isGoogleApiError, HTTP_FORBIDDEN } from "./apiClient.js";
 import {
   canonicalCalendarId,
   createCalendarEvent,
+  deleteCalendarEvent,
   getCalendarEvent,
   getCalendarMeta,
   listCalendars,
   updateCalendarEvent,
   CANCELLED_EVENT_STATUS,
+  EVENT_ABSENT_STATUSES,
   HTTP_CONFLICT,
   HTTP_PRECONDITION_FAILED,
   type CalendarEventInput,
@@ -30,6 +32,8 @@ import {
 } from "./calendar.js";
 import { loadCalendarShadow, saveCalendarShadow, toShadowEvent, type ShadowEvent } from "./calendarPushState.js";
 import { withCalendarLock } from "./calendarLock.js";
+import { deleteRefusalMessage, planDelete } from "./deletePlan.js";
+import { errorMessage } from "./util.js";
 import { toGoogleEventTime } from "./pushDateTime.js";
 import {
   bySourceField,
@@ -81,10 +85,21 @@ export interface CalendarCollectionPushResult {
   updated: number;
   /** Edited on both sides; skipped so neither version is destroyed. */
   conflicts: number;
-  /** Records deleted locally. Reported only — v1 never deletes in Google. */
+  /** Records deleted locally. Reported whether or not the deletion carried, so
+   *  the count still answers "how many rows went away here". */
   localDeletes: number;
+  /** Of those, how many were deleted in Google too. Always `0` unless the
+   *  collection opted in with `propagateDeletes` (#3234). */
+  deletedInGoogle: number;
   /** Records that cannot be pushed as they stand, each with the reason. */
   skipped: string[];
+  /** Deletions the sweep left standing in Google, each with the reason.
+   *
+   *  NOT merged into `skipped`: that list means "this push did not do what you
+   *  asked", and a refused deletion is "it was deliberately not deleted" while
+   *  the rest of the run carried. Merging them made one refusal hide every
+   *  successful create and update from the caller (#3272). */
+  keptInGoogle: string[];
   errors: string[];
   /** Records whose local edit did NOT reach Google and would be destroyed by
    *  the pull that follows an automatic push (#2620).
@@ -115,6 +130,15 @@ export interface CalendarPushDeps {
   isLinked: () => Promise<boolean>;
   accessToken: () => Promise<string>;
   calendarMeta: (accessToken: string, calendarId: string | undefined) => Promise<CalendarWriteTarget>;
+  /** Read and write for the delete guard. Injected like the rest so a test can
+   *  exercise "this event has attendees" without a grant (#3234).
+   *
+   *  OPTIONAL, unlike the rest: `CalendarPushDeps` is an exported type, and a
+   *  deps object written before these existed must keep satisfying it — the
+   *  more so because a collection that never opted into `propagateDeletes`
+   *  cannot reach either of them. Absent means the live implementation. */
+  fetchEvent?: typeof getCalendarEvent;
+  deleteEvent?: typeof deleteCalendarEvent;
 }
 
 /** Resolve the calendar a schema names, for its writability and its timezone.
@@ -149,6 +173,8 @@ const liveDeps: CalendarPushDeps = {
   isLinked: async () => Boolean((await loadGoogleTokens())?.refresh_token),
   accessToken: getGoogleAccessToken,
   calendarMeta: liveCalendarMeta,
+  fetchEvent: getCalendarEvent,
+  deleteEvent: deleteCalendarEvent,
 };
 
 /** Everything one record's push needs, resolved once for the whole run. */
@@ -356,7 +382,7 @@ function pushedShadow(outcomes: readonly PushOutcome[]): Record<string, ShadowEv
 
 /** One record's push, kept with the id so the pull can be told which records to
  *  leave alone. */
-interface PushAttempt {
+export interface PushAttempt {
   eventId: string;
   outcome: PushOutcome;
 }
@@ -368,17 +394,34 @@ const UNPUSHED_KINDS: readonly PushOutcome["kind"][] = ["conflict", "error"];
  *  pull must not overwrite the record and the baseline must not advance. */
 export const isUnpushed = (kind: PushOutcomeKind): boolean => UNPUSHED_KINDS.includes(kind);
 
-function tally(slug: string, attempts: readonly PushAttempt[], localDeletes: number): CalendarCollectionPushResult {
+/** The whole report one run produces, from what each record's push did and what
+ *  the delete sweep did.
+ *
+ *  A sweep's refusal goes to `keptInGoogle`, NEVER to `skipped`: that list means
+ *  "this push did not do what you asked", and a refusal means "the event was
+ *  deliberately left standing" while the rest of the run carried. Merged, one
+ *  refusal took the caller's problem branch and hid every create and update
+ *  (#3272).
+ *
+ *  Exported because it is pure — a list of attempts and a sweep, no workspace,
+ *  grant or clock — so the separation above is something a test drives rather
+ *  than argues. */
+export function pushResultFrom(slug: string, attempts: readonly PushAttempt[], deletes: DeleteSweep): CalendarCollectionPushResult {
   const outcomes = attempts.map((attempt) => attempt.outcome);
   const count = (kind: PushOutcome["kind"]): number => outcomes.filter((outcome) => outcome.kind === kind).length;
+  const messagesOf = (kind: "skipped" | "error"): string[] => outcomes.flatMap((outcome) => (outcome.kind === kind ? [outcome.message] : []));
   return {
     slug,
     created: count("created"),
     updated: count("updated"),
     conflicts: count("conflict"),
-    localDeletes,
-    skipped: outcomes.flatMap((outcome) => (outcome.kind === "skipped" ? [outcome.message] : [])),
-    errors: outcomes.flatMap((outcome) => (outcome.kind === "error" ? [outcome.message] : [])),
+    localDeletes: deletes.seen,
+    deletedInGoogle: deletes.deleted.length,
+    skipped: messagesOf("skipped"),
+    // Copied, not aliased: a result handed to a caller must not change if the
+    // sweep it came from is appended to later.
+    keptInGoogle: [...deletes.skipped],
+    errors: [...messagesOf("error"), ...deletes.errors],
     unpushedIds: attempts.filter((attempt) => isUnpushed(attempt.outcome.kind)).map((attempt) => attempt.eventId),
   };
 }
@@ -415,6 +458,105 @@ export async function unsentLocalEdits(collection: LoadedCollection, workspaceRo
   const shadow = await loadCalendarShadow(schema.googleCalendar?.calendarId, workspaceRoot);
   const records = await storeFor(collection, { workspaceRoot }).list();
   return locallyEditedIds(records, shadow, pushableMap(schema.googleCalendar?.map ?? {}), schema.primaryKey, schema.fields);
+}
+
+/** What one run's deletions did. `seen` counts every record that went away
+ *  locally, whether or not the deletion carried — so the count means the same
+ *  thing with the feature off as it always did. */
+export interface DeleteSweep {
+  seen: number;
+  deleted: string[];
+  /** Deletions left standing in Google, each with the reason. Reported apart
+   *  from the push's own `skipped` on the result: that list means "could not be
+   *  sent", and a refusal means "deliberately left alone" (#3272). */
+  skipped: string[];
+  errors: string[];
+}
+
+const noDeletes = (seen: number): DeleteSweep => ({ seen, deleted: [], skipped: [], errors: [] });
+
+/** What `sweepDeletes` needs, narrowed to the three effects it has. Taken as an
+ *  argument rather than reached for, so the guard can be exercised against
+ *  "this event has attendees" with no grant and no workspace. */
+export interface DeleteSweepDeps {
+  /** What Google currently holds for the event, or null when it is gone. The
+   *  `etag` is the version the decision was made against. */
+  fetchEvent: (eventId: string) => Promise<{ attendeeCount: number; etag: string } | null>;
+  /** Delete it, conditional on that version. */
+  deleteEvent: (eventId: string, ifMatch: string) => Promise<void>;
+  /** Drop the event's baseline entry. */
+  forget: (eventId: string) => Promise<void>;
+}
+
+/** A delete whose event changed in Google between the guard reading it and the
+ *  delete landing. Reported rather than retried: what changed may be the very
+ *  thing the guard refuses, and re-reading in a loop would race the same way. */
+const staleDeleteMessage = (eventId: string): string =>
+  `${eventId}: left in Google because it changed there while this push was checking it — press Push again to re-check`;
+
+/** Delete ONE event and forget its baseline, or say why it was left alone.
+ *
+ *  The baseline entry goes only after Google confirms, and it must go: the
+ *  baseline is what `locallyDeletedIds` reads, so a kept entry would re-report
+ *  the same deletion on every run forever. A refusal keeps its entry on
+ *  purpose — the event IS still standing in Google, and the report is the only
+ *  thing saying so.
+ *
+ *  The delete carries the etag the guard read. Without it, an attendee added
+ *  between the two requests would be withdrawn by a decision taken before they
+ *  existed — the same race `updateCalendarEvent` already guards, and it costs
+ *  more here because a delete cannot be undone from this side. */
+async function propagateOneDelete(eventId: string, deps: DeleteSweepDeps): Promise<Partial<DeleteSweep>> {
+  const decision = planDelete(await deps.fetchEvent(eventId));
+  if (!decision.ok) {
+    // An event already gone needs no report and no baseline: nothing is left to
+    // diverge, so dropping the entry stops a permanent phantom deletion.
+    if (decision.kind === "already-gone") {
+      await deps.forget(eventId);
+      return {};
+    }
+    return { skipped: [deleteRefusalMessage(eventId, decision)] };
+  }
+  try {
+    await deps.deleteEvent(eventId, decision.etag);
+  } catch (error) {
+    if (!isGoogleApiError(error)) throw error;
+    // Gone between the read and the delete: the outcome asked for, reached by
+    // someone else. Forgetting the baseline is what stops the phantom.
+    if (EVENT_ABSENT_STATUSES.includes(error.status)) {
+      await deps.forget(eventId);
+      return {};
+    }
+    if (error.status !== HTTP_PRECONDITION_FAILED) throw error;
+    return { skipped: [staleDeleteMessage(eventId)] };
+  }
+  await deps.forget(eventId);
+  // Ids only — a summary is personal content, and Google's own Trash is where a
+  // deleted event is recovered from, never from this log.
+  log.info("google", "calendar event deleted by push", { id: eventId });
+  return { deleted: [eventId] };
+}
+
+/** Carry every local deletion, when the collection opted in.
+ *
+ *  Sequential rather than concurrent: each one writes the shared baseline file,
+ *  and an interrupted run has to leave a state the next run resumes from rather
+ *  than a partially applied batch. */
+export async function sweepDeletes(eventIds: readonly string[], propagate: boolean, deps: DeleteSweepDeps): Promise<DeleteSweep> {
+  if (!propagate || eventIds.length === 0) return noDeletes(eventIds.length);
+  const sweep = noDeletes(eventIds.length);
+  for (const eventId of eventIds) {
+    try {
+      const one = await propagateOneDelete(eventId, deps);
+      sweep.deleted.push(...(one.deleted ?? []));
+      sweep.skipped.push(...(one.skipped ?? []));
+    } catch (error) {
+      // Reported, not thrown: one unreachable event must not abandon the rest,
+      // and its baseline stays, so the next run tries again.
+      sweep.errors.push(`${eventId}: could not be deleted in Google — ${errorMessage(error)}`);
+    }
+  }
+  return sweep;
 }
 
 /** Push one collection WITHOUT taking the calendar lock.
@@ -455,11 +597,16 @@ export async function pushCollectionNow(collection: LoadedCollection, workspaceR
     // 409. Costs nothing for a record that wrote nothing (empty batch).
     await saveCalendarShadow(calendarId, pushedShadow([outcome]), workspaceRoot);
   }
-  const deletes = locallyDeletedIds(
+  const deletedIds = locallyDeletedIds(
     shadow,
     records.map((record) => fieldText(record[schema.primaryKey])),
   );
-  const result = tally(slug, attempts, deletes.length);
+  const deletes = await sweepDeletes(deletedIds, schema.googleCalendar?.propagateDeletes === true, {
+    fetchEvent: (eventId) => (deps.fetchEvent ?? getCalendarEvent)(accessToken, { calendarId, eventId }),
+    deleteEvent: (eventId, ifMatch) => (deps.deleteEvent ?? deleteCalendarEvent)(accessToken, { calendarId, eventId, ifMatch }),
+    forget: (eventId) => saveCalendarShadow(calendarId, { [eventId]: null }, workspaceRoot),
+  });
+  const result = pushResultFrom(slug, attempts, deletes);
   if (result.errors.length > 0) log.warn("google", "calendar push finished with errors", { slug, errors: result.errors.length });
   return { kind: "pushed", result };
 }

@@ -242,7 +242,7 @@
                         <input
                           v-else
                           v-model="row.text[subKey]"
-                          :type="render.inputTypeFor(subField.type)"
+                          :type="render.inputTypeFor(subField.type, row.text[subKey])"
                           :step="render.stepFor(subField.type)"
                           :required="subField.required"
                           class="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none font-medium text-slate-700"
@@ -289,6 +289,44 @@
                 class="w-full rounded-xl border border-slate-200 pl-11 pr-3 py-2 text-xs focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none font-semibold text-slate-800 transition-all"
                 :data-testid="`collections-input-${key}`"
               />
+            </div>
+
+            <!-- datetime: a date+time picker, or a date picker when All day is checked -->
+            <div v-else-if="field.type === 'datetime' && !render.isServerStamped(editing.text[key])" class="flex items-center gap-3">
+              <!-- Two inputs, not one with a bound `type`: switching the type of a
+                   live input lets the browser drop the new value as invalid for the
+                   OLD type before the type changes, and the field renders blank. -->
+              <input
+                v-if="isAllDay(key)"
+                :id="`collections-field-${key}`"
+                v-model="editing.text[key]"
+                type="date"
+                :required="isFieldRequiredInUi(field)"
+                :disabled="field.primary === true && (editing.mode === 'edit' || isSingleton)"
+                :class="DATETIME_INPUT_CLASS"
+                :data-testid="`collections-input-${key}`"
+              />
+              <input
+                v-else
+                :id="`collections-field-${key}`"
+                v-model="editing.text[key]"
+                type="datetime-local"
+                :required="isFieldRequiredInUi(field)"
+                :disabled="field.primary === true && (editing.mode === 'edit' || isSingleton)"
+                :class="DATETIME_INPUT_CLASS"
+                :data-testid="`collections-input-${key}`"
+              />
+              <label class="flex items-center gap-1.5 text-xs font-medium text-slate-600 whitespace-nowrap cursor-pointer">
+                <input
+                  type="checkbox"
+                  :checked="isAllDay(key)"
+                  :disabled="field.primary === true && (editing.mode === 'edit' || isSingleton)"
+                  class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  :data-testid="`collections-all-day-${key}`"
+                  @change="onAllDayChange(key, $event)"
+                />
+                {{ t("collectionsView.allDay") }}
+              </label>
             </div>
 
             <!-- Scalar inputs -->
@@ -550,6 +588,7 @@ import { COMPUTED_TYPES, fieldVisible, resolveEnumColor, emptyRow } from "@mulmo
 import { useCollectionUi } from "../scopedUi";
 import { useRefLinkActivators } from "../refLink";
 import type { CollectionRendering } from "../useCollectionRendering";
+import { canSwitchToAllDay, isAllDayValue, withAllDay } from "../useCollectionRendering.helpers";
 import type {
   CollectionAction,
   CollectionDetail,
@@ -617,6 +656,37 @@ const { t } = useCollectionI18n();
 
 // Per-record chat draft. Cleared when the open record changes so a message
 // typed for one record never carries over to the next.
+const DATETIME_INPUT_CLASS =
+  "flex-1 min-w-0 rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-medium text-slate-700 transition-all";
+
+// Fields the user switched to All day in this draft. An empty value cannot say
+// "all day" by its shape, so the choice is kept here until a date is picked.
+const allDayKeys = ref(new Set<string>());
+watch(editing, () => {
+  allDayKeys.value = new Set();
+});
+
+function isAllDay(key: string): boolean {
+  return allDayKeys.value.has(key) || isAllDayValue(editing.value?.text[key]);
+}
+
+function setAllDay(key: string, allDay: boolean): void {
+  if (allDay && !canSwitchToAllDay(editing.value?.text[key] ?? "")) return;
+  const next = new Set(allDayKeys.value);
+  if (allDay) next.add(key);
+  else next.delete(key);
+  allDayKeys.value = next;
+  if (editing.value) editing.value.text[key] = withAllDay(editing.value.text[key] ?? "", allDay);
+}
+
+function onAllDayChange(key: string, event: Event): void {
+  if (!(event.target instanceof HTMLInputElement)) return;
+  setAllDay(key, event.target.checked);
+  // A refused switch changes no state, so nothing re-renders the box: undo the
+  // browser's own toggle here.
+  event.target.checked = isAllDay(key);
+}
+
 const chatMessage = ref("");
 watch(
   () => props.viewing,

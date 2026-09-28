@@ -70,6 +70,7 @@ const zhMessages: CollectionMessages = {
     inlineSaveFailed: "无法保存更改：{error}",
     addRow: "添加行",
     removeRow: "删除行",
+    allDay: "全天",
     noRows: "暂无行",
     tableSummary: "{count} 项",
     embedMissing: "在 {collection} 中找不到「{id}」记录。",
@@ -101,6 +102,9 @@ const zhMessages: CollectionMessages = {
     pushCalendar: "推送到 Google",
     pushFailed: "推送失败：{error}",
     pushDone: "已推送到 Google：新建 {created} 条，更新 {updated} 条，跳过 {conflicts} 条冲突，{localDeletes} 条本地删除未同步。",
+    pushKeptDeletes: "保留在 Google 中：{reasons}",
+    pushDoneWithDeletes:
+      "已推送到 Google：新建 {created} 条，更新 {updated} 条，跳过 {conflicts} 条冲突，从 Google 删除 {deletedInGoogle} 条，{localDeletes} 条本地删除未同步。",
     feedChatSeed:
       "订阅源“{slug}”由 schema `feeds/{slug}/schema.json` 定义，其记录保存在 `{dataPath}/`（每条记录一个 `<id>.json` 文件）。请使用该 schema 和数据来响应以下请求：{message}",
     feedsTitle: "数据源订阅",

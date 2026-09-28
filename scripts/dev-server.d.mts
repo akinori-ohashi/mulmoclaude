@@ -9,10 +9,12 @@ export interface RestartPlanInput {
   prevDelayMs: number;
   /** Consecutive fast crashes seen so far. */
   fastCrashes: number;
+  /** The child's exit code; null (the default) when a signal ended it. */
+  exitCode?: number | null;
 }
 
 export interface RestartPlanResult {
-  action: "restart" | "giveup";
+  action: "restart" | "giveup" | "needs-user";
   delayMs: number;
   fastCrashes: number;
 }
@@ -25,3 +27,9 @@ export declare function describeExit(code: number | null, signal: NodeJS.Signals
 
 /** Trailing hint naming the likely cause of a signal-only exit; "" when there is none. */
 export declare function crashHint(signal: NodeJS.Signals | null): string;
+
+/** The crash times still inside the recent window, including one at `nowMs`. */
+export declare function recentCrashTimes(crashTimesMs: readonly number[], nowMs: number): number[];
+
+/** Whether the backend has crashed too often lately to keep restarting it. */
+export declare function tooManyRecentCrashes(recentCrashTimesMs: readonly number[]): boolean;

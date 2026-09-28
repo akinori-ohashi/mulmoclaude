@@ -72,6 +72,7 @@ const deMessages: CollectionMessages = {
     inlineSaveFailed: "Änderung konnte nicht gespeichert werden: {error}",
     addRow: "Zeile hinzufügen",
     removeRow: "Zeile entfernen",
+    allDay: "Ganztägig",
     noRows: "Noch keine Zeilen",
     tableSummary: "{count} Einträge",
     embedMissing: "Kein Datensatz {id} in {collection} gefunden.",
@@ -104,6 +105,9 @@ const deMessages: CollectionMessages = {
     pushFailed: "Senden fehlgeschlagen: {error}",
     pushDone:
       "An Google gesendet: {created} erstellt, {updated} aktualisiert, {conflicts} Konflikte übersprungen, {localDeletes} lokale Löschungen nicht übernommen.",
+    pushKeptDeletes: "In Google verblieben: {reasons}",
+    pushDoneWithDeletes:
+      "An Google gesendet: {created} erstellt, {updated} aktualisiert, {conflicts} Konflikte übersprungen, {deletedInGoogle} in Google gelöscht, {localDeletes} lokale Löschungen nicht übernommen.",
     feedChatSeed:
       "Der Feed {slug} ist durch das Schema `feeds/{slug}/schema.json` definiert und seine Datensätze liegen in `{dataPath}/` (eine `<id>.json`-Datei pro Datensatz). Nutze dieses Schema und diese Daten, um auf die folgende Anfrage zu antworten: {message}",
     feedsTitle: "Datenquellen-Feeds",

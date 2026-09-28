@@ -3,7 +3,7 @@
 // module below reads env at its own scope. A call in the body would run
 // after every import had already been evaluated — too late. See
 // server/system/loadEnv.ts.
-import { shadowedByServerLoad } from "./system/loadEnv.js";
+import { secretsAppliedAtBoot, shadowedByServerLoad } from "./system/loadEnv.js";
 // Wire @mulmoclaude/core/collection/server to this host's workspace + logger
 // before any module that touches collection storage loads.
 import "./workspace/collections/configure.js";
@@ -41,6 +41,7 @@ import marpThemesRoutes from "./api/routes/marp-themes.js";
 import filesRoutes from "./api/routes/files.js";
 import configRoutes from "./api/routes/config.js";
 import configRefreshRoutes from "./api/routes/config-refresh.js";
+import secretsRoutes from "./api/routes/secrets.js";
 import hookLogRoutes from "./api/routes/hookLog.js";
 import mcpBrokerReadyRoutes from "./api/routes/mcpBrokerReady.js";
 import skillsRoutes from "./api/routes/skills.js";
@@ -80,6 +81,7 @@ import { announcePluginMetaDiagnostics } from "./plugins/diagnostics.js";
 import { announceShadowedEnv, SHADOWED_ENV_KEYS_VAR } from "./system/shadowedEnv.js";
 import { announceOptionalDeps } from "./system/announceOptionalDeps.js";
 import { announceGeminiKey } from "./system/announceGeminiKey.js";
+import { currentLaunchRouteFacts } from "./system/geminiKeyGuidance.js";
 import { migrateLegacyBillingPresets } from "./workspace/billing-migration.js";
 import { APP_VERSION } from "./system/appVersion.js";
 import { createChatService } from "@mulmobridge/chat-service";
@@ -153,6 +155,7 @@ import { resolveHtmlFileRequestPath } from "@mulmoclaude/core/files";
 import { HTML_FILE_MOUNT } from "@mulmoclaude/html-plugin";
 import { ONE_SECOND_MS, ONE_MINUTE_MS, ONE_HOUR_MS, STARTUP_FAILURE_FORCE_EXIT_MS, FATAL_LOG_FLUSH_MS } from "./utils/time.js";
 import { isPortFree, findAvailablePort, MAX_PORT_PROBES } from "./utils/port.mjs";
+import { EXIT_CODE_NEEDS_USER_ACTION } from "./utils/exit-codes.mjs";
 import { findLiveInstancePort, instanceGuardMessage, shouldStopForRunningInstance } from "./utils/instance-guard.mjs";
 import { SCHEDULE_TYPES, MISSED_RUN_POLICIES } from "@receptron/task-scheduler";
 
@@ -646,6 +649,9 @@ app.get(API_ROUTES.health, (_req: Request, res: Response) => {
     status: "OK",
     version: APP_VERSION,
     geminiAvailable: isGeminiAvailable(),
+    // Where a key goes on THIS launch, so Settings can name the file
+    // instead of saying `.env` and leaving an icon user to guess (#2626).
+    geminiEnvFilePath: currentLaunchRouteFacts().envFilePath,
     sandboxEnabled,
     // Local voice input: `capable` (platform + whisper binary) is
     // distinct from `enabled` (user opt-in) and `model.state` (download
@@ -739,6 +745,7 @@ app.use(marpThemesRoutes);
 app.use(filesRoutes);
 app.use(configRoutes);
 app.use(configRefreshRoutes);
+app.use(secretsRoutes);
 app.use(hookLogRoutes);
 app.use(mcpBrokerReadyRoutes);
 app.use(skillsRoutes);
@@ -930,10 +937,10 @@ async function ensureCredentialsAvailable(): Promise<void> {
     const refreshSucceeded = await refreshCredentials();
     if (refreshSucceeded) return;
     log.error("sandbox", "Failed to export credentials from macOS Keychain. Run `npm run sandbox:login` manually.");
-    process.exit(1);
+    process.exit(EXIT_CODE_NEEDS_USER_ACTION);
   }
   log.error("sandbox", "Missing credentials file at ~/.claude/.credentials.json. Run `claude auth login` to authenticate Claude Code.");
-  process.exit(1);
+  process.exit(EXIT_CODE_NEEDS_USER_ACTION);
 }
 
 async function setupSandbox(): Promise<boolean> {
@@ -1057,6 +1064,15 @@ async function initBootDiagnostics(): Promise<void> {
   // missing one so a feature degrading is visible instead of a
   // later opaque crash. Never throws.
   await announceOptionalDeps(bootSettings);
+
+  // --- Secrets typed into Settings (#871) ---
+  // Names only. The store overriding a shell value is the documented
+  // precedence, not a fault, but it is worth a line: it is the one case where
+  // the environment a user set is deliberately not the one in effect.
+  const bootSecrets = secretsAppliedAtBoot();
+  if (bootSecrets.applied.length > 0) {
+    log.info("secrets", "applied from the Settings store", { keys: bootSecrets.applied, overrodeShellValue: bootSecrets.overrode });
+  }
 
   // --- Gemini key presence (#2081) ---
   announceGeminiKey();

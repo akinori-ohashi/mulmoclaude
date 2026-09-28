@@ -27,6 +27,7 @@ import {
   pushAndProtect,
   shadowUpdates,
   toCollectionRecord,
+  toGoogleEventTime,
   syncCalendarForCollection,
   unpushedFor,
   groupsNeedingBackfill,
@@ -54,6 +55,14 @@ const event = (overrides: Partial<CalendarEventSummary> = {}): CalendarEventSumm
   colorId: "7",
   description: "",
   location: "",
+  recurringEventId: "",
+  originalStartTime: "",
+  updated: "",
+  transparency: "",
+  eventType: "",
+  hangoutLink: "",
+  selfResponseStatus: "",
+  conferenceVideoUri: "",
   ...overrides,
 });
 
@@ -146,6 +155,46 @@ describe("toCollectionRecord datetime normalisation (#2310)", () => {
   it("keeps an empty datetime value empty instead of inventing a time", () => {
     const record = toCollectionRecord(event({ start: "" }), { on: "start" }, "gid", recipeFields);
     assert.equal(record.on, "");
+  });
+});
+
+// A collection can mirror AND create all-day events — but only through columns
+// that keep Google's bare date. A `datetime` column stores `…T00:00`, which the
+// push cannot tell apart from a real midnight appointment, so an all-day column
+// has to be `date` (or `string`). This is the route the help doc points at, and
+// nothing else pins the two halves of it meeting (#3240).
+describe("toCollectionRecord + toGoogleEventTime — the all-day round trip", () => {
+  const dateFields: Record<string, CollectionFieldSpec> = {
+    gid: { type: "string", label: "ID", primary: true },
+    on: { type: "date", label: "Start" },
+    until: { type: "date", label: "End" },
+  };
+  const allDay = event({ start: "2026-07-19", end: "2026-07-20" });
+
+  it("keeps Google's bare date in a `date` column", () => {
+    const record = toCollectionRecord(allDay, { on: "start", until: "end" }, "gid", dateFields);
+    assert.equal(record.on, "2026-07-19");
+    assert.equal(record.until, "2026-07-20");
+  });
+
+  it("pushes a record created LOCALLY in such a column as all-day, with no baseline to lean on", () => {
+    // The gap #2620 reported: a locally created record has no shadow, so the
+    // push has only the stored value to go on. A bare date is unambiguous.
+    assert.deepEqual(toGoogleEventTime("2026-07-19", undefined, "Asia/Tokyo"), { date: "2026-07-19" });
+    assert.deepEqual(toGoogleEventTime("2026-07-20", undefined, "Asia/Tokyo"), { date: "2026-07-20" });
+  });
+
+  it("would push the SAME record as a midnight appointment from a `datetime` column", () => {
+    // Not a bug to fix by guessing: `…T00:00` is also how a real midnight event
+    // is stored, so reading it as all-day would break events that exist today.
+    // Pinned so the trade-off stays visible rather than being rediscovered.
+    const record = toCollectionRecord(allDay, { on: "start" }, "gid", recipeFields);
+    assert.equal(record.on, "2026-07-19T00:00");
+    assert.deepEqual(toGoogleEventTime(record.on, undefined, "Asia/Tokyo"), { dateTime: "2026-07-19T00:00:00", timeZone: "Asia/Tokyo" });
+  });
+
+  it("keeps an existing all-day event all-day when the baseline says so", () => {
+    assert.deepEqual(toGoogleEventTime("2026-07-21T00:00", "2026-07-19", "Asia/Tokyo"), { date: "2026-07-21" });
   });
 });
 
@@ -707,7 +756,9 @@ describe("pullProtectionFor / pushAndProtect (#2683 a collection that never push
     updated: 0,
     conflicts: unpushedIds.length,
     localDeletes: 0,
+    deletedInGoogle: 0,
     skipped: [],
+    keptInGoogle: [],
     errors: [],
     unpushedIds,
   });

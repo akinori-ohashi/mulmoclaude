@@ -66,6 +66,27 @@ NEVER escape backticks with `\`` in `gh` commands. Use single-quoted heredoc (`<
 
 When you (or a PR you're reviewing) adds a new diagnostic / fix for a recurring failure mode — sandbox auth, build ordering, plugin install, anything the agent might hit at runtime — also add a section (or extend an existing one) in [`packages/core/assets/helps/error-recovery.md`](packages/core/assets/helps/error-recovery.md). The agent reads that file BEFORE asking the user a clarifying question on a tool failure (see the "When a tool call fails" section in `server/prompts/system/system.md`), so know-how that lives only in a PR description / commit message / `docs/` is invisible to it. Bump `@mulmoclaude/core` whenever `assets/helps/*` changes (it ships to npm via `files: ["dist", "assets"]`).
 
+### A ticket's diagnosis is a claim — locate the defect before writing the fix
+
+A well-researched report names file and line, and it can still point at the wrong half of the
+system. **Before editing anything, trace the value yourself from the entry point the user actually
+touched to the line that decides the behaviour, and name which repo owns that line.** Say what you
+found, in the issue, before opening the PR.
+
+This matters most when the phone / remote-host surfaces are involved, because `mulmoclaude` and
+**`mulmoserver`** (the phone app at `mulmoserver.web.app`) are separate repos and a fix can land
+entirely in the other one:
+
+- **Do not start with the half this repo owns** because it is the half you can see. That is how a
+  redundant field gets added to a payload nobody reads.
+- **Ask where the value the UI reads actually comes from.** In #3249 the report correctly showed
+  that `getRemoteView`'s payload drops `allowSendChat` — but the phone builds `activeView` from the
+  **collection schema** (`getCollection` → `toDetail` returns `schema` verbatim, and the phone
+  neither validates nor strips it), so the flag was already there and only the phone needed
+  changing. The host edit was written, then reverted.
+- **State which repo each half lands in, and whether one alone changes anything for the user.** A
+  PR that cannot move the behaviour on its own must say so and must not carry `Closes`.
+
 ### Edit-time deeper rules (read when relevant)
 
 - **Lint warnings + `eslint-disable` etiquette** → [`docs/lint-policy.md`](docs/lint-policy.md)

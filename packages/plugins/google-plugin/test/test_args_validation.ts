@@ -94,8 +94,33 @@ describe("GoogleArgs", () => {
     assert.equal(args.kind === "calendarCreateEvent" && args.colorId, "7");
   });
 
-  it("rejects calendarCreateEvent with a date-only start", () => {
-    assert.throws(() => GoogleArgs.parse({ kind: "calendarCreateEvent", summary: "x", start: "2026-07-17", end: "2026-07-17T10:00:00+09:00" }));
+  it("parses an all-day calendarCreateEvent — bare dates on both ends", () => {
+    const args = GoogleArgs.parse({ kind: "calendarCreateEvent", summary: "Holiday", start: "2026-07-17", end: "2026-07-18" });
+    assert.equal(args.kind === "calendarCreateEvent" && args.start, "2026-07-17");
+    assert.equal(args.kind === "calendarCreateEvent" && args.end, "2026-07-18");
+  });
+
+  it("rejects an all-day end equal to its start — the exclusive-end trap", () => {
+    assert.throws(() => GoogleArgs.parse({ kind: "calendarCreateEvent", summary: "x", start: "2026-07-17", end: "2026-07-17" }), /EXCLUSIVE/);
+  });
+
+  it("rejects one end of each kind, either way round", () => {
+    assert.throws(
+      () => GoogleArgs.parse({ kind: "calendarCreateEvent", summary: "x", start: "2026-07-17", end: "2026-07-17T10:00:00+09:00" }),
+      /not one of each/,
+    );
+    assert.throws(
+      () => GoogleArgs.parse({ kind: "calendarCreateEvent", summary: "x", start: "2026-07-17T09:00:00+09:00", end: "2026-07-18" }),
+      /not one of each/,
+    );
+  });
+
+  it("still rejects an offset-less date-time — Google answers an opaque 400 for it", () => {
+    assert.throws(() => GoogleArgs.parse({ kind: "calendarCreateEvent", summary: "x", start: "2026-07-17T09:00:00", end: "2026-07-17T10:00:00" }));
+  });
+
+  it("still rejects an impossible day", () => {
+    assert.throws(() => GoogleArgs.parse({ kind: "calendarCreateEvent", summary: "x", start: "2026-02-30", end: "2026-03-01" }));
   });
 
   it("rejects calendarCreateEvent with an empty summary", () => {
@@ -203,8 +228,19 @@ describe("GoogleArgs — calendar update / delete (#2569)", () => {
     assert.throws(() => GoogleArgs.parse({ kind: "calendarUpdateEvent", eventId: "", summary: "x" }));
   });
 
-  it("rejects a date-only start on update, same as create", () => {
-    assert.throws(() => GoogleArgs.parse({ ...update, start: "2026-07-17" }));
+  it("rejects a lone all-day end — whether the stored event is all-day is unknowable here", () => {
+    assert.throws(() => GoogleArgs.parse({ ...update, start: "2026-07-17" }), /BOTH start and end/);
+    assert.throws(() => GoogleArgs.parse({ ...update, end: "2026-07-18" }), /BOTH start and end/);
+  });
+
+  it("parses an all-day move when both ends are given", () => {
+    const args = GoogleArgs.parse({ ...update, start: "2026-07-17", end: "2026-07-18" });
+    assert.equal(args.kind === "calendarUpdateEvent" && args.start, "2026-07-17");
+  });
+
+  it("parses moving one end of a timed event", () => {
+    const args = GoogleArgs.parse({ ...update, end: "2026-07-17T11:00:00+09:00" });
+    assert.equal(args.kind === "calendarUpdateEvent" && args.end, "2026-07-17T11:00:00+09:00");
   });
 
   it("parses a delete", () => {

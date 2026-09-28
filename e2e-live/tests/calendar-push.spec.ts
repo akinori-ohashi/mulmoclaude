@@ -301,7 +301,9 @@ test.describe("Collection → Google push, end to end (#2602)", () => {
       updated: 0,
       conflicts: 0,
       localDeletes: 0,
+      deletedInGoogle: 0,
       skipped: [],
+      keptInGoogle: [],
       errors: [],
       unpushedIds: [],
     };
@@ -375,6 +377,59 @@ test.describe("Collection → Google push, end to end (#2602)", () => {
       // `accessRole` unknown, so the push falls through and really does write.
       await deleteEventQuietly(accessToken, readOnly, eventId);
       await workspace.cleanup();
+    }
+  });
+  test("L-GCAL-09: propagateDeletes が無いと Google の予定は残り、有ると消える (#3234)", async () => {
+    const accessToken = await getGoogleAccessToken();
+    const calendarId = calendarIdFrom(WRITABLE_CALENDAR_ENV);
+
+    // Two workspaces over the SAME calendar, differing only in the opt-in. The
+    // default one is the control: without it, a deletion here must leave the
+    // event standing, which is the promise this feature must not break.
+    const reported = await createCalendarCollectionWorkspace(calendarId);
+    const propagating = await createCalendarCollectionWorkspace(calendarId, { propagateDeletes: true });
+    const keptId = newEventId();
+    const goneId = newEventId();
+
+    const record = (eventId: string) => ({
+      [CALENDAR_FIELDS.id]: eventId,
+      [CALENDAR_FIELDS.summary]: SUMMARY,
+      [CALENDAR_FIELDS.start]: LOCAL_START,
+      [CALENDAR_FIELDS.end]: LOCAL_END,
+    });
+
+    try {
+      await reported.putRecord(keptId, record(keptId));
+      await propagating.putRecord(goneId, record(goneId));
+      expect(await pushCalendarForCollection(reported.slug, reported.root)).toMatchObject({ kind: "pushed", result: { created: 1 } });
+      expect(await pushCalendarForCollection(propagating.slug, propagating.root)).toMatchObject({ kind: "pushed", result: { created: 1 } });
+
+      await reported.deleteRecord(keptId);
+      await propagating.deleteRecord(goneId);
+
+      // The default: counted, and Google untouched.
+      expect(await pushCalendarForCollection(reported.slug, reported.root)).toMatchObject({
+        kind: "pushed",
+        result: { localDeletes: 1, deletedInGoogle: 0, skipped: [], errors: [] },
+      });
+      expect(await getCalendarEvent(accessToken, { calendarId, eventId: keptId })).not.toBeNull();
+
+      // The opt-in: gone from Google, and gone from the baseline — so the SAME
+      // push again reports nothing rather than announcing the deletion forever.
+      expect(await pushCalendarForCollection(propagating.slug, propagating.root)).toMatchObject({
+        kind: "pushed",
+        result: { localDeletes: 1, deletedInGoogle: 1, skipped: [], errors: [] },
+      });
+      expect(await getCalendarEvent(accessToken, { calendarId, eventId: goneId })).toBeNull();
+      expect(await pushCalendarForCollection(propagating.slug, propagating.root)).toMatchObject({
+        kind: "pushed",
+        result: { localDeletes: 0, deletedInGoogle: 0 },
+      });
+    } finally {
+      await deleteEventQuietly(accessToken, calendarId, keptId);
+      await deleteEventQuietly(accessToken, calendarId, goneId);
+      await reported.cleanup();
+      await propagating.cleanup();
     }
   });
 });

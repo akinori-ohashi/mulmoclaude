@@ -27,12 +27,24 @@
 // option here only with a caller that needs it.
 
 import { applyEnvFile } from "./envFile.js";
+import { applyStoredSecrets, type AppliedSecrets } from "./secrets.js";
 
 const shadowed: readonly string[] = Object.freeze(applyEnvFile(process.cwd(), process.env));
+
+// After the file, and overriding it: a secret typed into Settings is the
+// authoritative one (#871). The alternative — letting a stale `export` or an
+// old `.env` win — is the trap the GUI exists to remove, and it fails
+// silently, which is why precedence is decided here rather than per reader.
+const storedSecrets: AppliedSecrets = Object.freeze(applyStoredSecrets(process.env));
 
 /** Keys this process's own `.env` load lost to the shell. Empty under
  *  `npx mulmoclaude`, whose cwd is the package directory — there the
  *  launcher does the equivalent for the user's launch dir. */
 export function shadowedByServerLoad(): readonly string[] {
   return shadowed;
+}
+
+/** What the Settings-stored secrets contributed at boot. Names only. */
+export function secretsAppliedAtBoot(): AppliedSecrets {
+  return storedSecrets;
 }

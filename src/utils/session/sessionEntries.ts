@@ -5,8 +5,9 @@
 //
 // Tracks #175.
 
-import { makeSkillResult, makeTextResult, TEXT_LIKE_RESULT_TOOL_NAMES } from "../tools/result";
+import { makeErrorResult, makeSkillResult, makeTextResult, TEXT_LIKE_RESULT_TOOL_NAMES } from "../tools/result";
 import {
+  isErrorEntry,
   isSessionOrigin,
   isSkillEntry,
   isTextEntry,
@@ -74,6 +75,8 @@ export function parseSessionEntries(entries: readonly SessionEntry[], sessionOri
       out.push(makeTextResult(entry.message, entry.source, entry.attachments, seededBy ?? undefined));
     } else if (isToolResultEntry(entry)) {
       out.push(entry.result);
+    } else if (isErrorEntry(entry)) {
+      out.push(makeErrorResult(entry.message));
     }
   }
   return out;

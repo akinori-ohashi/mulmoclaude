@@ -1,8 +1,10 @@
 <template>
-  <!-- Compact inline summary for non-openBook tool results. The
-       openBook envelope routes to View.vue (full app) instead of
-       this component; everything that lands here is a
-       compact-result action (addEntries, getReport, …). -->
+  <!-- Compact inline summary for a tool result that is not the openBook
+       envelope, which routes to View.vue (the full app) instead.
+       WHICH actions reach here is decided by PREVIEW_ACTIONS in
+       server/router.ts and asserted by its tests — deliberately not listed
+       again here, because a second copy of that list is what went stale
+       three times in #2716's review. -->
   <div class="text-sm text-gray-700" data-testid="accounting-preview">
     <span class="material-icons text-base align-middle mr-1">account_balance</span>
     <span>{{ summary }}</span>
@@ -11,14 +13,17 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import { useAccountingI18n } from "./lang";
 import { summarisePreview } from "./previewSummary";
 
 const { t } = useAccountingI18n();
 
-// Some renderers carry the payload on `data`, others on `jsonData`;
-// `summarisePreview` merges whichever arrived and picks the branch.
-const props = defineProps<{ data?: unknown; jsonData?: Record<string, unknown> }>();
+// `result` is what SessionSidebar hands every previewComponent, and the only
+// thing it hands them. This component declared `data` / `jsonData` instead and
+// so never received a payload at all (#2716) — the props of a dynamic
+// `<component :is>` are not typechecked, so nothing caught it.
+const props = defineProps<{ result: ToolResultComplete }>();
 
-const summary = computed<string>(() => summarisePreview(props.data, props.jsonData, t));
+const summary = computed<string>(() => summarisePreview(props.result.data, t));
 </script>

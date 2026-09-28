@@ -57,12 +57,13 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   /** The view called `__MC_VIEW.startChat(prompt, role)` — open a new chat with
-   *  `prompt`; `role` resolves to the general role when it names no known one.
+   *  `prompt`; `role` is honoured only when it names a role the host allows —
+   *  known, and not a debug role — and opens in the general role otherwise. On the
+   *  phone the named role does not apply at all: that runtime refuses to take a
+   *  role from the sandbox, so only the prompt crosses.
    *  `send` carries the view's DECLARED intent (`allowSendChat`): false ⇒ prefill
-   *  it as an editable draft, true ⇒ run it.
-   *  The PHONE runtime always runs it (no Enter key to press there —
-   *  receptron/mulmoterminal#1253), so a declared view is the case where this
-   *  preview matches what the phone will do. */
+   *  it as an editable draft, true ⇒ run it — the same rule the phone applies
+   *  (receptron/mulmoserver#273). */
   startChat: [payload: { prompt: string; role?: string | undefined; send: boolean }];
 }>();
 

@@ -15,6 +15,11 @@ const SEND_VIEW = { id: "runner", label: "Runner", file: "views/runner.html", ca
 
 const PROMPT = "Add a note to record a-1";
 
+// A role the VIEW names for itself. Roles carry their own prompt, tools and
+// model, so the sandbox composing the text must not also choose the assistant —
+// and this one is a debug role, which the picker hides outside dev mode.
+const NAMED_ROLE = "debug";
+
 // The page the view navigates ITSELF to, and what that page then says. Nothing in
 // the sandbox or the CSP stops the navigation, and the replacement document keeps
 // the frame's `contentWindow` — so without a guard it passes the host's
@@ -60,6 +65,7 @@ const DETAIL = {
 // views — only the DECLARATION differs, which is the whole point of the flag.
 const VIEW_HTML = `<!doctype html><html><head></head><body>
 <button id="go" onclick="window.__MC_VIEW.startChat('${PROMPT}')">Go</button>
+<button id="go-as-debug" onclick="window.__MC_VIEW.startChat('${PROMPT}', '${NAMED_ROLE}')">Go as a role</button>
 <button id="leave" onclick="location.href='${FOREIGN_PATH}'">Leave</button>
 </body></html>`;
 
@@ -113,12 +119,12 @@ async function setup(page: Page, options: { slowFirstView?: boolean } = {}): Pro
   return agentRuns;
 }
 
-async function pressGo(page: Page, viewId: string): Promise<void> {
+async function pressGo(page: Page, viewId: string, buttonId = "go"): Promise<void> {
   await page.goto("/collections/works");
   await page.getByTestId(`collection-view-custom-${viewId}`).click();
   const iframe = page.getByTestId("collection-custom-view-iframe");
   await expect(iframe).toBeVisible();
-  await page.frameLocator('[data-testid="collection-custom-view-iframe"]').locator("#go").click();
+  await page.frameLocator('[data-testid="collection-custom-view-iframe"]').locator(`#${buttonId}`).click();
 }
 
 test.describe("custom view startChat — draft by default, sent when declared", () => {
@@ -181,5 +187,33 @@ test.describe("custom view startChat — draft by default, sent when declared", 
     expect(agentRuns[0]).toContain(PROMPT);
     // Sent, not parked: nothing is left behind in the composer to press Enter on.
     await expect(page.getByTestId("user-input")).toHaveValue("");
+  });
+
+  test("the role a DRAFTING view names does not become the turn's role either", async ({ page }) => {
+    // The same one-line rule guards both call sites, and only one of them was held
+    // by a test of the wiring. The draft path POSTs nothing by itself, so the draft
+    // is sent from the composer and the role is read off what the host then runs.
+    const agentRuns = await setup(page);
+
+    await pressGo(page, DRAFT_VIEW.id, "go-as-debug");
+
+    await expect(page.getByTestId("user-input")).toHaveValue(PROMPT);
+    await page.getByTestId("send-btn").click();
+
+    await expect.poll(() => agentRuns.length, { timeout: 2 * ONE_SECOND_MS }).toBe(1);
+    expect(JSON.parse(agentRuns[0] ?? "{}").roleId).not.toBe(NAMED_ROLE);
+  });
+
+  test("the role the view names for itself does not become the turn's role", async ({ page }) => {
+    // The view composes the text; it must not also pick the assistant that runs it.
+    // Asserted as a negative: at boot the picker's own value is the default role,
+    // so a positive assertion could not tell "refused" from "happened to match".
+    const agentRuns = await setup(page);
+
+    await pressGo(page, SEND_VIEW.id, "go-as-debug");
+
+    await expect.poll(() => agentRuns.length, { timeout: 2 * ONE_SECOND_MS }).toBe(1);
+    // The poll above already fixed the length, so the fallback is only for the index type.
+    expect(JSON.parse(agentRuns[0] ?? "{}").roleId).not.toBe(NAMED_ROLE);
   });
 });

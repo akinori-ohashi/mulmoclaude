@@ -3,7 +3,8 @@
 // engine function with which arguments" can be checked with a stub — while the
 // calls were fixed imports, only module mocking could reach that mapping and
 // nothing did (#2583). Same shape as `html-plugin/src/core/dispatch.ts`.
-import { DEFAULT_LIST_MAX_RESULTS, toolCalendarSyncKey } from "@mulmoclaude/core/google";
+import { DEFAULT_LIST_MAX_RESULTS, resolvePartialSpanInput, resolveSpanInput, toolCalendarSyncKey } from "@mulmoclaude/core/google";
+import type { PartialSpanTimes, SpanTimes } from "@mulmoclaude/core/google";
 import type * as GoogleEngine from "@mulmoclaude/core/google";
 import type { PluginRuntime } from "gui-chat-protocol";
 import type { GoogleArgs } from "../args";
@@ -121,11 +122,24 @@ const calendarListEvents = async ({ api }: GoogleDispatchContext, args: ArgsOf<"
 const calendarSync = async ({ api }: GoogleDispatchContext, args: ArgsOf<"calendarSync">) =>
   await runCalendarSync(api, args.calendarId, args.fullResync ?? false);
 
+// The args schema refuses every span these reject, so the throws mark a
+// programming error rather than a user one — reached only if the two drift.
+const spanOrThrow = (start: string, end: string): SpanTimes => {
+  const resolved = resolveSpanInput(start, end);
+  if (!resolved.ok) throw new Error(resolved.reason);
+  return resolved.span;
+};
+
+const partialSpanOrThrow = (start: string | undefined, end: string | undefined): PartialSpanTimes => {
+  const resolved = resolvePartialSpanInput(start, end);
+  if (!resolved.ok) throw new Error(resolved.reason);
+  return resolved.times;
+};
+
 const calendarCreateEvent = async ({ api, log }: GoogleDispatchContext, args: ArgsOf<"calendarCreateEvent">) => {
   const event = await api.createCalendarEvent(await api.getGoogleAccessToken(), {
     summary: args.summary,
-    startDateTime: args.start,
-    endDateTime: args.end,
+    ...spanOrThrow(args.start, args.end),
     description: args.description,
     calendarId: args.calendarId,
     colorId: args.colorId,
@@ -139,8 +153,7 @@ const calendarUpdateEvent = async ({ api, log }: GoogleDispatchContext, args: Ar
   const event = await api.updateCalendarEvent(await api.getGoogleAccessToken(), {
     eventId: args.eventId,
     summary: args.summary,
-    startDateTime: args.start,
-    endDateTime: args.end,
+    ...partialSpanOrThrow(args.start, args.end),
     description: args.description,
     calendarId: args.calendarId,
     colorId: args.colorId,

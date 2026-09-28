@@ -60,7 +60,7 @@ window.__MC_VIEW = {
   getItems: (opts) => Promise, // the ONLY way to read records — see below
   updateItem: (id, patch) => Promise, // patch declared fields (see Writing records)
   deleteItem: (id) => Promise, // remove a record (requires allowDelete)
-  startChat: (prompt, role) => void, // start a new chat seeded with the prompt (sent, not drafted)
+  startChat: (prompt, role) => void, // start a new chat — draft, or sent when the view declares allowSendChat
   t: (key, named) => string, // vue-i18n-style dict lookup (same as desktop)
 };
 ```
@@ -220,16 +220,25 @@ only way a remote view "does" anything beyond display:
 window.__MC_VIEW.startChat("Mark task " + item.id + " as done.");
 ```
 
-**On the phone the prompt is sent, not drafted** — one press and the turn runs.
-A phone has no Enter key to press, so leaving the text sitting in an input box
-would simply strand the work. (The desktop custom view drafts by default and
-sends only when its `views[]` entry declares `allowSendChat: true`; the desktop
-phone-frame preview follows that same declaration, so declare it there too if
-you want the preview to behave the way the phone will.)
+**The phone follows the view's `allowSendChat` declaration**, exactly as the
+desktop does — it is read from the `views[]` entry, never from your code:
 
-So whatever you compose becomes an agent turn verbatim, with every tool
-available. Build the prompt from your own records, and don't paste text you
-fetched from somewhere else into it.
+- **Not declared** — the prompt opens as an **editable draft** in the chat sheet,
+  and the user presses Send.
+- **`"allowSendChat": true`** — **one press and the turn runs**.
+
+```jsonc
+{ "id": "tasks", "label": "Tasks", "file": "views/tasks.html", "target": "mobile", "allowSendChat": true }
+```
+
+Declare it whenever a button is meant to start work: an undeclared view makes
+the user open the sheet and send by hand on every press. The desktop
+phone-frame preview reads the same declaration, so it behaves the way the phone
+will.
+
+With it declared, whatever you compose becomes an agent turn verbatim, with
+every tool available. Build the prompt from your own records, and don't paste
+text you fetched from somewhere else into it.
 
 ### Translations — `t`
 

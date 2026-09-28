@@ -7,10 +7,12 @@
 // `createRelay(deps)` so the module has no direct imports from the
 // host.
 
-import { EVENT_TYPES } from "@mulmobridge/protocol";
+import { EVENT_TYPES, resolveReplyTimeoutMs } from "@mulmobridge/protocol";
 import type { ChatStateStore } from "./chat-state.js";
 import type { CommandHandler } from "./commands.js";
 import { createKeyedSerializer } from "./keyed-serializer.js";
+import { remainingReplyMs } from "./reply-deadline.js";
+import { startChatWhenIdle } from "./start-when-idle.js";
 import type { Attachment, Logger, OnSessionEventFn, Role, StartChatFn } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────
@@ -44,11 +46,9 @@ export interface RelayDeps {
   getRole: (roleId: string) => Role;
   defaultRoleId: string;
   logger: Logger;
+  /** Monotonic milliseconds for the reply limit. Defaults to `performance.now()`. */
+  now?: () => number;
 }
-
-// ── Constants ────────────────────────────────────────────────
-
-const REPLY_TIMEOUT_MS = 5 * 60 * 1000;
 
 // ── Factory ──────────────────────────────────────────────────
 
@@ -61,11 +61,29 @@ export function createRelay(deps: RelayDeps): RelayFn {
     // sessions, and split the conversation across them (#1878). The
     // JSON pair is an unambiguous composite key for the two ids.
     const key = JSON.stringify([params.transportId, params.externalChatId]);
-    return serialize.run(key, () => processRelayMessage(deps, params));
+    const budget: ReplyBudget = {
+      receivedAtMs: clockOf(deps)(),
+      replyTimeoutMs: resolveBridgeReplyTimeout(params.bridgeOptions, deps.logger, params.transportId),
+    };
+    return serialize.run(key, () => processRelayMessage(deps, params, budget));
   };
 }
 
-async function processRelayMessage(deps: RelayDeps, params: RelayParams): Promise<RelayResult> {
+/** When the message arrived and how long its sender will wait for the reply. */
+interface ReplyBudget {
+  receivedAtMs: number;
+  replyTimeoutMs: number;
+}
+
+// Neutral about the cause: a queue behind an earlier message, or slow setup on an idle chat.
+const EXPIRED_BEFORE_START_REPLY = "The request timed out before the agent could start on it. Please send it again.";
+
+// Monotonic by default, so a wall-clock step between receipt and processing cannot move the limit.
+const clockOf = (deps: RelayDeps): (() => number) => deps.now ?? (() => performance.now());
+
+const remainingOf = (budget: ReplyBudget, deps: RelayDeps): number => remainingReplyMs(budget.receivedAtMs, budget.replyTimeoutMs, clockOf(deps)());
+
+async function processRelayMessage(deps: RelayDeps, params: RelayParams, budget: ReplyBudget): Promise<RelayResult> {
   const { store, handleCommand, startChat, onSessionEvent, getRole, defaultRoleId, logger } = deps;
   const { transportId, externalChatId, attachments, bridgeOptions } = params;
   let { text } = params;
@@ -108,7 +126,15 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams): Promis
     text = commandResult.forwardAs;
   }
 
-  const result = await startChat({
+  // Checked here, not on entry: a command above still runs and answers at once, but an agent turn
+  // started after the limit would produce a reply nobody is waiting for.
+  if (remainingOf(budget, deps) === 0) {
+    logger.info("chat-service", "message expired before its turn started", { transportId, externalChatId });
+    return { kind: "ok", reply: EXPIRED_BEFORE_START_REPLY };
+  }
+
+  const idleStartDeps = { startChat, onSessionEvent, remainingMs: () => remainingOf(budget, deps) };
+  const result = await startChatWhenIdle(idleStartDeps, {
     message: text,
     roleId: chatState.roleId,
     chatSessionId: chatState.sessionId,
@@ -119,18 +145,12 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams): Promis
     bridgeOptions,
   });
 
+  if (result.kind === "expired") {
+    logger.info("chat-service", "message expired waiting for the session to finish", { transportId, externalChatId });
+    return { kind: "ok", reply: EXPIRED_BEFORE_START_REPLY };
+  }
   if (result.kind === "error") {
     const status = result.status ?? 500;
-    if (status === 409) {
-      // Session busy — tell the bridge to retry. Keep the HTTP
-      // response shape the old handler returned (status 409 on
-      // the HTTP side, "ok" reply text on the socket side — both
-      // layers decide how to serialise).
-      return {
-        kind: "ok",
-        reply: "A previous message is still being processed. Please wait.",
-      };
-    }
     logger.error("chat-service", "startChat failed", {
       transportId,
       externalChatId,
@@ -144,7 +164,7 @@ async function processRelayMessage(deps: RelayDeps, params: RelayParams): Promis
   }
 
   try {
-    const reply = await collectAgentReply(onSessionEvent, chatState.sessionId, params.onChunk);
+    const reply = await collectAgentReply(onSessionEvent, chatState.sessionId, remainingOf(budget, deps), params.onChunk);
     await store.setChatState(transportId, {
       ...chatState,
       updatedAt: new Date().toISOString(),
@@ -194,16 +214,24 @@ export function resolveDefaultRole(
   return resolved.id;
 }
 
+// The bridge client reads the same option for its ack timer, so a bad value
+// is warned about on both ends and both fall back to the same default.
+function resolveBridgeReplyTimeout(bridgeOptions: RelayParams["bridgeOptions"], logger: Logger, transportId: string): number {
+  const { replyTimeoutMs, warning } = resolveReplyTimeoutMs(bridgeOptions?.replyTimeoutMs);
+  if (warning) logger.warn("chat-service", "bridge reply timeout option ignored", { transportId, warning });
+  return replyTimeoutMs;
+}
+
 // Kept out of the factory closure so future packaging doesn't need
 // to re-capture anything; `onSessionEvent` arrives as a plain param.
-function collectAgentReply(onSessionEvent: OnSessionEventFn, chatSessionId: string, onChunk?: (text: string) => void): Promise<string> {
+function collectAgentReply(onSessionEvent: OnSessionEventFn, chatSessionId: string, replyTimeoutMs: number, onChunk?: (text: string) => void): Promise<string> {
   return new Promise((resolve) => {
     const textChunks: string[] = [];
 
     const timer = setTimeout(() => {
       unsubscribe();
       resolve(textChunks.join("") || "The request timed out before a reply was generated.");
-    }, REPLY_TIMEOUT_MS);
+    }, replyTimeoutMs);
 
     const unsubscribe = onSessionEvent(chatSessionId, (event) => {
       const type = event.type as string;

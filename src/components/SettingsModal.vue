@@ -61,22 +61,14 @@
               ⚠ {{ loadError }}
             </div>
 
-            <div v-if="activeTab === 'gemini'" class="space-y-3">
-              <div class="rounded border border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-800" data-testid="settings-gemini-warning">
-                <span class="material-icons text-sm align-middle mr-1">warning</span>
-                <i18n-t keypath="settingsModal.geminiRequired" tag="span">
-                  <template #envKey><code class="font-mono">GEMINI_API_KEY</code></template>
-                  <template #envFile><code class="font-mono">.env</code></template>
-                </i18n-t>
-              </div>
-              <button
-                class="px-3 py-1.5 text-sm rounded bg-blue-500 text-white hover:bg-blue-600"
-                data-testid="settings-gemini-ask-btn"
-                @click="askAboutGemini"
-              >
-                {{ t("settingsModal.geminiAskButton") }}
-              </button>
-            </div>
+            <SettingsGeminiTab
+              v-if="activeTab === 'gemini'"
+              :reload-token="geminiReloadToken"
+              :gemini-available="geminiAvailable"
+              :env-file-path="envFileLabel"
+              @saved="emit('saved')"
+              @ask="askAboutGemini"
+            />
 
             <div v-else-if="activeTab === 'tools'" class="space-y-3">
               <i18n-t keypath="settingsToolsTab.explanation" tag="p" class="text-xs text-gray-600 leading-relaxed">
@@ -211,6 +203,7 @@ import { useI18n } from "vue-i18n";
 import SettingsMcpTab from "./SettingsMcpTab.vue";
 import SettingsWorkspaceDirsTab from "./SettingsWorkspaceDirsTab.vue";
 import SettingsReferenceDirsTab from "./SettingsReferenceDirsTab.vue";
+import SettingsGeminiTab from "./SettingsGeminiTab.vue";
 import SettingsMapTab from "./SettingsMapTab.vue";
 import SettingsPhotosTab from "./SettingsPhotosTab.vue";
 import SettingsGoogleTab from "./SettingsGoogleTab.vue";
@@ -246,6 +239,12 @@ interface Props {
   open: boolean;
   dockerMode?: boolean;
   geminiAvailable?: boolean;
+  // Absolute path of the `.env` this launch reads, from `/api/health`.
+  // Named rather than described because the two launch routes do not read
+  // the same file and an icon launch has no launch directory to point at
+  // (#2626). Empty before the first health response — the text then falls
+  // back to the bare filename it always showed.
+  geminiEnvFilePath?: string;
   // Forwarded from useMcpTools — if non-null, the MCP tab shows a
   // small warning strip so the user knows "all tools visible" is a
   // fallback rather than an accurate listing.
@@ -255,6 +254,7 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   dockerMode: false,
   geminiAvailable: true,
+  geminiEnvFilePath: "",
   mcpToolsError: null,
 });
 const emit = defineEmits<{
@@ -299,9 +299,10 @@ const FULL_TABS: readonly TabId[] = ["skills", "roles"];
 const isFullTab = computed(() => FULL_TABS.includes(activeTab.value));
 
 // Sidebar nav layout (#1333). Order within each group reflects expected
-// access frequency; order of groups reflects the same. The `gemini`
-// item is filtered out by `visibleGroups` when geminiAvailable === true
-// (env var present → user has nothing to configure).
+// access frequency; order of groups reflects the same. Every item is
+// always listed: `gemini` used to be hidden once a key was present, which
+// stopped making sense when the tab became the place the key is typed
+// (#871) — a configured key is exactly what you open it to replace.
 const GROUPS: readonly { key: string; items: readonly TabId[] }[] = [
   { key: "llm", items: ["agent", "model", "voice", "chatIndex", "journal", "tools", "gemini"] },
   { key: "servers", items: ["mcp"] },
@@ -316,12 +317,13 @@ const GROUPS: readonly { key: string; items: readonly TabId[] }[] = [
   { key: "server", items: ["quit"] },
 ];
 
-const visibleGroups = computed(() =>
-  GROUPS.map((group) => ({
-    key: group.key,
-    items: group.items.filter((item) => item !== "gemini" || !props.geminiAvailable),
-  })).filter((group) => group.items.length > 0),
-);
+// The file to name in the Gemini tab. The bare filename is the fallback
+// for the window before the first health response, not a second option:
+// which directory it sits in is the whole question on an icon launch.
+const ENV_FILE_NAME = ".env";
+const envFileLabel = computed(() => props.geminiEnvFilePath || ENV_FILE_NAME);
+
+const visibleGroups = computed(() => GROUPS.filter((group) => group.items.length > 0));
 
 // Forces SettingsMapTab to re-load when the modal opens or the user
 // confirms a save — ensures the input always reflects the latest
@@ -345,6 +347,7 @@ const voiceReloadToken = ref(0);
 const chatIndexReloadToken = ref(0);
 const journalReloadToken = ref(0);
 const notificationsReloadToken = ref(0);
+const geminiReloadToken = ref(0);
 const toolsText = ref("");
 // Server truth for tools — updated on load and on a successful Save
 // from the Tools tab. `toolsDirty` compares this against `toolsText`
@@ -557,6 +560,7 @@ watch(
       chatIndexReloadToken.value += 1;
       journalReloadToken.value += 1;
       notificationsReloadToken.value += 1;
+      geminiReloadToken.value += 1;
       statusMessage.value = "";
       statusError.value = false;
     }
@@ -566,20 +570,17 @@ watch(
 
 // `geminiAvailable` can flip while the modal is already open — the
 // `/api/health` poll in `useHealth` recovers from a transient failure
-// asynchronously. Without this watcher, a user who opened the modal
-// during the failure stays on the `"gemini"` tab even after the tab
-// button disappears (v-if="!geminiAvailable") — leaving them on an
-// empty view until they manually click another tab. Hop to `"tools"`
-// as soon as Gemini recovers; mirror the inverse for the (much rarer)
-// case where Gemini goes away while the modal is open on a
-// non-gemini tab.
+// asynchronously, and saving a key here makes it flip on purpose.
+//
+// It no longer moves the user OFF the gemini tab when a key appears: the
+// tab is where the key is entered (#871), so a save would otherwise yank
+// the user away from the thing they just did. Only the inverse remains —
+// the key going away while the modal sits on the default landing tab.
 watch(
   () => props.geminiAvailable,
   (available) => {
     if (!props.open) return;
-    if (available && activeTab.value === "gemini") {
-      activeTab.value = "tools";
-    } else if (!available && activeTab.value !== "gemini" && activeTab.value === "tools") {
+    if (!available && activeTab.value === "tools") {
       // Only bounce to the warning tab if the user hasn't navigated
       // away from the default landing tab. Respecting an explicit
       // pick on dirs / mcp / refs avoids yanking them mid-edit.

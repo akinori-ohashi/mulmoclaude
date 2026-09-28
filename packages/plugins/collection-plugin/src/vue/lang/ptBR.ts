@@ -72,6 +72,7 @@ const ptBRMessages: CollectionMessages = {
     inlineSaveFailed: "Não foi possível salvar a alteração: {error}",
     addRow: "Adicionar linha",
     removeRow: "Remover linha",
+    allDay: "Dia inteiro",
     noRows: "Ainda não há linhas",
     tableSummary: "{count} itens",
     embedMissing: "Nenhum registro '{id}' encontrado em {collection}.",
@@ -104,6 +105,9 @@ const ptBRMessages: CollectionMessages = {
     pushFailed: "Falha ao enviar: {error}",
     pushDone:
       "Enviado para o Google: {created} criados, {updated} atualizados, {conflicts} conflitos ignorados, {localDeletes} exclusões locais não aplicadas.",
+    pushKeptDeletes: "Mantido no Google: {reasons}",
+    pushDoneWithDeletes:
+      "Enviado para o Google: {created} criados, {updated} atualizados, {conflicts} conflitos ignorados, {deletedInGoogle} excluídos no Google, {localDeletes} exclusões locais não aplicadas.",
     feedChatSeed:
       'O feed "{slug}" é definido pelo esquema `feeds/{slug}/schema.json` e seus registros ficam em `{dataPath}/` (um arquivo `<id>.json` por registro). Use esse esquema e esses dados para responder a esta solicitação: {message}',
     feedsTitle: "Feeds de dados",

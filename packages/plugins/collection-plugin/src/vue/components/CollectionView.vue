@@ -365,7 +365,7 @@ import { useCollectionRendering } from "../useCollectionRendering";
 import { writeCollectionViewMode, writeCollectionSort, writeCollectionFlagFilters, type CollectionViewMode } from "../collectionViewMode";
 import type { CollectionConfirmOptions, CollectionPushResult } from "../uiContext";
 import { useCollectionUi } from "../scopedUi";
-import { pushProblems } from "../calendarPushResult";
+import { pushKeptDeletes, pushMessage, pushProblems } from "../calendarPushResult";
 import { useTableSort } from "../composables/useTableSort";
 import { useCollectionActions } from "../composables/useCollectionActions";
 import { useFlagFilters } from "../composables/useFlagFilters";
@@ -685,15 +685,31 @@ async function pushCalendar(): Promise<void> {
 }
 
 /** Say what the push did. Problems arrive as fields on an HTTP 200, so a silent
- *  success here would render a setup failure as "nothing to push". */
+ *  success here would render a setup failure as "nothing to push".
+ *
+ *  A deletion Google refused is NOT a problem: it rides alongside the counts, so
+ *  one refusal cannot hide what the run actually wrote (#3272). */
 function reportPush(result: CollectionPushResult): void {
   const problems = pushProblems(result);
+  const kept = keptDeletesNote(result);
   if (problems.length > 0) {
-    inlineError.value = t("collectionsView.pushFailed", { error: problems.join("; ") });
+    // The refusal rides along even here: it is the only thing saying an event is
+    // still standing in Google, and the help file promises every push reports it.
+    // ` / ` rather than a space: no `pushFailed` template ends in punctuation, and
+    // several locales have neither capitals nor inter-word spaces, so a space alone
+    // leaves the two sentences with no boundary at all.
+    inlineError.value = [t("collectionsView.pushFailed", { error: problems.join("; ") }), ...kept].join(" / ");
     return;
   }
-  const { created, updated, conflicts, localDeletes } = result;
-  showRefreshNote(t("collectionsView.pushDone", { created, updated, conflicts, localDeletes }));
+  const { key, params } = pushMessage(result);
+  showRefreshNote([t(key, params), ...kept].join(" "));
+}
+
+/** The sentence naming the deletions left standing, or nothing to add. */
+function keptDeletesNote(result: CollectionPushResult): string[] {
+  const kept = pushKeptDeletes(result);
+  if (kept.length === 0) return [];
+  return [t("collectionsView.pushKeptDeletes", { reasons: kept.join("; ") })];
 }
 
 /** Show a transient refresh note, replacing any pending auto-clear. */
@@ -935,8 +951,8 @@ const isFeedRoute = computed<boolean>(() => !embedded.value && cui.isFeedRoute()
 // the card's own `initialView` first; lacking that (a freshly-rendered
 // presentCollection card), they fall back to the same per-collection store
 // the standalone page uses, so a card also opens in the last-used view.
-// `CollectionViewMode` ("table" | "calendar" | "kanban" | "dashboard" |
-// `custom:<id>`) is imported from the view-mode util.
+// `CollectionViewMode` ("table" | "calendar" | "kanban" | `custom:<id>`) is
+// imported from the view-mode util.
 
 // The raw `view` ref + its init/restore live in `useViewMode` (created below,
 // once the field lists it gates on — hasCalendar / hasKanban / customViews —
@@ -1511,8 +1527,9 @@ function onCustomViewOpenItem(payload: { id: string; mode: "view" | "edit" }): v
 }
 
 /** The custom view called `__MC_VIEW.startChat(prompt, role)` — open a new chat
- *  seeded with the prompt. `role` is optional and resolves to General when it
- *  names no known role, the same way a schema action's role does.
+ *  seeded with the prompt. `role` is optional; the host honours it only when it
+ *  names a role it allows — known, and not a debug role — and opens in General
+ *  otherwise, the same way a schema action's role does.
  *
  *  Draft by default: the view's code only PROPOSES text, and the user approves /
  *  edits / sends it, so no capability is required. A view whose `views[]` entry

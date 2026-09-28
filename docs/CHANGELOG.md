@@ -8,9 +8,390 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
-### Added
+### Highlights
+
+#### `getSchema` says when a collection's schema was changed but not applied (#3346, PR #3347)
+
+A `schema.json` changed with Bash or a script is not copied to the place the server reads it from, so the collection kept
+its old schema while `getSchema` showed the new one, with no hint that they differed. `getSchema` now says so and points
+at `putSchema`, which applies it. The error-recovery guide covers the same case.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.7.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.26.1] - 2026-09-28
+
+**A chat that failed to start no longer stays "running" until restart, and pinned collection shortcuts keep their colour across app starts.**
+
+### Highlights
+
+#### A chat that fails to start is released again (#3337, PR #3343)
+
+If saving the user's message or reading the session failed right after a chat turn was accepted (for example a disk
+write error), the chat stayed marked as running. Every later message to it was refused with "Session is already
+running" in the web UI, and bridges waited out their reply limit, until the server was restarted. The turn is now
+rolled back and answered with an error, so the next message runs normally.
+
+#### Pinned collection shortcuts keep their accent colour (#3340, PR #3344)
+
+A pinned collection shortcut lost its accent colour on every app start and got it back only after the Collections
+index was opened. The startup refresh now keeps it.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.7.0`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.26.0] - 2026-09-27
+
+**`npx mulmoclaude` installs on npm 12 again, a queued bridge message waits for the agent instead of being dropped, and a Google Calendar mirror can hold all-day events properly.**
+
+### Highlights
+
+#### `npx mulmoclaude` installs on npm 12 (#3316, PR #3317)
+
+npm 12 refuses a dependency declared as a remote tarball URL, and the launcher declared SheetJS (`xlsx`) that way,
+because SheetJS publishes its fixed versions only on its own CDN. So on npm 12 a fresh `npx mulmoclaude` failed with
+`EALLOWREMOTE` before anything ran. SheetJS CE 0.20.3 is now vendored under `server/vendor/sheetjs/` (byte-identical to
+the CDN file, with its Apache-2.0 license), and the launcher no longer declares `xlsx`, so npm 12 installs it with its
+default settings. `.xlsx` attachments are still read the same way, and the install no longer downloads the 2.4 MB SheetJS package.
+
+#### A bridge message sent while the agent is still busy waits instead of being dropped (#3320)
+
+When a bridge turn was cut off at its reply limit, its agent kept running, and the next message in that chat was refused
+with "A previous message is still being processed. Please wait." — it never reached the agent. The next message now
+waits for that run to finish, within its own reply limit, and then runs. If the run outlasts the limit, it is answered
+"timed out before the agent could start" and is not run. The same applies while the session is busy from the web UI.
+Released as `@mulmobridge/chat-service@1.3.2`; reaches `npx mulmoclaude` users with the next `mulmoclaude` release.
+
+#### A queued bridge message no longer outlives the bridge's wait (#3312)
+
+A bridge message's reply limit is now counted from when the server received it, not from when its turn came up. Before,
+a message queued behind a long one in the same chat could still be running on the server after the bridge had given up
+(`timeout: no ack`), so its reply went nowhere. It now gets what is left of its limit; one whose limit runs out while
+queued is answered with "timed out before the agent could start" and is not run; a chat command still runs. Released as
+`@mulmobridge/chat-service@1.3.1`; reaches `npx mulmoclaude` users with the next `mulmoclaude` release.
+
+#### Credential renewal no longer spends Claude sessions in a loop (#3309)
+
+On macOS with the Docker sandbox, an expired login is renewed by launching the `claude` CLI, and each launch is a real
+Claude session. A Keychain item that no renewal can fix (no refresh token, as in an empty item) was renewed anyway, on every
+turn and at every server start; under `yarn dev` the failing start restarted forever. Such credentials are now reported
+with a `claude /login` hint and never renewed, a failing renewal waits before the next try and stops after a few in a row,
+and a server that cannot start without the user's action exits with a code `yarn dev` does not restart. When the Keychain
+holds more than one `Claude Code-credentials` item, the one under the user's login name is read as well and the usable
+one wins, instead of whichever a lookup by service name happens to return (`yarn sandbox:login` now uses the same selection).
+A renewal now counts as done when the Keychain holds a valid token, instead of when the CLI's reply matched an English
+greeting, so it works whatever language Claude answers in and stops the CLI as soon as the token is in. `yarn dev` also
+stops restarting a backend that crashed 10 times in 10 minutes, however long each run lasted.
+
+#### A Google Calendar mirror's all-day event no longer spills onto the next day (#3323)
+
+Google's all-day `end` is exclusive (a one-day event on the 17th ends on the 18th), but the calendar drew a record through
+its end date inclusively, so a mirrored or locally created all-day event also covered the next day. In a collection with a
+`googleCalendar` block, the field mapped to `end` is now read as exclusive at a day boundary: an end that is a bare date or
+exactly `00:00` stops the span on the day before, running to 24:00 when it carries a clock. Plain collections keep an
+inclusive end date, and no stored value changes. Released as `@mulmoclaude/core@5.7.0` / `@mulmoclaude/collection-plugin@5.5.0`.
+
+#### An All day checkbox for datetime fields (#3324)
+
+The record form now has an **All day** checkbox beside each `datetime` field. Checking it drops the clock (`2026-09-28`,
+pushed to Google as an all-day event); unchecking starts the day at `00:00`. A new record can be ticked before a date is
+picked, so an all-day event can be created from the calendar's Add button. A value that is not a real date cannot be
+switched. Released as `@mulmoclaude/collection-plugin@5.5.0`.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.7.0`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.25.0] - 2026-09-27
+
+**A bridge turn can run longer than five minutes: one setting moves the server's reply limit and the bridge's wait together.**
+
+### Highlights
+
+#### Configurable bridge reply timeout (#3305, PR #3310)
+
+A bridge turn used to be cut off after a fixed 5 minutes: the chat-service replied with whatever text had streamed so far
+and dropped the rest. One bridge option now sets that limit, in milliseconds: `BRIDGE_REPLY_TIMEOUT_MS` for every bridge,
+`<TRANSPORT>_BRIDGE_REPLY_TIMEOUT_MS` for one, and `RELAY_REPLY_TIMEOUT_MS` / `RELAY_<PLATFORM>_REPLY_TIMEOUT_MS` on the
+relay path. It travels in the handshake, so the chat-service and `@mulmobridge/client` (which waits one minute longer for
+the ack) always use the same value. Unset keeps 5 minutes; an unusable value falls back with a warning; a value past the
+timer ceiling is clamped. The rule lives in `@mulmobridge/protocol` (`resolveReplyTimeoutMs`, `ackTimeoutMsFor`). Upgrade
+the bridge together with the server — an older client still gives up after 6 minutes.
+
+Ships with `@mulmobridge/protocol@1.1.0`, `@mulmobridge/client@1.4.0` and `@mulmobridge/chat-service@1.3.0` (PR #3315).
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.4.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.6.0`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.24.0] - 2026-09-26
+
+**A `datetime` field can hold an all-day date, so a calendar that mixes timed and all-day events can create both from a collection.**
+
+### Highlights
+
+#### All-day values in a `datetime` field (#3304, PR #3308)
+
+A collection that mirrors a Google calendar with `start` / `end` on `datetime` columns could not create an all-day event
+from a record: `…T00:00` is pushed as a real midnight appointment, and a bare date was reported as a data problem. A
+bare date (`start: "2026-09-28"`, `end: "2026-09-29"`) is now a valid `datetime` value meaning **all day**. The push sends
+it as Google's all-day `start.date` / `end.date`. The record form edits it with a date picker instead of a blank date+time
+field, at the top level, inside a table row and in an action's parameter form. The list sort places it at local midnight
+(it used to land at 09:00 in UTC+9). The agent's collection guidance says the same and tells it not to rewrite a bare date
+to `…T00:00`. Events pulled from Google are still stored as `…T00:00`, and keep their all-day kind as before.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.4.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.6.0`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.23.0] - 2026-09-26
+
+**Any file can be attached, an expired `claude` login now says how to fix it, errors survive a reload, and reconnecting no longer loses the selection or a card's time.**
+
+### Highlights
+
+#### Attach any file type (#3299, PR #3301)
+
+The chat input used to refuse anything outside images, PDF, Office documents and text — a Microsoft Project `.mpp` (#3297) showed "File type not supported" and could not even reach the workspace. Now any file attaches. Types whose content the model can read behave as before; any other type is stored under `data/attachments/` and handed to the agent by path, and its chip says the content can't be read. The stored name always ends in `.bin` (`<id>.mpp.bin`), so no workspace route that decides by extension — the HTML preview above all — ever treats an uploaded file as something its type never claimed. A stored attachment's type now comes from its saved extension only, never from a type the request declares.
+
+#### An expired `claude` login says what to do (#3284, PR #3286)
+
+When the spawned `claude` CLI cannot authenticate, the chat shows one error that ends with the fix — run `claude /login` in a terminal on this machine, then resend — instead of the CLI's text as an ordinary reply followed by a bare `claude exited with code 1`. The agent's own recovery notes (`@mulmoclaude/core@5.5.1`) gained the same section, including when a `CLAUDE_CODE_OAUTH_TOKEN` in the server's environment overrides a fresh login.
+
+#### Errors stay in the session history (#3288, #3291, PR #3289)
+
+A failed turn's `[Error] …` card is now saved with the session and comes back after a reload, identical to the live one. A failing text flush no longer swallows the error it was about to report.
+
+#### Reconnecting keeps the selection, the timestamps and the text still streaming (#3292, #3294, #3295, PRs #3293 / #3296)
+
+Catch-up after a reconnect adopts the server's transcript, and every parse gave text cards fresh ids — so the selected card was lost and every text card lost its time. Cards are now matched to the ones already on screen. Catch-up also adopts only a snapshot that is complete and current: not while a run is streaming (the server's copy does not have that text yet), and not if the transcript changed while it was being fetched.
+
+#### Image results are checked before they are drawn (#3287, PR #3290)
+
+`generateImage` and `editImages` now validate the image route's response before the view draws it, so a malformed reply shows a reason instead of an empty image.
+
+### Fixed
+
+- **A form's `defaultValue` was never checked** (`@mulmoclaude/form-plugin@2.1.0`, #3298, refs #3287) — this plugin was copied from
+  `@mulmochat-plugin/form` and lost the whole `defaultValue` family on the way, plus the unknown-type check. Seven definitions it
+  ACCEPTED are refused upstream, and each of them renders a form the user can neither complete nor fix: a default that is not one
+  of the choices, a default of the wrong type, a default outside the range the same field declares (length, min/max, the date
+  window, the selection counts), and a field type the view cannot render, which arrived as an empty row. A form arrives from the
+  model, so this validation is the only thing between a bad definition and a form that looks filled in and submits a value its own
+  definition forbids. The rules are the upstream ones with one deliberate difference: a choice here may be `{ label, value? }`, so
+  membership is tested against the RESOLVED value — porting upstream's `choices.includes()` verbatim would have refused a correct
+  default. Three more holes came out of review: the view matches a choice by its value OR its label and takes the first hit, so a
+  default matching one choice's label while another owns it as a value opened the form on a selection submitting something else; a
+  date or time the input cannot parse (`2026-02-30`, `25:90`) is blanked by the browser, so the form opened empty while still
+  claiming a default; and a repeated checkbox default ticked one box while the count rules saw two and the submission emitted the
+  choice twice. `minDate` / `maxDate` are held to the same date rule. The upstream copy gained the one rule it lacked in
+  receptron/MulmoChatPluginForm#33, so both sides now validate the same set.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.3.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.5.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.22.0] - 2026-09-23
+
+**Plugins stop shipping private copies of three and mermaid, a custom view can no longer pick the role its chat runs in, and a refused Google deletion no longer hides a successful push.**
+
+### Highlights
+
+#### One copy of three and of mermaid (#3274, PRs #3276 / #3279 / #3281)
+
+`@mulmoclaude/shapescript-plugin` bundled three, and `@mulmoclaude/markdown-plugin` bundled `@mulmoclaude/markdown-utils` with mermaid, MathJax, KaTeX and cytoscape inside it. A host that also draws with three or renders markdown got a second copy of each — mulmoserver warned `Multiple instances of Three.js being imported`, and MulmoClaude's own client build carried every mermaid chunk twice. Both plugins now leave those libraries to the consumer (they stay `dependencies`, so npm still installs them): the markdown plugin shrinks from ~16 MB to ~190 KB, shapescript from ~2.5 MB to ~1.2 MB, and the client build loses about a quarter of its size. Models, exports, diagrams and math render as before. A build-time test in each plugin goes red if the library is bundled again.
+
+#### A custom view cannot choose the role its chat runs in (#3267, PR #3270)
+
+`__MC_VIEW.startChat(prompt, role)` passed the view's `role` straight to the new session on the send path, so a view declaring `allowSendChat` could start a turn in a role the selector hides — `debug` included. Both entry points now apply the host's rule (the role must exist and must not be a debug role), and an unusable role falls back to that entry point's default.
+
+### Fixed
+
+- **A custom view's `startChat` role was honoured unchecked on the send path** (mulmoclaude, #3270, closes #3267) — the send path took the view-supplied `role` as-is (`??` falls back only when it is absent), while the draft path checked it only for existence, so the `debug` role passed both. Both now use `resolveRequestedRoleId`, the same rule the remote-host `startChat` handler applies.
+
+- **The markdown plugin no longer ships its own mermaid and MathJax** (`@mulmoclaude/markdown-plugin`, `@mulmoclaude/markdown-utils`, refs #3274) — the plugin bundled `@mulmoclaude/markdown-utils`, and with it mermaid, MathJax, KaTeX and cytoscape, while the host renders markdown through its own markdown-utils; the host build carried two copies of each. markdown-utils is now external to the plugin, so one copy is shared, and the plugin's dist drops from ~16 MB to ~400 KB. Doing so exposed four relative imports in markdown-utils without a `.js` extension, which fail with `ERR_MODULE_NOT_FOUND` when loaded in plain Node ESM (bundlers and tsx resolve them); they name their file now, and a test requires it of every relative import.
+
+- **ShapeScript no longer ships its own copy of three** (`@mulmoclaude/shapescript-plugin`, refs #3274) — the plugin bundled three into its dist, so a host that also draws with three got two copies: mulmoserver's shape page warned `Multiple instances of Three.js being imported`, and its scene, OrbitControls and exporters were handed objects built from the other copy. `three` is now external and resolved from the consumer (the plugin still declares it as a dependency, so npm installs it). The `three/examples` modules and the CSG helpers stay bundled and import that same `three`, which keeps Node on one copy too. Models and the GLB / STL exports are byte-identical. A USDZ export differs only in the numbers inside its prim names (`Object_N`, `Geometry_N`, `Material_N`), which come from three's global id counters and now start later; renumbered by first appearance, its content is identical. The package is smaller.
+- **A deletion Google refused no longer reads as a failed push** — with `propagateDeletes` on, one refused
+  deletion made the view show only the failure and drop the counts of everything the push did write. The
+  refusal now travels in its own list (`keptInGoogle`) and is reported beside the counts, on both the
+  success and the problem path (#3272, `@mulmoclaude/core` + `@mulmoclaude/collection-plugin`).
+
+- **The help the agent reads when it writes a phone view still said the phone always sends** (`@mulmoclaude/core`, closes #3268) — `custom-view-remote.md` and `custom-view.md` told the agent that a `target: "mobile"` view's `startChat` runs the prompt whether or not it declares `allowSendChat`. Since #3249 / receptron/mulmoserver#273 the phone follows the declaration like every other surface, so a view written from that help left the flag off and drafted on the phone — the symptom #3249 reported, reproduced once per new view. Both helps now say undeclared drafts and declared sends, and the remote help shows the declaration. Reaches npm users with the next `@mulmoclaude/core` release (the helps ship in `assets/`).
+
+- **A push that really deleted events said they were "not applied"** (`@mulmoclaude/collection-plugin`, #3261, closes #3260) — `propagateDeletes` shipped with the count, the response field and `pushWroteSomething` all correct, and the sentence on screen still built from the four numbers it had before. `localDeletes` counts records that went away HERE, whether or not the deletion carried, so calling it "local deletions not applied" was true only while the push never deleted: a user who opted in deleted three records, watched three events disappear from Google, and was told three local deletions were not applied. The number that means "still standing in Google" is `localDeletes - deletedInGoogle`, and the message now says both. A collection that never opted in reads exactly as it did — the remainder equals the old count there, and the wording with the delete clause appears only once something was actually deleted, so nobody is shown "0 deleted in Google" forever. Found by the mulmoterminal upgrade (receptron/mulmoterminal#2209), which noticed the view formatted only the four original counts.
+
+- **`@mulmoclaude/core/collection/server` loads without `firebase` again** (`@mulmoclaude/core`, #3264, closes #3263) — core declares `firebase` as an OPTIONAL peer, and several entries made it required: a top-level `import { Timestamp } from "firebase/firestore"` in `collection/server/firestoreStore.ts` was linked eagerly by everything whose graph reached it — `store.ts` names that module in its storage-backend registry, and the entry re-exports `./store` — so a consumer without `firebase` installed failed at import with `ERR_MODULE_NOT_FOUND: Cannot find package 'firebase'`. The file already carried the invariant in a comment a few lines above the line that broke it. That had been true since before 5.0.0; 5.3.0 shipped it too.
+
+  The entries that could not load, and now can: `./google`, `./collection/server`, `./collection/registry/server`, `./feeds/server`, `./collection-watchers`. The ones that still need `firebase` are the ones whose NAME says so — `./collection/firestore`, `./remote-host`, `./remote-host/server` — under `import` and `require` alike. The exported names of every entry are unchanged, and no runtime behaviour changed.
+
+  **This is a breaking change for TypeScript consumers, and it shipped as a minor.** `FirestoreDocs` is an exported interface and gained one required member, so a host that constructs the seam BY HAND stops compiling:
+
+  ```
+  error TS2741: Property 'timestamp' is missing in type '{ list: ...; get: ...; set: ...; create: ...;
+  delete: ...; watch: ...; }' but required in type 'FirestoreDocs'.
+  ```
+
+  **Migration.** If you build the seam with `createFirestoreDocs` from `@mulmoclaude/core/collection/firestore` — which is what both hosts do in production — there is nothing to do; the adapter supplies the member. If you wrote an implementation by hand, which in practice means a test fake, add it:
+
+  ```ts
+  const FAKE_DOCS = {
+    list: () => Promise.resolve([]),
+    get: () => Promise.resolve(null),
+    set: () => Promise.resolve(),
+    create: () => Promise.resolve(true),
+    delete: () => Promise.resolve(true),
+    watch: () => () => {},
+    // NEW in 5.4.0. `{ seconds, nanoseconds }` is the structured-clone shape of a Firestore
+    // `Timestamp`, which is what the server-time codec duck-types on — a fake does not need
+    // the SDK class. The real adapter returns `new Timestamp(seconds, nanoseconds)`.
+    timestamp: (seconds: number, nanoseconds: number) => ({ seconds, nanoseconds }),
+  };
+  ```
+
+  The member exists so the collection store can obtain Firestore's own instant without importing the SDK — that import is what made the optional peer mandatory. It is required rather than optional deliberately: a fallback would have to write a plain object where a `Timestamp` belongs, and the deployed security rules freeze that field, so the record would become permanently unupdatable, silently. A compile error is the better failure. (`receptron/mulmoterminal#2209` carries the one-line fake fix on the consuming side.)
+
+  Precedent note for whoever cuts the next release: the comparable change in `@mulmoclaude/core@5.0.0` — `CalendarEventSummary` gaining required properties — took a MAJOR bump for exactly this reason. This one did not, on the grounds that the only thing that breaks is a hand-written implementation of an interface whose supported construction path is `createFirestoreDocs`. If that trade looks wrong later, the fix is a major, not a re-publish.
+
+  **How to check the fix is present** in a version you are resolving, without installing `firebase`:
+
+  ```bash
+  node --input-type=module -e 'await import("@mulmoclaude/core/collection/server")'   # must not throw
+  ```
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.3.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.5.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.21.0] - 2026-09-22
+
+**A mirrored calendar finishes the round trip: deleting a record can delete the event, the mirror can carry your RSVP and the meeting link, and the `google` tool's all-day support reaches npm.**
+
+### Highlights
+
+#### Deleting a record can delete the event (#3234, PR #3247)
+
+The push has always reported a locally deleted record and left the Google event standing, because
+`events.delete` removes it for everyone it was sent to and cannot be undone from this side. That is
+right for a calendar Google owns and wrong for one where the collection is the primary copy: the
+deletion never carried, the next pull brought the record back, and you deleted it again.
+
+Ask for it and the collection opts in (`"propagateDeletes": true`). Its absence means exactly what it
+always did, so nothing changes for a collection that does not ask.
+
+Even when it is on, the push **refuses an event that carries attendees** and reports it instead — any
+attendee entry refuses, the organiser's included, because telling "only me" apart means deciding
+which entry is you from a payload that may not say, and being wrong there withdraws a real
+invitation. The delete is conditional on the version the check was made against, so an attendee added
+while the push is running makes Google refuse it rather than letting a moment-old decision stand.
+
+No copy of a deleted event is kept. Google Calendar's own Trash is the recovery path.
+
+#### A mirror can carry your RSVP and the meeting link (#3233, PR #3244)
+
+`attendees` and `conferenceData` were the last two fields a schema could not name, because Google
+answers them as arrays while a collection field holds one value. Two derived columns now fold them:
+`selfResponseStatus` (your own response) and `conferenceVideoUri` (the join URL for the conferences
+`hangoutLink` does not reach — Zoom, Teams).
+
+One behaviour is worth knowing before mapping the first: `selfResponseStatus` is empty whenever
+Google reported no status, and that is the majority case rather than an edge one, because an event
+with no attendees has no entry to mark as you. It reads as "nothing said", never as "not going", so
+filter it with `!= "declined"` — `== "accepted"` hides every solo event as well.
+
+#### The `google` tool can write an all-day event (#3240, PR #3242)
+
+The host half of this shipped in 1.20.0; the `google` tool half is here, because it lives in
+`@mulmoclaude/google-plugin` and that package needed its own release. `calendarCreateEvent` and
+`calendarUpdateEvent` now take a bare date on both ends. An all-day `end` is **exclusive** — the day
+after the last day — which is Google's own convention and the value it reports back, so it is passed
+through rather than "corrected".
+
+#### Two push failures the agent can now diagnose (PR #3243)
+
+The agent reads `error-recovery.md` before asking you a clarifying question on a tool failure, and
+neither of these was in it. A record whose id cannot be a Google event id (Google wants lower-case
+base32hex, so `team-standup` fails on the hyphen), and a stale push baseline — a write that does not
+change Google's stored value never comes back through the pull, so the same record is sent every
+cycle and it looks exactly like a real repeated edit.
+
+#### Fixes
+
+- **Windows CI had been red for half a day** (#3251, PR #3252) — the secret store's test asserted a
+  POSIX file mode, which Windows cannot carry: it maps only the read-only bit, so a `0600` write
+  reads back as `0666`. The mode assertion is now POSIX-only, a second test pins what holds
+  everywhere (the secret lives under your own profile directory, whose ACL it inherits), and
+  `server/system` / `test/system` joined the Windows PR gate so the next one is caught before merge.
+- **The remote-view chat policy said the phone always sends** (PR #3250) — it does not; every surface
+  follows the view's `allowSendChat` declaration. Comments only.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.2.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.3.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.0.1`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.0.1`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.20.0] - 2026-09-21
+
+**Google Calendar gains the fields and the all-day handling a real two-way mirror needs, the Gemini key moves into Settings, and no workspace file is stranded behind a preview the server cannot open.**
+
+### Highlights
+
+#### The Gemini key is entered in the app, not hunted for on disk (#871, #2626 — PRs #3238, #3231)
+
+Paste the key into **Settings → Gemini**. It takes effect immediately, with no restart and no file to locate, and it wins over a stale value in the shell or a `.env`. The old routes still work, but which `.env` is read depends on how the app was started — from the icon there is no launch directory, so macOS starts the app in `/` and it reads `~/.env`, and a shell `export` never reaches it at all. The Settings tab now names the exact path this launch reads, and the agent's own help files lead with the Settings route.
+
+#### Any workspace file can be downloaded (#3213)
+
+The Files view previews text and renders known media; everything else — binaries, and anything too large to preview — now offers a direct download of the bytes. Previously the only escape was "Open in OS", which spawns a handler on the **server's** desktop: under Docker, WSL2 or a remote host there is none, so those files were unreachable from the UI. The download goes through `fetch` + blob rather than an `<a download>` so a refusal arrives as an error instead of being saved to disk under the file's own name.
+
+#### Google Calendar: all-day events, and the fields a mirror needs (#2620, #3240 — PRs #3242, #3229)
+
+An all-day event can now be created and edited through every write surface, with one shared implementation of the span rules (`@mulmoclaude/core/google`'s `eventSpanInput`) so the hosts and the Google plugin agree on what all-day means. Separately, a `googleCalendar` collection can map more event fields — `recurringEventId` and `originalStartTime` (which make an expanded recurring series legible, and a dragged occurrence read as a move rather than a delete plus an insert), plus `updated`, `transparency`, `eventType` and `hangoutLink`. The six are pull-only in this sync, and nothing changes for an existing collection until a field is added to its `map`.
+
+#### Discord threads (#3217)
+
+A thread is admitted by its **parent** channel, so `DISCORD_ALLOWED_CHANNELS` and threads finally work together, and `DISCORD_SESSION_GRANULARITY` chooses whether a thread is its own conversation or folds into its parent's. Check the bot has `Send Messages in Threads` — Discord treats it as separate from `Send Messages`.
+
+#### Fixes
+
+- **Windows**: an ESM import that resolved on macOS but not on Windows (#3236, PR #3237), and the docker-mount tests now run under the host's own platform (#3218).
+- Record chat no longer closes the detail view (#3220, PR #3225).
+- Preview props corrected for the accounting (#2716) and spotify (#3226) plugins.
+
+### Package detail
+
+- **The agent's Gemini help stops sending people to hunt for a `.env`** (`@mulmoclaude/core`, #3231 then #3238) — two rounds landed on the same two help files. #3231 (closes #2626) first made the instructions honest: the `.env` they described only exists when the app is started from a terminal, because an icon launch has no launch directory — macOS starts apps in `/`, so the app starts from home and reads `~/.env`, and a shell `export` never reaches it since the launcher takes PATH from the login shell and nothing else. #3238 then made the question moot by letting the key be entered in **Settings → Gemini**, and both `gemini.md` and `error-recovery.md` now lead with that: it applies immediately, needs no restart and no file to locate, and wins over a stale value in the shell or a `.env`. `error-recovery.md` also spells out what the agent should do when a render fails for a missing key — including that a render started before the key was saved keeps the environment it was spawned with, so it must be re-run rather than resumed.
+
+- **An all-day event can be created and edited through every write surface** (`@mulmoclaude/core`, `@mulmoclaude/google-plugin`, the launcher, #3242, from #2620) — the engine's `CalendarEventTime` has carried Google's `{ date }` spelling since the Push to Google work, but both write surfaces validated `start` / `end` with `isIsoDateTimeWithOffset`, which exists to REFUSE a date-only value. So the `google` tool and the remote-host channel could read an all-day event and never write one, and a calendar whose entries are all-day had to be kept by hand. A new pure module now owns the rule once for both: each end is an RFC3339 instant with an offset or a bare `YYYY-MM-DD`, the two must agree, and an all-day `end` must fall after its start. That end stays **exclusive** — the day AFTER the last day — because the pull reports Google's own value and the push sends it straight back, so converting an inclusive end on the way in would shorten the event by a day on every read-modify-write; an `end` that is not after its start is refused here, with the rule in the message, rather than becoming an opaque 400. The collection push already creates an all-day event when the mapped column keeps a bare date (a `date` or `string` column, not a `datetime` one, whose `…T00:00` is indistinguishable from a real midnight appointment), so that route is pinned by tests and written into the help docs instead of being changed.
+
+- **Every plugin now requires `@mulmoclaude/core@^5.0.0`, so the launcher can move to it** (all eight `@mulmoclaude/*-plugin`, #3235) — core 5.0.0 was a major, and a caret range does not cross a major, so the plugins published against `@mulmoclaude/core@^4.9.4` cannot be installed beside it. This is not a theoretical tidiness problem: resolving `@mulmoclaude/core@^5.0.0` together with a published plugin answers `ERESOLVE … peer @mulmoclaude/core@"^4.9.4" from @mulmoclaude/chart-plugin@3.0.2`. Nothing is broken for anyone today, because the published launcher still declares core `^4.10.0` and so resolves a 4.x that every plugin's peer accepts — the breakage would have arrived the moment the launcher was published against core 5, which is exactly why the plugins go first. Each plugin takes a **major** bump: moving a peer dependency across a major means the package no longer installs beside the host it used to, and the version number should say so. Two of them also carry code that had not shipped yet — `accounting-plugin` (preview props and the router, #3227) and `collection-plugin` (the day view, the collection view, and the chat composable).
+
+- **A mirrored Google Calendar can read the fields a two-way sync needs to stay legible** (`@mulmoclaude/core`, #3229) — a `googleCalendar` collection could map six event fields; it can now map fourteen. The six additions are **pull-only in this sync** — the pull fills them and the push never sends them (`transparency` is writable in Google, and `eventType` is writable at creation, but this sync deliberately sends neither): `recurringEventId` and `originalStartTime` (the series an expanded instance came from, and the slot it held before anyone moved it), `updated` (Google's own last-modified time), `transparency`, `eventType` and `hangoutLink`. The first two are what make a recurring series legible — the sync asks Google to expand recurrences, so a weekly meeting arrives as one event per occurrence, and with no key pointing back at the series one calendar edit was indistinguishable from a large batch of unrelated changes; `originalStartTime` additionally makes a dragged occurrence read as a move rather than a deletion plus a new event. Nothing changes for an existing collection until a field is added to its `map`, and the push baseline (`.push-state.json`) is untouched, so there is no state migration. **This is a breaking change for TypeScript consumers**: `CalendarEventSummary` is an exported interface and gained six required properties, so any code constructing one as a literal must add them (they are plain strings, `""` when Google omits the value) — hence the major bump rather than a minor one. `PUSHABLE_SOURCE_FIELDS` now carries a `satisfies` constraint against the pullable set, so a field that is writable but not readable fails the build instead of shipping a baseline that can never be rebuilt from a pull.
+
+  **Migration.** Nothing is required of code that only READS a `CalendarEventSummary`; the six additions are extra properties on a value core hands you. What breaks is code that CONSTRUCTS one as a literal — in practice a test fixture or a mapper:
+
+  ```
+  error TS2739: Type '{ id: string; summary: string; ... }' is missing the following properties from
+  type 'CalendarEventSummary': recurringEventId, originalStartTime, updated, transparency, and 2 more.
+  ```
+
+  All six are plain `string`, and `""` is the value core itself uses when Google omits the field, so an empty string is the correct filler rather than a placeholder:
+
+  ```ts
+  const event: CalendarEventSummary = {
+    id,
+    summary,
+    start,
+    end,
+    htmlLink,
+    status,
+    colorId,
+    description,
+    location,
+    // NEW in 5.0.0 — pull-only. "" is what core writes when Google omits the field.
+    recurringEventId: "", // the series an expanded instance came from
+    originalStartTime: "", // where that instance sat before anyone moved it
+    updated: "", // Google's own last-modified time (RFC3339)
+    transparency: "", // "transparent" when the event does not consume time; "" reads as opaque
+    eventType: "", // which KIND of entry this is
+    hangoutLink: "", // the meeting link, when there is one
+  };
+  ```
+
+  There is no DATA migration: an existing collection is untouched until a field is added to its `map`, and the push baseline (`.push-state.json`) keeps its shape, so a sync that was working keeps working without a re-pull.
 
 - **Discord threads work with the allowlist, and can hold their own session** (`@mulmobridge/discord`, #3217) — a thread is a channel of its own on Discord, with an id minted the moment someone opens it, so `DISCORD_ALLOWED_CHANNELS` and threads could not be used together: you pasted each new thread id into `.env` and restarted, or left the list empty and answered everywhere. A thread is now admitted by its **parent** channel, and listing a thread's own id still works. The new `DISCORD_SESSION_GRANULARITY` chooses what a thread maps to — `thread` (default, and what the bridge already did for any thread that reached it) gives each thread its own conversation; `channel` folds every thread into its parent channel's. It defaults differently from `SLACK_SESSION_GRANULARITY` on purpose, because a Slack thread is a facet of a channel while a Discord thread is a channel. Folding is refused in two cases, both the same invariant — a session is only ever keyed to a channel the bot may actually talk in. A post in a **forum** channel never folds, because Discord does not allow posting into a forum channel itself, so a session keyed by the forum id would have nowhere to deliver a server-initiated reply. And a thread never folds onto a parent the allowlist does not cover, so allowing a thread by its own id cannot aim replies at a channel that was deliberately left out. **Operators should check the bot has `Send Messages in Threads`** — Discord treats it as separate from `Send Messages`, and now that threads reach the bridge by default, a bot missing it receives thread messages and silently fails to reply.
+
+### Fixed
+
+- **The Spotify sidebar card showed an error panel instead of a summary** (`@mulmoclaude/spotify-plugin`, #3230, closes #3226) — the preview declared `selectedResult`, the prop name the **view** slot takes (`App.vue`: `:selected-result`), while the sidebar passes `result`. So it arrived `undefined` and the computed read `result.ok` off it with no guard. Rendering the built component the way the host renders it throws `TypeError: Cannot read properties of undefined (reading 'ok')`; the runtime loader wraps plugin components in `PluginScopedRoot`, whose `onErrorCaptured` caught it, so every `manageSpotify` call that rendered at all showed the red plugin-error panel. The same class as #2716, which is why the census added there held spotify out by name until the question it raised was answered. That question was **where `ok` / `error` actually arrive**: they do arrive, because the MCP bridge spreads the plugin's whole return value into the posted tool result and the session store keeps it verbatim — they are missing from the `ToolResult` _type_, not from the object. But `ok: false` can never reach this card, since the bridge posts only when `data` is present and every failure return in the plugin's dispatch omits `data`; that branch is therefore gone, and a failed call renders no card rather than an error one. The summary logic moved to a pure module the test runner can reach, which is the part that had been impossible: `tsx --test` cannot load an SFC, so the card's decisions had never been under test. Driving them found two defects in the code being replaced — a now-playing track matched the search-result guard, because `NormalisedTrack` carries an `artists` array of its own and the guard tested key presence, and a category that is not an array was counted by its string length. `getDevices` also read as a track count; it has its own branch now, reusing the existing `devices` label. The census was strengthened in the same change: it read named `*Preview` exports, but the host's runtime loader reads `plugin.previewComponent` — a different property, and the one spotify actually ships, since it exports no `Preview` at all. It now checks both for every packaged plugin, and its held-out list is empty.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.0`, `@mulmoclaude/chart-plugin@4.0.0`, `@mulmoclaude/collection-plugin@5.1.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.3.0`, `@mulmoclaude/form-plugin@2.0.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.0`, `@mulmoclaude/markdown-plugin@5.0.0`, `@mulmoclaude/markdown-utils@3.0.0`, `@mulmoclaude/mulmoscript-plugin@5.0.0`, `@mulmoclaude/shapescript-plugin@7.0.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [1.19.0] - 2026-09-18
 

@@ -93,6 +93,12 @@ const HOST_API_ROUTES = {
 
   shutdown: "/api/shutdown",
 
+  // Server-process secrets the user types into Settings (#871), stored
+  // outside the workspace at `~/.mulmoclaude/secrets/<KEY>`. GET reports
+  // whether a key is configured and which source is in effect; PUT stores
+  // one; DELETE clears it. The value is never sent back.
+  secrets: "/api/secrets",
+
   config: {
     base: "/api/config",
     settings: "/api/config/settings",

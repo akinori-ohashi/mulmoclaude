@@ -62,7 +62,7 @@ All env vars are **optional unless flagged "required"**. The server reads them a
 
 | Variable                    | Used by                       | Notes                                                                                                                                                    |
 | --------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GEMINI_API_KEY`            | `server/utils/gemini.ts`      | Enables Gemini image generation / editing. Without it, image plugins surface a UI warning. The `geminiAvailable` flag in `GET /api/health` mirrors this. |
+| `GEMINI_API_KEY`            | `server/utils/gemini.ts`      | Enables Gemini image generation / editing. Without it, image plugins surface a UI warning. The `geminiAvailable` flag in `GET /api/health` mirrors this, and `geminiEnvFilePath` beside it names the `.env` this launch would read it from. Also settable from Settings → Gemini, which stores it in `~/.mulmoclaude/secrets/` and OVERRIDES this variable — see `server/system/secrets.ts` (#871). |
 | `X_BEARER_TOKEN`            | `server/agent/mcp-tools/x.ts` | **Required** to enable `readXPost` / `searchX` MCP tools. Tools are silently disabled if absent.                                                         |
 | `TELEGRAM_BOT_TOKEN`        | `@mulmobridge/telegram`       | **Required** for the Telegram bridge. BotFather token. Treat like a password. See [`message_apps/telegram/`](message_apps/telegram/).                    |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | `@mulmobridge/telegram`       | CSV of integer Telegram chat IDs allowed to message the bot. Empty / unset → deny everyone. A non-integer entry halts startup.                           |
@@ -135,6 +135,8 @@ Set by `npx mulmoclaude` on the server it spawns. Auto-computed like the contain
 
 | Variable | Set by | Purpose |
 | -------- | ------ | ------- |
+| `MULMOCLAUDE_LAUNCH_ENV_PATH` | launcher | Absolute path of the `.env` the CLI consulted, set whether or not that file exists. The server cannot recompute it — its own cwd is the package directory — and it is what `server/system/geminiKeyGuidance.ts` names when a key is missing, instead of describing a launch directory an icon launch does not have (#2626). Absent under a direct `tsx server/index.ts` / `yarn dev`, where `<cwd>/.env` is the honest answer. |
+| `MULMOCLAUDE_LAUNCHED_FROM` | icon launcher | `icon` when the desktop launcher started the chain (`server/utils/launcher/start.mjs`). Only effect: guidance stops offering a shell `export`, which cannot reach this route — `resolve-path.sh` harvests PATH from the login shell and nothing else (#2626). Absent for a terminal launch. |
 | `MULMOCLAUDE_SHADOWED_ENV_KEYS` | launcher | CSV of launch-dir `.env` key NAMES the shell had already defined, so the file's values lost (#2604). Read once at boot by `server/system/shadowedEnv.ts`, which raises a bell notification — otherwise a user editing `.env` against a stale `export` gets no hint why nothing changes. Names only, never values; the server drops any token that isn't an env var name. Absent when there is no conflict. Outside `npx mulmoclaude` the same notification still fires, from the server's own `.env` load instead (`server/system/loadEnv.ts`, #2610) — that path is where `yarn dev` lands. |
 
 ### Container-only env (auto-set)
@@ -203,7 +205,7 @@ You never set these by hand; the server constructs them when spawning Claude ins
 | Script                | Notes                                                                                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `yarn sandbox:remove` | `docker rmi mulmoclaude-sandbox` — rebuild on next run. Reuses the cached layers, so it does NOT refresh the bundled Claude CLI; add `docker builder prune -a -f` for that (#2202). |
-| `yarn sandbox:login`  | macOS only. Exports the Claude CLI keychain entry to `~/.claude/.credentials.json` so the sandbox container can reuse it. |
+| `yarn sandbox:login`  | macOS only. Exports the Claude CLI keychain entry to `~/.claude/.credentials.json` so the sandbox container can reuse it; picks the same item the server does and refuses a login that cannot be used. |
 | `yarn sandbox:logout` | Removes that file.                                                                                                        |
 
 ---
@@ -571,10 +573,13 @@ Users can paste or drop files into the chat input. The server converts non-nativ
 | DOCX                                                 | mammoth → plain text | `type: "text"`     | `mammoth` (npm) | All                              |
 | XLSX                                                 | xlsx → CSV per sheet | `type: "text"`     | `xlsx` (npm)    | All                              |
 | PPTX                                                 | libreoffice → PDF    | `type: "document"` | LibreOffice     | Docker sandbox or native install |
+| anything else                                        | none — file only     | none               | —               | All                              |
+
+**File-only attachments**: a type not in the table is still accepted. It is stored under `data/attachments/` as `<id>.<original ext>.bin` (`storedExtensionFor` in `server/utils/files/attachment-mime.ts` — always ending in `.bin`, so no extension-dispatching route treats it as HTML etc.) and announced to the agent by its `[Attached file: …]` marker, with no content block. The chat-input chip says the content can't be read.
 
 **PPTX conversion path**: the server process runs on the host (macOS/Linux), but LibreOffice lives inside the Docker sandbox image. `convertPptxToPdf()` in `server/agent/attachmentConverter.ts` tries native `libreoffice` first; if not found, falls back to `docker run --rm -v tmpdir:/data mulmoclaude-sandbox libreoffice --headless --convert-to pdf`. Without either, the user sees a text hint suggesting PDF or image export.
 
-**Adding a new type**: add MIME handling in `server/agent/attachmentConverter.ts` (conversion logic), update `isConvertibleMime()` + `CONVERTIBLE_MIME_TYPES`, and add the MIME to `ACCEPTED_MIME_EXACT` in `src/App.vue`.
+**Adding a new type**: add its handling in `server/agent/attachmentConverter.ts` (`convertAttachment`, or `TEXT_MIME_TYPES` for text), add the MIME ↔ extension pair to both tables in `server/utils/files/attachment-mime.ts` (otherwise it is stored as `.bin` and stays file-only), and add the MIME to `READABLE_MIMES` in `src/utils/attachment/readableTypes.ts` — `test_readableTypes.ts` fails until the two sets match.
 
 ---
 

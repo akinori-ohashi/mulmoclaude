@@ -6,6 +6,23 @@
 // link state.
 export { configureGoogleHost, type GoogleLogger } from "./host.js";
 export { isIsoDateTimeWithOffset } from "./datetime.js";
+export { deleteRefusalMessage, planDelete, type DeleteDecision, type DeleteRefusal } from "./deletePlan.js";
+export { conferenceVideoUri, selfResponseStatus } from "./eventDerived.js";
+export {
+  isCalendarDateOnly,
+  resolvePartialSpanInput,
+  resolveSpanInput,
+  toEventTimeInput,
+  eventTimeHint,
+  EVENT_TIME_HINT,
+  ALL_DAY_END_HINT,
+  LONE_ALL_DAY_HINT,
+  MIXED_SPAN_HINT,
+  type PartialSpanResult,
+  type PartialSpanTimes,
+  type SpanResult,
+  type SpanTimes,
+} from "./eventSpanInput.js";
 export { googleConfigDir, googleSecretsDir, googleTokenPath, legacyGoogleTokenPath } from "./paths.js";
 export { clientSecretPresence, findClientSecretPath, loadClientSecret, type ClientSecretPresence, type InstalledClientSecret } from "./clientSecret.js";
 export { deleteGoogleTokens, loadGoogleTokens, mergeGoogleTokens, saveGoogleTokens, type IssuedVia, type StoredGoogleTokens } from "./tokenStore.js";
@@ -46,6 +63,7 @@ export {
   getCalendarMeta,
   resolveEventSpan,
   CANCELLED_EVENT_STATUS,
+  EVENT_ABSENT_STATUSES,
   HTTP_CONFLICT,
   HTTP_PRECONDITION_FAILED,
   type CalendarColorEntry,
@@ -93,8 +111,13 @@ export {
   locallyEditedIds,
   pushCalendarForCollection,
   pushCollectionNow,
+  pushResultFrom,
   reportedAccessRole,
+  sweepDeletes,
   unsentLocalEdits,
+  type DeleteSweep,
+  type DeleteSweepDeps,
+  type PushAttempt,
   type PushOutcomeKind,
   type CalendarCollectionPushResult,
   type CalendarPushDeps,

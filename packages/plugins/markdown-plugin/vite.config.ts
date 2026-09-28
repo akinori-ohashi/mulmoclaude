@@ -13,6 +13,17 @@ export default createVuePluginConfig({
   name: "GUIChatPluginMarkdown",
   // Externalise the host-shared / heavy deps so the host bundles a single copy.
   // gui-chat-protocol MUST be external so the injected PLUGIN_RUNTIME_KEY Symbol
-  // matches the host's provider.
-  external: [/^@mulmoclaude\/core/, "vue", "gui-chat-protocol", "gui-chat-protocol/vue", "marked", "js-yaml", "@marp-team/marp-core"],
+  // matches the host's provider. `@mulmoclaude/markdown-utils` too: it pulls in
+  // mermaid and MathJax (its peers), and bundling it here gave a host that also
+  // renders markdown a second copy of both.
+  external: [
+    /^@mulmoclaude\/core/,
+    /^@mulmoclaude\/markdown-utils(\/|$)/,
+    "vue",
+    "gui-chat-protocol",
+    "gui-chat-protocol/vue",
+    "marked",
+    "js-yaml",
+    "@marp-team/marp-core",
+  ],
 });

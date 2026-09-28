@@ -16,7 +16,9 @@ import { PAGE_ROUTES } from "../router";
 import { apiGet } from "../utils/api";
 import { API_ROUTES } from "../config/apiRoutes";
 import { createEmptySession } from "../utils/session/sessionFactory";
-import { buildLoadedSession, parseSessionEntries, shouldAdoptServerTranscript } from "../utils/session/sessionEntries";
+import { buildLoadedSession, parseSessionEntries } from "../utils/session/sessionEntries";
+import { captureTranscript, decideCatchUpAdoption, snapshotMayBeIncomplete, type CatchUpDecision } from "../utils/session/catchUpGuard";
+import { adoptServerTranscript } from "../utils/session/adoptTranscript";
 import {
   resolveNewSessionRoleId,
   shouldReplaceHistory,
@@ -158,18 +160,32 @@ async function loadSession(ctx: LifecycleCtx, sessionId: string): Promise<void> 
 }
 
 // Re-fetch the transcript and patch entries missed via a dropped socket
-// frame. Only adopts the server view when it is strictly richer (#2096),
-// so it stays idempotent against races with live events.
-async function refreshSessionTranscript(ctx: LifecycleCtx, sessionId: string): Promise<void> {
+// frame. Adopts the server view only when it is strictly richer (#2096) AND
+// complete and current (`decideCatchUpAdoption`), so it stays idempotent
+// against races with live events.
+async function refreshSessionTranscript(ctx: LifecycleCtx, sessionId: string): Promise<CatchUpDecision | null> {
   const session = ctx.sessionMap.get(sessionId);
-  if (!session) return;
+  if (!session) return null;
+  if (session.isRunning) return "running";
+  const snapshotAtFetch = captureTranscript(session.toolResults);
   const response = await apiGet<SessionEntry[]>(API_ROUTES.sessions.detail.replace(":id", encodeURIComponent(sessionId)));
-  if (!response.ok) return;
+  if (!response.ok) return null;
   const summary = ctx.sessions.value.find((entry) => entry.id === sessionId);
   const serverResults = parseSessionEntries(response.data, summary?.origin);
-  if (shouldAdoptServerTranscript(serverResults, session.toolResults)) {
-    session.toolResults = serverResults;
+  const decision = decideCatchUpAdoption({
+    clientRunning: session.isRunning,
+    snapshotIncomplete: snapshotMayBeIncomplete(response.data),
+    snapshotAtFetch,
+    clientResults: session.toolResults,
+    serverResults,
+  });
+  if (decision === "adopt") {
+    const adopted = adoptServerTranscript(session, serverResults, Date.now());
+    session.toolResults = adopted.toolResults;
+    session.selectedResultUuid = adopted.selectedResultUuid;
+    session.resultTimestamps = adopted.resultTimestamps;
   }
+  return decision;
 }
 
 // Land on /chat with no specific session in mind (initial load / home

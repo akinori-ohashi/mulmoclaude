@@ -20,7 +20,7 @@ Under the hood it uses the Claude Code Agent SDK as its LLM core. Claude has ful
 
 ## Key Capabilities
 
-- Build **collections** — schema-driven data apps (todo lists, trackers, ledgers, decks) with table / calendar / kanban / dashboard views, plus LLM-authored **custom views**; manage a calendar scheduler
+- Build **collections** — schema-driven data apps (todo lists, trackers, ledgers, decks) with table / calendar / kanban views, plus LLM-authored **custom views**; manage a calendar scheduler
 - Present documents and spreadsheets with rich formatting
 - Generate and edit images
 - Create interactive mind maps
@@ -33,7 +33,7 @@ Under the hood it uses the Claude Code Agent SDK as its LLM core. Claude has ful
 
 ## Collections — Apps from Data
 
-Collections are MulmoClaude's most distinctive capability: a **schema-driven data app declared in a single small JSON file**, with no database, ORM, or migration tool. You describe a data model, cross-record relations, computed fields, and per-record action buttons in a `schema.json`; the host reads that DSL and renders a full app — table, calendar, kanban board, and dashboard views — over a folder of plain `<id>.json` records. The same primitives power todo lists, recipe boxes, stock portfolios, invoice ledgers, vocabulary decks, and curricula, all without any app-specific host code. This is the core philosophy made concrete: a `schema.json` plus a folder of records **is** the app.
+Collections are MulmoClaude's most distinctive capability: a **schema-driven data app declared in a single small JSON file**, with no database, ORM, or migration tool. You describe a data model, cross-record relations, computed fields, and per-record action buttons in a `schema.json`; the host reads that DSL and renders a full app — table, calendar and kanban board views — over a folder of plain `<id>.json` records. The same primitives power todo lists, recipe boxes, stock portfolios, invoice ledgers, vocabulary decks, and curricula, all without any app-specific host code. This is the core philosophy made concrete: a `schema.json` plus a folder of records **is** the app.
 
 Because Claude authors and edits the schema for you in conversation, you build and reshape these apps just by talking — "add a priority field," "track this as a kanban," "make rent recur monthly" — and the collection updates live. We call this **vibe crafting**: the end-user counterpart of a developer's "vibe coding" — you describe the app you want and Claude builds it, with the schema validated and custom views sandboxed so you get the power without the pitfalls. Records stay validated, computed fields (totals, cross-collection lookups) recompute on every render, and completion bells / recurring obligations are declared in the same schema.
 
@@ -41,7 +41,7 @@ See [Collection skills](config/helps/collection-skills.md) for the full schema D
 
 ## Custom Views — Views the Built-ins Don't Cover
 
-When the built-in table / calendar / kanban / dashboard views don't fit what you want to _see_ — a year-at-a-glance planner, a Gantt bar, a heat-map, a printable report — Claude authors a **custom view**: a single HTML file rendered in a sandboxed iframe over the collection's records. It reads (and optionally writes) records through a scoped token, stays live as the data changes, and can hand work back to a chat — all without any view-specific host code. The view is data, just like the rest of the collection, so you can ask for an entirely new way to look at your data in plain language and get it.
+When the built-in table / calendar / kanban views don't fit what you want to _see_ — a year-at-a-glance planner, a Gantt bar, a heat-map, a printable report — Claude authors a **custom view**: a single HTML file rendered in a sandboxed iframe over the collection's records. It reads (and optionally writes) records through a scoped token, stays live as the data changes, and can hand work back to a chat — all without any view-specific host code. The view is data, just like the rest of the collection, so you can ask for an entirely new way to look at your data in plain language and get it.
 
 See [Custom views](config/helps/custom-view.md) for the authoring contract. A
 view can also target the **mobile remote app** (`target: "mobile"`) — rendered

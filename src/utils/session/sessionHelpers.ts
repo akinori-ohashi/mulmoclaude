@@ -2,11 +2,10 @@
 // These operate on ActiveSession objects directly — no Vue
 // reactivity, no imports from the component.
 
-import { v4 as uuidv4 } from "uuid";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
 import type { ActiveSession, SkillScope } from "../../types/session";
 import type { PersistedAttachment } from "../../types/attachment";
-import { makeSkillResult, makeTextResult, SKILL_TOOL_NAME } from "../tools/result";
+import { makeErrorResult, makeSkillResult, makeTextResult, SKILL_TOOL_NAME } from "../tools/result";
 import { shouldSelectAssistantText } from "../agent/toolCalls";
 import { isRecord } from "../types";
 
@@ -18,14 +17,7 @@ export function pushResult(session: ActiveSession, result: ToolResultComplete): 
 
 /** Surface a server/transport error as a visible card in the session. */
 export function pushErrorMessage(session: ActiveSession, message: string): void {
-  const text = `[Error] ${message}`;
-  const errorResult: ToolResultComplete = {
-    uuid: uuidv4(),
-    toolName: "text-response",
-    message: text,
-    title: "Error",
-    data: { text, role: "assistant", transportKind: "text-rest" },
-  };
+  const errorResult = makeErrorResult(message);
   pushResult(session, errorResult);
   session.selectedResultUuid = errorResult.uuid;
 }

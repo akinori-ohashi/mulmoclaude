@@ -185,22 +185,18 @@ describe("asPayload", () => {
 describe("summarisePreview dispatch", () => {
   it("prefers error over every other branch", () => {
     const json = { error: "boom", entries: [{ id: "e1", date: "2026-02-01" }] };
-    assert.match(summarisePreview(json, undefined, translate), /previewError/);
+    assert.match(summarisePreview(json, translate), /previewError/);
   });
 
   it("picks each branch in turn", () => {
-    assert.match(summarisePreview({ entries: [{ id: "e1", date: "2026-02-01" }] }, undefined, translate), /preview\.entry/);
-    assert.match(summarisePreview({ profitLoss: { from: "a", to: "b", netIncome: 1 } }, undefined, translate), /preview\.pl/);
-    assert.match(summarisePreview({ balanceSheet: { asOf: "2026-02-28", sections: [] } }, undefined, translate), /preview\.bs/);
-    assert.match(summarisePreview({ book: { id: "b1", name: "Co" } }, undefined, translate), /preview\.bookCreated/);
-  });
-
-  it("merges jsonData over data", () => {
-    assert.match(summarisePreview({ bookId: "from-data" }, { bookId: "from-json" }, translate), /from-json/);
+    assert.match(summarisePreview({ entries: [{ id: "e1", date: "2026-02-01" }] }, translate), /preview\.entry/);
+    assert.match(summarisePreview({ profitLoss: { from: "a", to: "b", netIncome: 1 } }, translate), /preview\.pl/);
+    assert.match(summarisePreview({ balanceSheet: { asOf: "2026-02-28", sections: [] } }, translate), /preview\.bs/);
+    assert.match(summarisePreview({ book: { id: "b1", name: "Co" } }, translate), /preview\.bookCreated/);
   });
 
   it("falls back to the generic line for an unrecognised payload", () => {
-    assert.equal(summarisePreview({ rebuilt: true }, undefined, translate), "pluginAccounting.previewGeneric");
-    assert.equal(summarisePreview(undefined, undefined, translate), "pluginAccounting.previewGeneric");
+    assert.equal(summarisePreview({ rebuilt: true }, translate), "pluginAccounting.previewGeneric");
+    assert.equal(summarisePreview(undefined, translate), "pluginAccounting.previewGeneric");
   });
 });

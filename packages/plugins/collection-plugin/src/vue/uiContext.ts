@@ -76,8 +76,16 @@ export interface CollectionPushResult {
   updated: number;
   conflicts: number;
   localDeletes: number;
+  /** Of those, how many were deleted in Google too. `0` unless the collection
+   *  opted in with `propagateDeletes`; optional so an older host, whose body
+   *  does not carry the key, still parses (#3234). */
+  deletedInGoogle?: number;
   /** Records that could not be pushed as they stand, each with its reason. */
   skipped: string[];
+  /** Deletions left standing in Google, each with its reason. Apart from
+   *  `skipped` because a refused deletion is not a failed push; optional so an
+   *  older host, whose body does not carry the key, still parses (#3272). */
+  keptInGoogle?: string[];
   errors: string[];
 }
 
@@ -311,7 +319,8 @@ export interface CollectionUi {
   /** Open a new chat with `prompt` prefilled in the composer as an editable DRAFT
    *  (NOT sent) — the user reviews / edits / sends it. Backs a custom view's
    *  `__MC_VIEW.startChat` by default, and the new-collection template cards.
-   *  `role` is optional and validated host-side against the known roles. */
+   *  `role` is optional, and honoured host-side only when it names a role the
+   *  host allows — known, and not a debug role. */
   startNewChatDraft: (prompt: string, role?: string) => void;
   /** The host's active i18n locale tag (e.g. "en", "ja"), read reactively — the
    *  plugin syncs its own self-contained i18n instance to it. */

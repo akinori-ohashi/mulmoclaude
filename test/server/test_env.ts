@@ -12,7 +12,6 @@ interface EnvSnapshot {
     nodeEnv: string;
     isProduction: boolean;
     disableSandbox: boolean;
-    geminiApiKey: string | undefined;
     xBearerToken: string | undefined;
     authTokenOverride: string | undefined;
     sessionsListWindowDays: number;
@@ -22,6 +21,9 @@ interface EnvSnapshot {
     mcpHost: string;
     mcpPluginNames: readonly string[];
   }>;
+  // Live readers rather than snapshot fields: Settings can write the Gemini
+  // key while the server runs (#871).
+  geminiApiKey: () => string | undefined;
   isGeminiAvailable: () => boolean;
 }
 
@@ -74,7 +76,6 @@ describe("env defaults", () => {
     assert.equal(env.nodeEnv, "development");
     assert.equal(env.isProduction, false);
     assert.equal(env.disableSandbox, false);
-    assert.equal(env.geminiApiKey, undefined);
     assert.equal(env.xBearerToken, undefined);
     assert.equal(env.authTokenOverride, undefined);
     assert.equal(env.sessionsListWindowDays, 90);
@@ -148,6 +149,18 @@ describe("env coercion", () => {
     process.env.MULMOCLAUDE_AUTH_TOKEN = "pinned-value";
     const { env } = await loadEnvFresh();
     assert.equal(env.authTokenOverride, "pinned-value");
+  });
+});
+
+describe("geminiApiKey", () => {
+  it("reads live, so a key Settings stores mid-run is visible without a restart", async () => {
+    const { geminiApiKey } = await loadEnvFresh();
+    assert.equal(geminiApiKey(), undefined);
+    // The one env read that is NOT a boot snapshot (#871): the secrets route
+    // writes the saved key into `process.env`, and a frozen copy would leave
+    // the app insisting the key is missing until a restart.
+    process.env.GEMINI_API_KEY = "set-after-import";
+    assert.equal(geminiApiKey(), "set-after-import");
   });
 });
 

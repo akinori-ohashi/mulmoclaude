@@ -1,12 +1,12 @@
 import { GoogleGenAI, type GenerateContentParameters, type GenerateContentResponse, type Part } from "@google/genai";
-import { env } from "../system/env.js";
+import { geminiApiKey } from "../system/env.js";
 import { log } from "../system/logger/index.js";
 import { errorMessage } from "./errors.js";
 
 export { isGeminiAvailable } from "../system/env.js";
 
 export function getGeminiClient(): GoogleGenAI {
-  const apiKey = env.geminiApiKey;
+  const apiKey = geminiApiKey();
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
   return new GoogleGenAI({ apiKey });
 }

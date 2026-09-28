@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { launcherLogPath, serverSpawnPlan } from "../../../server/utils/launcher/start.mjs";
+import { launcherLogPath, serverSpawnEnv, serverSpawnPlan } from "../../../server/utils/launcher/start.mjs";
+import { LAUNCHED_FROM_ICON, LAUNCHED_FROM_VAR } from "../../../server/utils/launch-vars.mjs";
 
 describe("serverSpawnPlan", () => {
   it("asks npx for the latest release on the chosen port, without opening a browser", () => {
@@ -32,6 +33,29 @@ describe("serverSpawnPlan", () => {
     assert.equal(serverSpawnPlan({ port: 3001, home: "/Users/example" }).cwd, "/Users/example");
     assert.equal(serverSpawnPlan({ port: 3001 }).cwd, homedir());
     assert.notEqual(serverSpawnPlan({ port: 3001 }).cwd, "/");
+  });
+});
+
+describe("serverSpawnEnv", () => {
+  it("marks the launch as coming from the icon, keeping everything else", () => {
+    // Without the mark the server cannot tell this route from a terminal
+    // launch, and its guidance offers a shell `export` that can never
+    // arrive here — the launcher takes PATH from the login shell and
+    // nothing else (#2626).
+    const env = serverSpawnEnv({ PATH: "/usr/bin", HOME: "/Users/example" });
+    assert.equal(env[LAUNCHED_FROM_VAR], LAUNCHED_FROM_ICON);
+    assert.equal(env.PATH, "/usr/bin");
+    assert.equal(env.HOME, "/Users/example");
+  });
+
+  it("does not mutate the environment it was handed", () => {
+    const original = { PATH: "/usr/bin" };
+    serverSpawnEnv(original);
+    assert.deepEqual(original, { PATH: "/usr/bin" });
+  });
+
+  it("overrides an inherited value, so the mark always describes THIS launch", () => {
+    assert.equal(serverSpawnEnv({ [LAUNCHED_FROM_VAR]: "something-else" })[LAUNCHED_FROM_VAR], LAUNCHED_FROM_ICON);
   });
 });
 

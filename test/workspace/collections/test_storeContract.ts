@@ -34,6 +34,7 @@ import {
   type FirestoreDocs,
 } from "@mulmoclaude/core/collection/server";
 import { sharedCollectionKey } from "@mulmoclaude/core/collection";
+import { isRecord } from "@mulmoclaude/common";
 
 // This suite exercises the ENGINE's shared (firestore) store, which lives in
 // `@mulmoclaude/core` and is hosted by MulmoTerminal — not by this server,
@@ -151,6 +152,15 @@ async function sqliteStoreFixture(): Promise<CollectionStore> {
 
 const APP_ID = "app_test_7f3a";
 
+/** The instant seeded into a stored document, in the parts Firestore keeps it
+ *  in. Nine-digit nanoseconds deliberately: the codec's canonical form carries
+ *  all of them, so a lossy round trip shows up here. */
+const SEEDED_SECONDS = 1_700_000_000;
+const SEEDED_NANOSECONDS = 123_456_789;
+/** The same instant in the codec's canonical form — exactly what a decode
+ *  produces, so a writer that converted on FORMAT would take the bait. */
+const CANONICAL_INSTANT = "2023-11-14T22:13:20.123456789Z";
+
 const FIRESTORE_SCHEMA = {
   title: "Notes Cloud",
   icon: "cloud",
@@ -162,6 +172,10 @@ const FIRESTORE_SCHEMA = {
     score: { type: "number", label: "Score" },
   },
 };
+
+/** Tags a value as having come back through the seam rather than merely
+ *  looking like an instant. */
+const FAKE_STAMP = "fake-firestore-timestamp";
 
 /** The repository's committed app declaration — what makes `aid` a property of
  *  the location rather than of the session. Discovery refuses a shared
@@ -182,6 +196,7 @@ function writeAppManifest(aid: string = APP_ID): void {
 function makeFakeFirestoreDocs(): FakeFirestoreDocs {
   const collections = new Map<string, Map<string, unknown>>();
   const listeners: FakeListener[] = [];
+  const stamps: { seconds: number; nanoseconds: number }[] = [];
   const bucket = (collectionPath: string): Map<string, unknown> => {
     const existing = collections.get(collectionPath);
     if (existing) return existing;
@@ -224,6 +239,16 @@ function makeFakeFirestoreDocs(): FakeFirestoreDocs {
         listener.live = false;
       };
     },
+    // The structured-clone shape of a Firestore `Timestamp` — what the codec
+    // duck-types on (`serverTime.ts`) — plus a MARKER, so a test can tell a
+    // value that came back through the seam from one that merely looks like an
+    // instant. That the real adapter builds the SDK's own class is pinned
+    // separately, in `packages/core/test/collection/test_firestoreDocs.ts`.
+    timestamp: (seconds, nanoseconds) => {
+      stamps.push({ seconds, nanoseconds });
+      return { seconds, nanoseconds, via: FAKE_STAMP };
+    },
+    stamps: () => [...stamps],
   };
 }
 
@@ -242,6 +267,8 @@ type FakeFirestoreDocs = FirestoreDocs & {
   live: () => FakeListener[];
   emit: (ids: string[], opts?: { initial?: boolean }) => void;
   fail: (error: unknown) => void;
+  /** Every `(seconds, nanoseconds)` the store asked the seam to build. */
+  stamps: () => { seconds: number; nanoseconds: number }[];
 };
 
 /** Wire a fake session. ONE fake per fixture — the accessor is called per
@@ -272,6 +299,20 @@ async function firestoreStoreFixture(): Promise<CollectionStore> {
     assert.equal(written.kind, "ok");
   }
   return store;
+}
+
+/** A shared collection with a `datetime` field — the only kind of field the
+ *  server-time codec touches — wired to a fresh fake. */
+async function stampedStoreFixture(): Promise<{ docs: FakeFirestoreDocs; store: CollectionStore; itemsPath: string }> {
+  writeSkill("stamped", {
+    ...FIRESTORE_SCHEMA,
+    fields: { ...FIRESTORE_SCHEMA.fields, submittedAt: { type: "datetime", label: "Submitted" } },
+  });
+  writeAppManifest();
+  const docs = connectFakeFirestore();
+  const [collection] = await discoverCollections(discoveryOpts());
+  assert.ok(collection);
+  return { docs, store: storeFor(collection, { workspaceRoot: workdir }), itemsPath: sharedItemsPath(sharedCollectionKey(APP_ID, "stamped")) };
 }
 
 const FIXTURES: { name: string; make: () => Promise<CollectionStore>; writable: boolean; nativeQuery: boolean }[] = [
@@ -562,6 +603,57 @@ describe("shared (firestore) collections", () => {
       listed.map((item) => item.id),
       ["n7"],
     );
+  });
+
+  it("re-encodes a frozen instant THROUGH the seam — the store never builds the SDK value itself", async () => {
+    // The write half of the server-time codec is what needed `Timestamp`, and
+    // it is the reason the SDK was imported into a module the firebase-free
+    // entry reaches (#3263). Now it asks the injected seam instead, so this
+    // pins the delegation: the parts handed over are the ones the decode
+    // produced, and what comes BACK is what gets stored.
+    const { docs, store, itemsPath } = await stampedStoreFixture();
+    assert.ok(store.write);
+    // Seeded THROUGH the fake: only a document that already holds an instant
+    // makes the write path re-encode one. A record created here would not.
+    await docs.set(itemsPath, "n1", { id: "n1", title: "T", submittedAt: { seconds: SEEDED_SECONDS, nanoseconds: SEEDED_NANOSECONDS } });
+
+    const read = await store.read("n1");
+    assert.equal(typeof read?.submittedAt, "string", "the decode hands the caller a string, not an SDK value");
+    assert.deepEqual(docs.stamps(), [], "reading builds nothing");
+
+    const written = await store.write("n1", { id: "n1", title: "T2", submittedAt: read?.submittedAt });
+    assert.equal(written.kind, "ok");
+
+    assert.deepEqual(docs.stamps(), [{ seconds: SEEDED_SECONDS, nanoseconds: SEEDED_NANOSECONDS }], "the instant goes back with the parts it came in with");
+    const stored = await docs.get(itemsPath, "n1");
+    const field = isRecord(stored) ? stored.submittedAt : null;
+    assert.deepEqual(
+      field,
+      { seconds: SEEDED_SECONDS, nanoseconds: SEEDED_NANOSECONDS, via: FAKE_STAMP },
+      "the stored field is the seam's value, not a look-alike the store built",
+    );
+    assert.equal(isRecord(stored) ? stored.title : null, "T2", "the rest of the record is the edit");
+  });
+
+  it("never asks the seam for an instant when nothing was stored — create and first upsert alike", async () => {
+    // The other half of the delegation. With no stored document there is no
+    // instant to preserve, and the rules make a created stamp equal
+    // `request.time`, which no client can build — so a canonical-looking string
+    // arriving here must be written as the string it is. Converting it would
+    // re-type somebody's text as an instant on the strength of its format.
+    const { docs, store, itemsPath } = await stampedStoreFixture();
+    assert.ok(store.write);
+
+    const created = await store.write("c1", { id: "c1", title: "T", submittedAt: CANONICAL_INSTANT }, { refuseOverwrite: true });
+    assert.equal(created.kind, "ok");
+    const upserted = await store.write("u1", { id: "u1", title: "T", submittedAt: CANONICAL_INSTANT });
+    assert.equal(upserted.kind, "ok");
+
+    assert.deepEqual(docs.stamps(), [], "neither write had a stored instant to hand back");
+    for (const recordId of ["c1", "u1"]) {
+      const stored = await docs.get(itemsPath, recordId);
+      assert.equal(isRecord(stored) ? stored.submittedAt : null, CANONICAL_INSTANT, `${recordId} keeps the string it was given`);
+    }
   });
 
   it("refuses create over an existing id — the atomicity the store contract requires", async () => {

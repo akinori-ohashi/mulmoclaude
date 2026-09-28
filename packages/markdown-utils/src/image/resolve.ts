@@ -1,4 +1,4 @@
-import { getImageBump } from "./cacheBust";
+import { getImageBump } from "./cacheBust.js";
 
 // Host-configurable base URL for the workspace file server (workspace-
 // relative image paths that aren't under the `artifacts/images/` static

@@ -36,6 +36,7 @@ const BUNDLED_FILES = [
   "launcher/preflight.mjs",
   "launcher/macos/resolve-path.sh",
   "launcher/macos/message-file.sh",
+  "launch-vars.mjs",
   "port.mjs",
 ];
 

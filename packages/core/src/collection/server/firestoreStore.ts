@@ -31,7 +31,11 @@
 //
 // SDK access goes through the `FirestoreDocs` seam (firestoreDocs.ts), not the
 // modular functions directly — that is what makes the backend testable without
-// a live Firestore.
+// a live Firestore, and it has to hold for VALUES too, `Timestamp` included.
+// This module is reachable from the `collection/server` entry (`store.ts` names
+// it in the backend registry), so one top-level `firebase/firestore` import
+// here would make the package's OPTIONAL `firebase` peer required for every
+// consumer of that entry — hosts with no Firestore at all included.
 //
 // No `query`: there is no Firestore analogue of the DuckDB aggregation the CSV
 // store exposes. Absent `query` is a supported state — the engine-level
@@ -39,12 +43,6 @@
 
 import { isRecord } from "@mulmoclaude/common";
 import { sharedCollectionKey, type SharedCollectionKey } from "../core/collectionKey";
-// `Timestamp` is the one SDK VALUE this module needs: the write half of the
-// server-time codec has to hand Firestore its own type back. Importing the
-// class costs nothing at runtime (no app, no connection) and keeps the codec
-// itself free of the SDK, which matters because it also runs in a browser.
-import { Timestamp } from "firebase/firestore";
-
 import type { CollectionItem, CollectionSchema } from "../core/schema";
 import { decodeRecordTimes, encodeRecordTimes } from "../core/serverTime";
 import { BackendUnavailableError } from "./backendAvailability";
@@ -241,7 +239,7 @@ async function firestoreWrite(
     () => Promise.resolve({ kind: "invalid-id", itemId }),
     async (safeId, { docs, email }) => {
       const collectionPath = sharedItemsPath(key);
-      const asTimestamp = (parts: { seconds: number; nanoseconds: number }): unknown => new Timestamp(parts.seconds, parts.nanoseconds);
+      const asTimestamp = (parts: { seconds: number; nanoseconds: number }): unknown => docs.timestamp(parts.seconds, parts.nanoseconds);
       if (opts.refuseOverwrite) {
         // Nothing is stored yet, so there is no instant to preserve — and the
         // rules make a created stamp equal `request.time`, which no client can

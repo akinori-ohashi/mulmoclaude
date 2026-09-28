@@ -2,7 +2,17 @@
 // dispatch (index.ts) and the tests can share them without pulling in
 // the definePlugin factory body.
 import { z } from "zod";
-import { isIsoDateTimeWithOffset, MAX_LIST_RESULTS } from "@mulmoclaude/core/google";
+import type { z as ZodNamespace } from "zod";
+import {
+  isIsoDateTimeWithOffset,
+  resolvePartialSpanInput,
+  resolveSpanInput,
+  toEventTimeInput,
+  EVENT_TIME_HINT,
+  MAX_LIST_RESULTS,
+  type PartialSpanResult,
+  type SpanResult,
+} from "@mulmoclaude/core/google";
 
 // Calendar rejects date-only / offset-less / impossible values on `dateTime`
 // with an opaque 400, so the strict shared validator runs here where the LLM
@@ -10,6 +20,21 @@ import { isIsoDateTimeWithOffset, MAX_LIST_RESULTS } from "@mulmoclaude/core/goo
 const IsoDateTimeWithOffset = z.string().refine(isIsoDateTimeWithOffset, {
   error: "must be an ISO 8601 date-time with a timezone offset (e.g. 2026-07-17T09:00:00+09:00)",
 });
+
+// One end of an event span: an instant, or a bare date for an all-day event.
+// Whether the two ends AGREE is a pair-level rule, reported by the span checks
+// below — this only rejects a value that is neither shape.
+const EventTime = z.string().refine((value) => toEventTimeInput(value) !== null, { error: EVENT_TIME_HINT });
+
+/** Report a span rule the per-value check cannot see: the two ends must be the
+ *  same kind, and an all-day end must fall after its start. Both are opaque
+ *  400s from Calendar, so they are caught here where the LLM is told the rule.
+ *  The shared resolver owns it, so the remote-host handler validating the same
+ *  operation cannot drift. */
+const addSpanIssue = (ctx: ZodNamespace.RefinementCtx, result: SpanResult | PartialSpanResult): void => {
+  if (result.ok) return;
+  ctx.addIssue({ code: "custom", message: result.reason });
+};
 
 const MaxResults = z.number().int().min(1).max(MAX_LIST_RESULTS).optional();
 const NonEmpty = z.string().min(1);
@@ -39,22 +64,24 @@ export const GoogleArgs = z.discriminatedUnion("kind", [
     calendarId: OptionalNonEmpty,
     fullResync: z.boolean().optional(),
   }),
-  z.object({
-    kind: z.literal("calendarCreateEvent"),
-    summary: NonEmpty,
-    start: IsoDateTimeWithOffset,
-    end: IsoDateTimeWithOffset,
-    description: z.string().optional(),
-    calendarId: OptionalNonEmpty,
-    colorId: OptionalNonEmpty,
-  }),
+  z
+    .object({
+      kind: z.literal("calendarCreateEvent"),
+      summary: NonEmpty,
+      start: EventTime,
+      end: EventTime,
+      description: z.string().optional(),
+      calendarId: OptionalNonEmpty,
+      colorId: OptionalNonEmpty,
+    })
+    .superRefine((args, ctx) => addSpanIssue(ctx, resolveSpanInput(args.start, args.end))),
   z
     .object({
       kind: z.literal("calendarUpdateEvent"),
       eventId: NonEmpty,
       summary: NonEmpty.optional(),
-      start: IsoDateTimeWithOffset.optional(),
-      end: IsoDateTimeWithOffset.optional(),
+      start: EventTime.optional(),
+      end: EventTime.optional(),
       description: z.string().optional(),
       calendarId: OptionalNonEmpty,
       colorId: OptionalNonEmpty,
@@ -63,7 +90,8 @@ export const GoogleArgs = z.discriminatedUnion("kind", [
     // that answers 200, so the LLM would report success on a no-op.
     .refine((args) => EDITABLE_EVENT_FIELDS.some((field) => args[field] !== undefined), {
       error: `pass at least one field to change (${EDITABLE_EVENT_FIELDS.join(", ")})`,
-    }),
+    })
+    .superRefine((args, ctx) => addSpanIssue(ctx, resolvePartialSpanInput(args.start, args.end))),
   z.object({
     kind: z.literal("calendarDeleteEvent"),
     eventId: NonEmpty,

@@ -102,6 +102,9 @@ jobs:
       # duplicate by nature, and the 528 extra findings they bring would
       # drown the ~186 that are actually worth reading.
       #
+      # `**/vendor/**` is excluded: third-party code kept byte-identical to
+      # its upstream (server/vendor/sheetjs, #3316) is never refactored here.
+      #
       # `**/_generated/**` is excluded: codegen output (the plugin barrels
       # from scripts/codegen-plugin-barrels.ts) duplicates by nature and
       # is regenerated, never hand-refactored.
@@ -116,14 +119,14 @@ jobs:
           set -euo pipefail
           jscpd . \
             --format typescript \
-            --ignore "**/node_modules/**,**/dist/**,**/*.d.ts,**/test/**,**/e2e/**,**/e2e-live/**,**/spreadsheet/engine/**,**/_generated/**" \
+            --ignore "**/node_modules/**,**/dist/**,**/*.d.ts,**/test/**,**/e2e/**,**/e2e-live/**,**/spreadsheet/engine/**,**/_generated/**,**/vendor/**" \
             --reporters console,sarif \
             --output report
 
       - name: Upload SARIF to Code Scanning
         # Hash-pinned: .github/zizmor.yml grants a tag-pin exemption to
         # `actions/*` only, and codeql-action lives under `github/*`.
-        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.0
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
         with:
           sarif_file: report/jscpd-report.sarif
           # Distinct category keeps these alerts from colliding with the

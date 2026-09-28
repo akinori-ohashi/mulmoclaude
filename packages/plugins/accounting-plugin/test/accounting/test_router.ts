@@ -15,10 +15,46 @@ import express from "express";
 import type { Server } from "node:http";
 
 import { configureAccountingServer } from "../../src/server/context.js";
-import { createAccountingRouter } from "../../src/server/router.js";
+import { createAccountingRouter, PREVIEW_ACTIONS } from "../../src/server/router.js";
 import { ACCOUNTING_ACTIONS, ACCOUNTING_API } from "../../src/shared/index.js";
+import { summarisePreview } from "../../src/vue/previewSummary.js";
+import { isRecord, isUnknownArray } from "@mulmoclaude/common";
+
+/** Keys through, so an assertion names the branch rather than a translation. */
+const translate = (key: string, named?: Record<string, unknown>) => (named ? `${key} ${JSON.stringify(named)}` : key);
 
 const OPENING_CASH = 500;
+const WALK_AMOUNT = 100;
+
+/** The one branch that means "this card will say nothing useful". */
+const GENERIC_SUMMARY_KEY = "pluginAccounting.previewGeneric";
+
+/** The next-weakest branch: a card that names the book and nothing else. */
+const BARE_BOOK_SUMMARY_KEY = "pluginAccounting.previewSummary";
+
+/** Card-rendering actions that currently reach only `BARE_BOOK_SUMMARY_KEY`,
+ *  i.e. their card says "book <id>" and not what they did. Tracked in #3228. */
+const BARE_BOOK_ONLY_ACTIONS: readonly string[] = [ACCOUNTING_ACTIONS.upsertAccount, ACCOUNTING_ACTIONS.voidEntry, ACCOUNTING_ACTIONS.setOpeningBalances];
+
+/** createBook answers with the book it minted; the walk addresses it by id. */
+const readBookId = (data: unknown): string => {
+  assert.ok(isRecord(data), "createBook data should be an object");
+  const { bookId: mintedBookId } = data;
+  assert.equal(typeof mintedBookId, "string", "createBook should answer with a string bookId");
+  return String(mintedBookId);
+};
+
+/** addEntries answers with the ids it minted; voidEntry needs one of them. */
+const readFirstEntryId = (data: unknown): string => {
+  assert.ok(isRecord(data), "addEntries data should be an object");
+  const { entries } = data;
+  assert.ok(isUnknownArray(entries) && entries.length > 0, "addEntries should answer with the entries it posted");
+  const [firstEntry] = entries;
+  assert.ok(isRecord(firstEntry), "a posted entry should be an object");
+  const { id: postedId } = firstEntry;
+  assert.equal(typeof postedId, "string", "a posted entry should carry a string id");
+  return String(postedId);
+};
 
 interface DispatchResult {
   status: number;
@@ -81,6 +117,135 @@ before(async () => {
 after(() => {
   server?.close();
   if (workspaceRoot) rmSync(workspaceRoot, { recursive: true, force: true });
+});
+
+// The sidebar card, end to end: what the router actually returns, fed to the
+// function the preview component actually calls. #2716's summarisers were
+// written for these payloads and had never once received one — `getReport` was
+// not in PREVIEW_ACTIONS, so its envelope carried no `data` at all, and the
+// component asked for props nothing passed.
+describe("preview card summaries, over real dispatch output", () => {
+  it("getReport stays silent: no data, so no card and nothing to summarise", async () => {
+    const report = await dispatch({
+      action: ACCOUNTING_ACTIONS.getReport,
+      bookId,
+      kind: "pl",
+      period: { kind: "range", from: "2026-01-01", to: "2026-01-31" },
+    });
+    assert.equal(report.status, 200);
+
+    // Deliberate (#2716): a card per report call is noise the LLM's own reply
+    // already covers. Without `data` the bridge never posts the result, so the
+    // sidebar never sees it — this is the assertion that keeps that decision
+    // honest, because `summarisePl` exists and would otherwise look live.
+    assert.equal(report.body.data, undefined, "getReport must stay out of PREVIEW_ACTIONS");
+    // The figures still reach the LLM, which is the whole point of the trade.
+    assert.ok(report.body.profitLoss !== undefined, "the report itself must still be returned");
+  });
+
+  // The list of card-rendering actions lives in exactly one place, and this
+  // walks it. Five prose copies of that list went stale across #2716's review
+  // rounds; a set the test iterates cannot.
+  //
+  // What it asserts is NOT "the set matches which actions carry data" — that is
+  // tautological, because `dataField` is built FROM the set, so it holds however
+  // wrong the set is. (The first version asserted exactly that, passed with a
+  // data-less `getBooks` wrongly a member, and caught nothing.) It asserts what
+  // the set is FOR: a member must reach the card with a payload, and the card
+  // must say something about it. The three that only manage "book <id>" are
+  // named below rather than waved through — see #3228.
+  it("every action in PREVIEW_ACTIONS reaches the card, and says what it did", async () => {
+    // One representative call per member, in order: voidEntry needs an id that
+    // only addEntries can mint, so the payloads are built as the walk goes.
+    // openBook is excluded — it routes to View.vue, not to this card.
+    // Its own book, so the walk's setOpeningBalances does not overwrite the
+    // balances the neighbouring cases assert on. createBook is the first call
+    // and mints it; the rest address that book by id.
+    const bareBookOnly: string[] = [];
+    let walkBookId = "";
+    let postedEntryId = "";
+    const calls: [string, () => Record<string, unknown>][] = [
+      [ACCOUNTING_ACTIONS.createBook, () => ({ name: "Enumerated Co" })],
+      [ACCOUNTING_ACTIONS.updateBook, () => ({ bookId: walkBookId, name: "Enumerated Co 2" })],
+      [ACCOUNTING_ACTIONS.upsertAccount, () => ({ bookId: walkBookId, account: { code: "1100", name: "Petty cash", type: "asset" } })],
+      [
+        ACCOUNTING_ACTIONS.addEntries,
+        () => ({
+          bookId: walkBookId,
+          entries: [
+            {
+              date: "2026-01-15",
+              description: "Walked entry",
+              lines: [
+                { accountCode: "1000", debit: WALK_AMOUNT },
+                { accountCode: "3000", credit: WALK_AMOUNT },
+              ],
+            },
+          ],
+        }),
+      ],
+      [ACCOUNTING_ACTIONS.voidEntry, () => ({ bookId: walkBookId, entryId: postedEntryId })],
+      [
+        ACCOUNTING_ACTIONS.setOpeningBalances,
+        () => ({
+          bookId: walkBookId,
+          asOfDate: "2026-01-01",
+          lines: [
+            { accountCode: "1000", debit: WALK_AMOUNT },
+            { accountCode: "3000", credit: WALK_AMOUNT },
+          ],
+        }),
+      ],
+    ];
+
+    const covered = new Set(calls.map(([action]) => action));
+    const unreachable = [...PREVIEW_ACTIONS].filter((action) => action !== ACCOUNTING_ACTIONS.openBook && !covered.has(action));
+    assert.deepEqual(unreachable, [], "PREVIEW_ACTIONS gained a member with no call here — add one so it is actually checked");
+
+    for (const [action, buildPayload] of calls) {
+      const response = await dispatch({ action, ...buildPayload() });
+      assert.equal(response.status, 200, `${action} should succeed, got ${JSON.stringify(response.body)}`);
+      const { data } = response.body;
+      assert.ok(data !== undefined, `${action} is in PREVIEW_ACTIONS but returned no data, so its card would never render`);
+      const summary = summarisePreview(data, translate);
+      assert.notEqual(summary, GENERIC_SUMMARY_KEY, `${action} earns a card but summarises to the generic line`);
+      if (summary.startsWith(BARE_BOOK_SUMMARY_KEY)) bareBookOnly.push(action);
+      if (action === ACCOUNTING_ACTIONS.createBook) {
+        walkBookId = readBookId(data);
+      }
+      if (action === ACCOUNTING_ACTIONS.addEntries) {
+        postedEntryId = readFirstEntryId(data);
+      }
+    }
+
+    // Exact, so it fails in BOTH directions: a new member that only manages
+    // "book <id>" is caught, and so is writing a branch for one of these three
+    // without shrinking the list. Waved through here because #2716 is about the
+    // card saying anything at all — before it the component received no props,
+    // so every one of these rendered the generic "Accounting result" line.
+    assert.deepEqual(
+      bareBookOnly.sort(),
+      [...BARE_BOOK_ONLY_ACTIONS].sort(),
+      "the set of actions whose card says only the book id has changed — update the list, or #3228 is done",
+    );
+  });
+
+  it("createBook: names the book, rather than the generic line", async () => {
+    const created = await dispatch({ action: ACCOUNTING_ACTIONS.createBook, name: "Preview Co" });
+    assert.equal(created.status, 200);
+    const summary = summarisePreview(created.body.data, translate);
+    assert.match(summary, /preview\.bookCreated/);
+    assert.match(summary, /Preview Co/);
+  });
+
+  it("the generic line is what an unrecognised payload falls back to", async () => {
+    // Reachable with `data` present: an action inside PREVIEW_ACTIONS whose
+    // payload matches no summariser branch. NOT reachable with `data` absent —
+    // the bridge never posts such a result, so a card with no payload at all
+    // cannot occur on the live path.
+    const summary = summarisePreview({ action: "somethingNew" }, translate);
+    assert.equal(summary, GENERIC_SUMMARY_KEY);
+  });
 });
 
 describe("getReport period validation", () => {

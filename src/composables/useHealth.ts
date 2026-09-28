@@ -16,17 +16,23 @@ interface CpuPayload {
 
 interface HealthResponse {
   geminiAvailable?: unknown;
+  geminiEnvFilePath?: unknown;
   sandboxEnabled?: unknown;
   cpu?: CpuPayload;
 }
 
 export function useHealth(): {
   geminiAvailable: Ref<boolean>;
+  geminiEnvFilePath: Ref<string>;
   sandboxEnabled: Ref<boolean>;
   cpuLoadRatio: ComputedRef<number | null>;
   fetchHealth: () => Promise<void>;
 } {
   const geminiAvailable = ref(true);
+  // Empty until the server says which `.env` this launch reads — an icon launch
+  // and a terminal launch do not read the same one (#2626). The Settings tab
+  // falls back to the bare filename, which is all the text said before.
+  const geminiEnvFilePath = ref("");
   const sandboxEnabled = ref(true);
   const cpuLoad1 = ref<number | null>(null);
   const cpuCores = ref<number | null>(null);
@@ -48,6 +54,7 @@ export function useHealth(): {
       return;
     }
     geminiAvailable.value = Boolean(result.data.geminiAvailable);
+    if (typeof result.data.geminiEnvFilePath === "string") geminiEnvFilePath.value = result.data.geminiEnvFilePath;
     sandboxEnabled.value = Boolean(result.data.sandboxEnabled);
     bootFetchCompleted = true;
     const { cpu } = result.data;
@@ -74,5 +81,5 @@ export function useHealth(): {
     return cpuLoad1.value / cpuCores.value;
   });
 
-  return { geminiAvailable, sandboxEnabled, cpuLoadRatio, fetchHealth };
+  return { geminiAvailable, geminiEnvFilePath, sandboxEnabled, cpuLoadRatio, fetchHealth };
 }

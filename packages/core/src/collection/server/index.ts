@@ -59,12 +59,26 @@ export {
   type LocalCollectionChange,
   type SharedCollectionChange,
 } from "./host";
-// NOTE: `createFirestoreDocs` is deliberately NOT re-exported here. It lives in
-// a module that top-level imports `firebase/firestore`, and a re-export links
-// eagerly — so exporting it would make the OPTIONAL `firebase` peer effectively
-// required for every consumer of this entry, including hosts with no Firestore
-// at all. It ships from the dedicated `@mulmoclaude/core/collection/firestore`
-// subpath instead. The TYPES are safe here: they erase at build time.
+// ── `firebase` is an OPTIONAL peer, and this entry must not need it ───────
+//
+// NOTHING REACHABLE FROM HERE MAY IMPORT `firebase/*` AT TOP LEVEL. Not just
+// this file: an ESM import links eagerly, so one SDK import anywhere in the
+// graph below makes the peer required for every consumer of this entry —
+// including a host with no Firestore at all, which then cannot load the entry
+// at all. The failure is a load-time `ERR_MODULE_NOT_FOUND`, and it does not
+// show up in `typecheck` (types erase) or in this repo's tests (this repo has
+// firebase installed).
+//
+// Stating it is not enough — it was stated here and broken seven lines down
+// (#3263: `firestoreStore.ts` imported `Timestamp`, and `store.ts` names that
+// module in the backend registry, so `export * from "./store"` carried it).
+// `test/workspace/collections/test_optionalFirebasePeer.ts` loads this entry
+// with `firebase` made unresolvable, which is the only check that notices.
+//
+// So: `createFirestoreDocs` ships from the dedicated
+// `@mulmoclaude/core/collection/firestore` subpath, whose NAME says it needs
+// the SDK. Types are safe here — they erase at build time. A value that needs
+// an SDK call goes through the `FirestoreDocs` seam, which the host injects.
 export type { FirestoreDoc, FirestoreDocs } from "./firestoreDocs";
 export { sharedItemsPath } from "./firestoreStore";
 export { loadAppManifest, parseAppManifest, appManifestReason, APP_MANIFEST_FILE, type AppManifest, type AppManifestResult } from "./appManifest";

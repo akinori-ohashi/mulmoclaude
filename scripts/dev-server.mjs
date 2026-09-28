@@ -24,6 +24,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { EXIT_CODE_NEEDS_USER_ACTION } from "../server/utils/exit-codes.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.dirname(__dirname);
@@ -38,13 +39,34 @@ const MAX_DELAY_MS = 5000;
 // down, exactly as before this script existed) instead of respawning
 // forever behind a wall of stack traces.
 const MAX_FAST_CRASHES = 5;
+// A crash that comes later than FAST_CRASH_MS resets the counter above, so a
+// backend that always dies half a minute in would otherwise restart forever.
+// Counting crashes in a recent window catches that loop whatever each run lasted.
+const ONE_MINUTE_MS = 60_000;
+const CRASH_WINDOW_MS = 10 * ONE_MINUTE_MS;
+const MAX_CRASHES_IN_WINDOW = 10;
+
+/** The crash times still inside the window, including one at `nowMs`. */
+export function recentCrashTimes(crashTimesMs, nowMs) {
+  return [...crashTimesMs, nowMs].filter((crashMs) => nowMs - crashMs < CRASH_WINDOW_MS);
+}
+
+/** Whether the backend has crashed too often lately to keep restarting it. */
+export function tooManyRecentCrashes(recentCrashTimesMs) {
+  return recentCrashTimesMs.length >= MAX_CRASHES_IN_WINDOW;
+}
 
 /**
  * Pure restart policy: given how long the child ran and the crash-loop
  * state so far, decide whether to respawn and after how long.
  * `prevDelayMs` is the previous backoff (`0` on the first crash).
+ * `exitCode` is the child's exit code (`null` when a signal ended it).
  */
-export function restartPlan({ ranForMs, prevDelayMs, fastCrashes }) {
+export function restartPlan({ ranForMs, prevDelayMs, fastCrashes, exitCode = null }) {
+  // However long it ran, the backend said a restart cannot help (e.g. a login is needed).
+  if (exitCode === EXIT_CODE_NEEDS_USER_ACTION) {
+    return { action: "needs-user", delayMs: 0, fastCrashes };
+  }
   if (ranForMs >= FAST_CRASH_MS) {
     return { action: "restart", delayMs: MIN_DELAY_MS, fastCrashes: 0 };
   }
@@ -106,15 +128,26 @@ function log(msg) {
   console.log(`[dev-server] ${msg}`);
 }
 
-const state = { child: null, shuttingDown: false, delayMs: 0, fastCrashes: 0 };
+const state = { child: null, shuttingDown: false, delayMs: 0, fastCrashes: 0, crashTimesMs: [] };
 
 function onChildExit(code, signal, startedAt) {
   state.child = null;
   if (state.shuttingDown) return;
   const ranForMs = Date.now() - startedAt;
-  const plan = restartPlan({ ranForMs, prevDelayMs: state.delayMs, fastCrashes: state.fastCrashes });
+  const plan = restartPlan({ ranForMs, prevDelayMs: state.delayMs, fastCrashes: state.fastCrashes, exitCode: code });
   state.delayMs = plan.delayMs;
   state.fastCrashes = plan.fastCrashes;
+  if (plan.action === "needs-user") {
+    log(`backend exited (${describeExit(code, signal)}) and needs you to fix something first (see the message above) — not restarting`);
+    process.exit(1);
+  }
+  state.crashTimesMs = recentCrashTimes(state.crashTimesMs, Date.now());
+  if (plan.action === "restart" && tooManyRecentCrashes(state.crashTimesMs)) {
+    log(
+      `backend exited (${describeExit(code, signal)}) after ${ranForMs}ms — ${state.crashTimesMs.length} crashes in the last ${CRASH_WINDOW_MS / ONE_MINUTE_MS} minutes, giving up (see the output above)`,
+    );
+    process.exit(1);
+  }
   if (plan.action === "giveup") {
     log(`backend exited (${describeExit(code, signal)}) after ${ranForMs}ms — ${plan.fastCrashes} fast crashes in a row, giving up (see the stack above)`);
     process.exit(1);

@@ -2,9 +2,8 @@ import type { ToolResult } from "gui-chat-protocol";
 import type { PluginRegistration, ToolPlugin } from "../../tools/types";
 import toolDefinition, { TOOL_NAME } from "./definition";
 import type { ImageToolData } from "./definition";
-import { makePostExecute } from "../execute";
+import { makeGuardedImageExecute } from "../imageRouteResult";
 import { wrapWithScope } from "../scope";
-import type { ImageEndpoints } from "../editImages/definition";
 import View from "./View.vue";
 import Preview from "./Preview.vue";
 
@@ -20,7 +19,7 @@ function createUploadedImageResult(imageData: string, fileName: string, prompt: 
 const generateImagePlugin: ToolPlugin<ImageToolData> = {
   toolDefinition,
 
-  execute: makePostExecute<ImageEndpoints, ImageToolData>("image", "generate", TOOL_NAME),
+  execute: makeGuardedImageExecute<ImageToolData>("generate", TOOL_NAME),
 
   isEnabled: () => true,
   generatingMessage: "Generating image...",

@@ -6,6 +6,8 @@ export function detectLocale(options?: { env?: Record<string, string | undefined
 
 export function serverSpawnPlan(options: { port: number; home?: string; platform?: string }): { command: string; args: string[]; cwd: string };
 
+export function serverSpawnEnv(env: Record<string, string | undefined>): Record<string, string | undefined>;
+
 export interface StartLauncherOptions {
   env?: Record<string, string | undefined>;
   tmpDir?: string;

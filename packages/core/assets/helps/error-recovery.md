@@ -152,6 +152,69 @@ checked**. Open the body with a line saying the answer came from this lookup and
 is awaiting maintainer review — it is a draft, not documentation. Never edit
 `bug-report-faq.md` yourself.
 
+## "Failed to authenticate" — the Claude CLI's own login expired
+
+### Symptoms
+
+- `[Error] Failed to authenticate: OAuth session expired and could not be refreshed`
+- `[Error] Failed to authenticate. API Error: 401 …` / `Invalid API key`
+- Older versions: that text shown as a normal reply, then a separate `[Error] claude exited with code 1`
+- Every turn fails the same way until the user acts — failures come in bursts, not at random
+
+### Cause
+
+The `claude` CLI that MulmoClaude spawns could not authenticate with Anthropic, so it
+exited before running anything. This is the CLI's own login (`claude login`, stored in
+`~/.claude` / the macOS Keychain), not a MulmoClaude or Google account link. An OAuth
+(subscription) session goes stale when its silent refresh fails; nothing on the
+MulmoClaude side can refresh it.
+
+### Fix
+
+The user runs `claude /login` (or `claude login`) in a terminal **on the host**, then
+resends the message. If they authenticate with `ANTHROPIC_API_KEY` instead, check that
+key. Switching auth mode is not the fix — a fresh `/login` is.
+
+If `/login` succeeds and the error persists (typically `401 OAuth access token is
+invalid`), what to check depends on the sandbox:
+
+- **Sandbox off** — the spawned CLI inherits the server's environment, so a
+  `CLAUDE_CODE_OAUTH_TOKEN` set where MulmoClaude was started (shell profile or `.env`)
+  overrides the stored login. The user unsets or replaces it and **restarts
+  MulmoClaude**; a new terminal does not change the running server.
+- **Sandbox on** — the container gets only the variables MulmoClaude passes explicitly,
+  and that token is not one of them; it authenticates from the host's mounted
+  `~/.claude`. Do not chase the environment variable here — the host login is the one
+  that counts.
+
+On macOS with the sandbox on, MulmoClaude copies the login from the Keychain into
+`~/.claude/.credentials.json` and, when the token has expired and a refresh token exists,
+launches the `claude` CLI to renew it. Each launch is a real Claude session, so it waits a
+few minutes after a failed renewal and stops after a few failures in a row.
+Look for one of these server log lines:
+
+- `Keychain credentials cannot be renewed (<reason>)` — the Keychain item has no
+  refresh token (for example an empty item), so no renewal is attempted.
+- `Token renewal failed N times in a row; not trying again` — renewals kept failing, so
+  they stopped for this server process.
+- `Access token expired; last renewal failed, next attempt in Ns` — waiting before the
+  next try.
+
+The fix is the same `claude /login` on the host; the next turn picks the new login up
+without a restart. If the server itself would not start (it exited asking for this, and
+`yarn dev` did not restart it), start it again after `/login`. If `/login` succeeds and
+the "cannot be renewed" line keeps coming back, the Keychain may hold a second, empty
+`Claude Code-credentials` item. MulmoClaude reads both the item under the user's login
+name and whatever a lookup by service name returns, and uses the better one, so a stray
+item only matters when the real login is stored under another account name.
+`security find-generic-password -s "Claude Code-credentials"` prints the account (`acct`)
+of the item a service-only lookup returns; an account such as `unknown` is the stray item,
+removed with `security delete-generic-password -s "Claude Code-credentials" -a <that acct>`.
+
+You will usually be reading this AFTER the user re-logged in (a failing turn never
+reaches you); answer "why did that happen" with the cause above rather than
+investigating MulmoClaude's settings.
+
 ## gh / git / SSH errors inside the sandbox
 
 ### Symptoms
@@ -176,7 +239,7 @@ Tell the user to enable the two opt-in mounts on the next agent spawn
 ```bash
 # Forward the host's SSH agent into the container.
 # Private keys stay on the host; only the signing oracle is exposed.
-SANDBOX_FORWARD_SSH_AGENT=1 \
+SANDBOX_SSH_AGENT_FORWARD=1 \
 # Mount allowlisted config files/dirs read-only — including ~/.config/gh.
 SANDBOX_MOUNT_CONFIGS=gh \
   yarn dev   # or: npx mulmoclaude
@@ -400,11 +463,18 @@ quota / moderation rejection from that provider.
 
 The server appends the provider's own error to the message (e.g.
 `… — 401 Incorrect API key provided`) and logs it under the
-`mulmocast` prefix — read that detail first. Then either add the
-missing key to `.env` (restart the server) or rewrite the script's
-`imageParams` / `movieParams` / speaker providers to ones that have
-keys configured. Don't retry the render unchanged — the same provider
-will fail the same way.
+`mulmocast` prefix — read that detail first. Then either supply the
+missing key or rewrite the script's `imageParams` / `movieParams` /
+speaker providers to ones that have keys configured. Don't retry the
+render unchanged — the same provider will fail the same way.
+
+For `GEMINI_API_KEY`, tell the user to open **Settings → Gemini** and
+paste the key there: it takes effect immediately, with no restart and no
+file to locate, and it wins over a stale value in the shell or a `.env`
+(`config/helps/gemini.md`). The other providers' keys still come from a
+`.env` and need a restart. A render started BEFORE the key was saved
+keeps the environment it was spawned with, so re-run the render rather
+than resuming the old one.
 
 ## MulmoScript narration — wrong voice, ignored direction, or every beat re-recorded
 
@@ -513,6 +583,28 @@ so the instructions you get name the location that actually works here. If the
 guide it returns says `data/skills/`, this root does have a bridge and the
 problem is something else — check that `schema.json` passed validation (a
 schema that fails is silently skipped at discovery).
+
+## A `schema.json` change is not reflected — it was written with Bash or a script
+
+You changed `data/skills/<slug>/schema.json`, and `getSchema` shows the new
+content, but the collection still behaves as before — the old fields, a missing
+view, or a 404. No tool reported an error.
+
+### Why
+
+The server runs `.claude/skills/<slug>/schema.json`, not the staging copy. The
+skill-bridge hook copies staging files across only when they are written with
+the **Write / Edit** tools. A `schema.json` written through Bash (`cat >`,
+`sed -i`, `python`, `jq`) or by a script is never mirrored, so the two copies
+drift apart silently. When they differ, `getSchema` says so in a
+`manageCollection: NOTE` line above the JSON.
+
+### Fix
+
+Pass the schema to `manageCollection` `putSchema`. It validates the schema,
+writes the staging copy and mirrors it into `.claude/skills/<slug>/` in one
+step, and the collection reloads without a restart. Make every later schema
+change the same way — `getSchema`, edit, `putSchema` — never with Bash.
 
 ## dataSource (CSV) collection reads fail — "DuckDB is unavailable on this host"
 
@@ -649,6 +741,84 @@ overwrites, which is exactly what the conflict report means. If the
 workspace is already on a real filesystem and a conflict still will not
 clear, that is a new bug — report it with the calendar id and the
 record.
+
+## Push skips a record: "the record id cannot be used as a Google event id"
+
+### Symptoms
+
+Push reports a record as skipped and names its id. It never reaches
+Google, however many times the user presses the button. Editing the
+record's other fields changes nothing.
+
+### Cause
+
+A push CREATES the Google event with the record's own primary-key value
+as the event id, so a record keeps its identity across the round trip.
+Google constrains an event id to **lower-case base32hex**: 5-1024
+characters from `0-9a-v` only. So no `w`, `x`, `y` or `z`, no upper
+case, no hyphen, no underscore, no dot.
+
+A semantic id anyone would reach for — `team-standup`, `Weekly_Sync`,
+`2026-07-17` — breaks the rule on the hyphen, the case or the letters.
+Records created through the collection UI get a generated id that
+satisfies it; only a primary key someone typed or imported can fail.
+
+### Fix
+
+Recreate the record without setting the primary field, and let the UI
+generate the id. If the id has to be meaningful, it can be — as long as
+every character is a digit or a letter `a` through `v` and there are at
+least five of them (`teamstandup` passes, `team-standup` does not).
+
+Renaming the primary key of an EXISTING record means deleting it and
+adding it again: the primary key is the record's identity, so nothing
+else reassigns it.
+
+## A record keeps showing as "edited" and the same push repeats forever
+
+### Symptoms
+
+The same record is pushed on every cycle with content that never
+changes, and the Google event's `updated` moves each time. No conflict
+is reported and no data is lost — the calendar just receives the same
+write over and over.
+
+### Cause
+
+The push compares the record against the BASELINE in
+`<workspace>/data/calendar/.push-state.json`, and the baseline advances
+only when a PULL reports the event as changed. If a write reaches Google
+but does NOT change the event's stored value — Google normalising the
+value it was sent, or a write of the value the event already held — then
+Google reports no change, the pull never sees the event, and the
+baseline stays behind. The next push sees the same difference again.
+
+This was checked on a live calendar and the Events API did **not**
+normalise `description` HTML (empty `<div>`, `style` attributes and all
+survived a round trip byte-for-byte), so it is not the common case. It
+is written down because the SYMPTOM is indistinguishable from a real
+repeated edit, and the two are told apart the same way.
+
+### Fix
+
+Look at the baseline, not at the record. Read the event's entry in
+`.push-state.json` and compare it with what `google` (`kind:
+"calendarListEvents"`) reports for that event id:
+
+- **Baseline matches Google, record differs** — an ordinary unpushed
+  edit. Nothing is wrong; the next push sends it.
+- **Baseline differs from Google** — the baseline is stale. `autoPush`
+  does NOT fix this one: it converges only when the push actually
+  changed the stored value, because only then does the pull carry the
+  event. Press Sync to force a pull; if the event is still not reported,
+  the value Google holds is already what the push keeps sending, and the
+  baseline has to be rebuilt.
+
+Rebuilding: delete the calendar's entry from `.push-state.json` (or the
+file, if it covers only that calendar) and press Sync. The next pull
+writes a fresh baseline from Google's current values. Tell the user
+first — until that pull lands, a genuine unpushed local edit would be
+indistinguishable from a mirrored one.
 
 ## A calendar collection only ever holds a handful of records
 
@@ -1198,7 +1368,9 @@ first ten.
 The one that recurs is `datetime`. It stores a **local wall clock** —
 `YYYY-MM-DDTHH:MM`, seconds optional, **no `Z` and no offset** — because `08:00`
 in a schedule means eight in the morning wherever it is read, and that is what
-the calendar can place. So format the string, never convert it:
+the calendar can place. A bare `YYYY-MM-DD` is also valid and means ALL DAY —
+do not "fix" it to `…T00:00`, which is a real midnight start and is pushed to
+Google Calendar as one. So format the string, never convert it:
 
 ```js
 // WRONG — appends `Z` and shifts the hours by the generating machine's offset

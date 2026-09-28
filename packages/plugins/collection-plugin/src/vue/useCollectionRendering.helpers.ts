@@ -4,7 +4,7 @@
 // function of its arguments. The composable imports these and calls them
 // from inside its computed/watch closures; behaviour is identical.
 
-import { deriveAll, fieldText, isCanonicalServerTime } from "@mulmoclaude/core/collection";
+import { deriveAll, fieldText, isCanonicalServerTime, parseIsoDate, parseIsoDateTime } from "@mulmoclaude/core/collection";
 import type {
   CollectionDetailResponse,
   CollectionItem,
@@ -46,15 +46,45 @@ export function isServerStamped(value: unknown): boolean {
   return isCanonicalServerTime(value);
 }
 
+/** `datetime-local` shows nothing for a value it cannot hold, and saving then
+ *  writes the blank back. A server-stamped instant is shown as text (and is
+ *  disabled where it is rendered); an all-day bare date keeps a date picker. */
+function dateTimeInputType(value: unknown): string {
+  if (isServerStamped(value)) return "text";
+  return parseIsoDate(value) === null ? "datetime-local" : "date";
+}
+
 export function inputTypeFor(type: FieldType, value?: unknown): string {
   if (type === "email") return "email";
   if (type === "number") return "number";
   if (type === "money") return "number";
   if (type === "date") return "date";
-  // A server-stamped instant is shown as text, because `datetime-local` would
-  // show nothing at all. It is also disabled where it is rendered.
-  if (type === "datetime") return isServerStamped(value) ? "text" : "datetime-local";
+  if (type === "datetime") return dateTimeInputType(value);
   return "text";
+}
+
+/** Whether a `datetime` value is an all-day one (a bare `YYYY-MM-DD`). */
+export function isAllDayValue(value: unknown): boolean {
+  return parseIsoDate(value) !== null;
+}
+
+const ALL_DAY_TO_TIMED_CLOCK = "T00:00";
+const ISO_DATE_LENGTH = "YYYY-MM-DD".length;
+
+/** A `datetime` draft switched to or from all day. Checking keeps the date and
+ *  drops the clock; unchecking starts the day at midnight. Anything else — an
+ *  empty draft, a server-stamped instant, text that is not a date — is left as
+ *  it is, so the toggle never invents or destroys a value. */
+export function withAllDay(value: string, allDay: boolean): string {
+  if (allDay) return parseIsoDateTime(value) === null ? value : value.trim().slice(0, ISO_DATE_LENGTH);
+  return isAllDayValue(value) ? `${value.trim()}${ALL_DAY_TO_TIMED_CLOCK}` : value;
+}
+
+/** Whether All day may be switched on for this draft: an empty one (a date is
+ *  picked next) or one that converts to a real date. A value the date picker
+ *  cannot hold would otherwise render blank while still being submitted. */
+export function canSwitchToAllDay(value: string): boolean {
+  return value.trim() === "" || isAllDayValue(withAllDay(value, true));
 }
 
 export function isExternalUrl(value: unknown): boolean {

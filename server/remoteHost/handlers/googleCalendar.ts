@@ -9,14 +9,19 @@ import {
   createCalendarEvent,
   DEFAULT_LIST_MAX_RESULTS,
   deleteCalendarEvent,
+  eventTimeHint,
   getCalendarColors,
   getGoogleAccessToken,
   isIsoDateTimeWithOffset,
   listCalendarEvents,
   listCalendars,
   MAX_LIST_RESULTS,
+  resolvePartialSpanInput,
+  resolveSpanInput,
   updateCalendarEvent,
   type CalendarColorEntry,
+  type PartialSpanTimes,
+  type SpanTimes,
 } from "@mulmoclaude/core/google";
 import type { CommandHandler, JsonObject, JsonValue } from "../commandChannel.js";
 
@@ -45,9 +50,10 @@ const optionalString = (params: JsonObject, key: string): string | undefined => 
   return value.trim();
 };
 
-// Calendar's `dateTime`/`timeMin` are RFC3339 and reject date-only,
-// offset-less, or impossible values with an opaque 400, so the strict shared
-// validator runs here where the remote gets an actionable message.
+// Calendar's `timeMin` is RFC3339 and rejects date-only, offset-less, or
+// impossible values with an opaque 400, so the strict shared validator runs
+// here where the remote gets an actionable message. An event's own `start` /
+// `end` go through the span resolver below, which also accepts a bare date.
 const asDateTime = (value: string, key: string): string => {
   if (!isIsoDateTimeWithOffset(value)) throw new Error(`${key} must be an ISO 8601 date-time with a timezone offset (e.g. 2026-07-17T09:00:00+09:00)`);
   return value;
@@ -58,6 +64,29 @@ const optionalDateTime = (params: JsonObject, key: string): string | undefined =
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") throw new Error(`${key} must be an ISO 8601 date-time with a timezone offset (e.g. 2026-07-17T09:00:00+09:00)`);
   return asDateTime(value, key);
+};
+
+// An event span, where each end is either an instant with an offset or a bare
+// date for an all-day event. The shared resolver owns the pair rules (both ends
+// the same kind, an all-day end after its start) so this and the `google`
+// plugin's Zod schema, which validate the SAME Calendar operation, cannot drift.
+const optionalSpanText = (params: JsonObject, key: string): string | undefined => {
+  const value = params[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") throw new Error(eventTimeHint(key));
+  return value;
+};
+
+const requiredSpan = (params: JsonObject): SpanTimes => {
+  const resolved = resolveSpanInput(requiredString(params, "start"), requiredString(params, "end"));
+  if (!resolved.ok) throw new Error(resolved.reason);
+  return resolved.span;
+};
+
+const optionalSpan = (params: JsonObject): PartialSpanTimes => {
+  const resolved = resolvePartialSpanInput(optionalSpanText(params, "start"), optionalSpanText(params, "end"));
+  if (!resolved.ok) throw new Error(resolved.reason);
+  return resolved.times;
 };
 
 const clampMaxResults = (value: unknown): number => {
@@ -78,8 +107,7 @@ export const createGoogleCalendarCreateEvent =
   async (params: JsonObject) => {
     const input = {
       summary: requiredString(params, "summary"),
-      startDateTime: asDateTime(requiredString(params, "start"), "start"),
-      endDateTime: asDateTime(requiredString(params, "end"), "end"),
+      ...requiredSpan(params),
       description: typeof params.description === "string" ? params.description : undefined,
       calendarId: optionalString(params, "calendarId"),
       colorId: optionalString(params, "colorId"),
@@ -112,8 +140,7 @@ export const createGoogleCalendarUpdateEvent =
     const input = {
       eventId: requiredString(params, "eventId"),
       summary: optionalString(params, "summary"),
-      startDateTime: optionalDateTime(params, "start"),
-      endDateTime: optionalDateTime(params, "end"),
+      ...optionalSpan(params),
       description: clearableString(params, "description"),
       calendarId: optionalString(params, "calendarId"),
       colorId: optionalString(params, "colorId"),

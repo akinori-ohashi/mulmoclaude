@@ -36,6 +36,7 @@ const BUNDLED_FILES = [
   "launcher/messages.mjs",
   "launcher/platform.mjs",
   "launcher/preflight.mjs",
+  "launch-vars.mjs",
   "port.mjs",
 ];
 

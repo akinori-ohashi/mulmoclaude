@@ -102,6 +102,49 @@ test.describe("collection → Google Calendar push button", () => {
     await expect(page.getByText(/cannot be used as a Google event id/)).toBeVisible();
   });
 
+  // A deletion Google refused is not a failed push: the record went away here, the
+  // event is deliberately still standing there, and the rest of the run carried.
+  // Reported as a problem it took the banner's early return with it and hid every
+  // create and update the same push made (#3272).
+  test("shows what the push wrote AND that a deletion was left in Google", async ({ page }) => {
+    await mockCollection(page, CALENDAR_COLLECTION);
+    const calls: string[] = [];
+    const refusals = ["team-standup: left in Google because it has attendees", "board-review: left in Google because it has attendees"];
+    await mockPush(page, { ...emptyPush, created: 10, localDeletes: 2, keptInGoogle: refusals }, calls);
+
+    await page.goto("/collections/my-schedule");
+    await page.getByTestId("collections-push-calendar").click();
+    await expect.poll(() => calls).toEqual(["POST"]);
+    await expect(page.getByText(/10 created/)).toBeVisible();
+    // Both of them: reporting only the first leaves the rest as silent divergence.
+    await expect(page.getByText(/team-standup: left in Google/)).toBeVisible();
+    await expect(page.getByText(/board-review: left in Google/)).toBeVisible();
+  });
+
+  // Both at once: the refusal must not be the thing that disappears, and the
+  // record that could not be pushed must still be shown as the problem it is.
+  test("reports a refused deletion even when the same push also has a problem", async ({ page }) => {
+    await mockCollection(page, CALENDAR_COLLECTION);
+    const calls: string[] = [];
+    await mockPush(
+      page,
+      {
+        ...emptyPush,
+        created: 10,
+        localDeletes: 1,
+        skipped: ["team-standup: the record id cannot be used as a Google event id"],
+        keptInGoogle: ["board-review: left in Google because it has attendees"],
+      },
+      calls,
+    );
+
+    await page.goto("/collections/my-schedule");
+    await page.getByTestId("collections-push-calendar").click();
+    await expect.poll(() => calls).toEqual(["POST"]);
+    await expect(page.getByText(/cannot be used as a Google event id/)).toBeVisible();
+    await expect(page.getByText(/left in Google because it has attendees/)).toBeVisible();
+  });
+
   test("shows no push button for a collection that declares no googleCalendar", async ({ page }) => {
     await mockCollection(page, PLAIN_COLLECTION);
     await page.goto("/collections/my-schedule");
