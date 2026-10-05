@@ -97,6 +97,17 @@ function suppliedRoot(value: unknown, res: Response): ParsedStoryRoot | null {
   return null;
 }
 
+function parseFilePathQuery<TRes>(req: Request<object, TRes, object, FilePathQuery>, res: Response): { filePath: string; root: ParsedStoryRoot } | null {
+  const filePath = stringQuery(req.query.filePath);
+  if (!filePath) {
+    badRequest(res, "filePath is required");
+    return null;
+  }
+  const root = suppliedRoot(req.query.root, res);
+  if (root === null) return null;
+  return { filePath, root };
+}
+
 function parseBeatQuery<TRes>(
   req: Request<object, TRes, object, BeatQuery>,
   res: Response,
@@ -236,14 +247,9 @@ bindRoute(
   router,
   API_ROUTES.mulmoScript.movieStatus,
   async (req: Request<object, MovieStatusResponse, object, FilePathQuery>, res: Response<MovieStatusResponse>) => {
-    const filePath = stringQuery(req.query.filePath);
-    if (!filePath) {
-      badRequest(res, "filePath is required");
-      return;
-    }
-    const root = suppliedRoot(req.query.root, res);
-    if (root === null) return;
-    const result = await mulmoScriptOps.movieStatusOp(filePath, root);
+    const query = parseFilePathQuery(req, res);
+    if (!query) return;
+    const result = await mulmoScriptOps.movieStatusOp(query.filePath, query.root);
     if (!result.ok) {
       sendOpFailure(res, result);
       return;
@@ -508,14 +514,9 @@ bindRoute(
   router,
   API_ROUTES.mulmoScript.pdfStatus,
   async (req: Request<object, PdfStatusResponse, object, FilePathQuery>, res: Response<PdfStatusResponse>) => {
-    const filePath = stringQuery(req.query.filePath);
-    if (!filePath) {
-      badRequest(res, "filePath is required");
-      return;
-    }
-    const root = suppliedRoot(req.query.root, res);
-    if (root === null) return;
-    const result = await mulmoScriptOps.pdfStatusOp(filePath, root);
+    const query = parseFilePathQuery(req, res);
+    if (!query) return;
+    const result = await mulmoScriptOps.pdfStatusOp(query.filePath, query.root);
     if (!result.ok) {
       sendOpFailure(res, result);
       return;

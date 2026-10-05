@@ -4,7 +4,7 @@
 // A pure MCP tool like `exportShapeScriptUsdz`: no View, the answer is a URL
 // or, for the two reads, JSON. Everything a model sees — schema, description,
 // the document a post is, the keyword rules — lives in
-// `@mulmoclaude/shapescript-plugin`, and that entry is Firebase-free on
+// `@gui-chat-plugin/shapescript`, and that entry is Firebase-free on
 // purpose. What this host contributes is the signed-in session: the
 // remote-host runner signs into mulmoserver's Firebase AS THE USER
 // (docs/remote-host.md, "Option B"), so a post is a plain Firestore write on
@@ -30,8 +30,8 @@ import {
   SHAPE_LICENSE,
   type ShapePostExpect,
   type ShapePostPatch,
-} from "@mulmoclaude/shapescript-plugin";
-import { renderShapeThumbnail, MANAGE_TOOL_TIMEOUT_MS } from "@mulmoclaude/shapescript-plugin/render";
+} from "@gui-chat-plugin/shapescript";
+import { renderShapeThumbnail, MANAGE_TOOL_TIMEOUT_MS } from "@gui-chat-plugin/shapescript/render";
 import {
   collection,
   doc,

@@ -4,7 +4,7 @@
 // A pure MCP tool, like `renderShapeScript`: no View, nothing pushed to the
 // canvas, the answer is a file path. Everything about the tool — schema,
 // description, the export itself, where under `artifacts/shapes/` the file
-// lands — lives in `@mulmoclaude/shapescript-plugin`, and it reaches storage
+// lands — lives in `@gui-chat-plugin/shapescript`, and it reaches storage
 // only through the generic `files` capability. So this host contributes a
 // FileOps rooted at `<workspace>/artifacts`, the same `byPath` capability its
 // dispatch handler uses, and its logger; MulmoTerminal wires the identical
@@ -25,7 +25,7 @@ import {
   EXPORT_USDZ_TOOL_TIMEOUT_MS,
   SHAPE_EXTENSIONS,
   type ShapeFileOps,
-} from "@mulmoclaude/shapescript-plugin";
+} from "@gui-chat-plugin/shapescript";
 import { mkdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "../../utils/files/atomic.js";

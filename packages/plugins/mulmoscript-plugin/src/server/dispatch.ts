@@ -38,6 +38,10 @@ function invalidArgs(kind: string): DispatchFailure {
   return { ok: false, code: "bad_request", error: `invalid arguments for mulmoScript dispatch kind "${kind}"` };
 }
 
+function isDispatchFailure(value: MulmoScriptExecuteContext | DispatchFailure): value is DispatchFailure {
+  return "ok" in value && value.ok === false;
+}
+
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
 }
@@ -134,15 +138,19 @@ export function createMulmoScriptDispatchHandler(ops: MulmoScriptServerOps): Mul
     return { files: { artifacts, ...(ops.backend.byPath ? { byPath: ops.backend.byPath } : {}) } };
   }
 
-  async function saveKind(args: Record<string, unknown>): Promise<unknown> {
-    // Which root this write lands in — see `guardStoryWriteRoot` and
-    // `executeContextFor`.
+  // Which root this write lands in — see `guardStoryWriteRoot` and
+  // `executeContextFor`.
+  function writeContextFor(kind: string, args: Record<string, unknown>): MulmoScriptExecuteContext | DispatchFailure {
     const rootGuard = ops.guardStoryWriteRoot(str(args.root));
     if (rootGuard) return fromOpFailure(rootGuard);
     const guard = ops.guardStoryWirePath(args.filePath, str(args.root));
     if (guard) return fromOpFailure(guard);
-    const context = executeContextFor(str(args.root));
-    if (context === null) return invalidArgs("save");
+    return executeContextFor(str(args.root)) ?? invalidArgs(kind);
+  }
+
+  async function saveKind(args: Record<string, unknown>): Promise<unknown> {
+    const context = writeContextFor("save", args);
+    if (isDispatchFailure(context)) return context;
     const outcome = await executeMulmoScriptSave(context, {
       script: args.script,
       filename: str(args.filename),
@@ -153,12 +161,8 @@ export function createMulmoScriptDispatchHandler(ops: MulmoScriptServerOps): Mul
   }
 
   async function updateKind(kind: "updateBeat" | "updateScript", args: Record<string, unknown>): Promise<unknown> {
-    const rootGuard = ops.guardStoryWriteRoot(str(args.root));
-    if (rootGuard) return fromOpFailure(rootGuard);
-    const guard = ops.guardStoryWirePath(args.filePath, str(args.root));
-    if (guard) return fromOpFailure(guard);
-    const context = executeContextFor(str(args.root));
-    if (context === null) return invalidArgs(kind);
+    const context = writeContextFor(kind, args);
+    if (isDispatchFailure(context)) return context;
     const outcome = kind === "updateBeat" ? await executeUpdateBeat(context, args) : await executeUpdateScript(context, args);
     if (!outcome.ok) return fromPackageFailure(outcome);
     // After the write landed, never before: a View that reloads on a failed write would

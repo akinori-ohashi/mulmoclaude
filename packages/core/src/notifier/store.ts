@@ -4,7 +4,7 @@
 // writers). Kept separate from `engine.ts` so the path can be
 // overridden in tests without monkey-patching.
 
-import { hasStringProp, isErrorWithCode, isRecord, isUnknownArray } from "@mulmoclaude/common";
+import { hasStringProp, isErrorWithCode, isOptionalString, isRecord, isUnknownArray } from "@mulmoclaude/common";
 import { promises as fsPromises } from "node:fs";
 import {
   NOTIFIER_LIFECYCLES,
@@ -22,10 +22,6 @@ const TERMINAL_TYPES = ["cleared", "cancelled"] as const;
 
 function isOneOf<T extends string>(allowed: readonly T[], value: unknown): value is T {
   return allowed.some((candidate) => candidate === value);
-}
-
-function isOptionalString(value: unknown): boolean {
-  return value === undefined || typeof value === "string";
 }
 
 // Checks every field `NotifierEntry` declares — `pluginData` is `unknown`,

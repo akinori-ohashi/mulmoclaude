@@ -15,7 +15,7 @@ import { log } from "./logger/index.js";
 import { WORKSPACE_PATHS } from "../workspace/paths.js";
 import { writeFileAtomicSync } from "../utils/files/atomic.js";
 import { readTextSafeSync } from "../utils/files/safe.js";
-import { isRecord, isStringArray, isStringRecord } from "../utils/types.js";
+import { isOptionalBoolean, isOptionalString, isRecord, isStringArray, isStringRecord } from "../utils/types.js";
 import { CHAT_MODELS, EFFORT_LEVELS, type ChatModel, type EffortLevel } from "../../src/config/models.js";
 
 export const AGENT_BACKEND_IDS = ["claude-code", "codex"] as const;
@@ -229,8 +229,6 @@ function isVoiceInputSettings(value: unknown): value is { enabled: boolean; mode
 }
 
 // Optional fields: each is either absent or must match its type.
-const isOptionalBoolean = (value: unknown): boolean => value === undefined || typeof value === "boolean";
-const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
 const optional =
   (isValid: (value: unknown) => boolean) =>
   (value: unknown): boolean =>

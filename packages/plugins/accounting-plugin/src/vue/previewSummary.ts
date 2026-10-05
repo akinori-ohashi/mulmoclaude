@@ -80,6 +80,32 @@ export function summariseBook(json: Record<string, unknown>, translate: Translat
   return translate("pluginAccounting.preview.bookCreated", { name, id: bookId });
 }
 
+export function summariseAccount(json: Record<string, unknown>, translate: TranslateFn): string | null {
+  const { account } = json;
+  if (!isRecord(account)) return null;
+  const code = optionalString(account.code);
+  const name = optionalString(account.name);
+  if (!code || !name) return null;
+  return translate("pluginAccounting.preview.accountSaved", { code, name });
+}
+
+export function summariseVoid(json: Record<string, unknown>, translate: TranslateFn): string | null {
+  const { reverseEntry } = json;
+  if (!isRecord(reverseEntry)) return null;
+  const date = optionalString(reverseEntry.date);
+  if (!date) return null;
+  return translate("pluginAccounting.preview.entryVoided", { date });
+}
+
+export function summariseOpening(json: Record<string, unknown>, translate: TranslateFn): string | null {
+  const { openingEntry } = json;
+  if (!isRecord(openingEntry)) return null;
+  const date = optionalString(openingEntry.date);
+  if (!date) return null;
+  const key = json.replacedExisting === true ? "pluginAccounting.preview.openingReplaced" : "pluginAccounting.preview.openingSet";
+  return translate(key, { date });
+}
+
 export function summariseFallback(json: Record<string, unknown>, translate: TranslateFn): string {
   const bookId = optionalString(json.bookId);
   if (bookId !== undefined) return translate("pluginAccounting.previewSummary", { bookId });
@@ -103,6 +129,9 @@ export function summarisePreview(data: unknown, translate: TranslateFn): string 
     summarisePl(json, translate) ??
     summariseBs(json, translate) ??
     summariseBook(json, translate) ??
+    summariseAccount(json, translate) ??
+    summariseVoid(json, translate) ??
+    summariseOpening(json, translate) ??
     summariseFallback(json, translate)
   );
 }

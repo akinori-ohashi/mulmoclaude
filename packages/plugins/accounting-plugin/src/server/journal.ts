@@ -11,7 +11,7 @@
 // `addEntries` call for the corrected booking.
 
 import { randomUUID } from "node:crypto";
-import { hasStringProp, isRecord, isUnknownArray } from "@mulmoclaude/common";
+import { hasStringProp, isOptionalString, isRecord, isUnknownArray } from "@mulmoclaude/common";
 
 import { JOURNAL_ENTRY_KINDS } from "../shared/types.js";
 import type { Account, JournalEntry, JournalLine } from "../shared/types.js";
@@ -195,7 +195,6 @@ function parseOptionalString(value: unknown, field: string, errors: ValidationEr
   return undefined;
 }
 
-const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
 const isOptionalNumber = (value: unknown): boolean => value === undefined || typeof value === "number";
 
 function isJournalLine(value: unknown): value is JournalLine {

@@ -33,6 +33,16 @@ export function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((val) => typeof val === "string");
 }
 
+/** Absent, or a string — an optional string field. */
+export function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
+}
+
+/** Absent, or a boolean — an optional boolean field. */
+export function isOptionalBoolean(value: unknown): value is boolean | undefined {
+  return value === undefined || typeof value === "boolean";
+}
+
 /** An array of unknowns. Prefer this over a bare `Array.isArray` in typed code:
  *  `Array.isArray(x: unknown)` narrows to `any[]`, silently reintroducing
  *  `any`, whereas this keeps the element type `unknown`. */

@@ -13,7 +13,7 @@
 // half-trusted. `jsonData` must be absent: these tools send nothing structured to the LLM.
 
 import type { ToolResult } from "gui-chat-protocol";
-import { isRecord } from "../utils/types";
+import { isOptionalBoolean, isOptionalString, isRecord } from "../utils/types";
 import type { ImageEndpoints } from "./editImages/definition";
 import { makePostExecute, type PluginExecute } from "./execute";
 import { makeUuid } from "../utils/id";
@@ -21,10 +21,6 @@ import { makeUuid } from "../utils/id";
 /** The reply when the route answered with something this contract does not describe. Generic on
  *  purpose: the body it refused is not something to show a user. */
 export const IMAGE_ROUTE_REFUSAL = "The image service answered with an unrecognized response.";
-
-const isOptionalString = (value: unknown): value is string | undefined => value === undefined || typeof value === "string";
-
-const isOptionalBoolean = (value: unknown): value is boolean | undefined => value === undefined || typeof value === "boolean";
 
 // `imageData` is the path the view renders, so an empty one is the blank panel this guard exists
 // to prevent — the absent case is a body with no `data` at all, which the route sends when the

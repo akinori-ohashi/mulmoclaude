@@ -8,7 +8,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Firestore } from "firebase/firestore";
 import type { FirebaseStorage } from "firebase/storage";
-import { SHAPE_LICENSE, SHAPE_POST_KEYS, shapePostFrom, type ShapePostDoc } from "@mulmoclaude/shapescript-plugin";
+import { SHAPE_LICENSE, SHAPE_POST_KEYS, shapePostFrom, type ShapePostDoc } from "@gui-chat-plugin/shapescript";
 import {
   galleryWriterFrom,
   isHiddenByRules,

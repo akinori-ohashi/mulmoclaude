@@ -8,6 +8,8 @@ import {
   isStringRecord,
   isStringArray,
   isUnknownArray,
+  isOptionalString,
+  isOptionalBoolean,
   isErrorWithCode,
   hasStringProp,
   hasNumberProp,
@@ -104,4 +106,18 @@ test("parseCsvSet: dedupes into a Set; empty input is the allow-all sentinel", (
   assert.equal(parseCsvSet(undefined).size, 0);
   assert.equal(parseCsvSet("").size, 0);
   assert.equal(parseCsvSet("A,a", { lowercase: true }).size, 1);
+});
+
+test("isOptionalString: absent or a string; null and every other type refused", () => {
+  assert.equal(isOptionalString(undefined), true);
+  assert.equal(isOptionalString(""), true);
+  assert.equal(isOptionalString("x"), true);
+  for (const value of [null, 0, false, true, [], {}, ["x"]]) assert.equal(isOptionalString(value), false, JSON.stringify(value));
+});
+
+test("isOptionalBoolean: absent or a boolean; null and every other type refused", () => {
+  assert.equal(isOptionalBoolean(undefined), true);
+  assert.equal(isOptionalBoolean(false), true);
+  assert.equal(isOptionalBoolean(true), true);
+  for (const value of [null, 0, 1, "", "true", [], {}]) assert.equal(isOptionalBoolean(value), false, JSON.stringify(value));
 });

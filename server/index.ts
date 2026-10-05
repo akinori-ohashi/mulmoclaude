@@ -59,6 +59,7 @@ import "./plugins/html-builtin.js";
 // presentShapeScript View's useRuntime().dispatch({ kind }) resolves — the
 // source editor's load / save against artifacts/shapes/.
 import "./plugins/shapescript-builtin.js";
+import { enableShapeScriptManifold } from "./plugins/shapescript-csg.js";
 import { loadRuntimePlugins } from "./plugins/runtime-loader.js";
 import { evaluateDevPluginGate, loadDevPlugins, parseDevPluginsEnv } from "./plugins/dev-loader.js";
 import { watchDevPlugins } from "./plugins/dev-watcher.js";
@@ -1494,6 +1495,8 @@ process.on("SIGTERM", () => {
 
   sandboxEnabled = await setupSandbox();
   logMcpStatus();
+  // ShapeScript CSG through manifold before the first request (plugins/shapescript-csg.ts).
+  await enableShapeScriptManifold();
 
   // Unified PostToolUse dispatcher (#763 PR 2, #1283, #1295). One
   // entry in `<workspace>/.claude/settings.json` that fans out to:

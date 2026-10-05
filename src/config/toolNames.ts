@@ -68,6 +68,9 @@ const HOST_TOOL_NAMES = {
   // The USDZ exporter: likewise a pure MCP tool (saves a .usdz, returns its
   // path). Grant it wherever `presentShapeScript` is granted.
   exportShapeScriptUsdz: "exportShapeScriptUsdz",
+  // The STL exporter: likewise a pure MCP tool (saves a printable .stl, returns
+  // its path and a printability report). Grant it wherever `presentShapeScript` is granted.
+  exportShapeScriptStl: "exportShapeScriptStl",
   // The gallery: a pure MCP tool too (publish / update / delete / get / getList
   // on server.mulmocast.com over the remote-host session; answers a URL or
   // JSON). Grant it wherever `presentShapeScript` is granted.

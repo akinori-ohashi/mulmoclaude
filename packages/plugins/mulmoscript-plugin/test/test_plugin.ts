@@ -233,7 +233,7 @@ describe("executeMulmoScriptSave — replacing one beat", () => {
   }
 
   const beatsIn = (store: Map<string, string>, filePath: string) => {
-    const key = [...store.keys()].find((k) => k.endsWith(filePath.replace(/^stories\//, "stories/")));
+    const key = [...store.keys()].find((k) => k.endsWith(filePath));
     return JSON.parse(store.get(key ?? "") ?? "{}").beats as { text?: string }[];
   };
 

@@ -20,6 +20,7 @@ import { BUILTIN_ROLE_IDS } from "./config/roles";
 import { PAGE_ROUTES } from "./router";
 import { getAllPluginNames } from "./tools";
 import { setupMarked } from "./utils/markdown/setup";
+import { enableManifoldCsg } from "@gui-chat-plugin/shapescript";
 import "./index.css";
 import "material-icons/iconfont/material-icons.css";
 import "material-symbols/outlined.css";
@@ -121,6 +122,16 @@ startDevPluginReloadListener();
 setupMarked();
 
 installGuards(router);
+
+// ShapeScript's CSG runs through manifold here as on the server
+// (server/plugins/shapescript-csg.ts), so a model is built by one engine wherever
+// it is shown. Fire-and-forget for the reason runtime plugins are above: awaiting
+// the WebAssembly would delay first paint for every page. A View built in the
+// moment before it loads uses three-bvh-csg, as before this switch; every later
+// one uses manifold. A failed load keeps three-bvh-csg.
+enableManifoldCsg().catch((err: unknown) => {
+  console.warn("[shapescript] manifold did not load, CSG stays on three-bvh-csg", err);
+});
 
 const app = createApp(App);
 app.use(router);

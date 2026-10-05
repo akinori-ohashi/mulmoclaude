@@ -2,7 +2,7 @@
 // views read its fields straight into refs that the template renders, so
 // each one is rebuilt from a checked value rather than asserted.
 
-import { isRecord, isStringArray, isUnknownArray } from "../../utils/types";
+import { isOptionalBoolean, isOptionalString, isRecord, isStringArray, isUnknownArray } from "../../utils/types";
 import type { WikiDataPatch, WikiPageEntry } from "./index";
 
 const parsePageEntry = (value: unknown): WikiPageEntry | null => {
@@ -20,9 +20,6 @@ const parsePageEntries = (value: unknown): WikiPageEntry[] | null => {
   const entries = value.flatMap((entry) => parsePageEntry(entry) ?? []);
   return entries.length === value.length ? entries : null;
 };
-
-const isOptionalString = (value: unknown): value is string | undefined => value === undefined || typeof value === "string";
-const isOptionalBoolean = (value: unknown): value is boolean | undefined => value === undefined || typeof value === "boolean";
 
 /** Pull the `data` envelope out of a `/api/wiki` response, keeping only the
  *  fields the views apply.

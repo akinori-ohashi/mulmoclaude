@@ -29,7 +29,7 @@ const OUTFILE = "server/build/mcp-server.mjs";
 const NATIVE_EXTERNALS = ["@duckdb/*", "duckdb"];
 
 // Puppeteer drives the headless browser `renderShapeScript` rasterises with. The
-// renderer itself now lives in `@mulmoclaude/shapescript-plugin/render`, but the
+// renderer itself now lives in `@gui-chat-plugin/shapescript/render`, but the
 // driver stays external either way: it is reached through a lazy dynamic import,
 // ships its own browser download machinery, and inlining one into the broker
 // would be tens of megabytes to support one optional tool. Left external the

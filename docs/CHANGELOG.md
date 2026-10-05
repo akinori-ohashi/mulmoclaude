@@ -10,11 +10,70 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Highlights
 
+#### ShapeScript comes from `@gui-chat-plugin/shapescript` 8.2.1, with a printable STL export
+
+The ShapeScript plugin now lives in gui-chat-plugins, shared with MulmoTerminal, and MulmoClaude installs it from npm
+instead of keeping its own copy (`packages/plugins/shapescript-plugin` is removed). Three things change for users:
+
+- A new MCP tool, **`exportShapeScriptStl`**, writes a model as one watertight solid for a 3D printer: every top-level
+  part merged, in millimetres (`unitScale`: mm per unit), Z up, resting on Z = 0. It answers the file's path and a
+  printability report: size, parts merged and skipped, bodies, volume, non-manifold edges, and warnings for parts that
+  only touch or have nothing to print. It is granted wherever `presentShapeScript` is.
+- ShapeScript's CSG (`union`, `difference`, `intersection`, `xor`, `stencil`) runs through **manifold** in the server and
+  the browser, so a model is built the same way wherever it is shown or exported. Results are watertight and keep each
+  operand's colour, it is 2-3x faster on the shipped models, and a lattice inside a `union` now previews instead of
+  hitting the time limit. The page loads manifold's WebAssembly (about 210 KB gzipped) without delaying first paint; a
+  View built before it arrives, and every View if it fails to load, uses three-bvh-csg as before.
+- `renderShapeScript` no longer fails with "Navigating frame was detached" on large models such as a 20 x 20 x 20
+  lattice: the render page now receives the scene in parts.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.8.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.26.3] - 2026-10-02
+
+**MCP servers no longer drop out after many turns, and accounting preview cards say what happened.**
+
+### Highlights
+
+#### stdio MCP servers stop leaking a port per turn (#3357, PR #3363)
+
+A stdio MCP server runs behind a small stdio→HTTP shim. Closing it signalled only the `npx` wrapper, while the port is
+held by a grandchild process, so one port could stay bound per turn until the probe range ran out and every turn
+dropped the server. The shim now leads its own process group; closing it ends the whole group (SIGTERM, then SIGKILL
+after a grace period), and every live shim group is ended when the server exits. Shims orphaned by an earlier version
+are not reaped: restart once.
+
+#### Accounting preview cards say what happened (#3228, PR #3351)
+
+The preview cards for `upsertAccount`, `voidEntry` and `setOpeningBalances` read only `Accounting · <book>`. They now
+show the account code and name, the reversing entry's date, or the opening balances' as-of date (and whether existing
+ones were replaced), in all 8 languages.
+
+#### Artifact path helpers come from `@gui-chat-plugin/common` and `gui-chat-protocol` 2.3.0
+
+`@mulmoclaude/core/artifacts` re-exports its artifact path helpers instead of defining them: `ARTIFACTS_ROOT` from
+`gui-chat-protocol` 2.3.0, and the slug, `YYYY/MM` partition, path builder and traversal guard from
+`@gui-chat-plugin/common`. Plugins outside this repository can now share them without importing MulmoClaude. Nothing
+changes for users or for code importing `@mulmoclaude/core/artifacts`. The launcher, `@mulmoclaude/core` and the plugins
+that use `gui-chat-protocol` as a peer now declare `^2.3.0`.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.8.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.26.2] - 2026-09-28
+
+**`getSchema` says when a collection's schema was changed but not applied, and the app moves to `gui-chat-protocol` 2.1.0.**
+
+### Highlights
+
 #### `getSchema` says when a collection's schema was changed but not applied (#3346, PR #3347)
 
 A `schema.json` changed with Bash or a script is not copied to the place the server reads it from, so the collection kept
 its old schema while `getSchema` showed the new one, with no hint that they differed. `getSchema` now says so and points
 at `putSchema`, which applies it. The error-recovery guide covers the same case.
+
+#### `gui-chat-protocol` 2.1.0
+
+Every package that uses `gui-chat-protocol` — the launcher, `@mulmoclaude/core` and the plugins — now declares `^2.1.0`.
 
 Ships `@mulmoclaude/accounting-plugin@4.0.1`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.3.0`, `@mulmoclaude/core@5.7.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/shapescript-plugin@7.1.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
 

@@ -7,7 +7,7 @@
 // lands under `artifacts/images/` and the agent opens it with Read).
 //
 // The tool itself — schema, defaults, the four-view sheet, the sentence naming
-// the saved file — lives in `@mulmoclaude/shapescript-plugin/render`, because
+// the saved file — lives in `@gui-chat-plugin/shapescript/render`, because
 // MulmoTerminal offers the same tool and those are precisely the parts that
 // would drift if each host kept a copy. What is left here is what is actually
 // this host's: reading a `.shape` through its file layer, saving into its image
@@ -20,8 +20,8 @@ import {
   RENDER_SHAPE_SCRIPT_SCHEMA,
   RENDER_SHAPE_SCRIPT_TOOL_NAME,
   RENDER_TOOL_TIMEOUT_MS,
-} from "@mulmoclaude/shapescript-plugin/render";
-import { isShapeArtifactPath, isPresentableShapePath, toArtifactsRelative, SHAPE_EXTENSIONS } from "@mulmoclaude/shapescript-plugin";
+} from "@gui-chat-plugin/shapescript/render";
+import { isShapeArtifactPath, isPresentableShapePath, toArtifactsRelative, SHAPE_EXTENSIONS } from "@gui-chat-plugin/shapescript";
 import { readFile } from "fs/promises";
 import path from "node:path";
 import { saveImage } from "../../utils/files/image-store.js";

@@ -9,13 +9,16 @@ import assert from "node:assert/strict";
 
 import {
   asPayload,
+  summariseAccount,
   summariseBook,
   summariseBs,
   summariseEntry,
   summariseError,
   summariseFallback,
+  summariseOpening,
   summarisePl,
   summarisePreview,
+  summariseVoid,
 } from "../../src/vue/previewSummary.js";
 
 /** Echoes the key and its interpolations, so a test asserts which branch ran
@@ -158,6 +161,68 @@ describe("summariseBook", () => {
   });
 });
 
+describe("summariseAccount", () => {
+  it("reports the saved account's code and name", () => {
+    const summary = summariseAccount({ bookId: "b1", account: { code: "1000", name: "Cash", type: "asset" } }, translate) ?? "";
+    assert.match(summary, /preview\.accountSaved/);
+    assert.match(summary, /"code":"1000"/);
+    assert.match(summary, /"name":"Cash"/);
+  });
+
+  it("declines when code or name is missing, empty, or not a string", () => {
+    assert.equal(summariseAccount({ account: { code: "1000" } }, translate), null);
+    assert.equal(summariseAccount({ account: { name: "Cash" } }, translate), null);
+    assert.equal(summariseAccount({ account: { code: "", name: "Cash" } }, translate), null);
+    assert.equal(summariseAccount({ account: { code: 1000, name: "Cash" } }, translate), null);
+  });
+
+  it("declines when account is not a plain object", () => {
+    assert.equal(summariseAccount({ account: null }, translate), null);
+    assert.equal(summariseAccount({ account: ["1000", "Cash"] }, translate), null);
+    assert.equal(summariseAccount({}, translate), null);
+  });
+});
+
+describe("summariseVoid", () => {
+  it("reports the reversing entry's date", () => {
+    const summary = summariseVoid({ bookId: "b1", reverseEntry: { id: "r1", date: "2026-03-01" }, markerEntry: { id: "m1" } }, translate) ?? "";
+    assert.match(summary, /preview\.entryVoided/);
+    assert.match(summary, /2026-03-01/);
+  });
+
+  it("declines when the reversing entry or its date is missing or malformed", () => {
+    assert.equal(summariseVoid({ reverseEntry: { id: "r1" } }, translate), null);
+    assert.equal(summariseVoid({ reverseEntry: { date: 20260301 } }, translate), null);
+    assert.equal(summariseVoid({ reverseEntry: null }, translate), null);
+    assert.equal(summariseVoid({}, translate), null);
+  });
+});
+
+describe("summariseOpening", () => {
+  const openingEntry = { id: "o1", date: "2026-01-01", lines: [] };
+
+  it("reports a first-time opening as set", () => {
+    const summary = summariseOpening({ openingEntry, replacedExisting: false }, translate) ?? "";
+    assert.match(summary, /preview\.openingSet/);
+    assert.match(summary, /2026-01-01/);
+  });
+
+  it("reports an overwrite as replaced", () => {
+    assert.match(summariseOpening({ openingEntry, replacedExisting: true }, translate) ?? "", /preview\.openingReplaced/);
+  });
+
+  it("reads anything but a literal true as not replaced", () => {
+    assert.match(summariseOpening({ openingEntry, replacedExisting: "true" }, translate) ?? "", /preview\.openingSet/);
+    assert.match(summariseOpening({ openingEntry }, translate) ?? "", /preview\.openingSet/);
+  });
+
+  it("declines when the opening entry or its date is missing or malformed", () => {
+    assert.equal(summariseOpening({ openingEntry: { id: "o1" } }, translate), null);
+    assert.equal(summariseOpening({ openingEntry: "o1" }, translate), null);
+    assert.equal(summariseOpening({ replacedExisting: true }, translate), null);
+  });
+});
+
 describe("summariseFallback", () => {
   it("names the book when the payload carries a bookId", () => {
     assert.match(summariseFallback({ bookId: "book-1" }, translate), /previewSummary.*book-1/);
@@ -193,6 +258,9 @@ describe("summarisePreview dispatch", () => {
     assert.match(summarisePreview({ profitLoss: { from: "a", to: "b", netIncome: 1 } }, translate), /preview\.pl/);
     assert.match(summarisePreview({ balanceSheet: { asOf: "2026-02-28", sections: [] } }, translate), /preview\.bs/);
     assert.match(summarisePreview({ book: { id: "b1", name: "Co" } }, translate), /preview\.bookCreated/);
+    assert.match(summarisePreview({ bookId: "b1", account: { code: "1000", name: "Cash" } }, translate), /preview\.accountSaved/);
+    assert.match(summarisePreview({ bookId: "b1", reverseEntry: { date: "2026-03-01" } }, translate), /preview\.entryVoided/);
+    assert.match(summarisePreview({ bookId: "b1", openingEntry: { date: "2026-01-01" } }, translate), /preview\.openingSet/);
   });
 
   it("falls back to the generic line for an unrecognised payload", () => {

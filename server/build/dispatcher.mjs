@@ -220,7 +220,7 @@ function mirrorSkillDelete(workspaceRoot2, slug) {
   return { dest };
 }
 
-// packages/core/dist/dist-BzoA9pDR.js
+// packages/core/dist/dist-MFUV9FYo.js
 Object.freeze({
   min: 0,
   max: 65535

@@ -101,6 +101,10 @@ export default defineConfig({
         "iconv-lite",
         "zod",
         /^gui-chat-protocol/,
+        // The artifact path builders (`./artifacts`) are re-exported from here,
+        // not copied: a fix published there reaches every consumer through
+        // its caret range without a core republish.
+        "@gui-chat-plugin/common",
         "vue",
         "vue-i18n",
         "fast-xml-parser",

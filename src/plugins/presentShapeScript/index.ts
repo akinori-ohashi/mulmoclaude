@@ -1,9 +1,9 @@
 import type { PluginRegistration, ToolPlugin } from "../../tools/types";
-import { View, Preview, SYSTEM_PROMPT, samples, type PresentShapeScriptData } from "@mulmoclaude/shapescript-plugin/vue";
+import { View, Preview, SYSTEM_PROMPT, samples, type PresentShapeScriptData } from "@gui-chat-plugin/shapescript/vue";
 // The package's component scoped styles are compiled into a standalone
 // stylesheet; Vite lib mode does NOT auto-inject it, so the consumer must
 // import it — same as @mulmoclaude/{chart,form,markdown}-plugin.
-import "@mulmoclaude/shapescript-plugin/style.css";
+import "@gui-chat-plugin/shapescript/style.css";
 import toolDefinition, { TOOL_NAME, type ShapeScriptEndpoints } from "./definition";
 import { makeRouteExecute } from "../execute";
 import { wrapWithScope } from "../scope";

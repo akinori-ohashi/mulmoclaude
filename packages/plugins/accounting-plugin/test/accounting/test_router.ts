@@ -32,10 +32,6 @@ const GENERIC_SUMMARY_KEY = "pluginAccounting.previewGeneric";
 /** The next-weakest branch: a card that names the book and nothing else. */
 const BARE_BOOK_SUMMARY_KEY = "pluginAccounting.previewSummary";
 
-/** Card-rendering actions that currently reach only `BARE_BOOK_SUMMARY_KEY`,
- *  i.e. their card says "book <id>" and not what they did. Tracked in #3228. */
-const BARE_BOOK_ONLY_ACTIONS: readonly string[] = [ACCOUNTING_ACTIONS.upsertAccount, ACCOUNTING_ACTIONS.voidEntry, ACCOUNTING_ACTIONS.setOpeningBalances];
-
 /** createBook answers with the book it minted; the walk addresses it by id. */
 const readBookId = (data: unknown): string => {
   assert.ok(isRecord(data), "createBook data should be an object");
@@ -152,8 +148,8 @@ describe("preview card summaries, over real dispatch output", () => {
   // wrong the set is. (The first version asserted exactly that, passed with a
   // data-less `getBooks` wrongly a member, and caught nothing.) It asserts what
   // the set is FOR: a member must reach the card with a payload, and the card
-  // must say something about it. The three that only manage "book <id>" are
-  // named below rather than waved through — see #3228.
+  // must say something about it — more than the generic line, and more than
+  // "book <id>".
   it("every action in PREVIEW_ACTIONS reaches the card, and says what it did", async () => {
     // One representative call per member, in order: voidEntry needs an id that
     // only addEntries can mint, so the payloads are built as the walk goes.
@@ -161,7 +157,6 @@ describe("preview card summaries, over real dispatch output", () => {
     // Its own book, so the walk's setOpeningBalances does not overwrite the
     // balances the neighbouring cases assert on. createBook is the first call
     // and mints it; the rest address that book by id.
-    const bareBookOnly: string[] = [];
     let walkBookId = "";
     let postedEntryId = "";
     const calls: [string, () => Record<string, unknown>][] = [
@@ -209,7 +204,7 @@ describe("preview card summaries, over real dispatch output", () => {
       assert.ok(data !== undefined, `${action} is in PREVIEW_ACTIONS but returned no data, so its card would never render`);
       const summary = summarisePreview(data, translate);
       assert.notEqual(summary, GENERIC_SUMMARY_KEY, `${action} earns a card but summarises to the generic line`);
-      if (summary.startsWith(BARE_BOOK_SUMMARY_KEY)) bareBookOnly.push(action);
+      assert.ok(!summary.startsWith(BARE_BOOK_SUMMARY_KEY), `${action}'s card names only the book, not what the action did`);
       if (action === ACCOUNTING_ACTIONS.createBook) {
         walkBookId = readBookId(data);
       }
@@ -217,17 +212,6 @@ describe("preview card summaries, over real dispatch output", () => {
         postedEntryId = readFirstEntryId(data);
       }
     }
-
-    // Exact, so it fails in BOTH directions: a new member that only manages
-    // "book <id>" is caught, and so is writing a branch for one of these three
-    // without shrinking the list. Waved through here because #2716 is about the
-    // card saying anything at all — before it the component received no props,
-    // so every one of these rendered the generic "Accounting result" line.
-    assert.deepEqual(
-      bareBookOnly.sort(),
-      [...BARE_BOOK_ONLY_ACTIONS].sort(),
-      "the set of actions whose card says only the book id has changed — update the list, or #3228 is done",
-    );
   });
 
   it("createBook: names the book, rather than the generic line", async () => {

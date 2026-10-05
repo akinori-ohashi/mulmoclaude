@@ -7,7 +7,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { renderShapeScript } from "../../server/agent/mcp-tools/renderShapeScript.js";
-import { gridFor, viewAngles } from "@mulmoclaude/shapescript-plugin/render";
+import { gridFor, viewAngles } from "@gui-chat-plugin/shapescript/render";
 
 describe("renderShapeScript view angles", () => {
   // The default is four views, and that IS the feature: one projection is

@@ -27,8 +27,19 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
-/** Packaged plugins whose built `vue` entry exports a preview component. */
-const PACKAGED_PLUGINS = ["accounting", "chart", "collection", "form", "html", "markdown", "mulmoscript", "shapescript", "spotify"] as const;
+/** Packaged plugins whose built `vue` entry exports a preview component: the
+ *  workspace ones under `packages/plugins/`, and those the host installs from
+ *  npm (ShapeScript moved to gui-chat-plugins), keyed by the name each test
+ *  reports. */
+const PACKAGED_PLUGINS: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(
+    ["accounting", "chart", "collection", "form", "html", "markdown", "mulmoscript", "spotify"].map((name) => [
+      name,
+      path.join(repoRoot, "packages/plugins", `${name}-plugin`, "dist/vue.js"),
+    ]),
+  ),
+  shapescript: path.join(repoRoot, "node_modules/@gui-chat-plugin/shapescript/dist/vue.js"),
+};
 
 // Empty, and asserted so it stays that way. Holding a plugin out needs a
 // tracking issue and a line here saying which one.
@@ -70,10 +81,9 @@ describe("every packaged plugin preview declares the prop the sidebar passes", (
     assert.deepEqual([...KNOWN_UNFIXED], [], "add a tracking issue before holding a plugin out");
   });
 
-  PACKAGED_PLUGINS.forEach((plugin) => {
+  Object.entries(PACKAGED_PLUGINS).forEach(([plugin, entry]) => {
     it(`${plugin}`, async () => {
-      const entry = path.join(repoRoot, "packages/plugins", `${plugin}-plugin`, "dist/vue.js");
-      assert.ok(existsSync(entry), `${entry} is missing — run \`yarn build:packages\` before this suite`);
+      assert.ok(existsSync(entry), `${entry} is missing — run \`yarn build:packages\` (or \`yarn install\`) before this suite`);
 
       // A file URL, not a path: `import()` takes a specifier, and on Windows an
       // absolute path is not one — the loader reads `D:\…` as an unknown `d:`

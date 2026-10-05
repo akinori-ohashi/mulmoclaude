@@ -357,6 +357,11 @@ function runtimeImportmapBuildPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [vue(), tailwindcss(), mulmoclaudeAuthTokenPlugin(), runtimeImportmapBuildPlugin(), proxyPortGuardPlugin()],
+  // manifold-3d (ShapeScript's CSG, src/main.ts) finds its WebAssembly beside its
+  // own module (`new URL("manifold.wasm", import.meta.url)`); pre-bundled into
+  // .vite/deps that URL names a file that is not there, and the dev server
+  // answers index.html for it.
+  optimizeDeps: { exclude: ['manifold-3d'] },
   build: {
     outDir: 'dist/client',
     rollupOptions: {

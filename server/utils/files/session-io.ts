@@ -3,7 +3,7 @@ import path from "node:path";
 import { WORKSPACE_DIRS, workspacePath } from "../../workspace/paths.js";
 import { isChatModel, type ChatModel } from "../../../src/config/models.js";
 import { readTextUnder, writeTextUnder, resolvePath, ensureWorkspaceDir } from "./workspace-io.js";
-import { isRecord } from "../types.js";
+import { isOptionalBoolean, isOptionalString, isRecord } from "../types.js";
 import { isSessionOrigin, type SessionOrigin } from "../../../src/types/session.js";
 import { AGENT_BACKEND_IDS, type AgentBackendId } from "../../system/config.js";
 import { isSafeSessionId } from "./sessionId.js";
@@ -87,8 +87,6 @@ function dropUnknownChatModel(value: unknown): unknown {
   const { chatModel: __unknown, ...rest } = value;
   return rest;
 }
-const isOptionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
-const isOptionalBoolean = (value: unknown): boolean => value === undefined || typeof value === "boolean";
 
 function isAgentSessionRef(value: unknown): value is AgentSessionRef {
   if (!isRecord(value) || typeof value.token !== "string") return false;

@@ -1,5 +1,5 @@
 // MulmoClaude's host wiring for the presentShapeScript plugin's dispatch
-// channel. The extracted @mulmoclaude/shapescript-plugin View reaches host
+// channel. The extracted @gui-chat-plugin/shapescript View reaches host
 // storage through `useRuntime().dispatch({ kind: "loadShape" | "saveShape", … })`;
 // this registers the built-in "shapescript" dispatch handler that routes those
 // calls to the package's `executeShapeScriptDispatch` against the GENERIC
@@ -7,7 +7,7 @@
 // so subscribed View tabs refresh. Imported for side effect at boot
 // (server/index.ts) so the dispatch resolves.
 
-import { executeShapeScriptDispatch, isShapeScriptDispatchArgs, SHAPE_EXTENSIONS } from "@mulmoclaude/shapescript-plugin";
+import { executeShapeScriptDispatch, isShapeScriptDispatchArgs, SHAPE_EXTENSIONS } from "@gui-chat-plugin/shapescript";
 import { makeArtifactsFileOps } from "./runtime.js";
 import { publishFileChange } from "../events/file-change.js";
 import { describeKind, registerBuiltinDispatch } from "./builtin-dispatch.js";

@@ -23,6 +23,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable } from "node:stream";
 
 import { findAvailablePort } from "../utils/port.mjs";
+import { signalProcessGroup } from "./processGroup.js";
 import { log } from "../system/logger/index.js";
 import { errorMessage } from "../utils/errors.js";
 import { ONE_SECOND_MS } from "../utils/time.js";
@@ -77,6 +78,51 @@ export function shimProbeUrl(port: number): string {
 const SHIM_PORT_RANGE_START = 39_100;
 const SHIM_READY_TIMEOUT_MS = 15 * ONE_SECOND_MS;
 const SHIM_READY_POLL_MS = ONE_SECOND_MS / 4;
+const SHIM_KILL_GRACE_MS = 5 * ONE_SECOND_MS;
+
+// The port is bound by a grandchild (npx → sh → supergateway), and a
+// SIGTERM to `npx` alone does not reliably reach it (#3357). Each shim
+// therefore runs in its own process group and is ended as a group —
+// which also means a terminal Ctrl+C no longer reaches it, so the
+// server's own exit has to.
+const liveShimGroups = new Set<number>();
+let isExitHookInstalled = false;
+
+export function killAllShimGroups(): void {
+  liveShimGroups.forEach((pid) => signalProcessGroup(pid, "SIGKILL"));
+  liveShimGroups.clear();
+}
+
+function trackShimGroup(pid: number | undefined): void {
+  if (pid === undefined) return;
+  liveShimGroups.add(pid);
+  if (isExitHookInstalled) return;
+  isExitHookInstalled = true;
+  // 'exit' also fires for graceful shutdown's process.exit() and after an uncaught throw.
+  process.once("exit", killAllShimGroups);
+}
+
+/** Idempotent closer for a child spawned with `detached: true`: SIGTERM
+ *  to the whole group, then SIGKILL to whatever ignored it. */
+export function createShimCloser(child: ChildProcess, graceMs: number = SHIM_KILL_GRACE_MS): () => void {
+  const { pid } = child;
+  trackShimGroup(pid);
+  let isClosed = false;
+  return () => {
+    if (isClosed) return;
+    isClosed = true;
+    signalProcessGroup(pid, "SIGTERM");
+    setTimeout(() => {
+      if (pid === undefined) return;
+      // Kept on failure so the exit hook retries it.
+      if (signalProcessGroup(pid, "SIGKILL") === "failed") {
+        log.warn("mcp-shim", "could not kill stdio→http shim process group — its port may stay bound", { pid });
+        return;
+      }
+      liveShimGroups.delete(pid);
+    }, graceMs).unref();
+  };
+}
 
 // POSIX single-quote escaping. supergateway runs the `--stdio` value
 // through `spawn(..., { shell: true })`, so the string is parsed by a
@@ -196,6 +242,8 @@ export async function startStdioHttpShim(serverId: string, spec: McpStdioSpec, w
     // (API keys etc.); inherit the host env for npx/node resolution.
     env: { ...process.env, ...(spec.env ?? {}) },
     stdio: ["ignore", "pipe", "pipe"],
+    // Own process group, so close() can reach the port-owning grandchild.
+    detached: true,
   });
   drainToDebug(child, serverId);
   // Without an error listener a spawn failure (npx missing) would be
@@ -207,9 +255,7 @@ export async function startStdioHttpShim(serverId: string, spec: McpStdioSpec, w
     log.warn("mcp-shim", "supergateway spawn failed", { serverId, error: errorMessage(err) });
   });
 
-  const close = () => {
-    if (!child.killed) child.kill("SIGTERM");
-  };
+  const close = createShimCloser(child);
 
   const ready = !spawnFailed && (await waitUntilListening(child, port, () => spawnFailed));
   if (!ready) {

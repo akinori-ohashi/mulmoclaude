@@ -14,7 +14,7 @@ import type { PresentCollectionArgs } from "../../../src/plugins/presentCollecti
 import { loadCollection, validateCollectionRecords } from "../../workspace/collections/index.js";
 import { defangForPrompt } from "@mulmoclaude/core/collection";
 import { executeOpenCanvas } from "../../../src/plugins/canvas/definition.js";
-import { executePresentShapeScript, SHAPE_EXTENSIONS } from "@mulmoclaude/shapescript-plugin";
+import { executePresentShapeScript, SHAPE_EXTENSIONS } from "@gui-chat-plugin/shapescript";
 import { executeMapControl } from "@gui-chat-plugin/google-map";
 import { errorMessage } from "../../utils/errors.js";
 import { badRequest, serverError } from "../../utils/httpError.js";

@@ -1085,6 +1085,12 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
     );
   }
 
+  /** The root guard, the ffmpeg guard and the resolve, in the order the
+   *  whole-script renders (movie, PDF) run them. */
+  function resolveRenderTarget(filePath: string, root?: string): { ok: true; absolutePath: string } | OpFailure {
+    return guardStoryGenerationRoot(root) ?? ffmpegGuard() ?? resolveStory(filePath, root);
+  }
+
   /**
    * Long-held foreground movie generation (the package View's
    * `generateMovie` dispatch). Resolves when the whole pipeline finishes.
@@ -1093,11 +1099,7 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
    * as they land — the successor of the SSE per-beat events.
    */
   async function generateMovieOp(filePath: string, chatSessionId: string | undefined, root?: string): Promise<OpResult<{ moviePath: string }>> {
-    const rootGuard = guardStoryGenerationRoot(root);
-    if (rootGuard) return rootGuard;
-    const ffmpeg = ffmpegGuard();
-    if (ffmpeg) return ffmpeg;
-    const resolved = resolveStory(filePath, root);
+    const resolved = resolveRenderTarget(filePath, root);
     if (!resolved.ok) return resolved;
     const absoluteFilePath = resolved.absolutePath;
 
@@ -1245,11 +1247,7 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
   /** Long-held foreground PDF generation (the package View's `generatePdf`
    *  dispatch) — the PDF sibling of `generateMovieOp`. */
   async function generatePdfOp(filePath: string, chatSessionId: string | undefined, root?: string): Promise<OpResult<{ pdfPath: string }>> {
-    const rootGuard = guardStoryGenerationRoot(root);
-    if (rootGuard) return rootGuard;
-    const ffmpeg = ffmpegGuard();
-    if (ffmpeg) return ffmpeg;
-    const resolved = resolveStory(filePath, root);
+    const resolved = resolveRenderTarget(filePath, root);
     if (!resolved.ok) return resolved;
     const absoluteFilePath = resolved.absolutePath;
 

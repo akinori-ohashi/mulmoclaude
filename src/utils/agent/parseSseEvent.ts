@@ -18,10 +18,8 @@ import type {
   SseToolCallResult,
   SseToolResult,
 } from "../../types/sse";
-import { isRecord, isUnknownArray } from "../types";
+import { isOptionalBoolean, isOptionalString, isRecord, isUnknownArray } from "../types";
 
-const isOptionalString = (value: unknown): value is string | undefined => value === undefined || typeof value === "string";
-const isOptionalBoolean = (value: unknown): value is boolean | undefined => value === undefined || typeof value === "boolean";
 const isNullableString = (value: unknown): value is string | null => value === null || typeof value === "string";
 const isSkillScope = (value: unknown): value is SkillScope => value === "user" || value === "project" || value === "claude-plugin" || value === "unknown";
 const isTextSource = (value: unknown): value is SseText["source"] => value === undefined || value === "user" || value === "assistant";
