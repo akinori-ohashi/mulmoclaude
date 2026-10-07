@@ -42,7 +42,7 @@ async function* runWithProcess(proc: CodexProcess, input: AgentInput): AsyncGene
     yield { type: AGENT_SESSION_EVENT_TYPE, backendId: "codex", token: threadId };
     const turnId = await startTurn(client, threadId, input);
     abort.setTurn(threadId, turnId);
-    yield* streamTurn(client, turnId);
+    yield* streamTurn(client, turnId, input.sessionToken !== undefined);
   } catch (error) {
     if (!input.abortSignal?.aborted) yield setupError(error, input.sessionToken !== undefined);
   } finally {
@@ -146,13 +146,20 @@ async function resolveInvokedSkill(message: string, workspacePath: string): Prom
   return skill ? { name: skill.name, path: skill.path } : null;
 }
 
-async function* streamTurn(client: CodexAppServerClient, turnId: string): AsyncGenerator<AgentEvent> {
+async function* streamTurn(client: CodexAppServerClient, turnId: string, wasResume: boolean): AsyncGenerator<AgentEvent> {
   const mapper = new CodexEventMapper();
   for await (const notification of client.notifications()) {
-    for (const event of mapper.map(notification)) yield event;
+    for (const event of mapper.map(notification)) yield markResumeRecovery(event, wasResume);
     if (notification.method === "turn/completed" && turnIdOf(notification.params) === turnId) return;
   }
   throw new Error("codex app-server exited before turn/completed");
+}
+
+function markResumeRecovery(event: AgentEvent, wasResume: boolean): AgentEvent {
+  if (wasResume && event.type === EVENT_TYPES.error && isCodexResumeInvalidError(event.message)) {
+    return { ...event, recovery: "stale-session" };
+  }
+  return event;
 }
 
 function turnIdOf(params: unknown): string | undefined {
@@ -199,10 +206,17 @@ function spawnError(error: unknown): AgentEvent {
 
 function setupError(error: unknown, wasResume: boolean): AgentEvent {
   const message = errorMessage(error);
-  if (wasResume && isMissingThreadError(message)) {
+  if (wasResume && isCodexResumeInvalidError(message)) {
     return { type: EVENT_TYPES.error, message, recovery: "stale-session" };
   }
   return { type: EVENT_TYPES.error, message };
+}
+
+/** A resumed Codex thread cannot be reused after its model entitlement changes.
+ *  Starting a fresh thread is safe because these failures happen before the
+ *  model can execute tools, and the host replays the local transcript. */
+export function isCodexResumeInvalidError(message: string): boolean {
+  return isMissingThreadError(message) || message.includes("model is not supported when using Codex with a ChatGPT account");
 }
 
 function isMissingThreadError(message: string): boolean {

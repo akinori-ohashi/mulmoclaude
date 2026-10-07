@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { EVENT_TYPES } from "../../src/types/events.js";
 import { resolveBackendPreference } from "../../server/agent/backend/index.js";
-import { buildCodexInput, buildCodexThreadRequest, buildCodexTurnParams } from "../../server/agent/backend/codex-app-server.js";
+import { buildCodexInput, buildCodexThreadRequest, buildCodexTurnParams, isCodexResumeInvalidError } from "../../server/agent/backend/codex-app-server.js";
 import { CodexEventMapper } from "../../server/agent/backend/codex/eventMapper.js";
 import { toCodexMcpConfig } from "../../server/agent/backend/codex/mcpConfig.js";
 import type { AgentInput } from "../../server/agent/backend/types.js";
@@ -130,6 +130,17 @@ describe("Codex turn input", () => {
     const turn = await buildCodexTurnParams("thr_123", input);
     assert.equal(turn.effort, "xhigh");
     assert.deepEqual(turn.sandboxPolicy, { type: "workspaceWrite", writableRoots: ["C:\\workspace"], networkAccess: true });
+  });
+});
+
+describe("Codex resume recovery", () => {
+  it("starts a fresh thread when a saved thread uses an unsupported ChatGPT-plan model", () => {
+    assert.equal(isCodexResumeInvalidError("The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account."), true);
+  });
+
+  it("keeps existing missing-thread recovery and rejects unrelated failures", () => {
+    assert.equal(isCodexResumeInvalidError("thread abc was not found"), true);
+    assert.equal(isCodexResumeInvalidError("Selected model is at capacity. Please try a different model."), false);
   });
 });
 
