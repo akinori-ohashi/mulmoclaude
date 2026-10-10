@@ -11,8 +11,10 @@
 //     available; every subsequent API call will 401, which is the
 //     correct dev-time signal)
 
+import { AUTH_TOKEN_META_NAME } from "../auth/authTokenHtml";
+
 export function readAuthTokenFromMeta(): string | null {
-  const meta = document.querySelector('meta[name="mulmoclaude-auth"]');
+  const meta = document.querySelector(`meta[name="${AUTH_TOKEN_META_NAME}"]`);
   if (meta === null) return null;
   const content = meta.getAttribute("content");
   if (content === null || content === "") return null;

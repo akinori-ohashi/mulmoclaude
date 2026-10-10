@@ -301,7 +301,9 @@ Pre-#284 workspaces (with `chat/`, `summaries/`, `memory.md` at the workspace ro
 
 Every HTTP call to `/api/*` requires `Authorization: Bearer <token>`. Layered on top of the CSRF origin check (`server/api/csrfGuard.ts`): **both** must pass. The origin check stops cross-origin browser attacks; the bearer check stops sibling processes on the same machine that bypass browser CORS entirely.
 
-**`/ws/pubsub` (#3433)**: the socket.io handshake presents the same token as `auth.token` (`usePubSub.ts` reads it through `getAuthToken()`), and a server middleware refuses a handshake without it with the same generic `unauthorized`. socket.io does not retry a refused handshake — the client socket is destroyed, so `socket.active` is false — and the SPA shows a banner with a Reload button instead of spinning. That is what a server restart looks like from a page that stayed open: the token was regenerated, and only a reload fetches the new one.
+**`/ws/pubsub` (#3433)**: the socket.io handshake presents the same token as `auth.token` (`usePubSub.ts` reads it through `getAuthToken()`), and a server middleware refuses a handshake without it with the same generic `unauthorized`. socket.io does not retry a refused handshake — the client socket is destroyed, so `socket.active` is false — so the SPA reconnects it explicitly, and only once it holds a token the server has not refused (next paragraph).
+
+**A server restart under an open page (#3438)**: the token is regenerated, so the page's next `/api/*` call answers 401 and its socket handshake is refused. index.html is served without a token and carries the current one on every request, so the page fetches `/` again (`src/utils/auth/authTokenRecovery.ts`), installs the token it carries, and goes on: `apiCall` and `apiFetchRaw` re-issue the refused request once, and `usePubSub` calls `socket.connect()`. Both happen only when index.html carried a token DIFFERENT from the refused one — a 401 the server sends for its own reasons (`/api/remote-host/reconnect` on an expired blob) reaches the caller unchanged, and a token refused twice is not retried. When index.html carries no usable token, `authTokenStale` raises `AuthTokenStaleBanner` with a Reload button, the last resort.
 
 **Exception — `/api/files/*`**: exempt from bearer auth because rendered markdown (`presentDocument`, wiki pages) embeds `<img src="/api/files/raw?path=...">` tags, and the browser's native image fetcher cannot attach an `Authorization` header. CSRF origin check + loopback-only binding still apply, so the exposure is limited to processes on localhost. The exemption is a negative-lookahead regex in `server/index.ts`.
 
@@ -312,6 +314,7 @@ Every HTTP call to `/api/*` requires `Authorization: Bearer <token>`. Layered on
 | Server start                     | `generateAndWriteToken()` writes a fresh 32-byte hex token to `<workspace>/.session-token` (mode 0600)                                 |
 | Vue page load / reload / new tab | Vite plugin (dev) / Express handler (prod) reads the file and substitutes `<meta name="mulmoclaude-auth" content="…">` into index.html |
 | Vue bootstrap (`src/main.ts`)    | Reads the meta tag, calls `setAuthToken()` so every `apiFetch` attaches the header                                                     |
+| Server restart under an open page | The next 401 or socket refusal fetches `/` again, installs the token it carries and retries (#3438) — no reload                      |
 | HMR                              | No file I/O — token stays in Vue memory, SPA never reloads                                                                             |
 | `SIGINT` / `SIGTERM`             | Best-effort `unlink` of BOTH `.session-token` and `.server-port` (#3082)                                                               |
 | Crash / `kill -9`                | Both may linger. The token is harmless — the next startup generates a new one and the stale value stops matching. The PORT is not: it names a port this server has left, and a bridge that follows it presents its token to whatever took it. See [`bridge-protocol.md`](bridge-protocol.md) |
@@ -328,8 +331,10 @@ Every HTTP call to `/api/*` requires `Authorization: Bearer <token>`. Layered on
 - `server/api/auth/bearerAuth.ts` — Express middleware
 - `server/api/auth/tokenGuard.ts` — the bearer rule (constant-time compare, non-empty checks, the generic message) shared by the middleware, the view-token check and the pub/sub handshake guard
 - `server/events/pub-sub/handshakeAuth.ts` — the `/ws/pubsub` handshake rule (pure); `server/events/pub-sub/index.ts` installs it as socket.io middleware
-- `src/utils/api.ts` — `setAuthToken()` + header injection (no call site changes needed; `apiFetch` auto-attaches); `getAuthToken()` for the socket handshake
-- `src/composables/usePubSub.ts` — presents the token in the socket.io handshake; `liveUpdatesRefused` drives `LiveUpdatesRefusedBanner.vue`
+- `src/utils/auth/authToken.ts` — the one token store: `setAuthToken()` at bootstrap, `getAuthToken()` for every header and the socket handshake
+- `src/utils/auth/authTokenRecovery.ts` — fetches `/` again after a refusal and installs the token it carries; `authTokenStale` drives `AuthTokenStaleBanner.vue`
+- `src/utils/api.ts` — header injection (no call site changes needed; `apiFetch` auto-attaches) and the one re-issue after a 401, for `apiCall` and `apiFetchRaw` alike
+- `src/composables/usePubSub.ts` — presents the token in the socket.io handshake and reconnects after a refusal once a different token is installed
 - `vite.config.ts` — `mulmoclaudeAuthTokenPlugin` for dev HTML substitution
 - `@mulmobridge/client` (token.ts) — bridge-side resolver (env var → file)
 - `@mulmobridge/client` (client.ts) — shared socket.io setup for every bridge (see `docs/bridge-protocol.md`)

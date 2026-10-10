@@ -1,6 +1,6 @@
-import { ref, type Ref } from "vue";
 import { io, type Socket } from "socket.io-client";
-import { getAuthToken } from "../utils/api";
+import { getAuthToken } from "../utils/auth/authToken";
+import { authTokenStale, recoverAuthToken } from "../utils/auth/authTokenRecovery";
 
 interface PubSubMessage {
   channel: string;
@@ -21,12 +21,6 @@ const reconnectHandlers = new Set<ReconnectHandler>();
 // are lost because the pub/sub server has no replay buffer). See #1915.
 let hasConnectedOnce = false;
 
-/** True once the server refused the handshake. The token is regenerated at
- *  every server start, so after a restart this page's token is stale and
- *  socket.io stops retrying; only a reload fetches a new one. `App.vue`
- *  shows a banner while this is set (#3433). */
-export const liveUpdatesRefused: Ref<boolean> = ref(false);
-
 function resendSubscriptions(sock: Socket): void {
   for (const channel of listeners.keys()) {
     sock.emit("subscribe", channel);
@@ -43,6 +37,23 @@ function fireReconnectHandlers(): void {
   }
 }
 
+/** The server refused the handshake. The token is regenerated at every server
+ *  start, so this is what a restart looks like from a page that stayed open;
+ *  index.html carries the new token, and `auth` re-reads it on the next
+ *  CONNECT. socket.io does not retry a refusal on its own (#3433), so the
+ *  reconnect is explicit — and only with a token the server has not refused
+ *  yet, so a second refusal ends with the banner rather than a loop (#3438). */
+async function reconnectWithFreshToken(refusedSocket: Socket): Promise<void> {
+  const recovery = await recoverAuthToken();
+  // `maybeDisconnect` may have let go of this socket while index.html was fetched.
+  if (socket !== refusedSocket) return;
+  if (recovery === "installed") {
+    refusedSocket.connect();
+    return;
+  }
+  authTokenStale.value = true;
+}
+
 function connect(): Socket {
   if (socket) return socket;
 
@@ -56,7 +67,7 @@ function connect(): Socket {
   });
 
   sock.on("connect", () => {
-    liveUpdatesRefused.value = false;
+    authTokenStale.value = false;
     resendSubscriptions(sock);
     if (hasConnectedOnce) {
       fireReconnectHandlers();
@@ -68,10 +79,10 @@ function connect(): Socket {
   sock.on("connect_error", (err: Error) => {
     // A transport failure leaves `active` true and socket.io retries it on its
     // own. A refusal from the server middleware destroys the socket (`active`
-    // false) and nothing will retry it, so it has to reach the user.
+    // false) and nothing else will retry it.
     if (sock.active) return;
-    liveUpdatesRefused.value = true;
     console.error("[usePubSub] handshake refused by the server:", err.message);
+    void reconnectWithFreshToken(sock);
   });
 
   sock.on("data", (msg: PubSubMessage) => {

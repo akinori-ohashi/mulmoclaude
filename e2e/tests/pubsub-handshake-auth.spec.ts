@@ -1,9 +1,11 @@
 // The `/ws/pubsub` handshake carries the bearer token (#3433): the SPA sends
-// `auth.token` in the socket.io CONNECT packet, and a refusal from the server
-// is shown to the user instead of being retried with the same stale token.
-// E2E runs against `yarn dev:client` only, so the socket is a Playwright mock
-// speaking the socket.io wire protocol (see `fixtures/pubsub.ts`). This is the
-// one spec that checks the token's value; the shared mock acks any CONNECT.
+// `auth.token` in the socket.io CONNECT packet. After a refusal the page
+// fetches index.html again for a fresh token (#3438, `auth-token-recovery.spec.ts`);
+// here Vite serves it with the same token, so the fallback is a banner with a
+// Reload button and the stale token is never retried. E2E runs against
+// `yarn dev:client` only, so the socket is a Playwright mock speaking the
+// socket.io wire protocol (see `fixtures/pubsub.ts`). This is the one spec
+// that checks the token's value; the shared mock acks any CONNECT.
 
 import { test, expect, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
@@ -16,8 +18,8 @@ import {
   SOCKET_IO_CONNECT_REFUSED_PACKET,
 } from "../fixtures/pubsub";
 
-const BANNER = "live-updates-refused-banner";
-const RELOAD_BUTTON = "live-updates-refused-reload";
+const BANNER = "auth-token-stale-banner";
+const RELOAD_BUTTON = "auth-token-stale-reload";
 
 interface SocketLog {
   /** `auth.token` of every CONNECT packet the page sent, in order. */
@@ -72,14 +74,15 @@ test("the CONNECT packet carries the page's bearer token, and an accepted handsh
   await expect(page.getByTestId(BANNER)).toHaveCount(0);
 });
 
-test("a refused handshake shows the banner with a reload button, and the page closes the socket instead of retrying", async ({ page }) => {
+test("a refused handshake with the token index.html still carries shows the reload banner, and the page does not retry it", async ({ page }) => {
   const socketLog = await mockPubSub(page, SOCKET_IO_CONNECT_REFUSED_PACKET);
   await page.goto("/");
   await expect(page.getByTestId(BANNER)).toBeVisible();
   await expect(page.getByTestId(RELOAD_BUTTON)).toBeVisible();
   // socket.io destroys the socket on a middleware refusal and, with no other
-  // namespace open, closes the connection. A retry with the same stale token
-  // would show up as a second CONNECT before that close.
+  // namespace open, closes the connection. The page reconnects only with a
+  // token index.html did not carry before; a retry with the same one would
+  // show up as a second CONNECT.
   await expect.poll(() => socketLog.closes).toBe(1);
   expect(socketLog.tokens).toHaveLength(1);
 });

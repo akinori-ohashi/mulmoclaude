@@ -4,10 +4,10 @@
          it's the first thing the user sees when the server isn't
          reachable. Self-hiding when fetchHealth succeeds. -->
     <BackendOfflineBanner :on-retry="fetchHealth" />
-    <!-- Live-updates refused notice (#3433) — the pub/sub handshake was turned
-         down, which after a server restart means this page holds a stale token.
-         Offers a reload, the only way to fetch the new one. -->
-    <LiveUpdatesRefusedBanner />
+    <!-- Stale-token notice (#3438) — the server refused this page's token and
+         fetching index.html again did not produce one it accepts. Recovery is
+         the normal path after a restart; this is its last resort. -->
+    <AuthTokenStaleBanner />
     <!-- Remote-host disconnect notice (#2535) — shown when the host was meant to
          be connected (a session is parked) but dropped and a silent reconnect
          couldn't restore it. Offers a one-click re-login. -->
@@ -365,8 +365,8 @@ import { ref, computed, watch, nextTick, onMounted, onScopeDispose, reactive } f
 import { useI18n } from "vue-i18n";
 import { getPlugin } from "./tools";
 import type { ToolResultComplete } from "gui-chat-protocol/vue";
+import AuthTokenStaleBanner from "./components/AuthTokenStaleBanner.vue";
 import BackendOfflineBanner from "./components/BackendOfflineBanner.vue";
-import LiveUpdatesRefusedBanner from "./components/LiveUpdatesRefusedBanner.vue";
 import RemoteHostOfflineBanner from "./components/RemoteHostOfflineBanner.vue";
 import RightSidebar from "./components/RightSidebar.vue";
 import SidebarHeader from "./components/SidebarHeader.vue";
