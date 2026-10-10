@@ -18,7 +18,7 @@ or anything relaying traffic to the port, from subscribing to a session's events
 restart a page that stayed open holds the old token; instead of retrying with it, the app shows a banner with a
 Reload button.
 
-#### The bridge chat socket applies the same bearer rule (#3439)
+#### The bridge chat socket applies the same bearer rule (#3439, PR #3444)
 
 The `/ws/chat` handshake every `@mulmobridge/*` bridge presents its token to now compares it in constant time,
 answers every token refusal with the same generic `unauthorized` as `/api/*` and `/ws/pubsub`, and can no longer be
