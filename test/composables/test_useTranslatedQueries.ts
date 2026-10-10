@@ -51,10 +51,11 @@ function makeRole(roleId: string, queries: string[] | undefined): Role {
 }
 
 // Wait until the inflight fetch (if any) has settled and Vue has
-// flushed the resulting reactive updates.
+// flushed the resulting reactive updates. A timer tick, not a counted
+// microtask: how many hops `apiCall` takes to resolve is its business.
 async function settle(): Promise<void> {
   for (let index = 0; index < 5; index += 1) {
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
   }
 }

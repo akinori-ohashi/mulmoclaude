@@ -1,6 +1,8 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { apiCall, apiGet, apiPost, apiPut, apiDelete, backendReachable, isProxyUnreachable, lastBackendError, setAuthToken } from "../../src/utils/api.ts";
+import { apiCall, apiGet, apiPost, apiPut, apiDelete, apiFetchRaw, backendReachable, isProxyUnreachable, lastBackendError } from "../../src/utils/api.ts";
+import { getAuthToken, setAuthToken } from "../../src/utils/auth/authToken.ts";
+import { authTokenStale } from "../../src/utils/auth/authTokenRecovery.ts";
 
 // fetch mocking. Capture the URL + init passed by the api module, and
 // reply with a pre-scripted response. Each test installs its own mock
@@ -331,6 +333,206 @@ describe("isProxyUnreachable", () => {
     assert.equal(isProxyUnreachable(500, false), false);
     assert.equal(isProxyUnreachable(401, false), false);
     assert.equal(isProxyUnreachable(404, false), false);
+  });
+});
+
+// #3438 — a 401 is what a server restart looks like from a page that stayed
+// open. `apiCall` fetches index.html again, installs the token it carries and
+// retries once; a 401 the server sends for its own reasons leaves the token
+// unchanged and is returned as is.
+describe("apiCall — stale token recovery (#3438)", () => {
+  const INDEX_HTML_PATH = "/";
+  const API_PATH = "/api/thing";
+
+  function indexHtml(token: string): Response {
+    const html = `<!doctype html><html><head><meta name="mulmoclaude-auth" content="${token}" /></head><body></body></html>`;
+    return new Response(html, { status: 200, headers: { "Content-Type": "text/html" } });
+  }
+
+  type Responder = (url: string, bearer: string | undefined) => Response | Promise<Response>;
+
+  /** Answer every fetch by URL and bearer, recording each call. */
+  function installResponder(respond: Responder): void {
+    calls = [];
+    const mock: FetchFn = (url, init) => {
+      const call = { url: String(url), init };
+      calls.push(call);
+      return Promise.resolve(respond(call.url, getHeader(call, "Authorization")));
+    };
+    globalThis.fetch = mock;
+  }
+
+  /** An API that accepts one bearer and refuses every other with a 401, with
+   *  index.html answered by `index`. */
+  function serverWith(index: () => Response | Promise<Response>, acceptedToken: string): Responder {
+    return (url, bearer) => {
+      if (url === INDEX_HTML_PATH) return index();
+      return bearer === `Bearer ${acceptedToken}` ? jsonResponse(200, { ok: true }) : jsonResponse(401, { error: "unauthorized" });
+    };
+  }
+
+  function callAt(index: number): MockCall {
+    const call = calls[index];
+    assert.ok(call, `expected a fetch at index ${index}`);
+    return call;
+  }
+
+  beforeEach(() => {
+    setAuthToken("stale");
+    authTokenStale.value = false;
+    backendReachable.value = true;
+  });
+  afterEach(() => {
+    restoreMock();
+    setAuthToken(null);
+    authTokenStale.value = false;
+  });
+
+  it("fetches index.html on a 401 and retries once with the token it carries", async () => {
+    installResponder(serverWith(() => indexHtml("fresh"), "fresh"));
+    const result = await apiPost(API_PATH, { a: 1 });
+    assert.equal(result.ok, true);
+    assert.deepEqual(
+      calls.map((call) => call.url),
+      [API_PATH, INDEX_HTML_PATH, API_PATH],
+    );
+    // index.html is fetched the way a navigation would: no bearer, no cache.
+    assert.equal(getHeader(callAt(1), "Authorization"), undefined);
+    assert.equal(callAt(1).init?.cache, "no-store");
+    // The retry is the same request with the new token.
+    assert.equal(getHeader(callAt(2), "Authorization"), "Bearer fresh");
+    assert.equal(callAt(2).init?.method, "POST");
+    assert.equal(callAt(2).init?.body, JSON.stringify({ a: 1 }));
+    assert.equal(getAuthToken(), "fresh");
+    assert.equal(authTokenStale.value, false);
+  });
+
+  it("returns the 401 as is when index.html still carries the token the server refused", async () => {
+    installResponder(serverWith(() => indexHtml("stale"), "something-else"));
+    const result = await apiGet(API_PATH);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.status, 401);
+    assert.deepEqual(
+      calls.map((call) => call.url),
+      [API_PATH, INDEX_HTML_PATH],
+    );
+    assert.equal(getAuthToken(), "stale");
+    // An application 401 is not a stale page.
+    assert.equal(authTokenStale.value, false);
+  });
+
+  it("reports a stale token when the server also refuses the one index.html carries", async () => {
+    installResponder(serverWith(() => indexHtml("fresh"), "neither"));
+    const result = await apiGet(API_PATH);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.status, 401);
+    assert.deepEqual(
+      calls.map((call) => call.url),
+      [API_PATH, INDEX_HTML_PATH, API_PATH],
+    );
+    assert.equal(authTokenStale.value, true);
+  });
+
+  it("reports a stale token when index.html carries none", async () => {
+    installResponder(serverWith(() => indexHtml(""), "fresh"));
+    const result = await apiGet(API_PATH);
+    assert.equal(result.ok, false);
+    assert.deepEqual(
+      calls.map((call) => call.url),
+      [API_PATH, INDEX_HTML_PATH],
+    );
+    assert.equal(getAuthToken(), "stale");
+    assert.equal(authTokenStale.value, true);
+  });
+
+  it("leaves a 401 alone while index.html cannot be fetched", async () => {
+    installResponder(serverWith(() => Promise.reject(new Error("offline")), "fresh"));
+    const result = await apiGet(API_PATH);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.status, 401);
+    assert.equal(getAuthToken(), "stale");
+    // That is the offline banner's territory, not this one's.
+    assert.equal(authTokenStale.value, false);
+  });
+
+  it("recovers a page that holds no token at all the same way", async () => {
+    setAuthToken(null);
+    installResponder(serverWith(() => indexHtml("fresh"), "fresh"));
+    const result = await apiGet(API_PATH);
+    assert.equal(result.ok, true);
+    assert.equal(getHeader(callAt(0), "Authorization"), undefined);
+    assert.equal(getHeader(callAt(2), "Authorization"), "Bearer fresh");
+    assert.equal(getAuthToken(), "fresh");
+  });
+
+  it("shares one index.html fetch between concurrent 401s", async () => {
+    installResponder(serverWith(() => indexHtml("fresh"), "fresh"));
+    const results = await Promise.all([apiGet("/api/one"), apiGet("/api/two")]);
+    assert.deepEqual(
+      results.map((result) => result.ok),
+      [true, true],
+    );
+    assert.equal(calls.filter((call) => call.url === INDEX_HTML_PATH).length, 1);
+    assert.equal(calls.length, 5);
+  });
+
+  it("never fetches index.html for a refusal other than 401", async () => {
+    installResponder(() => jsonResponse(403, { error: "forbidden" }));
+    const result = await apiGet(API_PATH);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.status, 403);
+    assert.deepEqual(
+      calls.map((call) => call.url),
+      [API_PATH],
+    );
+    assert.equal(authTokenStale.value, false);
+  });
+
+  // The chat send (`POST /api/agent`, an SSE stream) goes through the raw
+  // escape hatch, so it needs the same retry — it is the call the issue
+  // describes failing with a bare `unauthorized`.
+  it("apiFetchRaw retries a 401 once with the recovered token, re-sending the body", async () => {
+    installResponder(serverWith(() => indexHtml("fresh"), "fresh"));
+    const rawResponse = await apiFetchRaw(API_PATH, {
+      method: "POST",
+      body: JSON.stringify({ message: "hi" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    assert.equal(rawResponse.status, 200);
+    assert.deepEqual(
+      calls.map((call) => call.url),
+      [API_PATH, INDEX_HTML_PATH, API_PATH],
+    );
+    assert.equal(getHeader(callAt(2), "Authorization"), "Bearer fresh");
+    assert.equal(callAt(2).init?.body, JSON.stringify({ message: "hi" }));
+    assert.equal(getHeader(callAt(2), "Content-Type"), "application/json");
+  });
+
+  it("apiFetchRaw hands back the 401 when index.html still carries the refused token", async () => {
+    installResponder(serverWith(() => indexHtml("stale"), "something-else"));
+    const rawResponse = await apiFetchRaw(API_PATH);
+    assert.equal(rawResponse.status, 401);
+    assert.deepEqual(
+      calls.map((call) => call.url),
+      [API_PATH, INDEX_HTML_PATH],
+    );
+    assert.equal(authTokenStale.value, false);
+  });
+
+  it("apiFetchRaw does not retry a request whose body is a stream, which the first issue consumed", async () => {
+    installResponder(serverWith(() => indexHtml("fresh"), "fresh"));
+    const streamBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("chunk"));
+        controller.close();
+      },
+    });
+    const rawResponse = await apiFetchRaw(API_PATH, { method: "POST", body: streamBody });
+    assert.equal(rawResponse.status, 401);
+    assert.deepEqual(
+      calls.map((call) => call.url),
+      [API_PATH],
+    );
   });
 });
 

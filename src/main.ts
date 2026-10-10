@@ -9,7 +9,7 @@ import App from "./App.vue";
 import router from "./router/index";
 import { installGuards } from "./router/guards";
 import i18n from "./lib/vue-i18n";
-import { setAuthToken } from "./utils/api";
+import { setAuthToken } from "./utils/auth/authToken";
 import { readAuthTokenFromMeta } from "./utils/dom/authTokenMeta";
 import { loadRuntimePlugins } from "./tools/runtimeLoader";
 import { startDevPluginReloadListener } from "./composables/useDevPluginReload";

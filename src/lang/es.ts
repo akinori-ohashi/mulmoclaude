@@ -142,9 +142,9 @@ const esMessages = {
     body: "Tu teléfono no podrá enviar a este dispositivo hasta que vuelvas a conectarte.",
     reconnect: "Reconectar",
   },
-  liveUpdatesRefused: {
-    title: "Se rechazaron las actualizaciones en vivo",
-    body: "El servidor rechazó el token de sesión de esta página; probablemente se reinició. Recarga para obtener uno nuevo.",
+  authTokenStale: {
+    title: "Esta página necesita recargarse",
+    body: "El servidor rechazó el token de esta página y no se pudo obtener uno nuevo. Recarga para continuar.",
     reload: "Recargar",
   },
   remoteHost: {

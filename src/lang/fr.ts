@@ -137,9 +137,9 @@ const frMessages = {
     body: "Votre téléphone ne pourra pas envoyer vers cet appareil tant que vous n'êtes pas reconnecté.",
     reconnect: "Se reconnecter",
   },
-  liveUpdatesRefused: {
-    title: "Les mises à jour en direct ont été refusées",
-    body: "Le serveur a refusé le jeton de session de cette page ; il a probablement redémarré. Rechargez pour en obtenir un nouveau.",
+  authTokenStale: {
+    title: "Cette page doit être rechargée",
+    body: "Le serveur a refusé le jeton de cette page et un nouveau n'a pas pu être récupéré. Rechargez pour continuer.",
     reload: "Recharger",
   },
   remoteHost: {

@@ -21,9 +21,16 @@ the sandbox, with `nosniff` kept; SVG, HTML, text, images and unknown types stay
 
 The `/ws/pubsub` socket.io handshake now presents the same per-startup token every `/api/*` call carries, and the
 server refuses a handshake without it. Until now loopback binding was the only thing keeping another local process,
-or anything relaying traffic to the port, from subscribing to a session's events as they stream. After a server
-restart a page that stayed open holds the old token; instead of retrying with it, the app shows a banner with a
-Reload button.
+or anything relaying traffic to the port, from subscribing to a session's events as they stream.
+
+#### An open page follows a server restart on its own (#3438, PR #3446)
+
+The bearer token is regenerated at every server start, and a page that stayed open used to be left with the old one:
+every send or save failed with a bare `unauthorized`, and only the live-update socket said anything, as a banner with a
+Reload button. The page now fetches `index.html` again, which carries the current token, and goes on with it: a refused
+call is retried once and the live-update socket reconnects. The banner remains as the last resort, for a page that
+cannot fetch a usable token, and it now speaks for calls and live updates alike. The three status banners — backend
+offline, remote host offline, and this one — share one component.
 
 #### Spotify playback works for Premium accounts again, and summaries carry each item's URI (#3432, PR #3434, PR #3436)
 
