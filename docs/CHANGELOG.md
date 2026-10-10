@@ -10,6 +10,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Highlights
 
+#### Audio and video opened from `/api/files/raw` play again (#3437, PR #3440)
+
+A sound or video file opened in its own tab, the way a collection's file link opens it, showed Chrome's player
+but never played: the response carried the `sandbox` content-security policy, Chrome's media page re-requested
+the file from the resulting `null` origin, and the request was blocked. Audio and video now join PDF outside
+the sandbox, with `nosniff` kept; SVG, HTML, text, images and unknown types stay sandboxed.
+
 #### The live-update socket requires the bearer token (#3433, PR #3435)
 
 The `/ws/pubsub` socket.io handshake now presents the same per-startup token every `/api/*` call carries, and the
@@ -24,6 +31,17 @@ Reload button. The page now fetches `index.html` again, which carries the curren
 call is retried once and the live-update socket reconnects. The banner remains as the last resort, for a page that
 cannot fetch a usable token, and it now speaks for calls and live updates alike. The three status banners — backend
 offline, remote host offline, and this one — share one component.
+
+#### Spotify playback works for Premium accounts again, and summaries carry each item's URI (#3432, PR #3434, PR #3436)
+
+Every playback control refused Premium accounts with `premium_required`. `/v1/me` stopped returning `product` for
+these apps, and the plugin read the missing field as Free. A missing tier now counts as unknown: playback goes
+through, and Spotify's own `PREMIUM_REQUIRED` refusal maps to the same message the plugin gave before. Profiles
+cached with the fabricated Free are fetched again. The search and listening summaries the agent reads now end each
+line with the item's `spotify:` URI, so a hit can be passed straight to `play`; a podcast episode gets none rather
+than a wrong track URI (`@mulmoclaude/spotify-plugin` 2.0.3).
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.11.2`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.3.0] - 2026-10-10
 
