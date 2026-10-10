@@ -16,7 +16,7 @@ The `/ws/pubsub` socket.io handshake now presents the same per-startup token eve
 server refuses a handshake without it. Until now loopback binding was the only thing keeping another local process,
 or anything relaying traffic to the port, from subscribing to a session's events as they stream.
 
-#### An open page follows a server restart on its own (#3438)
+#### An open page follows a server restart on its own (#3438, PR #3446)
 
 The bearer token is regenerated at every server start, and a page that stayed open used to be left with the old one:
 every send or save failed with a bare `unauthorized`, and only the live-update socket said anything, as a banner with a
