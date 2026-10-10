@@ -26,8 +26,8 @@
     "@mulmobridge/protocol": "^1.1.0",
     "@mulmoclaude/common": "^1.5.0",
     "dotenv": "^18.0.7",
-    "imapflow": "^2.3.0",
-    "mailparser": "^3.9.37",
+    "imapflow": "^2.4.0",
+    "mailparser": "^3.9.38",
     "nodemailer": "^10.0.16"
   },
   "devDependencies": {
