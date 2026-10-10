@@ -157,9 +157,9 @@ const enMessages = {
     body: "Your phone can't send to this device until you reconnect.",
     reconnect: "Reconnect",
   },
-  liveUpdatesRefused: {
-    title: "Live updates were refused",
-    body: "The server rejected this page's session token, so it has probably restarted. Reload to get a new one.",
+  authTokenStale: {
+    title: "This page needs a reload",
+    body: "The server refused this page's token and a new one could not be fetched. Reload to continue.",
     reload: "Reload",
   },
   remoteHost: {
