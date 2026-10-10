@@ -61,6 +61,7 @@ async function startHarness(opts: HarnessOpts = {}): Promise<{ harness: Harness;
     defaultRoleId: "general",
     transportsDir,
     logger: silentLogger,
+    tokenProvider: () => "test-token",
     ...(opts.getSessionRole === undefined ? {} : { getSessionRole: opts.getSessionRole }),
   };
 

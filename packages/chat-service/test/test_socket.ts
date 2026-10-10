@@ -4,6 +4,7 @@ import http from "http";
 import express from "express";
 import { io as ioClient, Socket as ClientSocket } from "socket.io-client";
 import { Server as SocketServer } from "socket.io";
+import { UNAUTHORIZED_MESSAGE } from "@mulmoclaude/common/token-guard";
 import { attachChatSocket, CHAT_SOCKET_EVENTS, CHAT_SOCKET_PATH, parseAttachments, parseOneAttachment } from "../src/socket.js";
 import { createPushQueue } from "../src/push-queue.js";
 import type { RelayParams, RelayResult } from "../src/relay.js";
@@ -25,6 +26,10 @@ const silentLogger: Logger = {
   info: () => {},
   debug: () => {},
 };
+
+/** The token every harness expects unless a case supplies its own provider:
+ *  `tokenProvider` is required, so there is no longer an open mode to test. */
+const HARNESS_TOKEN = "harness-token-xyz";
 
 interface HarnessOpts {
   tokenProvider?: () => string | null;
@@ -51,7 +56,7 @@ async function startHarness(opts: HarnessOpts = {}): Promise<Harness> {
     },
     queue: createPushQueue(),
     logger: silentLogger,
-    tokenProvider: opts.tokenProvider,
+    tokenProvider: opts.tokenProvider ?? (() => HARNESS_TOKEN),
   });
 
   await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", () => resolve()));
@@ -77,10 +82,12 @@ async function stopHarness(h: Harness): Promise<void> {
   await new Promise<void>((resolve) => h.httpServer.close(() => resolve()));
 }
 
-function connectClient(url: string, auth: Record<string, unknown> | undefined): ClientSocket {
+/** A client carrying the harness token plus `auth`; a case that wants a
+ *  different token (or none) sets `token` in `auth` explicitly. */
+function connectClient(url: string, auth: Record<string, unknown>): ClientSocket {
   return ioClient(url, {
     path: CHAT_SOCKET_PATH,
-    auth: auth ?? {},
+    auth: { token: HARNESS_TOKEN, ...auth },
     transports: ["websocket"],
     reconnection: false,
     timeout: 2000,
@@ -111,7 +118,7 @@ function emitMessageWithTimeout(client: ClientSocket, payload: unknown, timeoutM
   });
 }
 
-describe("chat-service socket — no auth", () => {
+describe("chat-service socket — messages", () => {
   let harness: Harness;
 
   beforeEach(async () => {
@@ -319,7 +326,7 @@ describe("chat-service socket — parseOneAttachment", () => {
   });
 });
 
-describe("chat-service socket — no auth (cont)", () => {
+describe("chat-service socket — messages (cont)", () => {
   let harness: Harness;
 
   beforeEach(async () => {
@@ -412,29 +419,41 @@ describe("chat-service socket — bearer token", () => {
     client.disconnect();
   });
 
-  it("rejects when token is missing", async () => {
-    const client = connectClient(harness.url, { transportId: "cli" });
-    await assert.rejects(waitConnect(client), /token is required/);
+  const refusedGenerically = async (client: ClientSocket): Promise<void> => {
+    await assert.rejects(waitConnect(client), (err: unknown) => err instanceof Error && err.message === UNAUTHORIZED_MESSAGE);
+    // socket.io destroys the client socket on a middleware refusal, so a
+    // bridge sees one `connect_error` and no retry with the same token.
+    assert.equal(client.active, false);
+    client.disconnect();
+  };
+
+  it("refuses a missing token with the generic message", async () => {
+    await refusedGenerically(connectClient(harness.url, { transportId: "cli", token: undefined }));
+  });
+
+  it("refuses an empty token with the generic message", async () => {
+    await refusedGenerically(connectClient(harness.url, { transportId: "cli", token: "" }));
+  });
+
+  it("refuses a wrong token with the same generic message", async () => {
+    await refusedGenerically(connectClient(harness.url, { transportId: "cli", token: "not-the-right-one" }));
+  });
+
+  it("refuses a same-length multi-byte token with the same generic message, without crashing the server", async () => {
+    await refusedGenerically(connectClient(harness.url, { transportId: "cli", token: "é".repeat(EXPECTED.length) }));
+    // The server is still up: the right token connects afterwards.
+    const client = connectClient(harness.url, { transportId: "cli", token: EXPECTED });
+    await waitConnect(client);
     client.disconnect();
   });
 
-  it("rejects when token is wrong", async () => {
-    const client = connectClient(harness.url, {
-      transportId: "cli",
-      token: "not-the-right-one",
-    });
-    await assert.rejects(waitConnect(client), /invalid token/);
-    client.disconnect();
-  });
-
-  it("rejects when server auth is not bootstrapped", async () => {
+  it("refuses everything with the same generic message while the server has no token", async () => {
     await stopHarness(harness);
     harness = await startHarness({ tokenProvider: () => null });
-    const client = connectClient(harness.url, {
-      transportId: "cli",
-      token: EXPECTED,
-    });
-    await assert.rejects(waitConnect(client), /server auth not ready/);
-    client.disconnect();
+    await refusedGenerically(connectClient(harness.url, { transportId: "cli", token: EXPECTED }));
+  });
+
+  it("checks the token before the transportId", async () => {
+    await refusedGenerically(connectClient(harness.url, { token: "not-the-right-one" }));
   });
 });

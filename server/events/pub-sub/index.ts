@@ -1,7 +1,7 @@
 import http from "http";
 import { Server as IOServer, type Socket } from "socket.io";
 
-import { UNAUTHORIZED_MESSAGE } from "../../api/auth/tokenGuard.js";
+import { UNAUTHORIZED_MESSAGE } from "@mulmoclaude/common/token-guard";
 import { log } from "../../system/logger/index.js";
 import { isAuthorizedPubSubHandshake } from "./handshakeAuth.js";
 

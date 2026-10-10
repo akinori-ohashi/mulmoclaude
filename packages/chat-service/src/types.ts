@@ -107,12 +107,12 @@ export interface ChatServiceDeps {
   transportsDir: string;
   logger: Logger;
   /**
-   * Returns the current bearer token the socket transport should
-   * accept at handshake, or null if auth isn't bootstrapped yet.
-   * Omit in tests / unauth environments to skip the check. See
-   * `attachChatSocket` in ./socket.ts.
+   * Returns the current bearer token the `/ws/chat` handshake must carry, or
+   * null while auth is not bootstrapped yet — every handshake is refused until
+   * it returns one. Required: a chat socket cannot be opened without the
+   * check. See `attachChatSocket` in ./socket.ts.
    */
-  tokenProvider?: (() => string | null) | undefined;
+  tokenProvider: () => string | null;
   /**
    * List recent sessions from the server. Used by /sessions command.
    * Omit if session listing is not available (command will reply

@@ -2,6 +2,7 @@ import http from "http";
 import express from "express";
 import { Server as IOServer } from "socket.io";
 import { CHAT_SOCKET_PATH, CHAT_SOCKET_EVENTS } from "@mulmobridge/protocol";
+import { isAuthorizedToken, UNAUTHORIZED_MESSAGE } from "@mulmoclaude/common/token-guard";
 import { handleMessage, type MessagePayload } from "./handlers.js";
 import { createLogger, type MockLogger } from "./logger.js";
 
@@ -30,27 +31,23 @@ export function createMockServer(opts: MockServerOptions): void {
   printBanner(opts, log);
 
   // ── Auth middleware ────────────────────────────────────────────
+  // The same rule and the same generic refusal as the real chat-service: a
+  // bridge developed against the mock sees exactly what the server sends.
 
   io.use((socket, next) => {
     if (opts.rejectAuth) {
       log.verbose(`  auth: REJECTED (--reject-auth mode)`);
-      return next(new Error("server auth not ready"));
+      return next(new Error(UNAUTHORIZED_MESSAGE));
     }
     const auth = socket.handshake.auth as Record<string, unknown>;
+    if (!isAuthorizedToken(auth?.token, opts.token)) {
+      log.verbose(`  auth: REJECTED (token missing or mismatched)`);
+      return next(new Error(UNAUTHORIZED_MESSAGE));
+    }
     const transportId = auth?.transportId;
-    const token = auth?.token;
-
     if (!transportId || typeof transportId !== "string") {
       log.verbose(`  auth: REJECTED (transportId missing)`);
       return next(new Error("transportId is required"));
-    }
-    if (!token || typeof token !== "string") {
-      log.verbose(`  auth: REJECTED (token missing)`);
-      return next(new Error("token is required"));
-    }
-    if (token !== opts.token) {
-      log.verbose(`  auth: REJECTED (token mismatch: got "${token.slice(0, 8)}…")`);
-      return next(new Error("invalid token"));
     }
     log.verbose(`  auth: { transportId: "${transportId}", token: valid }`);
     next();

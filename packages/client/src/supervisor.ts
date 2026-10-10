@@ -3,10 +3,10 @@
 // Both sidecars are rewritten when the server restarts, and the socket's URL is
 // fixed when the socket is constructed — so a bridge that reads them once is
 // pinned to the generation it started against. Before this, the client detected
-// the resulting `invalid token` and told the user to re-run the bridge, which is
+// the resulting token refusal and told the user to re-run the bridge, which is
 // where "I restart the server and then restart every bridge by hand" came from.
 //
-// `invalid token` is not a sufficient trigger. It only arrives when the bridge
+// A token refusal is not a sufficient trigger. It only arrives when the bridge
 // still REACHES the server, i.e. when the port happened not to change. When the
 // port did change, nothing answers and the error is a refused connection, so a
 // supervisor watching only for auth failures would sit on a dead port forever.
@@ -23,6 +23,17 @@
 // because the chat-service never issues one — it only logs disconnects — and a
 // recovery path for an event nothing produces is a path nothing tests. If that
 // changes, this is where it would go.
+
+import { UNAUTHORIZED_MESSAGE } from "@mulmoclaude/common/token-guard";
+
+// What a chat-service older than 2.0 answered instead of the one generic
+// message. Kept so a new bridge against an older server still gets the hint.
+const LEGACY_TOKEN_REFUSALS = new Set(["invalid token", "server auth not ready"]);
+
+/** Does this `connect_error` message mean the server refused the bearer token? */
+export function isTokenRefusal(message: string): boolean {
+  return message === UNAUTHORIZED_MESSAGE || LEGACY_TOKEN_REFUSALS.has(message);
+}
 
 /** The pair a socket was built from. */
 export interface Credentials {
