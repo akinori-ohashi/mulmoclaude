@@ -1,4 +1,4 @@
-import { isAuthorizedToken } from "../../api/auth/tokenGuard.js";
+import { isAuthorizedToken } from "@mulmoclaude/common/token-guard";
 import { isRecord } from "../../utils/types.js";
 
 // `auth` is whatever the socket.io client put in `io({ auth })`. Only a record

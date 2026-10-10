@@ -210,11 +210,13 @@ useful recovery hint:
 
 | Message | Meaning | Fix |
 |---|---|---|
-| `transportId is required` | `auth.transportId` missing / empty / non-string | Check your handshake payload |
-| `token is required` | Server has auth on; `auth.token` missing | Set `MULMOCLAUDE_AUTH_TOKEN` or ensure `.session-token` is readable |
-| `invalid token` | Provided token ≠ current server token | Server was restarted — re-read the token and reconnect |
-| `server auth not ready` | Server process booting; token not yet written | Retry in a second |
-| `handshake auth is required` | `auth` absent entirely | Pass an `auth` object to `io(...)` |
+| `unauthorized` | The bearer token was refused: `auth` absent, `auth.token` missing / empty / not the current server token, or the server has no token yet (still booting). One message for all of these on purpose — the same one `/api/*` and `/ws/pubsub` send — so a refused peer learns nothing | Re-read `MULMOCLAUDE_AUTH_TOKEN` / `.session-token` and reconnect; the server rewrites the token on every restart. `@mulmobridge/client` does this after every connect failure |
+| `transportId is required` | The token passed, but `auth.transportId` is missing / empty / non-string | Check your handshake payload |
+
+The token is checked before any other field. A server running
+`@mulmobridge/chat-service` before 2.0 answered `token is required`,
+`invalid token` or `server auth not ready` instead; `@mulmobridge/client`
+recognises both sets.
 
 Anything else is a platform-level connection error (network, TLS,
 wrong port). Surface it verbatim.
@@ -393,7 +395,7 @@ For the production-grade TS version with error paths baked in, use
 - **Server restart rewrites BOTH sidecars.** Re-read the pair on
   every failed connection and rebuild when it has changed — see
   "Re-read the pair on every connection failure" above. Do not wait
-  for `invalid token`: a restart that lands on a different port never
+  for `unauthorized`: a restart that lands on a different port never
   produces one, because nothing answers. Pinning the token with
   `MULMOCLAUDE_AUTH_TOKEN` on both sides (#316) is for a bridge on a
   DIFFERENT machine, which cannot read the workspace at all.

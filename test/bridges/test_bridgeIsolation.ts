@@ -63,6 +63,7 @@ describe("chat-service contains a throwing in-process bridge", () => {
       defaultRoleId: "default",
       transportsDir: "/tmp/mulmoclaude-bridges-test-3080/transports",
       logger: silent,
+      tokenProvider: () => "test-token",
     });
 
   // The server half of the same claim: `pushToBridge` is called from route

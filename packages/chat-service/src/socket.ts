@@ -16,9 +16,10 @@
 //   message goes to an in-memory queue; the next socket that joins
 //   the room drains its transport's queue on connect.
 //
-// Auth: when `tokenProvider` is supplied, the handshake is rejected
-// unless `auth.token` equals `tokenProvider()`. When omitted (tests,
-// unauth environments) only `transportId` is validated.
+// Auth: the handshake is refused unless `auth.token` passes the shared
+// bearer rule against `tokenProvider()` (see ./handshake.ts). The refusal
+// is the same generic `unauthorized` every other bearer surface sends, and
+// `tokenProvider` is required so a chat socket is never open by accident.
 //
 // Future phases:
 //   C — streaming text chunks via `reply.chunk`
@@ -31,6 +32,7 @@ import { Server as SocketServer } from "socket.io";
 import type { Socket } from "socket.io";
 import type { RelayFn } from "./relay.js";
 import type { PushQueue } from "./push-queue.js";
+import { validateHandshake, type BridgeOptions } from "./handshake.js";
 import type { Attachment, Logger } from "./types.js";
 
 export const CHAT_SOCKET_PATH = "/ws/chat";
@@ -62,8 +64,8 @@ export interface ChatSocketDeps {
   queue: PushQueue;
   logger: Logger;
   /** Current bearer token the handshake must carry. Null means
-   *  bootstrap in progress — reject everything. Omit to disable. */
-  tokenProvider?: (() => string | null) | undefined;
+   *  bootstrap in progress — refuse everything. */
+  tokenProvider: () => string | null;
 }
 
 export interface ChatSocketHandle {
@@ -72,12 +74,6 @@ export interface ChatSocketHandle {
    *  If none are connected, the message is queued for the next
    *  joiner. */
   pushToBridge: PushFn;
-}
-
-interface HandshakeAuth {
-  transportId?: unknown;
-  token?: unknown;
-  options?: unknown;
 }
 
 interface MessagePayload {
@@ -98,14 +94,6 @@ type ParsedMessage =
     }
   | { ok: false; error: string };
 
-// Flat primitives only — matches protocol's BridgeOptions. The
-// chat-service type is duplicated rather than imported to keep this
-// package free of a hard dep on protocol-as-a-value (it has always
-// been types-only there, and the re-declaration is one line).
-type BridgeOptions = Readonly<Record<string, string | number | boolean>>;
-
-type HandshakeResult = { ok: true; transportId: string; options: BridgeOptions } | { ok: false; error: string };
-
 // Hard limits to prevent oversized payloads from bridges (DoS /
 // accidental misconfiguration). Express's JSON body limit (50 MB)
 // is the outer gate; these are tighter, attachment-specific caps.
@@ -118,6 +106,18 @@ const MAX_SOCKET_PAYLOAD_BYTES = MAX_ATTACHMENT_TOTAL_BYTES + 4 * 1024 * 1024;
 
 export function bridgeRoom(transportId: string): string {
   return `bridge:${transportId}`;
+}
+
+// A refused handshake leaves the engine.io connection open, and that one
+// connection can keep sending CONNECT packets; one line per connection keeps
+// a misconfigured bridge diagnosable without letting a loop fill the log.
+// The address is logged, the token never.
+const warnedConnections = new WeakSet<object>();
+
+function warnRefusedOnce(logger: Logger, socket: Socket, error: string): void {
+  if (warnedConnections.has(socket.conn)) return;
+  warnedConnections.add(socket.conn);
+  logger.warn("chat-service", "handshake refused", { address: socket.handshake.address, error });
 }
 
 export function attachChatSocket(server: http.Server, deps: ChatSocketDeps): ChatSocketHandle {
@@ -137,8 +137,9 @@ export function attachChatSocket(server: http.Server, deps: ChatSocketDeps): Cha
   });
 
   io.use((socket, next) => {
-    const result = validateHandshake(socket.handshake.auth, tokenProvider);
+    const result = validateHandshake(socket.handshake.auth, tokenProvider());
     if (!result.ok) {
+      warnRefusedOnce(logger, socket, result.error);
       next(new Error(result.error));
       return;
     }
@@ -246,66 +247,6 @@ export function attachChatSocket(server: http.Server, deps: ChatSocketDeps): Cha
   };
 
   return { io, pushToBridge };
-}
-
-// `options` on the handshake is reduced to a FLAT PRIMITIVE bag:
-// string / number / boolean only. This serves two purposes —
-//   1. Rejects nested objects / arrays / functions so a downstream
-//      merge in the host app can't reintroduce prototype-pollution
-//      via a deeply-nested `__proto__` (top-level `__proto__` is
-//      stripped separately as a belt-and-braces guard).
-//   2. Makes the wire contract explicit: every value the host sees
-//      is something you could put in an env var.
-// Anything else (objects, arrays, null, undefined, functions,
-// symbols, bigints) is dropped silently. The bridge author is
-// responsible for flattening complex config into primitives before
-// sending.
-export function sanitiseOptions(raw: unknown): BridgeOptions {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const out: Record<string, string | number | boolean> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (key === "__proto__" || key === "prototype" || key === "constructor") continue;
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      // Drop non-finite numbers (NaN / Infinity) — they serialise
-      // oddly and the host app shouldn't be asked to distinguish
-      // "valid zero" from "broken input".
-      if (typeof value === "number" && !Number.isFinite(value)) continue;
-      out[key] = value;
-    }
-  }
-  return out;
-}
-
-function validateHandshake(auth: unknown, tokenProvider: (() => string | null) | undefined): HandshakeResult {
-  if (!auth || typeof auth !== "object") {
-    return { ok: false, error: "handshake auth is required" };
-  }
-  const transportIdRaw = (auth as HandshakeAuth).transportId;
-  if (typeof transportIdRaw !== "string" || transportIdRaw.trim().length === 0) {
-    return { ok: false, error: "transportId is required" };
-  }
-  const transportId = transportIdRaw.trim();
-  const options = sanitiseOptions((auth as HandshakeAuth).options);
-
-  if (!tokenProvider) {
-    return { ok: true, transportId, options };
-  }
-
-  const expected = tokenProvider();
-  if (expected === null || expected.length === 0) {
-    // Server auth not bootstrapped yet, or token absent. Reject so
-    // the bridge falls back to its connect-error path instead of
-    // silently succeeding.
-    return { ok: false, error: "server auth not ready" };
-  }
-  const provided = (auth as HandshakeAuth).token;
-  if (typeof provided !== "string" || provided.length === 0) {
-    return { ok: false, error: "token is required" };
-  }
-  if (provided !== expected) {
-    return { ok: false, error: "invalid token" };
-  }
-  return { ok: true, transportId, options };
 }
 
 function parseMessagePayload(payload: MessagePayload): ParsedMessage {

@@ -1,6 +1,6 @@
 {
   "name": "@mulmoclaude/common",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "General-purpose pure utilities (type guards, etc.) shared across the MulmoClaude host, bridges, and plugins",
   "type": "module",
   "main": "./dist/index.js",
@@ -23,6 +23,12 @@
       "import": "./dist/ssrf.js",
       "require": "./dist/ssrf.js",
       "default": "./dist/ssrf.js"
+    },
+    "./token-guard": {
+      "types": "./dist/token-guard.d.ts",
+      "import": "./dist/token-guard.js",
+      "require": "./dist/token-guard.js",
+      "default": "./dist/token-guard.js"
     }
   },
   "files": [

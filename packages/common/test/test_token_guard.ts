@@ -1,10 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { isAuthorizedToken, tokenEquals } from "../../server/api/auth/tokenGuard.js";
+import { isAuthorizedToken, tokenEquals } from "../src/token-guard.ts";
 
-// The bearer rule shared by `bearerAuth`, `verifyViewToken` and the
-// `/ws/pubsub` handshake guard. The cases that matter are the ones
+// The bearer rule shared by the host's `bearerAuth` and `verifyViewToken`, the
+// `/ws/pubsub` and `/ws/chat` handshake guards and the webhook bridge. The
+// cases that matter are the ones
 // `timingSafeEqual` alone gets wrong: it throws on a buffer-length mismatch,
 // so a candidate with the same character count but more bytes must come back
 // `false` rather than crash the request.

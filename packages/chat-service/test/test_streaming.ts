@@ -33,6 +33,8 @@ interface Harness {
 
 type RelayFn = (params: RelayParams) => Promise<RelayResult>;
 
+const HARNESS_TOKEN = "streaming-harness-token";
+
 async function startHarness(relay: RelayFn): Promise<Harness> {
   const app = express();
   const httpServer = http.createServer(app);
@@ -40,6 +42,7 @@ async function startHarness(relay: RelayFn): Promise<Harness> {
     relay,
     queue: createPushQueue(),
     logger: silentLogger,
+    tokenProvider: () => HARNESS_TOKEN,
   });
 
   await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", () => resolve()));
@@ -63,7 +66,7 @@ async function stopHarness(h: Harness): Promise<void> {
 function connectClient(url: string, transportId = "test"): ClientSocket {
   return ioClient(url, {
     path: CHAT_SOCKET_PATH,
-    auth: { transportId },
+    auth: { transportId, token: HARNESS_TOKEN },
     transports: ["websocket"],
     reconnection: false,
     timeout: 2000,

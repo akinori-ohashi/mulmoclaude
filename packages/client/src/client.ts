@@ -18,7 +18,7 @@ import { resolveAckTimeoutMs } from "./ackTimeout.js";
 import { readBridgeToken, tokenFilePath } from "./token.js";
 import { readBridgeEnvOptions } from "./options.js";
 import { DEFAULT_API_URL, resolvePublishedApiUrl } from "./apiUrl.js";
-import { backoffMs, credentialsChanged, type Credentials } from "./supervisor.js";
+import { backoffMs, credentialsChanged, isTokenRefusal, type Credentials } from "./supervisor.js";
 
 export interface MessageAck {
   ok: boolean;
@@ -129,7 +129,7 @@ export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
   // either order. What the order decides is WHICH tear it gets. Port first
   // yields a NEW token with an OLD port — a fresh credential sent to the port
   // the server has just left. Token first mostly yields the opposite, an OLD
-  // token with a NEW port, which the right server answers `invalid token`; the
+  // token with a NEW port, which the right server refuses as `unauthorized`; the
   // dangerous pairing survives only in the narrow window where BOTH reads fall
   // between the token write and the port publish (Codex, #3082).
   const token = requireBearerToken();
@@ -365,10 +365,10 @@ function installDefaultLogging(socket: Socket): void {
   socket.on("connect_error", (err) => {
     const msg = err.message;
     // Token-mismatch recovery: the server rewrites its token on
-    // every restart, so an old bridge will see "invalid token"
+    // every restart, so an old bridge is refused as `unauthorized`
     // right after the server bounces. Tell the user instead of
     // spinning silently.
-    if (msg === "invalid token" || msg === "server auth not ready") {
+    if (isTokenRefusal(msg)) {
       // No longer "re-run the bridge": the client re-reads the sidecar pair
       // after every connect failure and rebuilds the socket when the server
       // comes back as a different generation (#3078 A-3). This says what is

@@ -19,14 +19,14 @@
 // - **No token in logs**. Reject messages are generic ("unauthorized")
 //   so a leaked log line doesn't reveal whether "no header" vs
 //   "wrong token" — matches common auth-hardening guidance.
-// - **The token rule lives in `tokenGuard.ts`** (`isAuthorizedToken`):
-//   constant-time, byte-length-checked, and shared with the view-token
-//   check and the `/ws/pubsub` handshake guard, so every surface refuses
-//   the same way.
+// - **The token rule lives in `@mulmoclaude/common/token-guard`**
+//   (`isAuthorizedToken`): constant-time, byte-length-checked, and shared
+//   with the view-token check, the `/ws/pubsub` and `/ws/chat` handshake
+//   guards and the webhook bridge, so every surface refuses the same way.
 
 import type { Request, Response, NextFunction } from "express";
 import { getCurrentToken } from "./token.js";
-import { isAuthorizedToken, UNAUTHORIZED_MESSAGE } from "./tokenGuard.js";
+import { isAuthorizedToken, UNAUTHORIZED_MESSAGE } from "@mulmoclaude/common/token-guard";
 import { unauthorized } from "../../utils/httpError.js";
 
 const BEARER_PREFIX = "Bearer ";
