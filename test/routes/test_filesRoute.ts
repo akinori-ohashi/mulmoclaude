@@ -27,9 +27,10 @@ import {
   parseRange,
   classify,
   isSensitivePath,
+  MIME_BY_EXT,
   RAW_SECURITY_HEADERS,
-  RAW_SECURITY_HEADERS_PDF,
-  RAW_SECURITY_HEADERS_MEDIA,
+  RAW_SECURITY_HEADERS_NO_SANDBOX,
+  isSandboxExemptMime,
   rawSecurityHeadersForMime,
 } from "../../server/api/routes/files.js";
 
@@ -400,66 +401,111 @@ describe("RAW_SECURITY_HEADERS", () => {
   });
 });
 
-describe("RAW_SECURITY_HEADERS_PDF — Safari/WebKit carve-out (#1299)", () => {
+describe("RAW_SECURITY_HEADERS_NO_SANDBOX — the PDF (#1299) and media (#3437) carve-out", () => {
   // WebKit refuses to render `Content-Security-Policy: sandbox` PDFs
-  // and forces a download — the Files preview iframe ends up blank
-  // on Safari. The PDF viewer's own sandbox provides script
-  // isolation for AcroJS, so dropping the response CSP is safe.
-  // These tests pin the carve-out so a future "let's just apply the
-  // CSP to everything" refactor can't silently regress #1299.
+  // and forces a download; Chrome's media page re-fetches a sandboxed
+  // audio / video file from the `null` origin and CORS blocks it.
+  // Neither can run script in the document that shows it, so the
+  // response CSP is dropped and only `nosniff` stays. These tests pin
+  // the carve-out so a future "let's just apply the CSP to
+  // everything" refactor can't silently regress either issue.
 
-  it("does NOT set Content-Security-Policy on PDFs", () => {
-    assert.equal(RAW_SECURITY_HEADERS_PDF["Content-Security-Policy"], undefined);
+  it("does NOT set Content-Security-Policy", () => {
+    assert.equal(RAW_SECURITY_HEADERS_NO_SANDBOX["Content-Security-Policy"], undefined);
   });
 
-  it("still sets X-Content-Type-Options nosniff on PDFs", () => {
-    // Keeping `nosniff` prevents a PDF being re-interpreted as HTML
+  it("still sets X-Content-Type-Options nosniff", () => {
+    // Keeping `nosniff` prevents the file being re-interpreted as HTML
     // even if a misbehaving server (or proxy) drops Content-Type.
-    assert.equal(RAW_SECURITY_HEADERS_PDF["X-Content-Type-Options"], "nosniff");
+    assert.equal(RAW_SECURITY_HEADERS_NO_SANDBOX["X-Content-Type-Options"], "nosniff");
+  });
+
+  it("does not set any allow-listing header either", () => {
+    // Dropping the sandbox is not the same as opening the file to other
+    // origins: a CORS header here would let any page read workspace files.
+    assert.equal(RAW_SECURITY_HEADERS_NO_SANDBOX["Access-Control-Allow-Origin"], undefined);
+    assert.equal(RAW_SECURITY_HEADERS_NO_SANDBOX["Cross-Origin-Resource-Policy"], undefined);
   });
 });
 
-describe("RAW_SECURITY_HEADERS_MEDIA — opened-in-a-tab playback (#3437)", () => {
-  // Under `sandbox`, Chrome's media page re-fetches the file from
-  // the opaque `null` origin in CORS mode and the player never
-  // loads. These pin the carve-out and the nosniff it keeps.
+// Every audio / video MIME the route's MIME_BY_EXT table can emit.
+const MEDIA_MIMES = [
+  "audio/mpeg",
+  "audio/wav",
+  "audio/mp4",
+  "audio/ogg",
+  "audio/flac",
+  "audio/aac",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-m4v",
+  "video/ogg",
+];
+// Everything else the table emits, plus what an unknown extension gets
+// (octet-stream) and the markup shapes the sandbox CSP was added to
+// defend (SVG, HTML — plans/done/fix-files-raw-csp-sandbox.md).
+const SANDBOXED_MIMES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+  "image/bmp",
+  "image/avif",
+  "image/x-icon",
+  "text/html",
+  "text/plain",
+  "application/octet-stream",
+];
+// Near-misses: a prefix or a substring is not a match.
+const NEAR_MISS_MIMES = ["application/x-pdf", "application/pdf+xml", "audiox/mpeg", "application/audio", "audio", "video", "x-audio/mpeg", "image/video"];
 
-  it("does NOT set Content-Security-Policy on audio / video", () => {
-    assert.equal(RAW_SECURITY_HEADERS_MEDIA["Content-Security-Policy"], undefined);
+describe("isSandboxExemptMime", () => {
+  it("exempts application/pdf", () => {
+    assert.equal(isSandboxExemptMime("application/pdf"), true);
   });
 
-  it("still sets X-Content-Type-Options nosniff on audio / video", () => {
-    assert.equal(RAW_SECURITY_HEADERS_MEDIA["X-Content-Type-Options"], "nosniff");
+  it("exempts every audio and video MIME the route can emit", () => {
+    MEDIA_MIMES.forEach((mime) => assert.equal(isSandboxExemptMime(mime), true, `expected no sandbox for ${mime}`));
+  });
+
+  it("keeps the sandbox for images, text, markup and unknown types", () => {
+    SANDBOXED_MIMES.forEach((mime) => assert.equal(isSandboxExemptMime(mime), false, `expected sandbox for ${mime}`));
+  });
+
+  it("keeps the sandbox for near-miss MIMEs", () => {
+    // Strict matches only: the route's MIME_BY_EXT emits the canonical
+    // forms, so anything else is a hardening assertion.
+    NEAR_MISS_MIMES.forEach((mime) => assert.equal(isSandboxExemptMime(mime), false, `expected sandbox for ${mime}`));
+  });
+
+  it("is case-sensitive, as the MIME table is lowercase", () => {
+    assert.equal(isSandboxExemptMime("AUDIO/MPEG"), false);
+    assert.equal(isSandboxExemptMime("Application/PDF"), false);
+  });
+
+  it("has every MIME the route's table can emit placed in exactly one list, so a new entry cannot go unclassified", () => {
+    const exempt = new Set(["application/pdf", ...MEDIA_MIMES]);
+    const sandboxed = new Set(SANDBOXED_MIMES);
+    Object.entries(MIME_BY_EXT).forEach(([ext, mime]) => {
+      assert.equal(exempt.has(mime) !== sandboxed.has(mime), true, `${ext} → ${mime} must be in exactly one of the lists above`);
+      assert.equal(isSandboxExemptMime(mime), exempt.has(mime), `${ext} → ${mime}`);
+    });
   });
 });
 
 describe("rawSecurityHeadersForMime", () => {
-  it("returns the PDF-specific set for application/pdf", () => {
-    assert.equal(rawSecurityHeadersForMime("application/pdf"), RAW_SECURITY_HEADERS_PDF);
+  it("returns the no-sandbox set for application/pdf and for every media MIME", () => {
+    ["application/pdf", ...MEDIA_MIMES].forEach((mime) =>
+      assert.equal(rawSecurityHeadersForMime(mime), RAW_SECURITY_HEADERS_NO_SANDBOX, `expected no sandbox for ${mime}`),
+    );
   });
 
-  it("returns the media set for audio/* and video/* (#3437)", () => {
-    for (const mime of ["audio/mpeg", "audio/mp4", "audio/wav", "audio/ogg", "video/mp4", "video/webm", "video/quicktime"]) {
-      assert.equal(rawSecurityHeadersForMime(mime), RAW_SECURITY_HEADERS_MEDIA, `expected media headers for ${mime}`);
-    }
-  });
-
-  it("returns the default sandbox set for image/* / text/* / SVG / HTML", () => {
-    // SVG and HTML are the original threat shapes the sandbox CSP
-    // was added to defend (plans/done/fix-files-raw-csp-sandbox.md).
-    // Anything that isn't a PDF or audio/video MUST stay on the
-    // default headers.
-    for (const mime of ["image/svg+xml", "text/html", "image/png", "text/plain", "application/octet-stream"]) {
-      assert.equal(rawSecurityHeadersForMime(mime), RAW_SECURITY_HEADERS, `expected sandbox CSP for ${mime}`);
-    }
-  });
-
-  it("does not match PDF on a near-miss MIME like application/x-pdf", () => {
-    // Strict `application/pdf` match — extension-implied / vendor-
-    // prefix MIMEs do NOT get the carve-out unless the canonical
-    // form is sent (the route's MIME_BY_EXT only emits the canonical
-    // form for `.pdf`, so this is mainly a hardening assertion).
-    assert.equal(rawSecurityHeadersForMime("application/x-pdf"), RAW_SECURITY_HEADERS);
+  it("returns the default sandbox set for everything else", () => {
+    [...SANDBOXED_MIMES, ...NEAR_MISS_MIMES].forEach((mime) =>
+      assert.equal(rawSecurityHeadersForMime(mime), RAW_SECURITY_HEADERS, `expected sandbox CSP for ${mime}`),
+    );
   });
 });
 
