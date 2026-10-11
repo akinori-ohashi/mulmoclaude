@@ -55,7 +55,14 @@ opened without a token provider. The rule lives once, in `@mulmoclaude/common/to
 Twilio bridges compare their secrets through the shared helpers too. A bridge on `@mulmobridge/client` 1.4.2
 recognises the new message as a token refusal (`@mulmobridge/chat-service` 2.0.0, `@mulmoclaude/common` 1.5.0).
 
-Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.2`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+#### The code-copy button works inside a shadow root (#3448, PR #3449)
+
+The copy button on code blocks rendered by `@mulmoclaude/markdown-utils` did nothing inside a Shadow DOM: the
+document-level click listener looked the button up from `event.target`, which a shadow root retargets to its host. The
+listener now finds the button through `composedPath()`, so a host that mounts views in a shadow root (MulmoTerminal's
+canvas) can copy code again, and light-DOM behaviour is unchanged (`@mulmoclaude/markdown-utils` 3.0.2).
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.2`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.3.0] - 2026-10-10
 

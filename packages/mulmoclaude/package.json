@@ -44,7 +44,7 @@
     "@mulmoclaude/google-plugin": "^4.1.0",
     "@mulmoclaude/html-plugin": "^5.0.1",
     "@mulmoclaude/markdown-plugin": "^5.2.0",
-    "@mulmoclaude/markdown-utils": "^3.0.1",
+    "@mulmoclaude/markdown-utils": "^3.0.2",
     "@mulmoclaude/mulmoscript-plugin": "^5.3.0",
     "@mulmoclaude/spotify-plugin": "^2.0.3",
     "@mulmoclaude/x-plugin": "^1.0.4",
