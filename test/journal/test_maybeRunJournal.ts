@@ -19,6 +19,7 @@ import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { __resetForTests, maybeRunJournal } from "../../server/workspace/journal/index.js";
 import { ClaudeCliNotFoundError, type Summarize } from "../../server/workspace/journal/archivist-cli.js";
+import { startMemoryMigrations } from "../../server/workspace/memory/startup.js";
 import { makeTempDir } from "../helpers/tempDir.js";
 
 async function makeFreshWorkspace(): Promise<string> {
@@ -156,7 +157,8 @@ describe("maybeRunJournal — waits for the boot-time memory migrations (#3454)"
       if (!migrationsReleased) summarizeCallsBeforeRelease++;
       return '{"dailySummaryMarkdown":"# x","topicUpdates":[]}';
     };
-    const opts = { workspaceRoot, mode: "haiku" as const, summarize, force: true, memoryMigrationsSettled: () => migrations };
+    startMemoryMigrations(workspaceRoot, [() => migrations]);
+    const opts = { workspaceRoot, mode: "haiku" as const, summarize, force: true };
 
     const waitingRun = maybeRunJournal(opts);
     await maybeRunJournal(opts);

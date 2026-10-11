@@ -35,6 +35,34 @@ describe("startMemoryMigrations", () => {
     assert.deepEqual(calls, []);
   });
 
+  it("a second start waits for a chain that is still running", async () => {
+    let releaseFirst: () => void = () => {};
+    const firstRunning = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const calls: string[] = [];
+    startMemoryMigrations(WORKSPACE, [
+      async () => {
+        await firstRunning;
+        calls.push("first");
+      },
+    ]);
+    startMemoryMigrations(WORKSPACE, [
+      async () => {
+        calls.push("second");
+      },
+    ]);
+    let settled = false;
+    const waiting = memoryMigrationsSettled().then(() => {
+      settled = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(settled, false);
+    releaseFirst();
+    await waiting;
+    assert.deepEqual(calls, ["first", "second"]);
+  });
+
   it("settles immediately when no runners are given", async () => {
     startMemoryMigrations(WORKSPACE, []);
     assert.equal(await memoryMigrationsSettled(), undefined);

@@ -10,8 +10,9 @@ const DEFAULT_RUNNERS: readonly MemoryMigrationRunner[] = [runMemoryMigrationOnc
 
 let migrationsSettled: Promise<void> = Promise.resolve();
 
+// Chained so a second start never lets the journal slip past a chain that is still running.
 export function startMemoryMigrations(workspaceRoot: string, runners: readonly MemoryMigrationRunner[] = DEFAULT_RUNNERS): void {
-  migrationsSettled = runInOrder(workspaceRoot, runners);
+  migrationsSettled = migrationsSettled.then(() => runInOrder(workspaceRoot, runners));
 }
 
 // Never rejects: a failed migration must not wedge the journal behind it.
