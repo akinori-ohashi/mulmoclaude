@@ -9,9 +9,9 @@ import { resolveChatModel } from "../../src/config/chatModelSource.js";
 import type { ChatModel } from "../../src/config/models.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { loadMemorySnapshot } from "../workspace/memory/snapshot.js";
+import { promptWorkspacePaths } from "./promptWorkspacePaths.js";
 import { beginBrokerSpawn } from "./brokerReadiness.js";
 import {
-  CONTAINER_WORKSPACE_PATH,
   buildMcpConfig,
   getActivePlugins,
   prepareUserServers,
@@ -178,9 +178,11 @@ async function buildFullSystemPrompt(input: RunAgentInput, useDocker: boolean): 
   // Pre-load memory once (atomic vs topic format chosen inside
   // `loadMemorySnapshot`) so prompt assembly itself stays sync.
   const memorySnapshot = await loadMemorySnapshot(workspacePath);
+  const { agentWorkspacePath, hostWorkspacePath } = promptWorkspacePaths(workspacePath, useDocker);
   const fullSystemPrompt = buildSystemPrompt({
     role,
-    workspacePath: useDocker ? CONTAINER_WORKSPACE_PATH : workspacePath,
+    workspacePath: agentWorkspacePath,
+    hostWorkspacePath,
     useDocker,
     userTimezone,
     memorySnapshot,
