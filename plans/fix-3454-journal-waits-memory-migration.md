@@ -20,7 +20,7 @@ Serialise: the journal waits for the migrations to settle.
   when it is done (never rejects).
 - `maybeRunJournal` awaits that promise after taking its in-process lock, so concurrent triggers during
   the wait return immediately instead of piling up, and the waiting run does the pass afterwards.
-- The wait is injectable via `MaybeRunJournalOptions` for tests.
+- A second `startMemoryMigrations` call chains onto the running one. Tests control the wait by starting a chain with a held runner.
 
 Out of scope:
 
