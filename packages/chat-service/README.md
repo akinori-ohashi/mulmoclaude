@@ -25,7 +25,7 @@ const chatService = createChatService({
   defaultRoleId,    // fallback role
   transportsDir,    // directory for transport state files
   logger,           // structured logger ({ error, warn, info, debug })
-  tokenProvider,    // optional: bearer token for socket.io auth
+  tokenProvider,    // required: the current bearer token the /ws/chat handshake must carry
 });
 
 // Mount the Express router
@@ -34,6 +34,12 @@ app.use(chatService.router);
 // Attach socket.io to the HTTP server
 chatService.attachSocket(httpServer);
 ```
+
+`tokenProvider` returns the current bearer token, or `null` while the host has
+none yet; every handshake is refused until it returns one. A refused token
+answers `connect_error` with the generic `unauthorized` — the same message
+`/api/*` sends — never with which part failed. The wire contract is in
+`docs/bridge-protocol.md` in the repository.
 
 ## Architecture
 

@@ -30,6 +30,8 @@ const neverRelay = async (): Promise<RelayResult> => ({
   reply: "(unused)",
 });
 
+const HARNESS_TOKEN = "push-harness-token";
+
 interface Harness {
   httpServer: http.Server;
   handle: ChatSocketHandle;
@@ -45,6 +47,7 @@ async function startHarness(): Promise<Harness> {
     relay: neverRelay,
     queue,
     logger: silentLogger,
+    tokenProvider: () => HARNESS_TOKEN,
   });
 
   await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", () => resolve()));
@@ -70,7 +73,7 @@ async function stopHarness(h: Harness): Promise<void> {
 function connectClient(url: string, transportId: string = "cli"): ClientSocket {
   return ioClient(url, {
     path: CHAT_SOCKET_PATH,
-    auth: { transportId },
+    auth: { transportId, token: HARNESS_TOKEN },
     transports: ["websocket"],
     reconnection: false,
     timeout: 2000,

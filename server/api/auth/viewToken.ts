@@ -23,7 +23,7 @@
 import { createHmac } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 import { getCurrentToken } from "./token.js";
-import { tokenEquals, UNAUTHORIZED_MESSAGE } from "./tokenGuard.js";
+import { tokenEquals, UNAUTHORIZED_MESSAGE } from "@mulmoclaude/common/token-guard";
 import { unauthorized } from "../../utils/httpError.js";
 import { ONE_HOUR_MS } from "../../utils/time.js";
 import { isRecord, isUnknownArray } from "../../utils/types.js";

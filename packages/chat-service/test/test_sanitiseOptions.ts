@@ -7,7 +7,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { sanitiseOptions } from "../src/socket.js";
+import { sanitiseOptions } from "../src/handshake.js";
 
 describe("sanitiseOptions", () => {
   it("passes through a flat record of primitives verbatim", () => {
