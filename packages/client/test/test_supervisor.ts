@@ -1,9 +1,9 @@
-// The two decisions the restart supervisor makes, separated from the socket so
+// The decisions the restart supervisor makes, separated from the socket so
 // they can be checked without one (#3078 A-3).
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { backoffMs, credentialsChanged, type Credentials } from "../src/supervisor.js";
+import { backoffMs, credentialsChanged, isTokenRefusal, type Credentials } from "../src/supervisor.js";
 
 const current: Credentials = { apiUrl: "http://127.0.0.1:3001", token: "token-1" };
 
@@ -53,5 +53,22 @@ describe("backoffMs", () => {
   it("caps, so a server down for the afternoon is not stat-ed twice a second forever", () => {
     assert.equal(backoffMs(20), 30_000);
     assert.equal(backoffMs(1000), 30_000);
+  });
+});
+
+describe("isTokenRefusal", () => {
+  it("is true for the generic refusal every bearer surface sends", () => {
+    assert.equal(isTokenRefusal("unauthorized"), true);
+  });
+
+  it("is true for the two messages a chat-service before 2.0 sent", () => {
+    assert.equal(isTokenRefusal("invalid token"), true);
+    assert.equal(isTokenRefusal("server auth not ready"), true);
+  });
+
+  it("is false for every other connect error, including a near miss", () => {
+    ["", "transportId is required", "Unauthorized", "unauthorized ", "xhr poll error", "timeout", "websocket error"].forEach((message) => {
+      assert.equal(isTokenRefusal(message), false, message);
+    });
   });
 });

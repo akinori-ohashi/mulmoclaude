@@ -41,7 +41,15 @@ cached with the fabricated Free are fetched again. The search and listening summ
 line with the item's `spotify:` URI, so a hit can be passed straight to `play`; a podcast episode gets none rather
 than a wrong track URI (`@mulmoclaude/spotify-plugin` 2.0.3).
 
-Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.11.2`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+#### The bridge chat socket applies the same bearer rule (#3439, PR #3444)
+
+The `/ws/chat` handshake every `@mulmobridge/*` bridge presents its token to now compares it in constant time,
+answers every token refusal with the same generic `unauthorized` as `/api/*` and `/ws/pubsub`, and can no longer be
+opened without a token provider. The rule lives once, in `@mulmoclaude/common/token-guard`, and the webhook and
+Twilio bridges compare their secrets through the shared helpers too. A bridge on `@mulmobridge/client` 1.4.2
+recognises the new message as a token refusal (`@mulmobridge/chat-service` 2.0.0, `@mulmoclaude/common` 1.5.0).
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.2`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.3.0] - 2026-10-10
 

@@ -25,10 +25,9 @@
 //   TWILIO_ALLOWED_NUMBERS — CSV of sender numbers allowed (empty = all)
 
 import "dotenv/config";
-import crypto from "crypto";
 import express, { type Request, type Response as ExpressResponse } from "express";
 import { createBridgeClient, chunkText, installProcessGuards } from "@mulmobridge/client";
-import { listenWebhook } from "@mulmobridge/webhook-runtime";
+import { listenWebhook, verifyHmacSignature } from "@mulmobridge/webhook-runtime";
 import { isRecord, parseCsvSet } from "@mulmoclaude/common";
 
 const TRANSPORT_ID = "twilio-sms";
@@ -73,23 +72,15 @@ mulmo.onPush((pushEvent) => {
 
 // ── Twilio signature validation ─────────────────────────────────
 
-function expectedSignature(url: string, params: Record<string, string>): string {
-  // Twilio: sort params by key, concat key+value, prepend URL, sign with auth token.
+// Twilio signs the URL followed by every POST param as key+value, sorted by
+// key, with HMAC-SHA1 over the auth token, base64-encoded.
+function signedData(url: string, params: Record<string, string>): string {
   const sortedKeys = Object.keys(params).sort();
-  const data = sortedKeys.reduce((acc, key) => acc + key + params[key], url);
-  const hmac = crypto.createHmac("sha1", authToken);
-  hmac.update(data);
-  return hmac.digest("base64");
+  return sortedKeys.reduce((acc, key) => acc + key + params[key], url);
 }
 
 function signatureValid(url: string, params: Record<string, string>, provided: string): boolean {
-  const expected = expectedSignature(url, params);
-  if (expected.length !== provided.length) return false;
-  try {
-    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
-  } catch {
-    return false;
-  }
+  return verifyHmacSignature(signedData(url, params), provided, authToken, "sha1", "base64");
 }
 
 // ── Twilio REST: send SMS ──────────────────────────────────────
