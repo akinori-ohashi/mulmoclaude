@@ -31,6 +31,7 @@ import path from "node:path";
 
 import { runClaudeCli, ClaudeCliNotFoundError, type Summarize } from "../journal/archivist-cli.js";
 import { WORKSPACE_DIRS, WORKSPACE_FILES } from "../paths.js";
+import { LEGACY_MEMORY_PLACEHOLDER_MAX_BYTES } from "./legacy-migration-gate.js";
 import { loadAllMemoryEntries } from "./io.js";
 import { makeLlmMemoryClusterer, type MemoryClusterer } from "./topic-cluster.js";
 import { clusterAtomicIntoStaging, topicStagingPath } from "./topic-migrate.js";
@@ -119,7 +120,7 @@ function shouldDeferForLegacyMigration(workspaceRoot: string): boolean {
   } catch {
     legacyStat = null;
   }
-  if (legacyStat && legacyStat.size >= 64 && !existsSync(`${legacyPath}.backup`)) {
+  if (legacyStat && legacyStat.size >= LEGACY_MEMORY_PLACEHOLDER_MAX_BYTES && !existsSync(`${legacyPath}.backup`)) {
     log.debug("memory", "topic-run: legacy memory.md still in flight, deferring", { legacyPath });
     return true;
   }
