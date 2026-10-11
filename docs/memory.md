@@ -70,6 +70,8 @@ When the conversation produces something durable enough to remember, the agent w
 
 What NOT to write: ephemeral task state, sensitive material (credentials, SSH keys), duplicates, or anything the user asked the agent to forget.
 
+The journal daily pass also runs a fact extractor ([`memoryExtractor.ts`](../server/workspace/journal/memoryExtractor.ts)), but it only knows the legacy `memory.md`. In a topic-format workspace nothing reads that file, so the extractor is skipped — and the `memory.md` → atomic migration ([`run.ts`](../server/workspace/memory/run.ts)) never runs either, so a leftover `memory.md` cannot drop atomic files into the topic tree.
+
 ## The atomic → topic migration
 
 Two on-disk formats coexist for the duration of the migration window. Both are still readable until every active workspace has flipped:

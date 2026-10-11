@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildUserPrompt, parseExtractedFacts, appendFacts, filterNewFacts } from "../../server/workspace/journal/memoryExtractor.js";
+import { mkdtemp, mkdir, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { buildUserPrompt, parseExtractedFacts, appendFacts, filterNewFacts, extractAndAppendMemory } from "../../server/workspace/journal/memoryExtractor.js";
 
 describe("parseExtractedFacts", () => {
   it("parses bullet-point lines", () => {
@@ -89,5 +92,43 @@ describe("filterNewFacts", () => {
   it("returns all facts when memory is empty", () => {
     const facts = ["- Fact X", "- Fact Y"];
     assert.deepEqual(filterNewFacts("", facts), facts);
+  });
+});
+
+describe("extractAndAppendMemory — memory layout", () => {
+  const EXCERPTS = "[user] 毎朝ジョギングしている";
+
+  async function withWorkspace(run: (root: string) => Promise<void>): Promise<void> {
+    const root = await mkdtemp(path.join(tmpdir(), "mulmoclaude-mem-extract-"));
+    try {
+      await run(root);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  it("skips without calling the LLM or writing memory.md in a topic-format workspace (#3452)", async () => {
+    await withWorkspace(async (root) => {
+      await mkdir(path.join(root, "conversations", "memory", "interest"), { recursive: true });
+      let summarizeCalls = 0;
+      const summarize = async (): Promise<string> => {
+        summarizeCalls++;
+        return "- jogs every morning";
+      };
+      const appended = await extractAndAppendMemory({ workspaceRoot: root, excerpts: EXCERPTS, summarize });
+      assert.equal(appended, 0);
+      assert.equal(summarizeCalls, 0);
+      assert.equal(await stat(path.join(root, "conversations", "memory.md")).catch(() => null), null);
+    });
+  });
+
+  it("still appends to memory.md in an atomic-format workspace", async () => {
+    await withWorkspace(async (root) => {
+      await mkdir(path.join(root, "conversations", "memory"), { recursive: true });
+      const summarize = async (): Promise<string> => "- jogs every morning";
+      const appended = await extractAndAppendMemory({ workspaceRoot: root, excerpts: EXCERPTS, summarize });
+      assert.equal(appended, 1);
+      assert.match(await readFile(path.join(root, "conversations", "memory.md"), "utf-8"), /- jogs every morning/);
+    });
   });
 });
