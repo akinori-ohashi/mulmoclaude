@@ -18,6 +18,7 @@ import { buildIndexMarkdown, type IndexTopicEntry, type IndexDailyEntry } from "
 import { runClaudeCli, ClaudeCliNotFoundError, type Summarize, type JournalSummaryModel } from "./archivist-cli.js";
 import { extractFirstH1 } from "@mulmoclaude/markdown-utils/markdown/extractFirstH1";
 import { log } from "../../system/logger/index.js";
+import { memoryMigrationsSettled } from "../memory/startup.js";
 import { journalMode as resolveJournalMode, loadSettings, type JournalMode } from "../../system/config.js";
 
 export { extractFirstH1 };
@@ -46,6 +47,8 @@ export interface MaybeRunJournalOptions {
   // and the force-run switch inject this directly; production callers
   // (turn-end hook, scheduled task) let the resolver pick it up.
   mode?: JournalMode;
+  // Resolves once the boot-time memory migrations are done; the daily pass's extractor must not race them.
+  memoryMigrationsSettled?: () => Promise<void>;
 }
 
 export async function maybeRunJournal(opts: MaybeRunJournalOptions = {}): Promise<void> {
@@ -57,6 +60,8 @@ export async function maybeRunJournal(opts: MaybeRunJournalOptions = {}): Promis
   if (mode === "off") return;
   running = true;
   try {
+    // Waiting under the lock makes triggers that arrive meanwhile return instead of queueing a second pass.
+    await (opts.memoryMigrationsSettled ?? memoryMigrationsSettled)();
     await runJournalPass(opts, mode);
   } catch (err) {
     if (err instanceof ClaudeCliNotFoundError) {
