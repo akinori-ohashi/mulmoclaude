@@ -167,6 +167,26 @@ describe("memory/run — idempotency guards", () => {
     }
   });
 
+  it("leaves memory.md in place when the classifier calls fail for another reason (quota, auth, timeout) (#3457)", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-mem-run-quota-"));
+    try {
+      const legacyPath = path.join(fresh, "conversations", "memory.md");
+      await mkdir(path.dirname(legacyPath), { recursive: true });
+      const legacyBody = ["# Memory", "", "Distilled facts about you and your work.", "", "- yarn を使う（npm は使わない）", "- Emacs を愛用", ""].join("\n");
+      await writeFile(legacyPath, legacyBody, "utf-8");
+
+      const summarize: Summarize = async () => {
+        throw new Error("claude exited 1: usage limit reached");
+      };
+      await runMemoryMigrationOnce(fresh, { summarize });
+
+      assert.equal(await readFile(legacyPath, "utf-8"), legacyBody);
+      assert.equal(await stat(`${legacyPath}.backup`).catch(() => null), null, ".backup must not be created when classification failed");
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
   it("aborts cleanly when the Claude CLI is missing — legacy left in place for a later retry", async () => {
     // Reproduces the #1061 review concern: previously the classifier
     // swallowed `ClaudeCliNotFoundError` per-candidate and returned

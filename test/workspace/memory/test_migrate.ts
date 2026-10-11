@@ -142,3 +142,38 @@ describe("memory/migrate — edge cases", () => {
     }
   });
 });
+
+describe("memory/migrate — classifier failures keep memory.md (#3457)", () => {
+  it("writes nothing and leaves memory.md in place when one classification fails", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-fail-"));
+    try {
+      await writeLegacyMemoryForTest(fresh, ["# Memory", "## Mixed", "- uses yarn", "- quota hits here", "- likes Emacs", ""].join("\n"));
+      const classifier: MemoryClassifier = async ({ body }) => {
+        if (body.includes("quota")) throw new Error("usage limit reached");
+        return { type: "preference" };
+      };
+      const result = await migrateLegacyMemory(fresh, classifier);
+      assert.equal(result.classifierFailures, 1);
+      assert.equal(result.written.preference, 0);
+      assert.deepEqual(await loadAllMemoryEntries(fresh), []);
+      const legacy = await stat(path.join(fresh, "conversations", "memory.md"));
+      assert.ok(legacy.isFile(), "memory.md must stay readable for the next attempt");
+      assert.equal(await stat(path.join(fresh, "conversations", "memory.md.backup")).catch(() => null), null);
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("still archives memory.md when every candidate was deliberately skipped (null), not failed", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-allnull-"));
+    try {
+      await writeLegacyMemoryForTest(fresh, ["# Memory", "- vague one", "- vague two", ""].join("\n"));
+      const result = await migrateLegacyMemory(fresh, async () => null);
+      assert.equal(result.classifierFailures, 0);
+      assert.equal(result.skippedByClassifier, 2);
+      assert.ok((await stat(path.join(fresh, "conversations", "memory.md.backup"))).isFile());
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+});
