@@ -137,10 +137,16 @@ function showCopied(button: HTMLElement): void {
   pendingReverts.set(button, handle);
 }
 
+// `composedPath()`, not `event.target.closest`: a click inside a shadow root
+// reaches this document-level listener retargeted to the shadow HOST, so
+// walking up from `target` never meets the button. Must run before the
+// first `await` — the path is emptied once dispatch finishes.
+function copyButtonOf(event: Event): Element | undefined {
+  return event.composedPath().find((node): node is Element => isElement(node) && node.hasAttribute(CODE_COPY_ATTR));
+}
+
 async function handleClick(event: Event): Promise<void> {
-  const { target } = event;
-  if (!isElement(target)) return;
-  const button = target.closest(`[${CODE_COPY_ATTR}]`);
+  const button = copyButtonOf(event);
   if (!isHtmlElement(button)) return;
   // The marker's VALUE is the check, not its presence. Author markup can
   // carry the attribute — marked passes raw HTML through and DOMPurify
