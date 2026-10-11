@@ -41,6 +41,12 @@ cached with the fabricated Free are fetched again. The search and listening summ
 line with the item's `spotify:` URI, so a hit can be passed straight to `play`; a podcast episode gets none rather
 than a wrong track URI (`@mulmoclaude/spotify-plugin` 2.0.3).
 
+#### Node.js 22.22.2+ / 24.15+ / 26+ is the new minimum (PR #3447)
+
+`mulmocast` 2.20 and `which` 7 require `^22.22.2 || ^24.15.0 || >=26.0.0`, so `engines.node` and the launcher's
+start-up check now say the same; Node 23 and 25 are refused. The update also brings `jsdom` 30 to the root, which
+lets the `jsdom` and `jinglescript` pins in `resolutions` go.
+
 #### The bridge chat socket applies the same bearer rule (#3439, PR #3444)
 
 The `/ws/chat` handshake every `@mulmobridge/*` bridge presents its token to now compares it in constant time,
