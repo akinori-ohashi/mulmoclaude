@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-10-11
+
+**Every socket now checks the bearer token, an open page survives a server restart, and Node.js 22.22.2+ / 24.15+ / 26+ is the new minimum.**
+
 ### Highlights
 
 #### Audio and video opened from `/api/files/raw` play again (#3437, PR #3440)
