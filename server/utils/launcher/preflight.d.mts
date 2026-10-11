@@ -1,17 +1,20 @@
 // Type declarations for preflight.mjs.
 
-export interface NodeVersionRequirement {
+export interface NodeVersion {
   major: number;
   minor: number;
+  patch: number;
 }
 
-export const REQUIRED_NODE: NodeVersionRequirement;
+export const REQUIRED_NODE: readonly NodeVersion[];
 
-export function parseNodeVersion(raw: string): NodeVersionRequirement | null;
+export function parseNodeVersion(raw: string): NodeVersion | null;
 
-export function isNodeVersionSupported(raw: string, required?: NodeVersionRequirement): boolean;
+export function isNodeVersionSupported(raw: string, required?: readonly NodeVersion[]): boolean;
 
-export function formatRequiredNode(required?: NodeVersionRequirement): string;
+export function formatRequiredNode(required?: readonly NodeVersion[]): string;
+
+export function formatEnginesRange(required?: readonly NodeVersion[]): string;
 
 export interface CommandProbeOptions {
   env?: Record<string, string | undefined>;
