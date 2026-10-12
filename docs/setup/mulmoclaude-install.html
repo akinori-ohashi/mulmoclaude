@@ -56,6 +56,7 @@ h3.sub .sn{flex:none;width:1.75rem;height:1.75rem;border-radius:50%;background:v
 .note.warn strong{background:var(--tag-warn-bg);color:var(--tag-warn)}
 .note.ok strong{background:var(--tag-ok-bg);color:var(--tag-ok)}
 .note strong:empty{display:none}
+.note.pre{border:1px solid var(--line);border-radius:8px;padding:.7rem .9rem}
 /* こんなときは: 角の丸い薄い色の箱。開くと中身 */
 details{margin:1rem 0;border-radius:8px;background:var(--more-bg)}
 details>summary{cursor:pointer;padding:.65rem 1rem;font-weight:700;list-style:none;display:flex;align-items:center;gap:.6rem}
@@ -113,7 +114,7 @@ h2 .no:empty{display:none}
 /* ---------- 注記 ---------- */
 /* mk-tag（画面の中の黄色いラベル）は旧方式。新しい図では mk-hl ＋ mk-pin ＋ mk-pins を使う */
 .mk-tag  { display: inline-block; background: var(--mk-yellow); color: #1e1f24; font-family: var(--mk-sans); font-size: .72rem; font-weight: 700; padding: 0 .45em; border-radius: 3px; margin-left: .5em; white-space: nowrap; }
-.mk-mark { outline: 3px solid var(--mk-mark); outline-offset: 4px; border-radius: 6px; }  /* 「ここを押す」の赤枠 */
+.mk-mark { outline: 3px solid var(--mk-mark); outline-offset: 4px; border-radius: 6px; position: relative; z-index: 6; }  /* 「ここを押す」の赤枠。隣の要素や暗い幕より手前に出す */
 .mk-arrow { text-align: center; color: #6b7280; font-family: var(--mk-sans); font-size: .88rem; margin: .3rem 0; }
 
 /* ---------- ボタン（Mac の見た目） ---------- */
@@ -288,6 +289,7 @@ h2 .no:empty{display:none}
 .mk-mc-top > .mk-mi { color: #9ca3af; }
 .mk-mc-top > .mk-mi.mk-mc-warn { color: #fbbf24; }
 .mk-mc-launch { display: inline-flex; border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; margin-left: .2rem; }
+.mk-mc-launch:has(.mk-mark) { overflow: visible; }  /* 赤枠の付いたアイコンがあるときは切らない */
 .mk-mc-launch .mk-mi { color: #374151; padding: .2rem .25rem; border-left: 1px solid #e5e7eb; font-size: 1.15em; }
 .mk-mc-launch .mk-mi:first-child { border-left: 0; }
 .mk-mc-launch .mk-mi.mk-on { color: #2563eb; background: #eff6ff; }
@@ -331,8 +333,9 @@ h2 .no:empty{display:none}
 <body>
 <div class="wrap">
 <h1>MulmoClaude のインストール</h1>
-<div class="intro"><p>この手順書では、Mac に Docker Desktop と MulmoClaude を入れ、ブラウザで使い始めるまでを説明します。上から順に進めてください。目安は20〜30分です。</p>
-<p>先に<a href="claude-install.html">MulmoClaude を使う前の準備</a>を済ませてください。画面の図はすべてイメージで、実際の表示とは少し違うことがあります。</p></div>
+<div class="intro"><div class="note pre"><strong>前提</strong>この手順書は、第1章<a href="claude-install.html">「MulmoClaude はじめての準備」</a>を済ませた人向けです。</div>
+<p>この手順書では、Mac に Docker Desktop と MulmoClaude を入れ、ブラウザで使い始めるまでを説明します。上から順に進めてください。目安は20〜30分です。</p>
+<p>画面の図はすべてイメージで、実際の表示とは少し違うことがあります。</p></div>
 <ul class="toc"><li><a href="#docker">Docker Desktop を入れるか決める</a></li><li><a href="#step1">ステップ 1　Docker Desktop を入れる</a></li><li><a href="#step2">ステップ 2　MulmoClaude を起動する</a></li><li><a href="#step3">ステップ 3　アイコンから起動できるようにする</a></li><li><a href="#trouble">うまくいかないとき</a></li></ul>
 <section class="step" id="docker"><h2><span class="no"></span>Docker Desktop を入れるか決める</h2>
 <h4 class="minor">Claude Code が Mac でできること</h4>
@@ -657,7 +660,7 @@ mulmoclaude@1.26.3
 <div class="note "><strong>メモ</strong>MulmoClaude を新しい版に更新したら、3-1 のコマンドをもう一度実行してください。</div>
 </div></div></section>
 <section class="step" id="trouble"><h2><span class="no"></span>うまくいかないとき</h2>
-<div class="tbl"><table><thead><tr><th>画面に出た文字</th><th>意味と対処</th></tr></thead><tbody><tr><td><code>command not found: npx</code></td><td>Node.js が入っていません。「MulmoClaude を使う前の準備」のステップ2へ戻ってください。</td></tr><tr><td><code>Claude Code CLI not found.</code></td><td>Claude Code が入っていないか、見つかりません。「MulmoClaude を使う前の準備」のステップ3へ戻ってください。</td></tr><tr><td><code>Port 3001 busy → using 3002 instead.</code></td><td>3001 番がほかで使われています。表示された URL（例：http://localhost:3002）を開いてください。</td></tr><tr><td>鍵のアイコンが黄色の開いた鍵になっている</td><td>Docker Desktop が起動していません。2-5 の「黄色の開いた鍵のとき」を見てください。</td></tr><tr><td><code>npx</code> が長く止まる、<code>ETIMEDOUT</code> や <code>ECONNRESET</code> が出る</td><td>会社のネットワークで npm の配布サイトへの接続が止められている可能性があります。「MulmoClaude を使う前の準備」の「管理者に伝えること」を見て、<code>registry.npmjs.org</code> を含めて管理者に相談してください。</td></tr><tr><td>初回の起動でサンドボックスの準備のところで止まる・失敗する</td><td>会社のネットワークで Docker の部品のダウンロードが止められている可能性があります。画面を撮って管理者に相談してください。</td></tr></tbody></table></div></section>
+<div class="tbl"><table><thead><tr><th>画面に出た文字</th><th>意味と対処</th></tr></thead><tbody><tr><td><code>command not found: npx</code></td><td>Node.js が入っていません。第1章「MulmoClaude はじめての準備」のステップ2へ戻ってください。</td></tr><tr><td><code>Claude Code CLI not found.</code></td><td>Claude Code が入っていないか、見つかりません。第1章「MulmoClaude はじめての準備」のステップ3へ戻ってください。</td></tr><tr><td><code>Port 3001 busy → using 3002 instead.</code></td><td>3001 番がほかで使われています。表示された URL（例：http://localhost:3002）を開いてください。</td></tr><tr><td>鍵のアイコンが黄色の開いた鍵になっている</td><td>Docker Desktop が起動していません。2-5 の「黄色の開いた鍵のとき」を見てください。</td></tr><tr><td><code>npx</code> が長く止まる、<code>ETIMEDOUT</code> や <code>ECONNRESET</code> が出る</td><td>会社のネットワークで npm の配布サイトへの接続が止められている可能性があります。第1章「MulmoClaude はじめての準備」の「管理者に伝えること」を見て、<code>registry.npmjs.org</code> を含めて管理者に相談してください。</td></tr><tr><td>初回の起動でサンドボックスの準備のところで止まる・失敗する</td><td>会社のネットワークで Docker の部品のダウンロードが止められている可能性があります。画面を撮って管理者に相談してください。</td></tr></tbody></table></div></section>
 <footer><p>画面はすべてイメージ図です。実際の表示は Mac の設定やソフトウェアの版によって少し違います。</p>
 <p>Docker and the Docker logo are trademarks or registered trademarks of Docker, Inc. in the United States and/or other countries. Docker, Inc. and other parties may also have trademark rights in other terms used herein.</p></footer>
 </div>

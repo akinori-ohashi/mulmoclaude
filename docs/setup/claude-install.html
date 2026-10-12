@@ -56,6 +56,7 @@ h3.sub .sn{flex:none;width:1.75rem;height:1.75rem;border-radius:50%;background:v
 .note.warn strong{background:var(--tag-warn-bg);color:var(--tag-warn)}
 .note.ok strong{background:var(--tag-ok-bg);color:var(--tag-ok)}
 .note strong:empty{display:none}
+.note.pre{border:1px solid var(--line);border-radius:8px;padding:.7rem .9rem}
 /* こんなときは: 角の丸い薄い色の箱。開くと中身 */
 details{margin:1rem 0;border-radius:8px;background:var(--more-bg)}
 details>summary{cursor:pointer;padding:.65rem 1rem;font-weight:700;list-style:none;display:flex;align-items:center;gap:.6rem}
@@ -113,7 +114,7 @@ h2 .no:empty{display:none}
 /* ---------- 注記 ---------- */
 /* mk-tag（画面の中の黄色いラベル）は旧方式。新しい図では mk-hl ＋ mk-pin ＋ mk-pins を使う */
 .mk-tag  { display: inline-block; background: var(--mk-yellow); color: #1e1f24; font-family: var(--mk-sans); font-size: .72rem; font-weight: 700; padding: 0 .45em; border-radius: 3px; margin-left: .5em; white-space: nowrap; }
-.mk-mark { outline: 3px solid var(--mk-mark); outline-offset: 4px; border-radius: 6px; }  /* 「ここを押す」の赤枠 */
+.mk-mark { outline: 3px solid var(--mk-mark); outline-offset: 4px; border-radius: 6px; position: relative; z-index: 6; }  /* 「ここを押す」の赤枠。隣の要素や暗い幕より手前に出す */
 .mk-arrow { text-align: center; color: #6b7280; font-family: var(--mk-sans); font-size: .88rem; margin: .3rem 0; }
 
 /* ---------- ボタン（Mac の見た目） ---------- */
@@ -242,7 +243,7 @@ h2 .no:empty{display:none}
 <div class="wrap">
 <h1>MulmoClaude はじめての準備</h1>
 <div class="intro"><p>この手順書では、MulmoClaude を使う前に、Mac に Node.js と Claude Code を入れる手順を説明します。Claude Code にメッセージを送るところまで、上から順に進めてください。目安は15〜20分です。</p>
-<p>MulmoClaude 自体のインストールは、<a href="mulmoclaude-install.html">別の手順書</a>で説明します。</p>
+<p>MulmoClaude 自体のインストールは、第2章<a href="mulmoclaude-install.html">「MulmoClaude のインストール」</a>で説明します。</p>
 <p>用意するものは、インターネットにつながった Mac、Claude の有料プラン（Pro・Max・Team・Enterprise）のアカウント、Mac のログインパスワードです。無料プランでは Claude Code を使えません。パスワードは途中で1回聞かれます。</p>
 <p>画面の図はすべてイメージです。実際の表示とは少し違うことがあります。</p></div>
 <ul class="toc"><li><a href="#step1">ステップ 1　ターミナルを開く</a></li><li><a href="#step2">ステップ 2　Node.js を入れる</a></li><li><a href="#step3">ステップ 3　Claude Code を入れる</a></li><li><a href="#step4">ステップ 4　ログインして話しかける</a></li><li><a href="#trouble">うまくいかないとき</a></li></ul>
