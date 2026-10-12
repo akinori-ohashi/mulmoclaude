@@ -204,6 +204,27 @@ describe("memory/migrate — classifier failures keep memory.md (#3457)", () => 
     }
   });
 
+  it("stops the other workers when one call reports a missing CLI while the rest still succeed", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-mixed-"));
+    const bulletCount = 40;
+    try {
+      const bullets = Array.from({ length: bulletCount }, (_, index) => `- fact number ${index}`);
+      await writeLegacyMemoryForTest(fresh, ["# Memory", ...bullets, ""].join("\n"));
+      let calls = 0;
+      const classifier: MemoryClassifier = async ({ body }) => {
+        calls++;
+        if (body === "fact number 0") throw new ClaudeCliNotFoundError();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return { type: "fact" };
+      };
+      await assert.rejects(migrateLegacyMemory(fresh, classifier), ClaudeCliNotFoundError);
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      assert.ok(calls < bulletCount, `expected the other workers to stop, got ${calls} calls for ${bulletCount} bullets`);
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
   it("still archives memory.md when every candidate was deliberately skipped (null), not failed", async () => {
     const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-allnull-"));
     try {

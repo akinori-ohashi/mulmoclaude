@@ -166,7 +166,10 @@ async function classifyInParallel(classify: MemoryClassifier, candidates: readon
       const candidate = candidates[index];
       // Absent element == the shared cursor ran past the end.
       if (candidate === undefined) return;
-      const outcome = await safeClassify(classify, candidate);
+      const outcome = await safeClassify(classify, candidate).catch((err: unknown) => {
+        failed = true;
+        throw err;
+      });
       results[index] = outcome;
       if (outcome.kind === "failed") failed = true;
     }
