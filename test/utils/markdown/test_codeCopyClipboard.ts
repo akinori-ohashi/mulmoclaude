@@ -423,3 +423,69 @@ describe("installCodeCopyHandler", () => {
     assert.deepEqual(env.writes, []);
   });
 });
+
+describe("inside an open shadow root", () => {
+  // MulmoTerminal mounts plugin views in a shadow root. The document-level
+  // listener then sees `event.target` retargeted to the HOST, so these
+  // pin that the button is still found — and that the nonce still guards it.
+  function mountInShadow(nonceAttr: string): ShadowRoot {
+    const host = env.document.createElement("div");
+    env.document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = [
+      `<div ${CODE_COPY_BLOCK_ATTR}="${CODE_BLOCK_STYLE_FENCED}">`,
+      `<button type="button" ${nonceAttr}><svg><rect></rect></svg></button>`,
+      "<pre><code>shadowed();</code></pre>",
+      "</div>",
+    ].join("");
+    return shadow;
+  }
+
+  function clickComposed(node: Element | null): void {
+    assert.ok(node);
+    node.dispatchEvent(new env.window.MouseEvent("click", { bubbles: true, composed: true }));
+  }
+
+  it("copies from a legitimate button", async () => {
+    const shadow = mountInShadow(`${CODE_COPY_ATTR}="${codeCopyNonce()}"`);
+    clickComposed(shadow.querySelector("button"));
+    await settle();
+    assert.deepEqual(env.writes, ["shadowed();"]);
+  });
+
+  it("copies when the click lands on the icon inside the button", async () => {
+    const shadow = mountInShadow(`${CODE_COPY_ATTR}="${codeCopyNonce()}"`);
+    clickComposed(shadow.querySelector("rect"));
+    await settle();
+    assert.deepEqual(env.writes, ["shadowed();"]);
+  });
+
+  it("shows the copied state on the shadowed button", async () => {
+    const shadow = mountInShadow(`${CODE_COPY_ATTR}="${codeCopyNonce()}" ${CODE_COPY_COPIED_LABEL_ATTR}="Copied"`);
+    const button = shadow.querySelector("button");
+    clickComposed(button);
+    await settle();
+    assert.equal(button?.getAttribute("aria-label"), "Copied");
+  });
+
+  const spoofs: { name: string; attr: string }[] = [
+    { name: "bare marker", attr: CODE_COPY_ATTR },
+    { name: "empty value", attr: `${CODE_COPY_ATTR}=""` },
+    { name: "guessed value", attr: `${CODE_COPY_ATTR}="1234"` },
+  ];
+  spoofs.forEach(({ name, attr }) => {
+    it(`writes nothing for a spoofed button — ${name}`, async () => {
+      const shadow = mountInShadow(attr);
+      clickComposed(shadow.querySelector("button"));
+      await settle();
+      assert.deepEqual(env.writes, []);
+    });
+  });
+
+  it("ignores a click inside the shadow root but outside any copy button", async () => {
+    const shadow = mountInShadow(`${CODE_COPY_ATTR}="${codeCopyNonce()}"`);
+    clickComposed(shadow.querySelector("pre"));
+    await settle();
+    assert.deepEqual(env.writes, []);
+  });
+});

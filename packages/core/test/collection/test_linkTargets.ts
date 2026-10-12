@@ -9,7 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { uniqueBacklinkSources, uniqueEmbedTargets, uniqueRefTargets } from "../../src/collection/core/linkTargets.ts";
+import { linkedSlugsForFields, uniqueBacklinkSources, uniqueEmbedTargets, uniqueRefTargets } from "../../src/collection/core/linkTargets.ts";
 import { SubFieldSpecZ } from "../../src/collection/core/schemaZ.ts";
 import type { CollectionFieldSpec, CollectionSchema } from "../../src/collection/core/schema.ts";
 
@@ -95,4 +95,48 @@ test("a schema with none of the linking field types yields no targets", () => {
   assert.deepEqual(uniqueRefTargets(schema), []);
   assert.deepEqual(uniqueEmbedTargets(schema), []);
   assert.deepEqual(uniqueBacklinkSources(schema), []);
+});
+
+const linkedSchema = schemaWith({
+  id: { type: "string", label: "ID", primary: true },
+  team: { type: "ref", label: "Team", to: "teams" },
+  status: { type: "enum", label: "Status", values: ["open", "closed"] },
+  closed: { type: "toggle", label: "Closed", field: "status", onValue: "closed", offValue: "open" },
+  owner: { type: "embed", label: "Owner", to: "profile", id: "me" },
+  entries: { type: "backlinks", label: "Entries", from: "logs", via: "account", display: ["hours"] },
+  hours: { type: "rollup", label: "Hours", from: "logs", via: "account", op: "sum", column: "hours" },
+  meetings: { type: "rollup", label: "Meetings", from: "meetings", via: "account", op: "count" },
+  size: { type: "derived", label: "Size", formula: "team.size" },
+  isClosed: { type: "flag", label: "Closed?", where: [{ field: "status", op: "eq", value: "closed" }] },
+});
+const everyLinkedSlug = ["logs", "meetings", "profile", "teams"];
+
+test("linkedSlugsForFields: no `fields` loads every linked collection", () => {
+  assert.deepEqual(linkedSlugsForFields(linkedSchema).sort(), everyLinkedSlug);
+});
+
+test("linkedSlugsForFields: stored fields, toggles and refs need nothing", () => {
+  assert.deepEqual(linkedSlugsForFields(linkedSchema, ["id", "status", "closed", "team"]), []);
+  assert.deepEqual(linkedSlugsForFields(linkedSchema, []), []);
+});
+
+test("linkedSlugsForFields: embed → `to`, backlinks / rollup → `from`, deduped", () => {
+  assert.deepEqual(linkedSlugsForFields(linkedSchema, ["owner"]), ["profile"]);
+  assert.deepEqual(linkedSlugsForFields(linkedSchema, ["entries"]), ["logs"]);
+  assert.deepEqual(linkedSlugsForFields(linkedSchema, ["entries", "hours"]), ["logs"]);
+  assert.deepEqual(linkedSlugsForFields(linkedSchema, ["meetings", "owner", "status"]).sort(), ["meetings", "profile"]);
+});
+
+test("linkedSlugsForFields: a derived or flag field loads every linked collection", () => {
+  assert.deepEqual(linkedSlugsForFields(linkedSchema, ["status", "size"]).sort(), everyLinkedSlug);
+  assert.deepEqual(linkedSlugsForFields(linkedSchema, ["isClosed"]).sort(), everyLinkedSlug);
+});
+
+test("linkedSlugsForFields: unknown and prototype-key names need nothing", () => {
+  assert.deepEqual(linkedSlugsForFields(linkedSchema, ["ghost", "constructor", "toString", "__proto__"]), []);
+});
+
+test("linkedSlugsForFields: a schema with no links needs nothing even for derived", () => {
+  const plain = schemaWith({ price: { type: "number", label: "Price" }, doubled: { type: "derived", label: "x2", formula: "price * 2" } });
+  assert.deepEqual(linkedSlugsForFields(plain, ["doubled"]), []);
 });

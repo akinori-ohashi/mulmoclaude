@@ -105,7 +105,6 @@ function isSessionMeta(value: unknown): value is SessionMeta {
     isOptionalString(value.claudeSessionId) &&
     (value.agentSession === undefined || isAgentSessionRef(value.agentSession)) &&
     isOptionalChatModel(value.chatModel) &&
-    (value.agentSession === undefined || isAgentSessionRef(value.agentSession)) &&
     isOptionalString(value.resolvedModel) &&
     isOptionalBoolean(value.hasUnread) &&
     isOptionalBoolean(value.isBookmarked) &&

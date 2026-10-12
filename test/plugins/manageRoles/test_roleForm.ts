@@ -21,6 +21,7 @@ const form = (over: Partial<RoleForm> = {}): RoleForm => ({
   selectedPlugins: ["chart"],
   queriesText: "",
   model: "",
+  excludedAlwaysActiveTools: [],
   ...over,
 });
 
@@ -232,5 +233,32 @@ describe("role model round-trip", () => {
   it("pre-fills the default icon, as the create form always did", () => {
     assert.equal(emptyRoleForm().icon, DEFAULT_ROLE_ICON);
     assert.equal(formToRole(emptyRoleForm()).icon, DEFAULT_ROLE_ICON);
+  });
+});
+
+// Same failure class as `model` above: the role is rebuilt field by field, so
+// a field the form does not carry is lost the first time an unrelated field is
+// edited, and the role silently gets its always-active tools back.
+describe("role excludedAlwaysActiveTools round-trip", () => {
+  const base = { id: "a", name: "A", icon: "person", prompt: "p", availablePlugins: [] };
+
+  it("parses the list off the wire and drops only a malformed value", () => {
+    assert.deepEqual(parseCustomRoles([{ ...base, excludedAlwaysActiveTools: ["spawnBackgroundChat"] }])?.[0]?.excludedAlwaysActiveTools, [
+      "spawnBackgroundChat",
+    ]);
+    assert.equal(parseCustomRoles([{ ...base, excludedAlwaysActiveTools: "spawnBackgroundChat" }])?.[0]?.excludedAlwaysActiveTools, undefined);
+    assert.equal(parseCustomRoles([{ ...base, excludedAlwaysActiveTools: [42] }])?.length, 1);
+  });
+
+  it("keeps the list when another field is edited", () => {
+    const saved = formToRole(form({ excludedAlwaysActiveTools: ["spawnBackgroundChat"] }));
+    const renamed = formToRole({ ...roleToForm(saved), name: "Renamed" });
+    assert.deepEqual(renamed.excludedAlwaysActiveTools, ["spawnBackgroundChat"]);
+  });
+
+  it("omits the key when the list is empty", () => {
+    assert.equal("excludedAlwaysActiveTools" in formToRole(form()), false);
+    assert.deepEqual(emptyRoleForm().excludedAlwaysActiveTools, []);
+    assert.deepEqual(roleToForm(base).excludedAlwaysActiveTools, []);
   });
 });

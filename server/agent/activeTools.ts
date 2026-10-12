@@ -27,11 +27,10 @@
 // name is precomputed once so callers don't have to re-derive it.
 
 import type { Role } from "../../src/config/roles.js";
-import type { ToolDefinition } from "gui-chat-protocol";
 import { mcpTools, isMcpToolEnabled } from "./mcp-tools/index.js";
-import { PLUGIN_DEFS, TOOL_ENDPOINTS } from "./plugin-names.js";
+import { PLUGIN_DEFS, PLUGIN_PACKAGE_BY_TOOL, TOOL_ENDPOINTS } from "./plugin-names.js";
+import { toolPromptFor } from "./promptFiles.js";
 import { getRuntimePlugins } from "../plugins/runtime-registry.js";
-import { hasStringProp } from "../utils/types.js";
 
 /** The MCP server id the parent registers via `--mcp-config` (see
  *  `buildMulmoclaudeServer` in `config.ts`). The Claude Agent SDK
@@ -74,7 +73,14 @@ export interface ActiveToolDescriptor {
  *  tell "our broker answered" from "some MCP server answered". */
 export const BUILTIN_MCP_TOOL_PREFIX = `mcp__${MCP_SERVER_ID}__`;
 const fullNameFor = (toolName: string): string => `${BUILTIN_MCP_TOOL_PREFIX}${toolName}`;
-const promptFor = (def: ToolDefinition): string | undefined => (hasStringProp(def, "prompt") ? def.prompt : undefined);
+
+// `alwaysActive` tools (generic host infra like spawnBackgroundChat) bypass the
+// per-role gate — offered to every role, like a built-in — unless the role opts
+// out of one by name. All other MCP tools stay gated by `availablePlugins`.
+export function isMcpToolOfferedTo(role: Role, toolName: string, alwaysActive: boolean | undefined): boolean {
+  if (role.availablePlugins.includes(toolName)) return true;
+  return alwaysActive === true && !(role.excludedAlwaysActiveTools ?? []).includes(toolName);
+}
 
 export function getActiveToolDescriptors(role: Role): ActiveToolDescriptor[] {
   const allowed = new Set<string>(role.availablePlugins);
@@ -87,7 +93,7 @@ export function getActiveToolDescriptors(role: Role): ActiveToolDescriptor[] {
       name: def.name,
       fullName: fullNameFor(def.name),
       description: def.description,
-      prompt: promptFor(def),
+      prompt: toolPromptFor(def, PLUGIN_PACKAGE_BY_TOOL.get(def.name)),
       endpoint: TOOL_ENDPOINTS[def.name],
       source: "static-gui",
     });
@@ -96,16 +102,12 @@ export function getActiveToolDescriptors(role: Role): ActiveToolDescriptor[] {
 
   for (const tool of mcpTools) {
     const toolName = tool.definition.name;
-    // `alwaysActive` tools (generic host infra like spawnBackgroundChat)
-    // bypass the per-role gate — they're offered to every role, like a
-    // built-in. All other MCP tools stay gated by `availablePlugins`.
-    const isAllowed = tool.alwaysActive === true || allowed.has(toolName);
-    if (!isAllowed || seen.has(toolName) || !isMcpToolEnabled(tool)) continue;
+    if (!isMcpToolOfferedTo(role, toolName, tool.alwaysActive) || seen.has(toolName) || !isMcpToolEnabled(tool)) continue;
     out.push({
       name: toolName,
       fullName: fullNameFor(toolName),
       description: tool.definition.description,
-      prompt: tool.prompt,
+      prompt: toolPromptFor(tool, tool.packageName),
       // pure MCP tools dispatch internally — no external endpoint
       source: "static-mcp",
     });
@@ -130,7 +132,7 @@ export function getActiveToolDescriptors(role: Role): ActiveToolDescriptor[] {
       name: def.name,
       fullName: fullNameFor(def.name),
       description: def.description,
-      prompt: promptFor(def),
+      prompt: toolPromptFor(def, plugin.name),
       endpoint: `/api/plugins/runtime/${encodeURIComponent(plugin.name)}/dispatch`,
       source: "runtime",
     });

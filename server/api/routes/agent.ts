@@ -23,6 +23,7 @@ import { getRole } from "../../workspace/roles.js";
 import { runAgent } from "../../agent/index.js";
 import { getActiveBackend } from "../../agent/backend/index.js";
 import { AGENT_SESSION_EVENT_TYPE, INJECTED_TEXT, SESSION_MODEL } from "../../agent/stream.js";
+import { classifyInjectedText } from "../../agent/injectedText.js";
 import { isChatModel, type ChatModel } from "../../../src/config/models.js";
 import { notifyTaskFinished } from "../../agent/webPush.js";
 import { buildTranscriptPreamble } from "../../agent/resumeFailover.js";
@@ -798,18 +799,21 @@ export async function applyResolvedModel(
   deps.publish(chatSessionId, { type: EVENT_TYPES.sessionMeta, resolvedModel: model });
 }
 
+async function handleAgentSessionEvent(event: AgentStreamEvent, ctx: EventContext): Promise<boolean> {
+  if (event.type !== AGENT_SESSION_EVENT_TYPE && event.type !== EVENT_TYPES.claudeSessionId) return false;
+  await flushTextAccumulator(ctx);
+  // claudeSessionId is a meta event — never part of a Skill→body sequence.
+  // Clear pendingSkill so a flag set earlier in the run can't leak into a
+  // later unrelated assistant text.
+  ctx.pendingSkill = null;
+  const agentSession: AgentSessionRef =
+    event.type === AGENT_SESSION_EVENT_TYPE ? { backendId: event.backendId, token: event.token } : { backendId: "claude-code", token: event.id };
+  await setAgentSession(ctx.chatSessionId, agentSession);
+  return true;
+}
+
 export async function handleAgentEvent(event: AgentStreamEvent, ctx: EventContext): Promise<void> {
-  if (event.type === AGENT_SESSION_EVENT_TYPE || event.type === EVENT_TYPES.claudeSessionId) {
-    await flushTextAccumulator(ctx);
-    // claudeSessionId is a meta event — never part of a Skill→body
-    // sequence. Clear pendingSkill so a flag set earlier in the run
-    // can't leak into a later unrelated assistant text.
-    ctx.pendingSkill = null;
-    const agentSession: AgentSessionRef =
-      event.type === AGENT_SESSION_EVENT_TYPE ? { backendId: event.backendId, token: event.token } : { backendId: "claude-code", token: event.id };
-    await setAgentSession(ctx.chatSessionId, agentSession);
-    return;
-  }
+  if (await handleAgentSessionEvent(event, ctx)) return;
   if (event.type === SESSION_MODEL) {
     await applyResolvedModel(ctx.chatSessionId, event.model, { persist: updateResolvedModel, publish: pushSessionEvent });
     return;
@@ -871,20 +875,21 @@ export async function handleAgentEvent(event: AgentStreamEvent, ctx: EventContex
 // the canvas could undo it by replacing the trailing card, but a consumer that
 // accumulates text events — every bridge — cannot.
 //
-// Without a pending Skill the injection is something we have not seen the CLI
-// do. Fall back to the old treatment (broadcast + accumulate) so no content is
-// lost, and warn so the new shape is discoverable.
+// Without a pending Skill it is the CLI's own context (autocompact summary,
+// output-limit continuation). It stays out of the reply, the live stream
+// and the jsonl; the CLI keeps it in its own session transcript.
 async function handleInjectedText(ctx: EventContext, message: string): Promise<void> {
   if (!message) return;
-  const skill = ctx.pendingSkill;
-  if (!skill) {
-    log.warn("agent", "user-role text arrived with no Skill call pending — treating it as assistant text", {
+  const injected = classifyInjectedText(ctx.pendingSkill);
+  if (injected.kind === "cli-context") {
+    log.info("agent", "CLI-injected context withheld from the reply", {
+      chatSessionId: ctx.chatSessionId,
+      bytes: message.length,
       preview: message.slice(0, INJECTED_TEXT_LOG_PREVIEW_MAX),
     });
-    pushSessionEvent(ctx.chatSessionId, { type: EVENT_TYPES.text, message });
-    ctx.textAccumulator.push(message);
     return;
   }
+  const { skill } = injected;
   ctx.pendingSkill = null;
   // Whatever streamed before the body is the assistant's own prose; flush it
   // (as plain text, the flag is already cleared) so jsonl order is preserved.

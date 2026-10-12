@@ -13,7 +13,7 @@
 
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -137,6 +137,31 @@ describe("memory/run — idempotency guards", () => {
       const backupAfter = await stat(`${legacyPath}.backup`).catch(() => null);
       assert.equal(legacyAfter, null, "legacy file should have been renamed");
       assert.ok(backupAfter !== null && backupAfter.isFile(), ".backup should exist post-migration");
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("skips in a topic-format workspace even with a large memory.md and no .backup (#3452)", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-mem-run-topic-"));
+    try {
+      const legacyPath = path.join(fresh, "conversations", "memory.md");
+      const legacyBody = ["# Memory", "", "Distilled facts about you and your work.", "", "- yarn を使う（npm は使わない）", "- Emacs を愛用", ""].join("\n");
+      await mkdir(path.join(fresh, "conversations", "memory", "preference"), { recursive: true });
+      await writeFile(legacyPath, legacyBody, "utf-8");
+
+      let summarizeCalls = 0;
+      const summarize: Summarize = async () => {
+        summarizeCalls++;
+        return '{"type":"preference","description":"x"}';
+      };
+      await runMemoryMigrationOnce(fresh, { summarize });
+
+      assert.equal(summarizeCalls, 0);
+      assert.equal(await readFile(legacyPath, "utf-8"), legacyBody);
+      assert.equal(await stat(`${legacyPath}.backup`).catch(() => null), null);
+      const rootEntries = await readdir(path.join(fresh, "conversations", "memory"));
+      assert.deepEqual(rootEntries, ["preference"], "no atomic <type>_<slug>.md at the topic memory root");
     } finally {
       await rm(fresh, { recursive: true, force: true });
     }

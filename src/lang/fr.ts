@@ -137,6 +137,11 @@ const frMessages = {
     body: "Votre téléphone ne pourra pas envoyer vers cet appareil tant que vous n'êtes pas reconnecté.",
     reconnect: "Se reconnecter",
   },
+  authTokenStale: {
+    title: "Cette page doit être rechargée",
+    body: "Le serveur a refusé le jeton de cette page et un nouveau n'a pas pu être récupéré. Rechargez pour continuer.",
+    reload: "Recharger",
+  },
   remoteHost: {
     title: "Hôte distant",
     online: "Hôte distant en ligne",
@@ -387,6 +392,12 @@ const frMessages = {
       helperText: "Les niveaux plus élevés autorisent plus de temps de réflexion mais augmentent la latence et la consommation de tokens.",
       configured: "Effort : {level}",
       notConfigured: "Non défini",
+      userSettingsLabel: "Charger les réglages utilisateur et les plugins de Claude Code",
+      userSettingsHint:
+        "Lit les skills, plugins et hooks de ~/.claude, les mêmes que ceux de Claude Code. Désactivez-le si les plugins installés apportent tant de skills que chaque requête devient lourde ; les skills de l'espace de travail restent disponibles. Prend effet à partir du message suivant. Désactivé, un modèle non défini ne suit plus non plus ~/.claude/settings.json.",
+      skillListingSummary: "Skills chargées au dernier tour : {count}.",
+      skillListingPlugins: "Depuis les plugins : {plugins}.",
+      skillListingHeavy: "Autant de skills alourdissent chaque requête ; le désactiver retire celles de ~/.claude.",
       loadError: "Échec du chargement des paramètres",
       saveError: "Échec de l'enregistrement",
     },

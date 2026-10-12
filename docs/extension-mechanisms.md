@@ -314,8 +314,9 @@ const skills = await discoverSkills({ workspaceRoot: workspacePath });
 ### 3.6 Role
 
 **何**: agent ペルソナ。`prompt` (system prompt 断片) + `availablePlugins` (静的 plugin gate) + `queries` (おすすめクエリ) のパッケージ。
+`alwaysActive` の道具（`manageCollection` / `spawnBackgroundChat`）は `availablePlugins` に関係なく全 role に入る。要らない role は `excludedAlwaysActiveTools` に名前を書いて外せる（例: `simple` は `spawnBackgroundChat` を外す）。
 
-**例 (built-in)**: `general`, `office`, `guide`, `artist`, `tutor`, `storyteller`, `settings`, `accounting`, `cookingCoach`, `debug`
+**例 (built-in)**: `general`, `simple`, `office`, `guide`, `artist`, `tutor`, `storyteller`, `settings`, `accounting`, `cookingCoach`, `debug`
 
 **追加 (user-defined)**: MulmoClaude の Settings → Roles から `manageRoles` 経由、または `<workspace>/config/roles/<id>.json` を直接置く
 

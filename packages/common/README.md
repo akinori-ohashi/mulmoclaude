@@ -48,6 +48,21 @@ This is the single home the #2217 consolidation could not reach, because
 `isRecord` vs `isObj`: use `isRecord` whenever you go on to index string keys —
 `isObj` lets arrays through, which is rarely what you want for a JSON payload.
 
+## Subpath entries
+
+The main entry imports nothing and runs in the browser. Three subpaths hold
+code that is either not general enough for the main entry or bound to one
+runtime:
+
+| Subpath | Runtime | Contents |
+|---|---|---|
+| `@mulmoclaude/common/ssrf` | isomorphic | the SSRF deny-list and URL-shape checks |
+| `@mulmoclaude/common/meta-webhook` | isomorphic | Meta webhook payload parsers |
+| `@mulmoclaude/common/token-guard` | **Node only** (`node:crypto`) | `tokenEquals`, `isAuthorizedToken`, `UNAUTHORIZED_MESSAGE` — the constant-time bearer rule every token-checking surface applies |
+
+Nothing in the main entry imports a subpath, so a browser bundle never pulls
+in `node:crypto`.
+
 ## Shared types
 
 `src/logger.ts` (re-exported from the root entry) holds the canonical logger

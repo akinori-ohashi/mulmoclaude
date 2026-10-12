@@ -57,7 +57,10 @@ export function makeManageCollectionTool(deps: ManageCollectionDeps = {}): Retur
   return makeCoreTool({ bundledHelpsDir: helpsAssetDir, sandboxWorkspacePath: CONTAINER_WORKSPACE_PATH, ...deps });
 }
 
-export const manageCollection = makeManageCollectionTool({
-  ablateValidation: isAblated("validation") || undefined,
-  refreshAfterWrite: defaultRefresh,
-});
+export const manageCollection = {
+  ...makeManageCollectionTool({
+    ablateValidation: isAblated("validation") || undefined,
+    refreshAfterWrite: defaultRefresh,
+  }),
+  packageName: "@mulmoclaude/core",
+};

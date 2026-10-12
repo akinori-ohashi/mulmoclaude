@@ -139,6 +139,11 @@ const deMessages = {
     body: "Ihr Telefon kann erst nach dem erneuten Verbinden an dieses Gerät senden.",
     reconnect: "Erneut verbinden",
   },
+  authTokenStale: {
+    title: "Diese Seite muss neu geladen werden",
+    body: "Der Server hat das Token dieser Seite abgelehnt, und ein neues konnte nicht abgerufen werden. Laden Sie die Seite neu, um fortzufahren.",
+    reload: "Neu laden",
+  },
   remoteHost: {
     title: "Remote-Host",
     online: "Remote-Host online",
@@ -389,6 +394,12 @@ const deMessages = {
       helperText: "Höhere Stufen erlauben mehr Denkzeit, erhöhen aber Latenz und Token-Verbrauch.",
       configured: "Effort: {level}",
       notConfigured: "Nicht gesetzt",
+      userSettingsLabel: "Benutzereinstellungen und Plugins von Claude Code laden",
+      userSettingsHint:
+        "Liest Skills, Plugins und Hooks aus ~/.claude – dieselben, die Claude Code verwendet. Schalten Sie dies aus, wenn installierte Plugins so viele Skills mitbringen, dass jede Anfrage schwer wird; die Skills des Workspace bleiben nutzbar. Gilt ab der nächsten Nachricht. Ausgeschaltet folgt ein nicht gesetztes Modell auch nicht mehr ~/.claude/settings.json.",
+      skillListingSummary: "Im letzten Durchgang geladene Skills: {count}.",
+      skillListingPlugins: "Aus Plugins: {plugins}.",
+      skillListingHeavy: "So viele Skills machen jede Anfrage schwer; ausschalten entfernt die aus ~/.claude.",
       loadError: "Einstellungen konnten nicht geladen werden",
       saveError: "Speichern fehlgeschlagen",
     },

@@ -13,7 +13,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type { Role } from "../../src/config/roles.ts";
 import type { ToolDefinition } from "gui-chat-protocol";
-import { getActiveToolDescriptors, MCP_SERVER_ID } from "../../server/agent/activeTools.ts";
+import { getActiveToolDescriptors, isMcpToolOfferedTo, MCP_SERVER_ID } from "../../server/agent/activeTools.ts";
 import { registerRuntimePlugins, _resetRuntimeRegistryForTest } from "../../server/plugins/runtime-registry.ts";
 import type { RuntimePlugin } from "../../server/plugins/runtime-loader.ts";
 
@@ -157,5 +157,44 @@ describe("getActiveToolDescriptors — single source of truth", () => {
     assert.ok(names.includes("r1Tool"));
     assert.ok(names.includes("r2Tool"));
     assert.ok(names.includes("presentMulmoScript"));
+  });
+});
+
+describe("isMcpToolOfferedTo", () => {
+  const roleWith = (availablePlugins: string[], excludedAlwaysActiveTools?: string[]): Role => ({
+    id: "r",
+    name: "R",
+    icon: "x",
+    prompt: "",
+    availablePlugins,
+    ...(excludedAlwaysActiveTools ? { excludedAlwaysActiveTools } : {}),
+  });
+  const cases: { listed: boolean; alwaysActive: boolean | undefined; excluded: boolean | undefined; offered: boolean }[] = [];
+  [true, false].forEach((listed) =>
+    [true, false, undefined].forEach((alwaysActive) =>
+      [true, false, undefined].forEach((excluded) => {
+        // Before the opt-out existed the rule was `alwaysActive || listed`; an opt-out
+        // removes only an always-active tool the role did not also list.
+        const offered = listed || (alwaysActive === true && excluded !== true);
+        cases.push({ listed, alwaysActive, excluded, offered });
+      }),
+    ),
+  );
+
+  cases.forEach(({ listed, alwaysActive, excluded, offered }) => {
+    it(`listed=${listed} alwaysActive=${alwaysActive} excluded=${excluded} → ${offered}`, () => {
+      const excludedList = excluded === undefined ? undefined : excluded ? ["tool"] : ["other"];
+      const role = roleWith(listed ? ["tool"] : ["other"], excludedList);
+      assert.equal(isMcpToolOfferedTo(role, "tool", alwaysActive), offered);
+    });
+  });
+
+  it("matches the pre-opt-out rule for every role without the field", () => {
+    [true, false].forEach((listed) =>
+      [true, false, undefined].forEach((alwaysActive) => {
+        const role = roleWith(listed ? ["tool"] : []);
+        assert.equal(isMcpToolOfferedTo(role, "tool", alwaysActive), alwaysActive === true || listed);
+      }),
+    );
   });
 });

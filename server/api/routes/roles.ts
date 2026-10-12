@@ -50,6 +50,7 @@ interface ManageRolesInput {
     /** Validated by `RoleSchema` on the way back out of disk, not here: this
      *  interface only describes what the wire may carry (#3104). */
     model?: string;
+    excludedAlwaysActiveTools?: string[];
   };
   roleId?: string;
   oldRoleId?: string;

@@ -53,6 +53,9 @@ export interface AgentInput {
   /** Model family from settings (#2923). Undefined → flag omitted, so the
    *  CLI resolves the model from `~/.claude/settings.json`. */
   chatModel?: ChatModel | undefined;
+  /** Load Claude Code's user-level settings (`~/.claude` skills, plugins,
+   *  hooks) — #3406. `false` restricts the CLI to the workspace's own. */
+  loadClaudeUserSettings?: boolean | undefined;
   /** When fired, the backend must terminate any in-flight
    *  subprocess / connection. */
   abortSignal?: AbortSignal | undefined;

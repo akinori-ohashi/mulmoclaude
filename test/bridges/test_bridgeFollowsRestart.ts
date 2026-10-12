@@ -30,6 +30,7 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { Server as IOServer } from "socket.io";
 import { CHAT_SOCKET_PATH, CHAT_SOCKET_EVENTS } from "@mulmobridge/protocol";
+import { UNAUTHORIZED_MESSAGE } from "@mulmoclaude/common/token-guard";
 import { createBridgeClient, resolveApiUrl, resolvePublishedApiUrl, type BridgeClient } from "@mulmobridge/client";
 
 const RECONNECT_BUDGET_MS = 25_000;
@@ -130,7 +131,7 @@ async function startGeneration(label: string, token: string, port = 0): Promise<
   const wsServer = new IOServer(httpServer, { path: CHAT_SOCKET_PATH, transports: ["websocket"] });
   wsServer.use((socket, next) => {
     const { auth } = socket.handshake;
-    next(auth.token === token ? undefined : new Error("invalid token"));
+    next(auth.token === token ? undefined : new Error(UNAUTHORIZED_MESSAGE));
   });
   wsServer.on("connection", (socket) => {
     socket.on(CHAT_SOCKET_EVENTS.message, (_payload: unknown, ack?: (reply: unknown) => void) => {

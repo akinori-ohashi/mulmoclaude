@@ -8,6 +8,10 @@
 
 [English](README.md) · [日本語](README.ja.md) · **简体中文** · [한국어](README.ko.md) · [Español](README.es.md) · [Português (BR)](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md)
 
+📖 **用户指南: [https://receptron.github.io/mulmoclaude/](https://receptron.github.io/mulmoclaude/)**
+
+🛠️ **Mac 安装指南（日语）: [https://receptron.github.io/mulmoclaude/setup/](https://receptron.github.io/mulmoclaude/setup/)**
+
 **一个了解你的一切、全天候陪伴在你身边的 AI 助手，在任何地方都买不到。你无法购买 —— 只能亲手培育。MulmoClaude 就是在你自己的电脑上培育专属 AI 助手的工具。**
 
 助手的实体并不是 AI 模型 —— 模型只是引擎。决定助手价值的，是它对你了解多少：你的对话、日程、笔记、数据，以及你使用的应用。如此重要的东西，不应托付给任何单一的服务提供商 —— 用得越久，就越难离开。MulmoClaude 是开源的，并在本地运行，因此助手积累的一切 —— 记忆、数据、应用 —— 都以普通文件的形式留在你自己的工作区中，掌握在你自己手里。
@@ -39,7 +43,7 @@ npx mulmoclaude@latest
 
 ### 前置条件
 
-- **Node.js 22.19+** —— 运行时
+- **Node.js 22.22.2+ / 24.15+ / 26+** —— 运行时
 - **[Claude Code CLI](https://claude.ai/code)** —— 已安装并完成认证。请先运行一次 `claude` 完成 OAuth
 - **ffmpeg** —— 视频生成所需。如果不生成视频可以跳过
   - macOS: `brew install ffmpeg`
@@ -197,6 +201,7 @@ MulmoClaude 使用 Claude Code 作为 AI 后端，它可以访问包括 Bash 在
 | 角色                | 功能                                               |
 | ------------------- | -------------------------------------------------- |
 | **General**         | 全能助手 —— 待办事项、调度器、wiki、文档、思维导图 |
+| **Simple** | 轻量对话 —— 系统提示较小，只使用表单和集合 |
 | **Office**          | 文档、电子表格、表单、演示文稿、数据仪表盘         |
 | **Guide & Planner** | 旅行指南、菜谱书、富可视化输出的旅行规划           |
 | **Artist**          | 图片生成、图片编辑、使用 p5.js 的生成艺术          |

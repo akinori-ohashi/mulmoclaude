@@ -157,6 +157,11 @@ const enMessages = {
     body: "Your phone can't send to this device until you reconnect.",
     reconnect: "Reconnect",
   },
+  authTokenStale: {
+    title: "This page needs a reload",
+    body: "The server refused this page's token and a new one could not be fetched. Reload to continue.",
+    reload: "Reload",
+  },
   remoteHost: {
     title: "Remote host",
     online: "Remote host online",
@@ -407,6 +412,12 @@ const enMessages = {
       helperText: "Higher levels allow more thinking time but increase latency and token usage.",
       configured: "Effort: {level}",
       notConfigured: "Not set",
+      userSettingsLabel: "Load Claude Code's user settings and plugins",
+      userSettingsHint:
+        "Reads skills, plugins and hooks from ~/.claude, the same ones Claude Code uses. Turn this off if your installed plugins carry so many skills that every request gets heavy; the workspace's own skills keep working. Takes effect from the next message. When off, an unset model no longer follows ~/.claude/settings.json either.",
+      skillListingSummary: "Skills listed on the last turn: {count}.",
+      skillListingPlugins: "From plugins: {plugins}.",
+      skillListingHeavy: "That many skills make every request heavy; turning this off drops the ones from ~/.claude.",
       loadError: "Failed to load settings",
       saveError: "Failed to save",
     },

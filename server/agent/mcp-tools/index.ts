@@ -1,3 +1,4 @@
+import type { PromptFilesSource } from "@mulmoclaude/core/prompt-files";
 import { Router, Request, Response } from "express";
 import { readXPost, searchX } from "@mulmoclaude/x-plugin";
 import { notify } from "./notify.js";
@@ -31,6 +32,12 @@ export interface McpTool {
   };
   requiredEnv?: string[];
   prompt?: string;
+  /** Optional prompt split (`@mulmoclaude/core/prompt-files`): injected instead
+   *  of `prompt` once `promptFiles` are written under `packageName`'s directory. */
+  promptCompact?: string;
+  promptFiles?: Record<string, string>;
+  /** npm package the tool ships in — names the prompt-files directory. */
+  packageName?: string;
   /** When true, the tool is offered to EVERY role regardless of
    *  `role.availablePlugins` — like a built-in (Bash/Read/Write).
    *  `getActiveToolDescriptors` (server/agent/activeTools.ts) skips
@@ -65,6 +72,11 @@ const toolMap = new Map(mcpTools.map((tool) => [tool.definition.name, tool]));
 export function isMcpToolEnabled(tool: McpTool): boolean {
   return (tool.requiredEnv ?? []).every((key) => Boolean(process.env[key]));
 }
+
+/** The MCP tools whose prompt files the host writes at startup. */
+export const MCP_TOOL_PROMPT_FILE_SOURCES: readonly PromptFilesSource[] = mcpTools.flatMap((tool) =>
+  tool.packageName ? [{ packageName: tool.packageName, definition: tool }] : [],
+);
 
 export const mcpToolsRouter = Router();
 

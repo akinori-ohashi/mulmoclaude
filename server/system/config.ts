@@ -126,6 +126,13 @@ export interface AppSettings {
   // still wins, but an icon launch (#2613) passes neither, so for those
   // users this setting is the only way to turn the sink off (#2617).
   macosRemindersEnabled?: boolean;
+
+  // Whether the agent CLI loads Claude Code's USER-level settings (#3406):
+  // `~/.claude` skills, installed plugins and their hooks. On by default, so
+  // skills shared with Claude Code just work; off passes
+  // `--setting-sources project,local`, for a user whose plugins carry so many
+  // skills that their listing dominates every request.
+  loadClaudeUserSettings?: boolean;
 }
 
 const DEFAULT_SETTINGS: AppSettings = { extraAllowedTools: [], agentBackend: "codex" };
@@ -147,6 +154,7 @@ export const APP_SETTINGS_KEYS = [
   "journal",
   "pushEnabled",
   "macosRemindersEnabled",
+  "loadClaudeUserSettings",
 ] as const satisfies readonly (keyof AppSettings)[];
 
 export type AppSettingsKey = (typeof APP_SETTINGS_KEYS)[number];
@@ -166,6 +174,7 @@ export const SAFE_SETTINGS_KEYS = [
   "journal",
   "pushEnabled",
   "macosRemindersEnabled",
+  "loadClaudeUserSettings",
 ] as const satisfies readonly AppSettingsKey[];
 
 export type SafeSettingsKey = (typeof SAFE_SETTINGS_KEYS)[number];
@@ -252,6 +261,7 @@ const OPTIONAL_SETTING_VALIDATORS: Record<OptionalAppSettingsKey, (value: unknow
   journal: optional(isJournalMode),
   pushEnabled: isOptionalBoolean,
   macosRemindersEnabled: isOptionalBoolean,
+  loadClaudeUserSettings: isOptionalBoolean,
 };
 
 function hasValidOptionalAppSettings(value: Record<string, unknown>): boolean {
@@ -329,6 +339,7 @@ const PATCH_SETTING_VALIDATORS: Record<keyof AppSettingsPatch, (value: unknown) 
   journal: isOptionalNullableJournalMode,
   pushEnabled: isOptionalBoolean,
   macosRemindersEnabled: isOptionalBoolean,
+  loadClaudeUserSettings: isOptionalBoolean,
 };
 
 export function isAppSettingsPatch(value: unknown): value is AppSettingsPatch {
@@ -384,6 +395,9 @@ function cloneAppSettings(settings: AppSettings): AppSettings {
   if (settings.macosRemindersEnabled !== undefined) {
     copy.macosRemindersEnabled = settings.macosRemindersEnabled;
   }
+  if (settings.loadClaudeUserSettings !== undefined) {
+    copy.loadClaudeUserSettings = settings.loadClaudeUserSettings;
+  }
   return copy;
 }
 
@@ -422,6 +436,12 @@ export function isPushEnabled(settings: AppSettings): boolean {
  *  field existed must keep firing reminders. */
 export function isMacosRemindersEnabled(settings: AppSettings): boolean {
   return settings.macosRemindersEnabled ?? true;
+}
+
+/** Whether the agent CLI loads Claude Code's user-level settings, default
+ *  `true` — MulmoClaude has always read `~/.claude` skills and plugins. */
+export function isClaudeUserSettingsEnabled(settings: AppSettings): boolean {
+  return settings.loadClaudeUserSettings ?? true;
 }
 
 export function loadSettings(): AppSettings {
@@ -483,6 +503,9 @@ export function saveSettings(settings: AppSettings): void {
   }
   if (settings.macosRemindersEnabled !== undefined) {
     payload.macosRemindersEnabled = settings.macosRemindersEnabled;
+  }
+  if (settings.loadClaudeUserSettings !== undefined) {
+    payload.loadClaudeUserSettings = settings.loadClaudeUserSettings;
   }
   const serialised = JSON.stringify(payload, null, 2);
   writeFileAtomicSync(settingsPath(), `${serialised}\n`, { mode: 0o600 });

@@ -7,12 +7,13 @@
 
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { buildMemoryContext, buildMemoryManagementSection } from "../../server/agent/prompt.js";
 import { loadMemorySnapshot } from "../../server/workspace/memory/snapshot.js";
+import { helpsAssetDir } from "@mulmoclaude/core/workspace-setup";
 
 describe("memory/format-detect — atomic workspace", () => {
   let scoped: string;
@@ -37,6 +38,7 @@ describe("memory/format-detect — atomic workspace", () => {
   it("buildMemoryManagementSection emits the atomic-format instructions", async () => {
     const out = buildMemoryManagementSection(await loadMemorySnapshot(scoped));
     assert.match(out, /<type>_<short-slug>\.md/);
+    assert.ok(out.includes("config/helps/memory-atomic.md"), "points at the write procedure");
     assert.doesNotMatch(out, /<type>\/<topic>\.md/);
   });
 });
@@ -115,7 +117,7 @@ describe("memory/format-detect — topic workspace", () => {
   it("buildMemoryManagementSection emits the topic-format instructions", async () => {
     const out = buildMemoryManagementSection(await loadMemorySnapshot(scoped));
     assert.match(out, /<type>\/<topic>\.md/);
-    assert.match(out, /H2 sections/);
+    assert.ok(out.includes("config/helps/memory-topic.md"), "points at the write procedure");
     assert.doesNotMatch(out, /<type>_<short-slug>\.md/);
   });
 
@@ -129,5 +131,27 @@ describe("memory/format-detect — topic workspace", () => {
     assert.match(out, /Before answering/);
     // Recall must NOT instruct the agent to narrate its memory use.
     assert.match(out, /Do NOT announce/);
+  });
+});
+
+// The write procedure left the per-turn prompt for these help files; the
+// prompt only points at them, so the detail must still exist somewhere.
+describe("memory help files", () => {
+  it("memory-topic.md carries the topic-file write procedure", async () => {
+    const help = await readFile(path.join(helpsAssetDir(), "memory-topic.md"), "utf-8");
+    assert.match(help, /H2 sections/);
+    assert.match(help, /Read the system prompt's Memory section/);
+    assert.match(help, /`Read` that topic file/);
+    assert.match(help, /Append your bullet/);
+    assert.match(help, /`Write` the file back/);
+    assert.match(help, /also `Write` an updated `MEMORY\.md` line/);
+    assert.match(help, /<type>\/<topic>\.md/);
+    assert.match(help, /matching line into `conversations\/memory\/MEMORY\.md`/);
+  });
+
+  it("memory-atomic.md carries the typed-entry format and index line", async () => {
+    const help = await readFile(path.join(helpsAssetDir(), "memory-atomic.md"), "utf-8");
+    assert.match(help, /<type>_<short-slug>\.md/);
+    assert.match(help, /- \[<name>\]\(<filename>\) — <description>/);
   });
 });

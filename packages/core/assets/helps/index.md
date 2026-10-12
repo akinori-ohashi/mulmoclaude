@@ -9,6 +9,7 @@ Under the hood it uses the Claude Code Agent SDK as its LLM core. Claude has ful
 ## Roles
 
 - **General** — Everyday assistant: task management, scheduling, wiki, mind maps, and general Q&A.
+- **Simple** — Light conversation with a small system prompt: forms and collections only; switch to General for documents, slides, images or HTML.
 - **Office** — Creates documents, spreadsheets, presentations, and MulmoScript slideshows.
 - **Guide & Planner** — Collects your needs via a form, then produces a rich illustrated guide or plan. Works for recipes, travel itineraries, fitness programs, event planning, study guides, DIY projects, and more.
 - **Artist** — Generates and edits images, opens a drawing canvas, and creates 3D scenes.
@@ -67,6 +68,11 @@ See [Wiki](config/helps/wiki.md) for details on how it works.
 - [Spreadsheet](config/helps/spreadsheet.md) — cell format, formulas, date handling, and format codes for the presentSpreadsheet plugin
 - [presentHtml](config/helps/presenthtml.md) — self-contained HTML rules and the three-`../` relative-path convention used by the presentHtml plugin to keep generated files portable under `file://`
 - [Sandbox](config/helps/sandbox.md) — how the Docker sandbox isolates the agent, what it can access, and how to disable it
+- [Attached files](config/helps/attachments.md) — the `[Attached file: …]` markers on a user message: where each path lives, PPTX arriving as PDF, multi-image `editImages`, and the original-filename rules
+- [Image references](config/helps/image-references.md) — how a `.md` / `.html` file embeds an image so it renders both in the app and from disk: relative paths only, and the forms that break
+- [Task scheduling](config/helps/scheduling.md) — `schedule:` frontmatter syntax (`daily HH:MM` is UTC), recommended intervals, and changing a system task's frequency via the overrides API
+- [Memory (topic files)](config/helps/memory-topic.md) — how the agent saves memory as `conversations/memory/<type>/<topic>.md` topic files: the file format, picking the type, adding a bullet, creating a topic and its `MEMORY.md` line
+- [Memory (typed entries)](config/helps/memory-atomic.md) — the older one-file-per-entry memory layout: frontmatter, picking the type, and the `MEMORY.md` index line
 - [Error recovery](config/helps/error-recovery.md) — the lookup the agent reads on tool failures (sandbox gh/git/SSH, Marp PDF, registry import, build/workspace, plugin runtime, a bridge gone quiet), plus the triage for a “broken” report
 - [Bug-report FAQ](config/helps/bug-report-faq.md) — symptoms that turn out to be configuration or by design (voice input, push, chat titles, journal, connector tools, preset skills, custom views); says where to read the live value, never what it is
 - [Telegram Bridge](config/helps/telegram.md) — how to talk to MulmoClaude from the Telegram app: creating a bot, starting the bridge, allowlisting chat IDs, commands, and troubleshooting

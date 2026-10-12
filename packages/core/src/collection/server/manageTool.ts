@@ -297,7 +297,7 @@ async function handleGetItems(collection: LoadedCollection, args: GetItemsArgs, 
   if (!ids && !fields && items.length > MAX_UNSELECTIVE_ITEMS) {
     return `manageCollection: refused — '${collection.slug}' has ${items.length} records, over the unselective limit of ${MAX_UNSELECTIVE_ITEMS}. Pass \`ids\` for specific records or \`fields\` to project only the columns you need.`;
   }
-  const enriched = await enrichItems(collection, items, deps);
+  const enriched = await enrichItems(collection, items, deps, fields);
   const projected = fields ? enriched.map((item) => projectFields(item, fields, collection.schema.primaryKey)) : enriched;
   // The warning scan reads every record file, so don't pay it on a
   // selective read that found everything it asked for — only a full
@@ -993,6 +993,22 @@ const MANAGE_COLLECTION_PROMPT =
   "`deleteItems` removes records by id and returns `{ deleted, rejected }`; an id that doesn't exist comes back rejected rather than counted as deleted, so check `rejected` before reporting a deletion as done. " +
   "Answer aggregation questions (counts, sums, averages, group-bys) with `queryItems` on ANY collection — on a dataSource (CSV) collection it scans the whole file (getItems is row-capped, so aggregates computed from its output can be silently wrong on large files); on a file-backed collection it aggregates the enriched records, so computed fields (derived/rollup/toggle) are queryable columns.";
 
+const MANAGE_COLLECTION_REFERENCE_FILE = "manageCollection.md";
+
+/** Injected instead of the full prompt by a host that supports `promptCompact` /
+ *  `promptFiles` (`../../prompt-files`). Keeps every rule that decides whether to
+ *  call the tool, and the one write rule whose omission loses data (a partial
+ *  upsert erases fields); the write-gate / lint / field-format detail is behind
+ *  the Read. */
+const MANAGE_COLLECTION_PROMPT_COMPACT = [
+  "Use `manageCollection` instead of raw Read/Write/Edit for a collection's records or schema.",
+  "`getItems` is the only way to see computed values (`derived`, `toggle`, `embed`); pass `ids` / `fields` on large collections.",
+  "Start a cross-collection question with `getOntology`, and answer counts / sums / averages / group-bys with `queryItems`.",
+  "Before changing a `schema.json`, call `schemaDocs`, then `getSchema` / `putSchema`.",
+  'To update a few fields use `mode: "merge"` — the default upsert replaces the WHOLE record and erases every optional field the row omits.',
+  `Before writing or deleting records (\`putItems\`, \`itemsFile\`, \`deleteItems\`), Read {{promptFilesDir}}/${MANAGE_COLLECTION_REFERENCE_FILE} for the write gate, the \`lint\` block and the stored form of each field type.`,
+].join(" ");
+
 /** Validate getItems' optional `ids`/`fields` args, then delegate. */
 async function dispatchGetItems(collection: LoadedCollection, args: Record<string, unknown>, deps: ManageCollectionDeps): Promise<string> {
   const ids = optionalStringArray(args.ids, "ids");
@@ -1126,6 +1142,8 @@ export function makeManageCollectionTool(deps: ManageCollectionDeps = {}) {
     alwaysActive: true,
 
     prompt: MANAGE_COLLECTION_PROMPT,
+    promptCompact: MANAGE_COLLECTION_PROMPT_COMPACT,
+    promptFiles: { [MANAGE_COLLECTION_REFERENCE_FILE]: MANAGE_COLLECTION_PROMPT },
 
     handler: (args: Record<string, unknown>): Promise<string> => manageCollectionHandler(deps, args),
   };

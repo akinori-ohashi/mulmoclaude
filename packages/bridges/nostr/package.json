@@ -22,14 +22,14 @@
   "license": "MIT",
   "author": "Receptron Team",
   "dependencies": {
-    "@mulmobridge/client": "^1.4.0",
+    "@mulmobridge/client": "^1.4.2",
     "@mulmobridge/protocol": "^1.1.0",
-    "@mulmoclaude/common": "^1.4.0",
-    "dotenv": "^17.0.0",
+    "@mulmoclaude/common": "^1.5.0",
+    "dotenv": "^18.0.7",
     "nostr-tools": "^2.25.2"
   },
   "devDependencies": {
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.5",
     "typescript": "^6.0.3"
   },
   "homepage": "https://github.com/receptron/mulmoclaude/tree/main/packages/bridges/nostr#readme",

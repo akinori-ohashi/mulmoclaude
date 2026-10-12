@@ -165,6 +165,16 @@ describe("manageCollection — getItems", () => {
     assert.equal(item?.value, undefined); // formula fails (dangling ref) → absent, not 999
   });
 
+  it("a projection with no computed field never reads the linked collections", async () => {
+    // A file where the ref target's items directory belongs makes any read
+    // of it throw — so a getItems that succeeds proves it was not read.
+    rmSync(path.join(workdir, "data/stock-quotes/items"), { recursive: true, force: true });
+    writeFileSync(path.join(workdir, "data/stock-quotes/items"), "not a directory");
+    const result = await runJson({ action: "getItems", slug: "portfolio", ids: ["h1"], fields: ["name", "closed"] });
+    assert.deepEqual(result.items, [{ id: "h1", name: "Apple", closed: false }]);
+    await assert.rejects(run({ action: "getItems", slug: "portfolio", ids: ["h1"], fields: ["value"] }));
+  });
+
   it("projects fields, always keeping the primary key", async () => {
     const result = await runJson({ action: "getItems", slug: "portfolio", ids: ["h1"], fields: ["value"] });
     const [item] = result.items as Record<string, unknown>[];

@@ -47,6 +47,10 @@ describe("classifyWorkspacePath", () => {
       assert.deepEqual(result, { kind: "session", sessionId: "550e8400-e29b-41d4-a716-446655440000" });
     });
 
+    it("classifies the legacy chat/<id>.jsonl href that older journal summaries resolve to", () => {
+      assert.deepEqual(classifyWorkspacePath("chat/abc-123.jsonl"), { kind: "session", sessionId: "abc-123" });
+    });
+
     it("does not classify nested paths under chat/ as session", () => {
       const result = classifyWorkspacePath("conversations/chat/sub/dir.jsonl");
       assert.ok(result);

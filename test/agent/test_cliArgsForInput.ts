@@ -51,6 +51,7 @@ describe("cliArgsForInput", () => {
         extraAllowedTools: ["Bash"],
         effortLevel: "high",
         chatModel: "sonnet",
+        loadClaudeUserSettings: false,
       }),
       PROMPT_PATH,
     );
@@ -59,6 +60,7 @@ describe("cliArgsForInput", () => {
     assert.deepEqual(params.extraAllowedTools, ["Bash"]);
     assert.equal(params.effortLevel, "high");
     assert.equal(params.chatModel, "sonnet");
+    assert.equal(params.loadClaudeUserSettings, false);
   });
 
   it("leaves optional fields undefined when the input omits them", () => {
@@ -67,6 +69,7 @@ describe("cliArgsForInput", () => {
     assert.equal(params.mcpConfigPath, undefined);
     assert.equal(params.effortLevel, undefined);
     assert.equal(params.chatModel, undefined);
+    assert.equal(params.loadClaudeUserSettings, undefined);
   });
 
   it("does not carry over non-CLI fields (message, workspacePath, port)", () => {

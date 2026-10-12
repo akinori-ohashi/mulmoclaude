@@ -45,6 +45,12 @@ const toolDefinition: ToolDefinition = {
             description:
               "Optional model family for this role's sessions — one of the aliases offered in Settings \u2192 Model. Omit it to follow the app-wide choice. A value that is not a known alias is ignored. ALWAYS echo back the role's existing value when updating a role, or the setting is lost.",
           },
+          excludedAlwaysActiveTools: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Optional names of always-active tools (offered to every role regardless of availablePlugins) that this role opts out of. ALWAYS echo back the role's existing value when updating a role, or the setting is lost.",
+          },
         },
         required: ["id", "name", "icon", "prompt", "availablePlugins"],
       },

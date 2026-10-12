@@ -45,3 +45,33 @@ export function uniqueBacklinkSources(schema: CollectionSchema): string[] {
   }
   return [...sources];
 }
+
+/** Every linked collection a schema can read — the union of the three walks. */
+function allLinkedSlugs(schema: CollectionSchema): string[] {
+  return [...new Set([...uniqueRefTargets(schema), ...uniqueEmbedTargets(schema), ...uniqueBacklinkSources(schema)])];
+}
+
+/** A formula / predicate may deref any ref target or read any rollup, so
+ *  computing one needs every linked collection. */
+function readsEveryLink(field: CollectionFieldSpec): boolean {
+  return field.type === "derived" || field.type === "flag";
+}
+
+/** The one linked collection a field reads directly, or null. */
+function directLinkOf(field: CollectionFieldSpec): string | null {
+  if (field.type === "embed" && typeof field.to === "string" && field.to.length > 0) return field.to;
+  if ((field.type === "backlinks" || field.type === "rollup") && field.from.length > 0) return field.from;
+  return null;
+}
+
+/** Slugs a record projected to `fields` needs loaded to compute its values.
+ *  `fields` omitted → every linked slug. Unknown names need nothing. */
+export function linkedSlugsForFields(schema: CollectionSchema, fields?: readonly string[]): string[] {
+  if (!fields) return allLinkedSlugs(schema);
+  const wanted = new Set(fields);
+  const requested = Object.entries(schema.fields)
+    .filter(([name]) => wanted.has(name))
+    .map(([, field]) => field);
+  if (requested.some(readsEveryLink)) return allLinkedSlugs(schema);
+  return [...new Set(requested.map(directLinkOf).filter((slug): slug is string => slug !== null))];
+}

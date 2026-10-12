@@ -27,15 +27,15 @@
     "lint": "eslint src test"
   },
   "peerDependencies": {
-    "@mulmoclaude/common": "^1.4.0"
+    "@mulmoclaude/common": "^1.5.0"
   },
   "devDependencies": {
-    "@mulmoclaude/common": "^1.4.0",
-    "@types/node": "^26.6.3",
+    "@mulmoclaude/common": "^1.5.0",
+    "@types/node": "^26.6.5",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "vite": "^8.3.2",
-    "vite-plugin-dts": "^5.1.1"
+    "vite": "^8.3.4",
+    "vite-plugin-dts": "^5.1.2"
   },
   "license": "MIT",
   "homepage": "https://github.com/receptron/mulmoclaude/tree/main/packages/plugins/x-plugin#readme",

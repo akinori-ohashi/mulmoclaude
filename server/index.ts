@@ -66,7 +66,8 @@ import { watchDevPlugins } from "./plugins/dev-watcher.js";
 import { loadPresetPlugins } from "./plugins/preset-loader.js";
 import { registerRuntimePlugins } from "./plugins/runtime-registry.js";
 import { makePluginRuntime } from "./plugins/runtime.js";
-import { MCP_PLUGIN_NAMES } from "./agent/plugin-names.js";
+import { BUILT_IN_PROMPT_FILE_SOURCES, MCP_PLUGIN_NAMES } from "./agent/plugin-names.js";
+import { syncHostPromptFiles } from "./agent/promptFiles.js";
 import { claudeCredentialsPath } from "./utils/claudeConfigPath.js";
 import { getActiveBackend, setActiveBackend } from "./agent/backend/index.js";
 import { fakeEchoBackend } from "./agent/backend/fake-echo.js";
@@ -103,7 +104,7 @@ import { resolveClientDir } from "./utils/clientDir.js";
 import { serverError } from "./utils/httpError.js";
 import { browserVisibleOrigin } from "./utils/forwardedOrigin.js";
 import { makeUuid } from "./utils/id.js";
-import { mcpToolsRouter, mcpTools, isMcpToolEnabled } from "./agent/mcp-tools/index.js";
+import { mcpToolsRouter, mcpTools, isMcpToolEnabled, MCP_TOOL_PROMPT_FILE_SOURCES } from "./agent/mcp-tools/index.js";
 import { preflightUserServers, logPreflightResult } from "./agent/mcpPreflight.js";
 import { loadMcpConfig, loadSettings } from "./system/config.js";
 import { getVoiceInputStatus, stopWhisperSidecar, warmupVoiceInput } from "./system/whisper/index.js";
@@ -1234,9 +1235,20 @@ async function loadRuntimePluginsFor(pubsub: IPubSub, taskManager: ITaskManager)
       collisions: result.collisions.length,
       oauthAliasCollisions: result.oauthAliasCollisions.length,
     });
+    syncAllPromptFiles(result.registered);
   } catch (err) {
     log.error("plugins/runtime", "registry init failed; runtime plugins disabled this session", { error: String(err) });
   }
+}
+
+/** Write every prompt file this host serves: built-in plugins, host MCP tools,
+ *  and the runtime plugins that registered. */
+function syncAllPromptFiles(runtimePlugins: ReturnType<typeof registerRuntimePlugins>["registered"]): void {
+  syncHostPromptFiles([
+    ...BUILT_IN_PROMPT_FILE_SOURCES,
+    ...MCP_TOOL_PROMPT_FILE_SOURCES,
+    ...runtimePlugins.map((plugin) => ({ packageName: plugin.name, definition: plugin.definition })),
+  ]);
 }
 
 function initEventPublishers(pubsub: IPubSub): void {
@@ -1541,7 +1553,7 @@ process.on("SIGTERM", () => {
     // (CodeRabbit review on PR #1196). Both `createPubSub` and
     // `initNotifier` are sync, so wiring them up here costs nothing
     // and closes the window.
-    const earlyPubsub = createPubSub(httpServer);
+    const earlyPubsub = createPubSub(httpServer, { tokenProvider: getCurrentToken });
     initNotifier({
       publish: (channel, payload) => earlyPubsub.publish(channel, payload),
     });

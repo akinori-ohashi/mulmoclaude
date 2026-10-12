@@ -495,3 +495,95 @@ describe("enrichItems — derived across refs", () => {
     assert.deepEqual(server?.holders, [{ id: "h1", shares: 10, value: 20 }]);
   });
 });
+
+describe("enrichItems — `fields` narrows the linked loads without changing the projection", () => {
+  const accountsSchema = {
+    title: "Accounts",
+    icon: "work",
+    dataPath: "data/accounts/items",
+    primaryKey: "id",
+    fields: {
+      id: { type: "string", label: "ID", primary: true, required: true },
+      ticker: { type: "ref", label: "Ticker", to: "stock-quotes" },
+      status: { type: "enum", label: "Status", values: ["open", "closed"] },
+      closed: { type: "toggle", label: "Closed", field: "status", onValue: "closed", offValue: "open" },
+      owner: { type: "embed", label: "Owner", to: "profile", id: "me" },
+      holdings: { type: "backlinks", label: "Holdings", from: "portfolio", via: "account", display: ["shares"] },
+      totalShares: { type: "rollup", label: "Total shares", from: "portfolio", via: "account", op: "sum", column: "shares" },
+      quotePrice: { type: "derived", label: "Quote", formula: "ticker.price" },
+      doubleShares: { type: "derived", label: "x2", formula: "totalShares * 2" },
+      isBig: { type: "flag", label: "Big?", where: [{ field: "totalShares", op: "gte", value: "10" }] },
+    },
+  };
+
+  function projectTo(record: Record<string, unknown>, fields: string[]): Record<string, unknown> {
+    return Object.fromEntries(["id", ...fields].filter((key) => Object.hasOwn(record, key)).map((key) => [key, record[key]]));
+  }
+
+  function everySubset<T>(values: T[]): T[][] {
+    return values.reduce<T[][]>((subsets, value) => [...subsets, ...subsets.map((subset) => [...subset, value])], [[]]);
+  }
+
+  it("every subset of field names projects identically to the full load", async () => {
+    writeSkill("accounts", accountsSchema);
+    writeSkill("stock-quotes", quotesSchema);
+    writeSkill("profile", profileSchema);
+    writeSkill("portfolio", { ...portfolioSchema, fields: { ...portfolioSchema.fields, account: { type: "string", label: "Account" } } });
+    writeRecord("data/stock-quotes/items", "aapl", { symbol: "aapl", price: 200 });
+    writeRecord("data/profile/items", "me", { id: "me", name: "Satoshi" });
+    writeRecord("data/portfolio/items", "h1", { id: "h1", account: "a1", ticker: "aapl", shares: 10, status: "open" });
+    writeRecord("data/portfolio/items", "h2", { id: "h2", account: "a1", shares: 5, status: "closed" });
+    const collection = await loadCollection("accounts", opts());
+    assert.ok(collection);
+    const items = [
+      { id: "a1", ticker: "aapl", status: "open" },
+      { id: "a2", ticker: "ghost", status: "closed" },
+    ];
+    const full = await enrichItems(collection, items, opts());
+    const subsets = everySubset([...Object.keys(accountsSchema.fields).filter((key) => key !== "id"), "ghost"]);
+    for (const fields of subsets) {
+      const narrowed = await enrichItems(collection, items, opts(), fields);
+      assert.deepEqual(
+        narrowed.map((record) => projectTo(record, fields)),
+        full.map((record) => projectTo(record, fields)),
+        `fields: ${JSON.stringify(fields)}`,
+      );
+    }
+  });
+
+  it("a backlinks / rollup source named like a prototype key is absent, not inherited", async () => {
+    writeSkill("stock-quotes", {
+      ...quotesSchema,
+      fields: {
+        ...quotesSchema.fields,
+        holders: { type: "backlinks", label: "Holders", from: "constructor", via: "ticker", display: ["shares"] },
+        held: { type: "rollup", label: "Held", from: "constructor", via: "ticker", op: "count" },
+      },
+    });
+    const collection = await loadCollection("stock-quotes", opts());
+    assert.ok(collection);
+    const items = [{ symbol: "aapl", price: 200 }];
+    const [stored] = await enrichItems(collection, items, opts(), ["price"]);
+    assert.equal(stored?.price, 200);
+    const [full] = await enrichItems(collection, items, opts());
+    assert.deepEqual(full?.holders, []);
+    assert.equal(full?.held, null);
+  });
+
+  it("a stored-only projection never reads a linked collection", async () => {
+    writeSkill("stock-quotes", quotesSchema);
+    writeSkill("profile", profileSchema);
+    writeSkill("portfolio", portfolioSchema);
+    // A file where the items directory belongs makes any list() of the
+    // target throw — so a call that succeeds proves the target was not read.
+    mkdirSync(path.join(workdir, "data/stock-quotes"), { recursive: true });
+    writeFileSync(path.join(workdir, "data/stock-quotes/items"), "not a directory");
+    const collection = await loadCollection("portfolio", opts());
+    assert.ok(collection);
+    const items = [{ id: "h1", ticker: "aapl", shares: 10, status: "closed" }];
+    const [stored] = await enrichItems(collection, items, opts(), ["shares", "closed"]);
+    assert.equal(stored?.shares, 10);
+    assert.equal(stored?.closed, true);
+    await assert.rejects(enrichItems(collection, items, opts(), ["value"]));
+  });
+});

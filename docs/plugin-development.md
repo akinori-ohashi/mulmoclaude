@@ -124,6 +124,30 @@ Edits to a plugin's `meta.ts` propagate; collisions surface as boot-time diagnos
 
 ---
 
+## Splitting a long `prompt` into an injected part and reference files
+
+A tool definition's `prompt` is injected into the system prompt on every turn. When it is long, a definition may also declare:
+
+```ts
+export const TOOL_DEFINITION = {
+  name: "presentThing",
+  description: "…",
+  prompt: FULL_TEXT, // unchanged: hosts that don't know the split inject this
+  promptCompact: "When to use it, the must-follow rules. Read {{promptFilesDir}}/guide.md before the first call.",
+  promptFiles: { "guide.md": GUIDE_MD }, // file name → CONTENT (import the .md as a string at build time)
+};
+```
+
+- Keep `prompt` as the full text. A host that does not support the split, or that could not write the files, injects it unchanged — so adopting the split never breaks an older host.
+- `promptFiles` carries file **contents**, not paths: the host writes them, so there is no package-root lookup to break under ESM/CJS or the runtime-plugin cache. Names are relative and `/`-separated; anything that could leave the directory is rejected.
+- `{{promptFilesDir}}` is the only way to refer to the directory. Each host replaces it with the path **its agent** can read: MulmoClaude uses `config/helps/plugins/<package>/` (workspace-relative — the agent's cwd is the workspace natively and in Docker); MulmoTerminal, whose agent starts in a project directory, uses an absolute path. Never write a literal path.
+- The directory is named after the npm package (`node_modules` layout), supplied by the host — a runtime plugin's package name, or `packageName` on a built-in binding — so two packages can never share one.
+- For a **plugin**, MulmoClaude's MCP tool description still carries the full `prompt` (`description` + `prompt`), so a tool loaded via `ToolSearch` sees everything either way. A **host MCP tool** publishes only `definition.description`, so once its split applies the full guidance lives ONLY in the prompt file — keep every rule that must be followed without reading it (data loss, silently wrong writes) in `promptCompact`.
+- Host MCP tools (`server/agent/mcp-tools/`) take the same `promptCompact` / `promptFiles` fields plus `packageName` on the `McpTool` object (see `manageCollection`).
+- Shared implementation: `@mulmoclaude/core/prompt-files` (`renderToolPrompt`, `syncPromptFiles`).
+
+---
+
 ## When you need shared code across plugins
 
 You don't import from another plugin (that's a peer-tier violation — see the dependency-direction rule in [`CLAUDE.md`](../CLAUDE.md)). Instead:

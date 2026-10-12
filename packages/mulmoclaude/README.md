@@ -5,7 +5,7 @@ GUI front-end for Claude Code and OpenAI Codex — chat with rich visual output,
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js 22.19+, plus one authenticated agent CLI
+# Prerequisites: Node.js 22.22.2+ / 24.15+ / 26+, plus one authenticated agent CLI
 # Codex (default):
 npm install -g @openai/codex
 codex login

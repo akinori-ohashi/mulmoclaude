@@ -1,6 +1,6 @@
 {
   "name": "@mulmoclaude/core",
-  "version": "5.8.1",
+  "version": "5.11.2",
   "description": "Shared server-side core for MulmoClaude and MulmoTerminal — the always-shipped-together subsystems consolidated behind subpath exports so the two hosts can't drift. Server-only except the browser-safe ./artifacts, ./whisper/client, ./workspace-setup/slug, ./translation/client, ./remote-view, ./remote-host and ./plugin-vue entries. All host specifics are injected.",
   "repository": {
     "type": "git",
@@ -145,6 +145,12 @@
       "require": "./dist/notifier/index.cjs",
       "default": "./dist/notifier/index.js"
     },
+    "./prompt-files": {
+      "types": "./dist/prompt-files/index.d.ts",
+      "import": "./dist/prompt-files/index.js",
+      "require": "./dist/prompt-files/index.cjs",
+      "default": "./dist/prompt-files/index.js"
+    },
     "./scheduler": {
       "types": "./dist/scheduler/index.d.ts",
       "import": "./dist/scheduler/index.js",
@@ -226,13 +232,13 @@
   "dependencies": {
     "@duckdb/node-api": "^1.5.6-r.1",
     "@gui-chat-plugin/common": "^0.1.0",
-    "@mulmoclaude/common": "^1.4.0",
-    "@mulmoclaude/markdown-utils": "^3.0.1",
+    "@mulmoclaude/common": "^1.5.0",
+    "@mulmoclaude/markdown-utils": "^3.0.2",
     "dompurify": "^3.4.16",
     "fast-xml-parser": "^5.11.2",
-    "google-auth-library": "^11.1.0",
+    "google-auth-library": "^11.2.0",
     "iconv-lite": "^0.7.3",
-    "js-yaml": "^5.4.2",
+    "js-yaml": "^5.4.3",
     "zod": "^4.6.5"
   },
   "peerDependencies": {
@@ -255,14 +261,14 @@
   },
   "devDependencies": {
     "@receptron/task-scheduler": "^1.0.3",
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.5",
     "gui-chat-protocol": "^2.3.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "vite": "^8.3.2",
-    "vite-plugin-dts": "^5.1.1",
+    "vite": "^8.3.4",
+    "vite-plugin-dts": "^5.1.2",
     "vue": "^3.5.43",
-    "vue-i18n": "^11.4.12"
+    "vue-i18n": "^11.4.14"
   },
   "license": "MIT",
   "keywords": [

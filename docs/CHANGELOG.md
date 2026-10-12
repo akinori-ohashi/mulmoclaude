@@ -8,7 +8,198 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-10-11
+
+**Every socket now checks the bearer token, an open page survives a server restart, and Node.js 22.22.2+ / 24.15+ / 26+ is the new minimum.**
+
 ### Highlights
+
+#### Audio and video opened from `/api/files/raw` play again (#3437, PR #3440)
+
+A sound or video file opened in its own tab, the way a collection's file link opens it, showed Chrome's player
+but never played: the response carried the `sandbox` content-security policy, Chrome's media page re-requested
+the file from the resulting `null` origin, and the request was blocked. Audio and video now join PDF outside
+the sandbox, with `nosniff` kept; SVG, HTML, text, images and unknown types stay sandboxed.
+
+#### The live-update socket requires the bearer token (#3433, PR #3435)
+
+The `/ws/pubsub` socket.io handshake now presents the same per-startup token every `/api/*` call carries, and the
+server refuses a handshake without it. Until now loopback binding was the only thing keeping another local process,
+or anything relaying traffic to the port, from subscribing to a session's events as they stream.
+
+#### An open page follows a server restart on its own (#3438, PR #3446)
+
+The bearer token is regenerated at every server start, and a page that stayed open used to be left with the old one:
+every send or save failed with a bare `unauthorized`, and only the live-update socket said anything, as a banner with a
+Reload button. The page now fetches `index.html` again, which carries the current token, and goes on with it: a refused
+call is retried once and the live-update socket reconnects. The banner remains as the last resort, for a page that
+cannot fetch a usable token, and it now speaks for calls and live updates alike. The three status banners — backend
+offline, remote host offline, and this one — share one component.
+
+#### Spotify playback works for Premium accounts again, and summaries carry each item's URI (#3432, PR #3434, PR #3436)
+
+Every playback control refused Premium accounts with `premium_required`. `/v1/me` stopped returning `product` for
+these apps, and the plugin read the missing field as Free. A missing tier now counts as unknown: playback goes
+through, and Spotify's own `PREMIUM_REQUIRED` refusal maps to the same message the plugin gave before. Profiles
+cached with the fabricated Free are fetched again. The search and listening summaries the agent reads now end each
+line with the item's `spotify:` URI, so a hit can be passed straight to `play`; a podcast episode gets none rather
+than a wrong track URI (`@mulmoclaude/spotify-plugin` 2.0.3).
+
+#### Node.js 22.22.2+ / 24.15+ / 26+ is the new minimum (PR #3447)
+
+`mulmocast` 2.20 and `which` 7 require `^22.22.2 || ^24.15.0 || >=26.0.0`, so `engines.node` and the launcher's
+start-up check now say the same; Node 23 and 25 are refused. The update also brings `jsdom` 30 to the root, which
+lets the `jsdom` and `jinglescript` pins in `resolutions` go.
+
+#### The bridge chat socket applies the same bearer rule (#3439, PR #3444)
+
+The `/ws/chat` handshake every `@mulmobridge/*` bridge presents its token to now compares it in constant time,
+answers every token refusal with the same generic `unauthorized` as `/api/*` and `/ws/pubsub`, and can no longer be
+opened without a token provider. The rule lives once, in `@mulmoclaude/common/token-guard`, and the webhook and
+Twilio bridges compare their secrets through the shared helpers too. A bridge on `@mulmobridge/client` 1.4.2
+recognises the new message as a token refusal (`@mulmobridge/chat-service` 2.0.0, `@mulmoclaude/common` 1.5.0).
+
+#### The code-copy button works inside a shadow root (#3448, PR #3449)
+
+The copy button on code blocks rendered by `@mulmoclaude/markdown-utils` did nothing inside a Shadow DOM: the
+document-level click listener looked the button up from `event.target`, which a shadow root retargets to its host. The
+listener now finds the button through `composedPath()`, so a host that mounts views in a shadow root (MulmoTerminal's
+canvas) can copy code again, and light-DOM behaviour is unchanged (`@mulmoclaude/markdown-utils` 3.0.2).
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.2`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.3.0] - 2026-10-10
+
+**A form can now show the passage it asks about, with the phrase in question highlighted and the answer fields right under it.**
+
+### Highlights
+
+#### Forms can show the passage they ask about, with the phrase highlighted (#3426, PR #3427)
+
+`presentForm` gains a read-only `excerpt` field: a passage with highlighted phrases, placed right before the
+questions about it. Answering review comments no longer means checking the passage on a canvas and answering in a
+separate form — each comment's passage and its answer fields sit together, and Submit returns only the answers.
+A highlight that does not appear in the passage is refused, so a passage is never shown without its mark
+(`@mulmoclaude/form-plugin` 2.2.0).
+
+#### Dependency updates (PR #3419, PR #3428, PR #3430)
+
+`dotenv` 18 in the launcher (none of its removed features were in use), `mulmocast` / `@mulmocast/types` 2.19,
+`express` 5.3, and minor / patch updates across the workspaces. `resolutions` now pin `mulmocast` and `jsdom` so
+`yarn upgrade-interactive` no longer fails with an `Invariant Violation`.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.11.2`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.2.1] - 2026-10-09
+
+**Journal summaries now link to chat sessions that exist: new summaries point at `conversations/chat/`, and links already written by earlier releases open the right session in the viewer.**
+
+### Highlights
+
+#### Journal session links resolve again (#3415, PR #3416)
+
+The archivist prompt told the model to write `/chat/<id>.jsonl`, a path from before chat moved under `conversations/`, so every session link in `conversations/summaries/` resolved to a directory that does not exist, and clicking one in the viewer never switched to that session. The prompt now builds the path from the workspace layout, so it cannot drift from it again, and the viewer also recognises the old `chat/<id>.jsonl` form, so summaries written by earlier releases work in the app without being rewritten. The skill-save prompt and the `mc-manage-skills` preset skill, which carried the same stale path, are corrected too (`@mulmoclaude/core` 5.11.2).
+
+Summaries on disk are not rewritten by the app, so in an external editor an old link stays dead. A repair script exists in the repository (`yarn journal:repair-links --workspace <dir>`, with `--dry-run` to preview; #3417, PR #3418), but it lives under `scripts/` and is not part of the npm package, so it is only available from a source checkout.
+
+#### Dependency updates (PR #3414)
+
+`@mulmocast/types` 2.17 and `js-yaml` 5.4.3, and the launcher now requires `@mulmoclaude/core` `^5.11.2`.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.11.2`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.11.2`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.2.0] - 2026-10-07
+
+**Every turn sends a shorter system prompt — the Simple role now runs at about 9,300 characters — and Settings → Model can stop loading the Claude Code plugins whose skill lists dominate each request.**
+
+### Highlights
+
+#### Settings → Model can stop loading Claude Code's user settings and plugins (#3406, PR #3410)
+
+A new checkbox, on by default, decides whether the agent reads `~/.claude` skills, plugins and hooks. Turning it off
+passes `--setting-sources project,local`, so a user whose installed plugins carry so many skills that every request
+gets heavy can drop them while keeping the workspace's own skills.
+
+#### Settings → Model shows how many skills the last turn listed (#3406, PR #3412)
+
+The CLI's start-up frame says how many skills it listed and which plugins they came from. MulmoClaude now keeps the
+latest numbers, shows them under the new checkbox (with a hint when there are many), and logs a warning once when the
+count is high.
+
+#### A shorter custom-view section in the base prompt (#3402, PR #3405)
+
+The base prompt's collection custom-view section now keeps only which help to read (desktop or phone) and the rule that
+a phone view is a `target: "mobile"` view, never a standalone HTML file. The contract details were already in
+`config/helps/custom-view.md` and `custom-view-remote.md`.
+
+#### The Simple role drops `spawnBackgroundChat` (#3402, PR #3404)
+
+A role can now opt out of an always-active tool with `excludedAlwaysActiveTools`. The Simple role uses it to drop
+`spawnBackgroundChat`, which it has no use for, so its system prompt and tool list get smaller. `manageCollection`
+stays. Every other role is unchanged.
+
+#### Memory-writing guidance moves to help files (#3402, PR #3403) — `@mulmoclaude/core@5.11.1`
+
+The memory section of every role's system prompt now keeps only the per-turn rules — save silently, where a memory file
+lives and its four types, when to write or skip, and (for the topic layout) recall before answering. The file format and step-by-step write procedure moved to
+`config/helps/memory-topic.md` and `memory-atomic.md`, which the agent reads before writing a memory entry.
+
+#### The MCP child only dispatches the tools it publishes (#3407, PR #3408)
+
+`tools/call` looked pure MCP tools up in the all-roles registry, so naming a tool the role does not carry still reached
+it. The broker now refuses any name that is not on its `tools/list` surface. Claude Code already refused such names
+before sending them, so nothing changes in normal use; this closes the gap on the server side too.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.11.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.1.0] - 2026-10-07
+
+**MulmoScript's Remotion beats can now be written by the agent itself, so a scene can be refined in the conversation instead of being regenerated.**
+
+### Highlights
+
+#### MulmoScript: the agent can write a Remotion beat's component itself (#3396, PR #3398) — `@mulmoclaude/mulmoscript-plugin@5.3.0`
+
+`presentMulmoScript` now describes mulmocast's `image: { type: "remotion", code }` form next to `prompt`: the agent writes
+the finished component (a `.tsx` file beside the script, or inline text) and mulmocast renders it as is, so the user can
+refine the scene in the conversation. The rules for that component — mulmocast's `REMOTION_COMPONENT_GUIDE` — ship as
+the prompt file `remotion-component-guide.md`, read before writing `code`.
+
+It needs mulmocast 2.15.0, the first release whose guide can be read without pulling Node-only code into the browser
+bundle, so the launcher now requires `mulmocast` / `@mulmocast/types` `^2.15.0`.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.11.0`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.0.0] - 2026-10-07
+
+**`manageCollection`'s guidance — part of every role's system prompt — shrinks to a short summary backed by a prompt file, completing the system-prompt diet that began in 1.27.0.**
+
+### Highlights
+
+#### `manageCollection` sends a short summary instead of its full guidance (#3369)
+
+`manageCollection` is offered to every role, so its guidance was in every system prompt. The entry now keeps what decides
+whether and how to call it — and the rule that a partial upsert erases omitted fields — and points the agent at
+`config/helps/plugins/@mulmoclaude/core/manageCollection.md` before writing or deleting records. MulmoTerminal still
+uses the full text.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.11.0`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.2.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [1.27.0] - 2026-10-06
+
+**Bridge replies no longer carry the CLI's compaction summary or continuation prompt, the base and plugin prompts get much shorter, ShapeScript exports printable STL, MulmoScript learns Remotion beats, and a lighter Simple role arrives.**
+
+### Highlights
+
+#### Bridge replies and the transcript no longer include CLI-injected context (#3376, PR #3392)
+
+In a long session the Claude CLI injects text of its own: the summary it writes after compacting the context ("This
+session is being continued from a previous conversation…") and the instruction it sends when a reply hits the output
+limit ("Output token limit hit. Resume directly…"). That text was treated as the assistant's reply, so it was posted to
+Discord and other bridges ahead of the real answer, shown in the chat, saved to the transcript and quoted in the Web Push
+notification. It is now kept out of all of them. The CLI still keeps it in its own session file.
 
 #### ShapeScript comes from `@gui-chat-plugin/shapescript` 8.2.1, with a printable STL export
 
@@ -27,7 +218,56 @@ instead of keeping its own copy (`packages/plugins/shapescript-plugin` is remove
 - `renderShapeScript` no longer fails with "Navigating frame was detached" on large models such as a 20 x 20 x 20
   lattice: the render page now receives the scene in parts.
 
-Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.8.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.1.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.0.1`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
+#### `manageCollection.getItems` with `fields` skips linked collections it does not show (#3368, PR #3371)
+
+A `getItems` call that asks only for stored fields (a list of dates, titles and statuses) no longer reads every
+collection the schema links to. A `backlinks`, `rollup` or `embed` field reads only its own source, and a `derived` or
+`flag` field still reads all of them. The values returned are unchanged.
+
+#### A shorter base system prompt (#3369)
+
+The attached-file, image-reference and task-scheduling sections of the base system prompt now carry only the rules the
+agent must follow on every turn. The rest moved to `config/helps/attachments.md`, `image-references.md` and
+`scheduling.md`, which the agent reads when the situation comes up. The base prompt drops from about 11,500 characters
+to about 6,000.
+
+#### Plugins can keep long instructions in reference files (#3369)
+
+A plugin's tool definition may now declare `promptCompact` (injected into the system prompt) and `promptFiles`
+(reference files written under `config/helps/plugins/<package>/` at startup, which the agent reads when it needs them).
+`prompt` stays the full text, so plugins that don't declare the split, and hosts that don't support it, behave exactly as
+before. No bundled plugin uses it yet.
+
+#### A **Simple** role for light conversation (#3369)
+
+A new built-in role with only the form and collection display tools (plus the tools every role gets), so each turn sends
+a much smaller system prompt than General. For documents, slides, images or HTML it suggests switching to General.
+
+#### MulmoScript: Remotion beats (#3379, PR #3382) — `@mulmoclaude/mulmoscript-plugin@5.1.0`, released 2026-10-06
+
+`presentMulmoScript` now tells the agent about mulmocast 2.13.0's `image: { type: "remotion", prompt, fps? }` beat
+(fps 1–60, default 30) and the script-level `remotionParams.brief`. It is opt-in: the agent uses it only when the user
+asks for Remotion or has the optional remotion packages installed, since the host does not ship them and generation
+fails without them. The View now shows a remotion beat's rendered clip, and a beat whose kind changed (for example from
+`moviePrompt` to `remotion`) no longer shows the clip left over from its old kind. The plugin's peer floors rise to
+`mulmocast` / `@mulmocast/types` `^2.13.0`, `@mulmoclaude/core` `^5.10.1`, `@mulmoclaude/common` `^1.4.0` and
+`gui-chat-protocol` `^2.3.0`. Also in this release: same-file duplicates folded in the plugin's server code (PR #3361,
+no behaviour change).
+
+#### `presentMulmoScript` sends a short summary instead of its full reference (#3369)
+
+The MulmoScript tool's system-prompt entry is now a few sentences that point the agent at
+`config/helps/plugins/@mulmoclaude/mulmoscript-plugin/presentMulmoScript.md`, written at startup with the full reference
+(structure, provider rules, beat types). The tool's MCP description is unchanged, so MulmoTerminal and a model loading
+the tool see the full text as before.
+
+#### `presentDocument` sends a short summary; the Marp details move to a prompt file (#3369)
+
+The document tool's system-prompt entry now keeps only when to use it, `markdown` vs `path`, and the image-placeholder
+format, and points the agent at `config/helps/plugins/@mulmoclaude/markdown-plugin/presentDocument.md` (the full guide,
+including the Marp slide-deck rules). `prompt` itself is unchanged, so hosts that don't support the split behave as before.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.4.0`, `@mulmoclaude/core@5.10.1`, `@mulmoclaude/form-plugin@2.1.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.1`, `@mulmoclaude/mulmoscript-plugin@5.2.0`, `@mulmoclaude/spotify-plugin@2.0.2`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [1.26.3] - 2026-10-02
 

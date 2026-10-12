@@ -157,3 +157,34 @@ describe("buildAgentInput — session override", () => {
     assert.equal(chatModelFor(roleWith(undefined), undefined), undefined);
   });
 });
+
+// #3406: the setting is read here and nowhere else on the way to the CLI, so
+// a test of `buildCliArgs` alone would stay green if this call site dropped it.
+describe("buildAgentInput — loadClaudeUserSettings wiring", () => {
+  const userSettingsFor = async (stored: boolean | undefined): Promise<boolean | undefined> => {
+    const settings = stored === undefined ? { extraAllowedTools: [] } : { extraAllowedTools: [], loadClaudeUserSettings: stored };
+    await writeFile(path.join(root, "config", "settings.json"), JSON.stringify(settings));
+    return agent.buildAgentInput(
+      { message: "m", role: roleWith(undefined), workspacePath: root, sessionId: "s", port: 0 },
+      { activePlugins: [], useDocker: false, userServers: {}, backend: { id: "codex" } as LLMBackend },
+      {
+        systemPrompt: "sp",
+        hasMcp: false,
+        mcpPaths: { hostPath: path.join(root, "mcp.json"), argPath: path.join(root, "mcp.json") },
+        mcpServerNames: [],
+        broker: null,
+        spawnId: "spawn",
+        startMarkerPath: path.join(root, "marker"),
+      },
+    ).agentInput.loadClaudeUserSettings;
+  };
+
+  it("passes false when the user turned it off", async () => {
+    assert.equal(await userSettingsFor(false), false);
+  });
+
+  it("defaults to loading them when the setting is absent or on", async () => {
+    assert.equal(await userSettingsFor(undefined), true);
+    assert.equal(await userSettingsFor(true), true);
+  });
+});

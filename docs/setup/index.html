@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MulmoClaude の手順書</title>
+<style>
+  :root {
+    --bg:#ffffff; --fg:#1f2329; --muted:#646b75; --line:#dfe2e6; --soft:#f4f5f7;
+    --accent:#1f5fa8; --more-bg:#f1f5fa; --ok:#217a4b; --ok-bg:#e6f3eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#16181c; --fg:#e6e8eb; --muted:#a0a7b1; --line:#30343b; --soft:#1f2227;
+      --accent:#86b4ec; --more-bg:#1d2633; --ok:#7fd18b; --ok-bg:#1d3327;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN",sans-serif;
+    line-height:1.75; font-size:16px; }
+  main { max-width:720px; margin:0 auto; padding:40px 16px 64px; }
+  h1 { font-size:28px; margin:0 0 24px; letter-spacing:-.01em; }
+  .prep { background:var(--soft); border-radius:12px; padding:16px 20px; margin-bottom:36px; }
+  .prep h2 { font-size:15px; margin:0 0 6px; }
+  .prep ul { margin:0; padding-left:1.2em; }
+  .path { position:relative; }
+  .step { position:relative; display:grid; grid-template-columns:48px 1fr; gap:16px; padding-bottom:28px; }
+  .step:not(:last-child)::before { content:""; position:absolute; left:23px; top:48px; bottom:0; width:2px; background:var(--line); }
+  .num { width:48px; height:48px; border-radius:50%; background:var(--accent); color:var(--bg);
+    display:flex; align-items:center; justify-content:center; font-weight:800; font-size:20px; }
+  .card { border:1px solid var(--line); border-radius:14px; padding:18px 20px; }
+  .card h3 { margin:0; font-size:20px; }
+  .goal { margin:4px 0 12px; font-weight:600; }
+  .meta { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; font-size:13px; }
+  .meta span { background:var(--soft); border-radius:999px; padding:2px 10px; color:var(--muted); }
+  .check { background:var(--ok-bg); border-radius:10px; padding:10px 14px; font-size:14px; margin-bottom:14px; }
+  .check b { color:var(--ok); }
+  .open { display:inline-block; background:var(--accent); color:var(--bg); text-decoration:none;
+    font-weight:700; padding:8px 18px; border-radius:8px; }
+  code { font-family:ui-monospace,Menlo,monospace; background:var(--soft); padding:1px 6px; border-radius:4px; }
+  .foot { color:var(--muted); font-size:14px; border-top:1px solid var(--line); padding-top:16px; margin-top:8px; }
+  @media (max-width:480px) { .step { grid-template-columns:36px 1fr; gap:10px; } .num { width:36px; height:36px; font-size:16px; }
+    .step:not(:last-child)::before { left:17px; top:36px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>MulmoClaude の手順書</h1>
+
+  <section class="prep">
+    <h2>始める前に用意するもの</h2>
+    <ul>
+      <li>インターネットにつながった Mac</li>
+      <li>Claude の有料プラン（Pro・Max・Team・Enterprise）のアカウント</li>
+      <li>Mac のログインパスワード</li>
+    </ul>
+  </section>
+
+  <div class="path">
+    <div class="step">
+      <div class="num">1</div>
+      <div class="card">
+        <h3>MulmoClaude を使う前の準備</h3>
+        <p class="goal">Claude Code にメッセージを送れるようになります。</p>
+        <div class="meta"><span>ターミナル・Node.js・Claude Code</span></div>
+        <div class="check"><b>済んでいるか確かめる</b>　ターミナルで <code>claude</code> と打って話しかけ、返事が来れば済んでいます。2へ進んでください。</div>
+        <a class="open" href="claude-install.html">この手順書を開く</a>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">2</div>
+      <div class="card">
+        <h3>MulmoClaude のインストール</h3>
+        <p class="goal">ブラウザで MulmoClaude と話せるようになります。</p>
+        <div class="meta"><span>Docker Desktop・MulmoClaude</span></div>
+        <div class="check"><b>済んでいるか確かめる</b>　MulmoClaude を起動して、ブラウザに画面が開けば済んでいます。3へ進んでください。</div>
+        <a class="open" href="mulmoclaude-install.html">この手順書を開く</a>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">3</div>
+      <div class="card">
+        <h3>面倒な仕事を MulmoClaude に任せる</h3>
+        <p class="goal">毎回同じ手順でしている仕事を、MulmoClaude に任せられるようになります。</p>
+        <div class="meta"><span>スキル・毎朝の自動実行</span></div>
+        <a class="open" href="mulmoclaude-skill.html">この手順書を開く</a>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">途中で止まったときは、各手順書の最後にある「うまくいかないとき」を見てください。</p>
+</main>
+</body>
+</html>

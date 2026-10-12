@@ -76,10 +76,12 @@ export function isSameScript(left: unknown, right: unknown): boolean {
  * decide whether to probe the beat-movie endpoint. `moviePrompt`
  * beats produce a per-beat movie file; `html_tailwind` beats with
  * `animation` set (either `true` or an options object) produce an
- * `_animated.mp4` render.
+ * `_animated.mp4` render, as do `remotion` beats once their duration is
+ * known (before that, remotion writes only the still).
  */
 export function beatMayHaveMovie(beat: { moviePrompt?: string; image?: { type?: string; animation?: unknown } }): boolean {
   if (beat.moviePrompt) return true;
+  if (beat.image?.type === "remotion") return true;
   return beat.image?.type === "html_tailwind" && Boolean(beat.image.animation);
 }
 

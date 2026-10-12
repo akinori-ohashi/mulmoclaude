@@ -25,6 +25,7 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { Server as IOServer } from "socket.io";
 import { CHAT_SOCKET_PATH, CHAT_SOCKET_EVENTS } from "@mulmobridge/protocol";
+import { UNAUTHORIZED_MESSAGE } from "@mulmoclaude/common/token-guard";
 import { createBridgeClient, resolveApiUrl, type BridgeClient } from "@mulmobridge/client";
 
 const TOKEN = "published-port-test-token";
@@ -53,7 +54,7 @@ async function startFakeServer(label: string): Promise<FakeServer> {
   const wsServer = new IOServer(httpServer, { path: CHAT_SOCKET_PATH, transports: ["websocket"] });
   wsServer.use((socket, next) => {
     const { auth } = socket.handshake;
-    next(auth.token === TOKEN ? undefined : new Error("invalid token"));
+    next(auth.token === TOKEN ? undefined : new Error(UNAUTHORIZED_MESSAGE));
   });
   wsServer.on("connection", (socket) => {
     socket.on(CHAT_SOCKET_EVENTS.message, (_payload: unknown, ack?: (reply: unknown) => void) => {

@@ -46,7 +46,7 @@ actions). Don't hand-roll a schema from memory.
 
 **Step 1 — distil.** If the user is asking you to skill-ify the current
 conversation, read the chat transcript first. The transcript lives at
-`chat/<session-id>.jsonl`; if you don't know the session id, list the
+`conversations/chat/<session-id>.jsonl`; if you don't know the session id, list the
 directory and pick the most-recent one. Reduce the conversation into a
 focused markdown body in **second person** ("First, do X. Then, do Y.") that
 captures the reusable workflow — not the one-off details that won't generalise.

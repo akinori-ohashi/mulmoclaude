@@ -29,6 +29,7 @@ import {
   getBeatAudioPathOrUrl,
   getBeatAnimatedVideoPath,
   getBeatMoviePaths,
+  MulmoBeatMethods,
   generateReferenceImage,
   getReferenceImagePath,
   images,
@@ -48,6 +49,7 @@ import { isAbsoluteStoryPath, normalizeStoryPath, STORY_TARGET_EXTENSIONS, story
 import { errorMessage } from "@mulmoclaude/common";
 import { resolveWithinRoot } from "@mulmoclaude/core/files";
 import { fileToDataUri, stripDataUri } from "./support";
+import { beatMovieCandidates } from "./beatMovieCandidates";
 import { missingRootCapabilities } from "./types";
 import { enableGraphAIErrorCapture, setMulmoErrorCaptureLogger, withMulmoErrorCapture } from "./mulmoErrorCapture";
 import type {
@@ -835,15 +837,14 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
     );
   }
 
-  // Probe for a beat's generated video clip. Preference order mirrors the
-  // movie-assembly pipeline's "most processed wins": lip-synced > with
-  // sound effect > raw movie clip > animated html_tailwind render. The
-  // response is the "stories/…" wire path so the client can stream it
-  // through the host's authenticated media download.
+  // Probe for a beat's generated video clip. The response is the
+  // "stories/…" wire path so the client can stream it through the host's
+  // authenticated media download.
   async function beatMovieOp(filePath: string, beatIndex: number, root?: string): Promise<OpResult<{ moviePath: string | null }>> {
     return runStoryOp<{ moviePath: string | null }>(filePath, { operation: "beat-movie", root }, async ({ context }) => {
-      const { movieFile, soundEffectFile, lipSyncFile } = getBeatMoviePaths(context, beatIndex);
-      const candidates = [lipSyncFile, soundEffectFile, movieFile, getBeatAnimatedVideoPath(context, beatIndex)];
+      const beat = context.studio.script.beats[beatIndex];
+      const paths = { ...getBeatMoviePaths(context, beatIndex), animatedVideoFile: getBeatAnimatedVideoPath(context, beatIndex) };
+      const candidates = beatMovieCandidates(paths, beat !== undefined && MulmoBeatMethods.isPluginVideo(beat));
       const existing = candidates.find((candidate) => existsSync(candidate));
       return { ok: true, moviePath: existing ? outputRef(existing, filePath, root) : null };
     });

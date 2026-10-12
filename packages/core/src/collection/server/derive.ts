@@ -9,7 +9,7 @@
 import { backlinkRows, projectBacklinkRow, rollupValue } from "../core/backlinks";
 import { deriveAll, type DeriveRefRecords } from "../core/deriveAll";
 import { ownProp } from "../core/ownProp";
-import { uniqueBacklinkSources, uniqueEmbedTargets, uniqueRefTargets } from "../core/linkTargets";
+import { linkedSlugsForFields } from "../core/linkTargets";
 import { loadCollection, type DiscoveryOptions } from "./discovery";
 import type { LoadedCollection } from "./discoveredCollection";
 import { storeFor } from "./store";
@@ -37,12 +37,11 @@ async function loadTarget(slug: string, opts: DiscoveryOptions): Promise<LinkedT
   return { schema: target.schema, byId };
 }
 
-/** Load every ref/embed target and backlink source collection once.
+/** Load each given ref/embed target and backlink source collection once.
  *  Unknown / unloadable targets are simply absent — downstream derefs
  *  resolve to null (em-dash) and backlinks to an empty row set, the
  *  same fail-soft the UI renders. */
-async function loadLinkedTargets(schema: CollectionSchema, opts: DiscoveryOptions): Promise<Record<string, LinkedTarget>> {
-  const slugs = [...new Set([...uniqueRefTargets(schema), ...uniqueEmbedTargets(schema), ...uniqueBacklinkSources(schema)])];
+async function loadLinkedTargets(slugs: string[], opts: DiscoveryOptions): Promise<Record<string, LinkedTarget>> {
   const loaded: Record<string, LinkedTarget> = {};
   for (const slug of slugs) {
     const target = await loadTarget(slug, opts);
@@ -67,7 +66,7 @@ function projectBacklinks(
   enriched: CollectionItem,
   linked: Record<string, LinkedTarget>,
 ): CollectionItem[] {
-  const source = linked[field.from];
+  const source = ownProp(linked, field.from);
   if (!source) return [];
   const selfId = fieldText(enriched[schema.primaryKey]);
   return backlinkRows(field, selfId, Object.values(source.byId)).map((row) => projectBacklinkRow(row, field.display, source.schema.primaryKey));
@@ -106,7 +105,7 @@ function projectRollups(schema: CollectionSchema, record: CollectionItem, linked
   for (const [key, field] of Object.entries(schema.fields)) {
     if (field.type !== "rollup") continue;
     if (out === record) out = { ...record };
-    const source = linked[field.from];
+    const source = ownProp(linked, field.from);
     const selfId = fieldText(record[schema.primaryKey]);
     out[key] = source ? rollupValue(field, selfId, Object.values(source.byId)) : null;
   }
@@ -116,10 +115,17 @@ function projectRollups(schema: CollectionSchema, record: CollectionItem, linked
 /** Enrich records with every host-computed field: derived formulas
  *  evaluated (cross-collection derefs included), toggles projected,
  *  embeds resolved. Loads each linked collection ONCE per call. Input
- *  records are not mutated. */
-export async function enrichItems(collection: LoadedCollection, items: CollectionItem[], opts: DiscoveryOptions = {}): Promise<CollectionItem[]> {
+ *  records are not mutated. With `fields`, only the collections those
+ *  fields read are loaded, so values OUTSIDE `fields` may be incomplete —
+ *  the caller must project to `fields`. */
+export async function enrichItems(
+  collection: LoadedCollection,
+  items: CollectionItem[],
+  opts: DiscoveryOptions = {},
+  fields?: readonly string[],
+): Promise<CollectionItem[]> {
   const { schema } = collection;
-  const linked = await loadLinkedTargets(schema, opts);
+  const linked = await loadLinkedTargets(linkedSlugsForFields(schema, fields), opts);
   const refRecords = toRefRecords(linked);
   // Rollups FIRST (formulas may read them), then the formula pass, then
   // the remaining projections — the client mirrors this order exactly

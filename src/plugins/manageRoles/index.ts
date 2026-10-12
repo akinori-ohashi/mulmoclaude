@@ -18,6 +18,9 @@ export interface CustomRole {
    *  Must survive every edit path — the reason this is a declared field at all
    *  is that the role object is rebuilt field by field in several places. */
   model?: string;
+  /** Always-active tools this role opts out of. No editor in the form, so it
+   *  is carried through every edit path the same way `model` is. */
+  excludedAlwaysActiveTools?: string[];
 }
 
 export interface ManageRolesData {

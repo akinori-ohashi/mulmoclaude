@@ -17,6 +17,10 @@ export interface ServerPluginBinding {
   readonly def: ToolDefinition;
   /** Where the MCP bridge POSTs tool calls for this plugin. */
   readonly endpoint: string;
+  /** npm package the definition ships in. Needed only when the definition
+   *  splits its prompt (`promptCompact` + `promptFiles`): the files are
+   *  written under a directory named after it. */
+  readonly packageName?: string;
 }
 
 /** Resolve a plugin's MCP-dispatch URL from its META: looks up
@@ -35,6 +39,13 @@ export function mcpEndpoint(meta: PluginMeta): string {
     throw new Error(`Plugin "${meta.toolName}" mcpDispatch route "${meta.mcpDispatch}" not found under API_ROUTES.${meta.apiNamespace}`);
   }
   return url;
+}
+
+/** The binding for one built-in definition: its dispatch URL from META, and
+ *  the package name when META declares one (prompt-file plugins only). */
+export function mcpBinding(def: ToolDefinition, meta: PluginMeta): ServerPluginBinding {
+  const binding = { def, endpoint: mcpEndpoint(meta) };
+  return meta.packageName ? { ...binding, packageName: meta.packageName } : binding;
 }
 
 /** `API_ROUTES` is an intersection of literal-typed records, so it carries no

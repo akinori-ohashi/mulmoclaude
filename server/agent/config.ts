@@ -619,10 +619,16 @@ export interface CliArgsParams {
   // CLI resolves the model from `~/.claude/settings.json` — the same
   // file other Claude Code clients write their `/model` pick to.
   chatModel?: ChatModel | undefined;
+  // Claude Code's user-level settings (#3406). Only an explicit `false` adds
+  // `--setting-sources`; undefined keeps the CLI's default of loading them.
+  loadClaudeUserSettings?: boolean | undefined;
 }
 
+// Every setting source except `user`: the workspace's `.claude/` still loads.
+const SETTING_SOURCES_WITHOUT_USER = "project,local";
+
 export function buildCliArgs(params: CliArgsParams): string[] {
-  const { systemPromptPath, activePlugins, claudeSessionId, mcpConfigPath, extraAllowedTools = [], effortLevel, chatModel } = params;
+  const { systemPromptPath, activePlugins, claudeSessionId, mcpConfigPath, extraAllowedTools = [], effortLevel, chatModel, loadClaudeUserSettings } = params;
 
   const mcpToolNames = activePlugins.map((pluginName) => `mcp__mulmoclaude__${pluginName}`);
   // DEBUG: also pass the wildcard form `mcp__mulmoclaude` so Claude
@@ -692,6 +698,10 @@ export function buildCliArgs(params: CliArgsParams): string[] {
 
   if (chatModel) {
     args.push("--model", chatModel);
+  }
+
+  if (loadClaudeUserSettings === false) {
+    args.push("--setting-sources", SETTING_SOURCES_WITHOUT_USER);
   }
 
   return args;

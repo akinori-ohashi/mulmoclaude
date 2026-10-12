@@ -25,11 +25,13 @@
 // `!res.ok` branches. Network errors and HTTP errors surface through the
 // same `{ ok: false }` shape.
 //
-// Future extension hooks (see #272 for auth token):
-//   - setAuthToken() populates a module-level token used by every call
-//   - interceptors could go here for logging, retry, metrics
+// The bearer token lives in `./auth/authToken` (set once at bootstrap), and
+// `./auth/authTokenRecovery` replaces it after a server restart (#3438).
+// Interceptors for logging, retry policy or metrics would go here.
 
 import { ref, type Ref } from "vue";
+import { getAuthToken } from "./auth/authToken";
+import { authTokenStale, recoverAuthToken } from "./auth/authTokenRecovery";
 import { errorMessage } from "./errors";
 import { hasStringProp } from "./types";
 
@@ -89,19 +91,6 @@ function isAbortError(err: unknown): boolean {
   return hasStringProp(err, "name") && err.name === "AbortError";
 }
 
-// ── Auth token (populated by bootstrap; consumed by every call) ─────
-
-let authToken: string | null = null;
-
-/**
- * Set the bearer token used on every API call. Call once during app
- * bootstrap, typically after reading a `<meta>` tag or window global
- * populated by the server.
- */
-export function setAuthToken(token: string | null): void {
-  authToken = token;
-}
-
 // ── Types ────────────────────────────────────────────────────────────
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
@@ -145,6 +134,7 @@ function buildHeaders(opts: { headers?: Record<string, string> | undefined }, ha
   if (hasBody && headers["Content-Type"] === undefined) {
     headers["Content-Type"] = "application/json";
   }
+  const authToken = getAuthToken();
   if (authToken && headers["Authorization"] === undefined) {
     headers["Authorization"] = `Bearer ${authToken}`;
   }
@@ -275,11 +265,33 @@ async function successResult<T>(res: Response): Promise<ApiResult<T>> {
   }
 }
 
+const UNAUTHORIZED_STATUS = 401;
+
+/**
+ * Issue `request`, and once more after a 401. A 401 is what a server restart
+ * looks like from a page that stayed open: the token was regenerated and this
+ * page still presents the old one (#3438). index.html carries the new one, so
+ * the token is fetched again and the request re-issued — only when a
+ * DIFFERENT token was installed; `request` builds its headers per call, so
+ * the second issue presents it. A 401 the server sends for its own reasons
+ * (`/api/remote-host/reconnect` on an expired blob) leaves the token
+ * unchanged and reaches the caller as is, and a token the server refuses
+ * twice is reported through `authTokenStale` rather than retried again.
+ */
+async function withTokenRecovery(request: () => Promise<Response>): Promise<Response> {
+  const first = await request();
+  if (first.status !== UNAUTHORIZED_STATUS) return first;
+  if ((await recoverAuthToken()) !== "installed") return first;
+  const retried = await request();
+  if (retried.status === UNAUTHORIZED_STATUS) authTokenStale.value = true;
+  return retried;
+}
+
 export async function apiCall<T = unknown>(path: string, opts: ApiOptions = {}): Promise<ApiResult<T>> {
   const url = `${path}${buildQueryString(opts.query)}`;
   let res: Response;
   try {
-    res = await fetch(url, buildInit(opts));
+    res = await withTokenRecovery(() => fetch(url, buildInit(opts)));
   } catch (err) {
     return transportFailure<T>(err);
   }
@@ -321,17 +333,28 @@ export interface RawOptions {
 /**
  * Escape hatch for endpoints returning binary / streaming / non-JSON
  * bodies (PDF download, audio blob, SSE, etc.). Auth header is still
- * applied; other handling is the caller's responsibility.
+ * applied, and a 401 is retried once with a recovered token the same way
+ * `apiCall` does it; other handling is the caller's responsibility.
  *
  * Throws on network errors. Does NOT check `res.ok`.
  */
-export async function apiFetchRaw(path: string, opts: RawOptions = {}): Promise<Response> {
-  const url = `${path}${buildQueryString(opts.query)}`;
-  const init: FetchInit = {
+function buildRawInit(opts: RawOptions): FetchInit {
+  return {
     method: opts.method ?? "GET",
     headers: buildHeaders(opts, false),
     ...(opts.body !== undefined ? { body: opts.body } : {}),
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
   };
-  return fetch(url, init);
+}
+
+/** A stream is consumed by the first issue, so a request carrying one
+ *  cannot be re-issued after a 401; every other body fetch accepts can. */
+function isReplayableBody(body: RawOptions["body"]): boolean {
+  return !(typeof ReadableStream !== "undefined" && body instanceof ReadableStream);
+}
+
+export async function apiFetchRaw(path: string, opts: RawOptions = {}): Promise<Response> {
+  const url = `${path}${buildQueryString(opts.query)}`;
+  const request = (): Promise<Response> => fetch(url, buildRawInit(opts));
+  return isReplayableBody(opts.body) ? withTokenRecovery(request) : request();
 }

@@ -39,6 +39,7 @@ import {
 import { applyScheduleOverride } from "../../events/scheduler-adapter.js";
 import { SCHEDULE_TYPES } from "@receptron/task-scheduler";
 import { ONE_SECOND_MS } from "../../utils/time.js";
+import { getLastSkillListing, type LastSkillListing } from "../../agent/skillListingState.js";
 
 // Public surface of /api/config. GET returns the full config tree so
 // the client can render every section in one request. PUT surfaces are
@@ -54,6 +55,9 @@ export interface ConfigResponse {
    *  client can see neither the server's platform nor its env, and a
    *  toggle that silently does nothing is worse than no toggle. */
   macosReminders: { supported: boolean; forcedOffByEnv: boolean };
+  /** What the most recent agent turn's CLI listed for skills (#3406), or
+   *  null before any turn ran in this server process. */
+  skillListing: LastSkillListing | null;
 }
 
 type ConfigRes = ApiResponse<ConfigResponse>;
@@ -67,6 +71,7 @@ function buildFullResponse(): ConfigResponse {
       supported: process.platform === "darwin",
       forcedOffByEnv: env.disableMacosReminderNotifications,
     },
+    skillListing: getLastSkillListing(),
   };
 }
 

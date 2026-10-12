@@ -3,7 +3,7 @@ import { writeJsonAtomic } from "../utils/files/json.js";
 import { dirname } from "path";
 import { isDockerAvailable } from "../system/docker.js";
 import { refreshCredentials } from "../system/credentials.js";
-import { loadMcpConfig, loadSettings } from "../system/config.js";
+import { isClaudeUserSettingsEnabled, loadMcpConfig, loadSettings } from "../system/config.js";
 import type { Role } from "../../src/config/roles.js";
 import { resolveChatModel } from "../../src/config/chatModelSource.js";
 import type { ChatModel } from "../../src/config/models.js";
@@ -330,6 +330,7 @@ export function buildAgentInput(
     extraAllowedTools: [...settings.extraAllowedTools, ...userServerAllowedTools],
     effortLevel: settings.effortLevel,
     chatModel: resolveChatModel(sessionChatModel, role.model, settings.chatModel).model,
+    loadClaudeUserSettings: isClaudeUserSettingsEnabled(settings),
     abortSignal,
     userTimezone,
     useDocker,

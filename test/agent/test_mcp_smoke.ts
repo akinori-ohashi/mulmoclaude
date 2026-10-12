@@ -254,6 +254,31 @@ describe("MCP server subprocess smoke test", () => {
     assert.doesNotMatch(text, /\[object Object\]/, `the object name reached the API path: ${text.slice(0, 400)}`);
   });
 
+  // `tools/list` is narrowed to the role's tools, and `tools/call` must be too:
+  // naming a pure MCP tool the role does not carry used to dispatch it anyway,
+  // because the lookup read the all-roles registry (#3407).
+  it("refuses tools/call for a pure MCP tool the role does not publish, and dispatches one it does", async () => {
+    const callSpawn = (requestId: number): string =>
+      JSON.stringify({ jsonrpc: "2.0", id: requestId, method: "tools/call", params: { name: TOOL_NAMES.spawnBackgroundChat, arguments: {} } });
+    const without = await sendAndReceive([initializeRequest, callSpawn(2)], {
+      SESSION_ID: "test-smoke-unpublished",
+      PORT: "0",
+      PLUGIN_NAMES: TOOL_NAMES.manageSkills,
+    });
+    const refused = JSON.stringify(without.find((response) => response.id === 2));
+    assert.match(refused, /Unknown tool: spawnBackgroundChat/, `expected a refusal, got: ${refused.slice(0, 400)}`);
+
+    // Listed, the same call goes out to the (unreachable, PORT=0) host — so the
+    // refusal above is the gate, not something every call hits.
+    const listed = await sendAndReceive([initializeRequest, callSpawn(2)], {
+      SESSION_ID: "test-smoke-published",
+      PORT: "0",
+      PLUGIN_NAMES: TOOL_NAMES.spawnBackgroundChat,
+    });
+    const dispatched = JSON.stringify(listed.find((response) => response.id === 2));
+    assert.doesNotMatch(dispatched, /Unknown tool/, `expected a dispatch attempt, got: ${dispatched.slice(0, 400)}`);
+  });
+
   // stdout IS the protocol channel here, yet the shared `log` helper sends
   // info/debug there by default — the plugin loaders' "loaded" lines landed
   // between JSON-RPC messages on every boot (#2731). Only the parent knows the

@@ -114,6 +114,23 @@ describe("the browser-facing core imports no Node builtin", () => {
   }
 });
 
+// `mulmocast` and `mulmocast/remotion` load Node-only code (the renderer); the
+// guide-only subpath is the one mulmocast entry the browser bundle may reach.
+const CORE_MULMOCAST_SPECIFIERS = new Set(["mulmocast/remotion/guide"]);
+
+function mulmocastImportsIn(name: string): string[] {
+  return importedSpecifiers(readFileSync(path.join(CORE_DIR, name), "utf8")).filter((specifier) => /^mulmocast(\/|$)/.test(specifier));
+}
+
+describe("the browser-facing core reaches mulmocast only through its browser-safe guide entry", () => {
+  for (const name of coreModules()) {
+    it(`${name} imports no Node-only mulmocast entry`, () => {
+      const offenders = mulmocastImportsIn(name).filter((specifier) => !CORE_MULMOCAST_SPECIFIERS.has(specifier));
+      assert.deepEqual(offenders, [], `${name} reaches the browser bundle — mulmocast's other entries pull in node:fs and @remotion/renderer`);
+    });
+  }
+});
+
 describe("the guard finds a specifier wherever the grammar allows one", () => {
   // The detection IS the test, so it is pinned directly — every form that
   // walked past an earlier version of it included.

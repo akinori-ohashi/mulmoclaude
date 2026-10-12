@@ -85,7 +85,7 @@ MulmoClaude は **「`~/mulmoclaude/`」を中心とする独立したアプリ*
 
 ### Step 1: MulmoClaude を初回起動
 
-**前提**: Node.js 22.19+ と [Claude Code CLI](https://claude.ai/code) がインストール・認証済みであること。
+**前提**: Node.js 22.22.2+ / 24.15+ / 26+ と [Claude Code CLI](https://claude.ai/code) がインストール・認証済みであること。
 Claude Code を普段使っている人なら後者は満たしているはず。
 
 選択肢は2つ。**どちらでも `~/mulmoclaude/` ワークスペースは共有**される (= 後で乗り換えても資産そのまま)。
@@ -198,7 +198,7 @@ cp ~/.claude/.mcp.json ~/mulmoclaude/config/mcp.json
 MulmoClaude は session 開始時に **role (ペルソナ)** を選ぶ仕組み。
 Claude Code には role の概念がないので、ここが一番違う。
 
-組み込み role: `general`, `office`, `guide`, `artist`, `tutor`, `storyteller`, `accounting`, `cookingCoach`, ...
+組み込み role: `general`, `simple`, `office`, `guide`, `artist`, `tutor`, `storyteller`, `accounting`, `cookingCoach`, ...
 カスタム role は Settings → Roles から作成可能 (`manageRoles` プラグイン)。
 
 詳細は [`docs/extension-mechanisms.md`](extension-mechanisms.md) の §3.6 (Role)。

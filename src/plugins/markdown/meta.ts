@@ -2,6 +2,7 @@ import { definePluginMeta } from "../meta-types";
 
 export const META = definePluginMeta({
   toolName: "presentDocument",
+  packageName: "@mulmoclaude/markdown-plugin",
   apiNamespace: "markdown",
   apiRoutes: {
     /** POST /api/markdown — create a new markdown document. */

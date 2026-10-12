@@ -142,6 +142,11 @@ const jaMessages = {
     body: "再接続するまで、スマホからの送信はこの端末に届きません。",
     reconnect: "再接続",
   },
+  authTokenStale: {
+    title: "ページの再読み込みが必要です",
+    body: "サーバーがこのページのトークンを拒否し、新しいトークンを取得できませんでした。続けるには再読み込みしてください。",
+    reload: "再読み込み",
+  },
   remoteHost: {
     title: "リモートホスト",
     online: "リモートホスト: オンライン",
@@ -386,6 +391,12 @@ const jaMessages = {
       helperText: "高いレベルほど思考時間が長くなりますが、レイテンシとトークン消費も増えます。",
       configured: "Effort: {level}",
       notConfigured: "未設定",
+      userSettingsLabel: "Claude Code のユーザー設定とプラグインを読み込む",
+      userSettingsHint:
+        "~/.claude にある、Claude Code と共通のスキル・プラグイン・フックを読み込みます。インストールしたプラグインのスキルが多く、毎回の依頼が重くなるときはオフにしてください。ワークスペースのスキルはそのまま使えます。次のメッセージから反映されます。オフのときは、モデルが未設定でも ~/.claude/settings.json のモデル指定は使われません。",
+      skillListingSummary: "前回のターンで読み込まれたスキル: {count} 個。",
+      skillListingPlugins: "プラグイン: {plugins}。",
+      skillListingHeavy: "スキルが多いため、毎回の依頼が重くなっています。オフにすると ~/.claude の分が外れます。",
       loadError: "設定の読み込みに失敗しました",
       saveError: "保存に失敗しました",
     },

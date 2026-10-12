@@ -24,11 +24,11 @@
 //                           endpoint wide open on every LLM call.
 
 import "dotenv/config";
-import crypto from "crypto";
 import express, { type Request, type Response } from "express";
 import { createBridgeClient, installProcessGuards } from "@mulmobridge/client";
 import { listenWebhook } from "@mulmobridge/webhook-runtime";
 import { isRecord } from "@mulmoclaude/common";
+import { tokenEquals } from "@mulmoclaude/common/token-guard";
 
 const TRANSPORT_ID = "webhook";
 
@@ -65,13 +65,7 @@ mulmo.onPush((pushEvent) => {
 
 function secretOk(provided: string | undefined): boolean {
   if (!secret) return true;
-  if (!provided) return false;
-  if (provided.length !== secret.length) return false;
-  try {
-    return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
-  } catch {
-    return false;
-  }
+  return provided !== undefined && tokenEquals(provided, secret);
 }
 
 // ── Payload extraction ─────────────────────────────────────────

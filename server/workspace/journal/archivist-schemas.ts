@@ -1,4 +1,5 @@
 import { isRecord } from "../../utils/types.js";
+import { WORKSPACE_DIRS } from "../paths.js";
 
 export interface SessionEventExcerpt {
   source: string; // "user" | "assistant" | "tool" | ...
@@ -80,8 +81,8 @@ ARTIFACT LINKS
 - Only link to artifacts listed in "ARTIFACTS REFERENCED". Don't invent paths.
 
 SESSION LINKS
-- When your summary refers to a specific session (the ones listed under "SESSION EXCERPTS" with their \`session <id>\` header), link to that session using \`/chat/<sessionId>.jsonl\`.
-  - Example: "— discussed in [session 550e8400](/chat/550e8400-e29b-41d4-a716-446655440000.jsonl)"
+- When your summary refers to a specific session (the ones listed under "SESSION EXCERPTS" with their \`session <id>\` header), link to that session using \`/${WORKSPACE_DIRS.chat}/<sessionId>.jsonl\`.
+  - Example: "— discussed in [session 550e8400](/${WORKSPACE_DIRS.chat}/550e8400-e29b-41d4-a716-446655440000.jsonl)"
 - The file viewer recognises this pattern and switches the sidebar chat to that session when the link is clicked, so the reader can pick up where the session left off.
 - You do not have to link every session you mention, but linking at least the first reference per session is helpful.
 

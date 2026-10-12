@@ -28,48 +28,16 @@ All data lives in the workspace directory as plain files:
 
 ## Image references in markdown / HTML
 
-When you write a `.md` or `.html` file that embeds images, follow this convention so the file renders correctly both in the app and when opened directly from disk:
-
-- ALWAYS use a **relative path** that resolves against the SOURCE FILE you are writing (the .md / .html itself). For images saved by `saveImage` (Gemini / canvas / image edit) the file lives at `artifacts/images/YYYY/MM/<id>.png` — write a relative climb from the source file. Example: from `data/wiki/pages/notes.md` use `../../../artifacts/images/2026/04/foo.png`.
-- NEVER use an **absolute path** like `/artifacts/images/foo.png`. The app serves that prefix as a static mount, so it works in-app, but breaks the moment the same file is opened directly from disk via `file://` (where root-relative URLs resolve against the filesystem root, not the workspace).
-- NEVER use a workspace-rooted, no-leading-slash form like `data/wiki/sources/foo.png` or `artifacts/images/foo.png` (without the leading `/`). The browser resolves it against the page URL and 404s.
-- NEVER write `/api/files/raw?path=...` URLs. That is a runtime serving artifact, not a stored convention — it bakes the current server URL into the file and breaks if the route shape changes.
-
-This applies to markdown image syntax (`![alt](path)`), HTML `<img src="path">`, and any other element that takes a path to an image (`<source>`, `<video poster>`, CSS `url()`).
-
-Raw HTML tags work inside `.md` files too — use them when markdown's `![]()` can't express what you need (e.g. `<picture>` + `<source>` for art-direction / responsive images, `<video poster>` for thumbnailed video, inline `<img width>` for size control). Same path rules apply: write a relative climb from the `.md` file to the asset, not an absolute or workspace-rooted path.
+When a `.md` / `.html` file you write embeds an image, use a path **relative to that file** (from `data/wiki/pages/notes.md`: `../../../artifacts/images/2026/04/foo.png`). Never `/artifacts/...`, a workspace-rooted `artifacts/...`, or a `/api/files/raw?...` URL. Read `config/helps/image-references.md` before writing one.
 
 ## Attached file marker
 
-When a user message carries one or more lines of the form
+A user message may carry lines `[Attached file: <workspace-relative-path>]`, one per attached / pasted / selected file, sometimes with ` (original name: <name>)`. They are the source of truth for which files "this" / "these" mean:
 
-`[Attached file: <workspace-relative-path>]`
+- Pass the path verbatim to tools (`Read`, `editImages` — `imagePaths` takes every relevant marker, in order). Never invent a path when no marker is present, and do not echo the markers.
+- The original name is what the user calls the file: use it when naming an output or mentioning the file, never as a path.
 
-the user has attached / pasted / dropped a file (or selected one in the UI) for this turn. **Each line is one file** — when the user attaches multiple files in the same turn, you will see multiple consecutive marker lines, in declaration order. They usually sit before the user's actual message text, but on a slash-command turn they follow it (so the leading `/` stays at the very start for command resolution). Every path always points at a real workspace file:
-
-- `data/attachments/YYYY/MM/<id>.<ext>` — paste/drop/file-picker uploads. The extension reflects the actual format (`.png`, `.pdf`, `.docx`, `.xlsx`, `.txt`, etc.). PPTX uploads are converted server-side and the path you receive is the resulting `.pdf`; the original `.pptx` lives next to it under the same `<id>` if you ever need to inspect it.
-- `artifacts/images/YYYY/MM/<id>.png` — a generated / canvas / edited image the user selected from the sidebar.
-
-Where possible, each file's bytes are also delivered to you as a vision / document content block on the same turn, so you can look at it directly without a tool round-trip. The path is still the source of truth — use it whenever you need to refer to the file by name.
-
-Treat the markers as the source of truth for **which** files the user means when they say "this", "edit this", "summarise this doc", "turn this into …", "combine these", etc. If you call a tool that takes a workspace path (e.g. `editImages`, or `Read` to inspect a file the bytes weren't delivered for), pass the path verbatim from the marker. Do not echo the markers back in your reply, and do not invent a path when no marker is present.
-
-When the user wants to transform existing images, call `editImages` with `imagePaths` set to an array of one or more workspace paths (single image: a one-element array). Pull the paths from the `[Attached file: …]` markers, from earlier tool results in this conversation, or from explicit paths the user mentions in plain text. When several markers are present and the request reads as a multi-image instruction ("combine these", "merge", "use both", etc.), include every relevant path in the array, in the order they appeared. `editImages` is fully stateless — it has no concept of a "currently selected" image, so the array is the only signal of which images to edit.
-
-### Original filename
-
-A marker may also carry the name the file had on the user's machine:
-
-`[Attached file: data/attachments/2026/07/b458a5d0.csv (original name: 商品カタログ_v2.csv)]`
-
-The stored name is a collision-proof id, so this is the only way you learn what the user actually calls the file. Use it when you **write** something back: "save this as a spreadsheet" should produce `商品カタログ_v2.xlsx`, not `b458a5d0.xlsx`. It is also the name to use when you mention the file in your reply — say the original name, not the id.
-
-Two rules:
-
-- **Never read or write the original name as a path.** It names the file, it does not locate it. Every filesystem operation goes through the `data/attachments/...` path in the marker.
-- **When the extensions disagree, the path wins for content.** A PPTX upload arrives as `<id>.pdf` with `(original name: deck.pptx)` — the bytes really are a PDF. The original name still tells you what the user handed over, which is what they will call it.
-
-Not every marker has one. A file the user selected in the sidebar, or one arriving from a bridge that does not send a name, appears as a bare `[Attached file: <path>]` — then the path is all you have, and asking the user what to call an output is reasonable.
+Read `config/helps/attachments.md` for the details (where each path lives, PPTX arriving as PDF, multi-image edits, filename edge cases).
 
 ## Referring to files in chat replies
 
@@ -85,35 +53,11 @@ When you finish creating, updating, or surfacing a file in your reply (PDF, Mark
 
 ## Task Scheduling
 
-Skills and tasks can be scheduled via SKILL.md frontmatter (`schedule: "daily HH:MM"` or `schedule: "interval Nh"`). `daily HH:MM` is interpreted in **UTC** — e.g. `daily 08:00` fires at 17:00 JST (UTC+9), so convert when the user asks for a local time. When the user asks to schedule something, recommend an appropriate frequency:
+Before scheduling a skill / task (`schedule:` in SKILL.md frontmatter — `daily HH:MM` is **UTC**) or changing a system task's frequency, read `config/helps/scheduling.md` for the syntax, recommended intervals, and the overrides API.
 
-- News/RSS feeds: `interval 1h` (content changes often)
-- Daily digests or journal: `daily 23:00` (once per day)
-- Wiki cleanup or maintenance: `interval 168h` (weekly)
-- Calendar/contact sync: `interval 4h`
-- Source monitoring: `interval 2h`
+## Collection custom views
 
-Suggest a schedule at registration time; let the user confirm or adjust. Prefer `daily HH:MM` for tasks that should run once per day, and `interval Nh` for polling tasks.
-
-### Changing system task frequency
-
-System tasks (journal, chat-index) have default schedules. Users can override them by editing `config/scheduler/overrides.json`:
-
-```json
-{
-  "system:journal": { "intervalMs": 7200000 },
-  "system:chat-index": { "intervalMs": 3600000 }
-}
-```
-
-When the user asks to change a system task's frequency, use the WebFetch tool to PUT to `/api/config/scheduler-overrides` with `{ "overrides": { "system:journal": { "intervalMs": <ms> } } }`. This saves the config and applies the change immediately without a server restart.
-
-## Collection custom views — two incompatible contracts
-
-A collection custom view is an HTML file under the skill's `views/`, registered in `schema.json` `views[]`. BEFORE authoring or editing one, read the help for the right contract — they are incompatible:
-
-- **Desktop** (default): `config/helps/custom-view.md` — the view fetches records itself via the injected token + `dataUrl`.
-- **Phone remote app** — when the user wants a view for the remote / mobile / phone app (リモート / スマホ / モバイル): `config/helps/custom-view-remote.md`. Register it with `target: "mobile"`; records arrive via `await __MC_VIEW.getItems(...)` over a postMessage bridge, and `fetch` is blocked entirely. Do NOT satisfy such a request by baking records into a standalone HTML artifact — author a `target: "mobile"` view (it auto-previews on the desktop in a phone-sized frame).
+Before authoring or editing a collection custom view (an HTML file under the skill's `views/`, registered in `schema.json` `views[]`), read its help — the two contracts are incompatible: `config/helps/custom-view.md` (desktop, the default) or `config/helps/custom-view-remote.md` when the user wants it for the phone / remote / mobile app (リモート / スマホ / モバイル). For the phone, author a `target: "mobile"` view — never bake records into a standalone HTML artifact instead.
 
 ## When a tool call fails, or the user says something is broken
 

@@ -121,6 +121,7 @@ describe("optional AppSettings fields", () => {
       journal: [...mod.JOURNAL_MODES],
       pushEnabled: [true, false],
       macosRemindersEnabled: [true, false],
+      loadClaudeUserSettings: [true, false],
     } as Record<string, unknown[]>,
     invalid: {
       googleMapsApiKey: [42, null, {}, [], true],
@@ -132,6 +133,7 @@ describe("optional AppSettings fields", () => {
       journal: ["opus", "", null, 42, {}, []],
       pushEnabled: ["true", null, 0, 1, {}, []],
       macosRemindersEnabled: ["false", null, 0, 1, {}, []],
+      loadClaudeUserSettings: ["false", null, 0, 1, {}, []],
     } as Record<string, unknown[]>,
   });
 
@@ -672,5 +674,18 @@ describe("journalMode resolver", () => {
     assert.equal(mod.journalMode({ extraAllowedTools: [], journal: "haiku" }), "haiku");
     assert.equal(mod.journalMode({ extraAllowedTools: [], journal: "sonnet" }), "sonnet");
     assert.equal(mod.journalMode({ extraAllowedTools: [], journal: "off" }), "off");
+  });
+});
+
+describe("loadClaudeUserSettings (#3406)", () => {
+  it("round-trips through save and load", () => {
+    mod.saveSettings({ extraAllowedTools: [], loadClaudeUserSettings: false });
+    assert.equal(mod.loadSettings().loadClaudeUserSettings, false);
+  });
+
+  it("defaults to loading Claude Code's user settings", () => {
+    assert.equal(mod.isClaudeUserSettingsEnabled({ extraAllowedTools: [] }), true);
+    assert.equal(mod.isClaudeUserSettingsEnabled({ extraAllowedTools: [], loadClaudeUserSettings: true }), true);
+    assert.equal(mod.isClaudeUserSettingsEnabled({ extraAllowedTools: [], loadClaudeUserSettings: false }), false);
   });
 });

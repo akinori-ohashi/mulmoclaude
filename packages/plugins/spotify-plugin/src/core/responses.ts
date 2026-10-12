@@ -4,6 +4,7 @@
 import { escapeHtml } from "@mulmoclaude/common";
 
 import type { SpotifyClientError } from "../client";
+import { withTrackUri, withUri } from "../spotifyUri";
 import type { NormalisedDevice } from "../types";
 
 export type PlayerKind = "play" | "pause" | "next" | "previous" | "seek" | "setVolume" | "transferPlayback" | "getDevices";
@@ -39,23 +40,27 @@ export const clientIdMissing = (message: string, html?: string) => ({
 export function summariseListening(kind: ListeningKind, data: unknown): string {
   if (kind === "nowPlaying") {
     if (!data || typeof data !== "object" || !("name" in data)) return "Nothing is currently playing.";
-    const track = data as { name: string; artists: string[]; album: string };
-    return `Now playing: ${track.name} — ${track.artists.join(", ")} (${track.album})`;
+    const track = data as { name: string; artists: string[]; album: string; trackUri?: string };
+    return withTrackUri(`Now playing: ${track.name} — ${track.artists.join(", ")} (${track.album})`, track);
   }
   if (!Array.isArray(data) || data.length === 0) return `No ${kind} items.`;
   if (kind === "playlists") {
-    const lines = (data as { name: string; trackCount: number }[]).map((p, i) => `${i + 1}. ${p.name} (${p.trackCount} tracks)`);
+    const lines = (data as { id: string; name: string; trackCount: number }[]).map((p, i) =>
+      withUri(`${i + 1}. ${p.name} (${p.trackCount} tracks)`, "playlist", p.id),
+    );
     return `Playlists (${data.length}):\n${lines.join("\n")}`;
   }
   if (kind === "recent") {
-    const lines = (data as { track: { name: string; artists: string[] }; playedAt: string }[]).map((item, i) => {
+    const lines = (data as { track: { name: string; artists: string[]; trackUri?: string }; playedAt: string }[]).map((item, i) => {
       const when = item.playedAt ? new Date(item.playedAt).toISOString().slice(0, 16).replace("T", " ") : "?";
-      return `${i + 1}. [${when}] ${item.track.name} — ${item.track.artists.join(", ")}`;
+      return withTrackUri(`${i + 1}. [${when}] ${item.track.name} — ${item.track.artists.join(", ")}`, item.track);
     });
     return `Recently played (${data.length}):\n${lines.join("\n")}`;
   }
   // liked / playlistTracks share the NormalisedTrack[] shape.
-  const lines = (data as { name: string; artists: string[] }[]).map((t, i) => `${i + 1}. ${t.name} — ${t.artists.join(", ")}`);
+  const lines = (data as { name: string; artists: string[]; trackUri?: string }[]).map((t, i) =>
+    withTrackUri(`${i + 1}. ${t.name} — ${t.artists.join(", ")}`, t),
+  );
   const title = kind === "liked" ? "Liked Songs" : "Playlist tracks";
   return `${title} (${data.length}):\n${lines.join("\n")}`;
 }
@@ -86,6 +91,13 @@ export function summarisePlayerResult(kind: PlayerKind, data: NormalisedDevice[]
   return { ok: true, message: PLAYER_SUCCESS_MESSAGES[kind] };
 }
 
+export const PREMIUM_REQUIRED_RESPONSE = {
+  ok: false,
+  error: "premium_required",
+  message: "Spotify Premium が必要な操作です。Free アカウントでは再生制御は使えません。",
+  instructions: "Spotify Premium にアップグレードしてください。再生制御以外 (Liked / Playlists / Recent / Search) は Free でも引き続き利用できます。",
+} as const;
+
 export function mapPlayerError(error: SpotifyClientError, kind: PlayerKind) {
   // Spotify returns 404 for "no active device" on most player
   // endpoints. Surface a user-friendly hint that points at the
@@ -97,6 +109,9 @@ export function mapPlayerError(error: SpotifyClientError, kind: PlayerKind) {
       message: "アクティブな Spotify デバイスがありません。Spotify アプリ (デスクトップ / モバイル / Web) を起動してから再度お試しください。",
       instructions: "View の Player タブから対象デバイスを選んで「Transfer」を押すか、Spotify アプリ側で何か再生してから再試行してください。",
     };
+  }
+  if (error.kind === "spotify_api_error" && error.status === 403 && error.body.includes("PREMIUM_REQUIRED")) {
+    return PREMIUM_REQUIRED_RESPONSE;
   }
   if (error.kind === "spotify_api_error" && error.status === 403 && error.body.includes("scope")) {
     return {

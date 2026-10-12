@@ -22,14 +22,14 @@
   "license": "MIT",
   "author": "Receptron Team",
   "dependencies": {
-    "@mulmobridge/client": "^1.4.0",
+    "@mulmobridge/client": "^1.4.2",
     "@mulmobridge/protocol": "^1.1.0",
-    "@mulmoclaude/common": "^1.4.0",
-    "dotenv": "^17.0.0",
+    "@mulmoclaude/common": "^1.5.0",
+    "dotenv": "^18.0.7",
     "ws": "^8.22.0"
   },
   "devDependencies": {
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.5",
     "@types/ws": "^8.18.2",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3"

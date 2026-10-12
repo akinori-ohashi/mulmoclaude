@@ -57,7 +57,7 @@ Re-run the command after upgrading: the shortcut carries its own copy of the lau
 
 ### Prerequisites
 
-- **Node.js 22.19+** — runtime
+- **Node.js 22.22.2+ / 24.15+ / 26+** — runtime
 - At least one authenticated agent CLI:
   - **[Claude Code CLI](https://claude.ai/code)** — run `claude` once to complete OAuth
   - **[OpenAI Codex CLI](https://developers.openai.com/codex/cli/)** — install `@openai/codex` and run `codex login`

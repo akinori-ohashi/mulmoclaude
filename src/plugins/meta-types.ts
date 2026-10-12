@@ -70,6 +70,10 @@ export interface PluginMeta {
    *  the MCP server posts tool calls to. Lets `BUILT_IN_SERVER_BINDINGS`
    *  derive the binding's URL from META instead of repeating it. */
   readonly mcpDispatch?: string;
+  /** npm package the tool definition ships in. Set it only when the
+   *  definition splits its prompt (`promptCompact` + `promptFiles`): the host
+   *  writes the files under a directory named after this package. */
+  readonly packageName?: string;
   /** Workspace-relative directories owned by this plugin (flat
    *  keys). Merged into the central `WORKSPACE_DIRS` so existing
    *  call sites (`WORKSPACE_DIRS.accounting`) keep working. */

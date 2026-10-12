@@ -29,7 +29,7 @@ export default createVuePluginConfig({
     "gui-chat-protocol/vue",
     "@mulmocast/types",
     "@mulmocast/beat-editor",
-    "mulmocast",
+    /^mulmocast(\/|$)/,
     "graphai",
     "fs",
     "path",

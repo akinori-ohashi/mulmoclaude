@@ -8,6 +8,10 @@
 
 [English](README.md) · [日本語](README.ja.md) · [简体中文](README.zh.md) · **한국어** · [Español](README.es.md) · [Português (BR)](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md)
 
+📖 **사용자 가이드: [https://receptron.github.io/mulmoclaude/](https://receptron.github.io/mulmoclaude/)**
+
+🛠️ **Mac 설치 가이드 (일본어): [https://receptron.github.io/mulmoclaude/setup/](https://receptron.github.io/mulmoclaude/setup/)**
+
 **당신에 대해 모든 것을 알고 하루 24시간 곁에서 도와주는 AI 어시스턴트는 어디에서도 팔지 않습니다. 살 수는 없습니다 — 오직 직접 키울 수 있을 뿐입니다. MulmoClaude는 나만의 AI 어시스턴트를 자신의 컴퓨터 위에서 키우기 위한 도구입니다.**
 
 어시스턴트의 실체는 AI 모델이 아닙니다 — 모델은 엔진에 불과합니다. 어시스턴트의 가치를 결정하는 것은 당신에 대해 얼마나 알고 있는가입니다: 당신의 대화, 일정, 메모, 데이터, 그리고 사용하는 앱들. 그토록 중요한 것을 특정 서비스 제공자에게 맡겨서는 안 됩니다 — 오래 쓸수록 떠나기가 어려워지기 때문입니다. MulmoClaude는 오픈소스이며 로컬에서 실행되므로, 어시스턴트가 축적하는 모든 것 — 기억, 데이터, 앱이 워크스페이스 안의 일반 파일로 남아, 당신 자신의 손 안에 있습니다.
@@ -39,7 +43,7 @@ npx mulmoclaude@latest
 
 ### 필수 조건
 
-- **Node.js 22.19+** — 런타임
+- **Node.js 22.22.2+ / 24.15+ / 26+** — 런타임
 - **[Claude Code CLI](https://claude.ai/code)** — 설치 및 인증 완료. `claude` 를 한 번 실행해 OAuth 를 완료해 주세요
 - **ffmpeg** — 동영상 생성에 필요합니다. 동영상을 생성하지 않으면 건너뛰어도 됩니다
   - macOS: `brew install ffmpeg`
@@ -201,6 +205,7 @@ Docker가 설치되어 있지 않으면 앱이 경고 배너를 표시하고 샌
 | 역할                | 기능                                                         |
 | ------------------- | ------------------------------------------------------------ |
 | **General**         | 범용 어시스턴트 — 할 일, 스케줄러, 위키, 문서, 마인드맵      |
+| **Simple** | 가벼운 대화용 — 작은 시스템 프롬프트, 폼과 컬렉션만 사용 |
 | **Office**          | 문서, 스프레드시트, 폼, 프레젠테이션, 데이터 대시보드        |
 | **Guide & Planner** | 풍부한 시각적 출력이 포함된 여행 가이드, 요리책, 여행 플래너 |
 | **Artist**          | 이미지 생성, 이미지 편집, p5.js를 이용한 생성 예술           |

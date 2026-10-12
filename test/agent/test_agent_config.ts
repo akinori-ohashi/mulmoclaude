@@ -316,6 +316,17 @@ describe("buildCliArgs", () => {
     assert.ok(!args.includes("--model"));
   });
 
+  // #3406: only an explicit `false` narrows the sources, so every session
+  // that never touched the setting keeps loading ~/.claude as before.
+  it("passes --setting-sources project,local only when user settings are turned off", async () => {
+    const off = buildCliArgs({ systemPromptPath: "/tmp/sp.md", activePlugins: [], loadClaudeUserSettings: false });
+    assert.equal(off[off.indexOf("--setting-sources") + 1], "project,local");
+    for (const value of [true, undefined]) {
+      const args = buildCliArgs({ systemPromptPath: "/tmp/sp.md", activePlugins: [], loadClaudeUserSettings: value });
+      assert.ok(!args.includes("--setting-sources"), String(value));
+    }
+  });
+
   it("carries --model and --effort together", async () => {
     const args = buildCliArgs({
       systemPromptPath: "/tmp/sp.md",

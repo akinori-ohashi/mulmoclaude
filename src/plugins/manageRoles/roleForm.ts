@@ -17,13 +17,14 @@ const ROLE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 // the DOM, so a missing field has to fail here, not in a template.
 const parseCustomRole = (value: unknown): CustomRole | null => {
   if (!isRecord(value)) return null;
-  const { id, name, icon, prompt, availablePlugins, queries, model } = value;
+  const { id, name, icon, prompt, availablePlugins, queries, model, excludedAlwaysActiveTools } = value;
   if (typeof id !== "string" || typeof name !== "string" || typeof icon !== "string" || typeof prompt !== "string") return null;
   if (!isStringArray(availablePlugins)) return null;
   const base: CustomRole = { id, name, icon, prompt, availablePlugins };
   // A non-string model is dropped, not fatal: a malformed field should cost
   // that field, not make the whole role vanish from the list.
-  const role: CustomRole = isStoredModel(model) ? { ...base, model } : base;
+  const withModel: CustomRole = isStoredModel(model) ? { ...base, model } : base;
+  const role: CustomRole = isStringArray(excludedAlwaysActiveTools) ? { ...withModel, excludedAlwaysActiveTools } : withModel;
   return isStringArray(queries) ? { ...role, queries } : role;
 };
 
@@ -54,6 +55,8 @@ export interface RoleForm {
   queriesText: string;
   /** `""` is "not set" — the app-wide setting decides. */
   model: string;
+  /** Not editable in the form; carried so saving an edit does not drop it. */
+  excludedAlwaysActiveTools: string[];
 }
 
 export type RoleFormErrorCode = "idRequired" | "idInvalid" | "nameRequired" | "idDuplicate";
@@ -87,6 +90,7 @@ export const formToRole = (form: RoleForm): CustomRole => ({
   // Omitted rather than set to "" when unset: the role file should carry no
   // key at all, so `role.model ?? settings.chatModel` falls through cleanly.
   ...(form.model ? { model: form.model } : {}),
+  ...(form.excludedAlwaysActiveTools.length > 0 ? { excludedAlwaysActiveTools: form.excludedAlwaysActiveTools } : {}),
 });
 
 /** A blank form. One factory so a field added to `RoleForm` cannot be
@@ -107,6 +111,7 @@ export const emptyRoleForm = (): RoleForm => ({
   selectedPlugins: [],
   queriesText: "",
   model: "",
+  excludedAlwaysActiveTools: [],
 });
 
 export const roleToForm = (role: CustomRole): RoleForm => ({
@@ -117,6 +122,7 @@ export const roleToForm = (role: CustomRole): RoleForm => ({
   selectedPlugins: [...role.availablePlugins],
   queriesText: (role.queries ?? []).join("\n"),
   model: role.model ?? "",
+  excludedAlwaysActiveTools: [...(role.excludedAlwaysActiveTools ?? [])],
 });
 
 // `excludeId` lets rename skip the role's own id when checking for duplicates.

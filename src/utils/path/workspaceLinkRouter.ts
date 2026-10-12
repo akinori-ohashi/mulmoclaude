@@ -90,12 +90,11 @@ export function classifyWorkspacePath(href: string): WorkspaceLinkTarget | null 
   }
 
   // Chat session log: conversations/chat/<id>.jsonl
-  if (normalized.startsWith(CHAT_LOG_PREFIX)) {
-    const chatPath = normalized.slice(CHAT_LOG_PREFIX.length);
-    const sessionId = extractSessionIdFromPath(chatPath);
-    if (sessionId) {
-      return { kind: "session", sessionId };
-    }
+  // Summaries written before the prompt used `conversations/chat/` carry `chat/<id>.jsonl`, which only exists on legacy layouts, so accept both.
+  const chatPath = normalized.startsWith(CHAT_LOG_PREFIX) ? normalized.slice(CHAT_LOG_PREFIX.length) : normalized;
+  const sessionId = extractSessionIdFromPath(chatPath);
+  if (sessionId) {
+    return { kind: "session", sessionId };
   }
 
   // Top-level SPA route: leading segment names one of the host's

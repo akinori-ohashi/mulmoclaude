@@ -7,6 +7,7 @@ import { WORKSPACE_FILES } from "../paths.js";
 import { writeFileAtomic } from "../../utils/files/atomic.js";
 import { log } from "../../system/logger/index.js";
 import { ClaudeCliNotFoundError } from "./archivist-cli.js";
+import { hasTopicFormat } from "../memory/topic-detect.js";
 
 const EXTRACTION_SYSTEM_PROMPT = `You are a personal-fact extractor. Given a batch of chat excerpts between a user and an AI assistant, extract ONLY durable facts about the USER — things that would still be true next week.
 
@@ -39,6 +40,11 @@ export interface MemoryExtractionDeps {
 }
 
 export async function extractAndAppendMemory(deps: MemoryExtractionDeps): Promise<number> {
+  // Same predicate the prompt reader uses: in topic format memory.md is never read, so writing it only grows a dead file.
+  if (hasTopicFormat(deps.workspaceRoot)) {
+    log.debug("memory-extractor", "topic-format workspace, skipping legacy memory.md extraction");
+    return 0;
+  }
   const memoryPath = path.join(deps.workspaceRoot, WORKSPACE_FILES.memory);
   const existingMemory = existsSync(memoryPath) ? readFileSync(memoryPath, "utf-8") : "";
 

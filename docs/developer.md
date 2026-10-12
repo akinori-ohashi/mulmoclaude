@@ -44,7 +44,7 @@ If you are not sure, opening an issue first is always cheaper. Thanks for unders
 
 The `.github/workflows/pr_triage.yaml` workflow runs on every PR and enforces the rule above mechanically:
 
-- PRs from maintainers and allowlisted bots pass through untouched. The current allowlist is `isamu`, `snakajima`, `ystknsh`, `yuki0627`, `dependabot[bot]`, `coderabbitai[bot]`, `sourcery-ai[bot]`. To add a maintainer, edit the `MAINTAINERS` list in the workflow and the same list here, in the same commit.
+- PRs from maintainers and allowlisted bots pass through untouched. The current allowlist is `isamu`, `snakajima`, `ystknsh`, `yuki0627`, `michiof`, `dependabot[bot]`, `coderabbitai[bot]`, `sourcery-ai[bot]`. To add a maintainer, edit the `MAINTAINERS` list in the workflow and the same list here, in the same commit.
 - **Every other PR gets a templated comment linking back to this section and is closed. There is no small-diff exemption.** The comment asks for an issue instead — **its first three lines should be a compact summary of the problem and the proposed plan** so a maintainer can decide whether to engage at a glance.
 - The guard runs on PRs against **any** branch, not just `main`: a PR opened against a long-lived branch is exactly as unreviewable as one against `main`.
 - An event a maintainer triggered stands the automation down, so retitling an outside PR you have decided to keep does not re-close it.
@@ -301,6 +301,10 @@ Pre-#284 workspaces (with `chat/`, `summaries/`, `memory.md` at the workspace ro
 
 Every HTTP call to `/api/*` requires `Authorization: Bearer <token>`. Layered on top of the CSRF origin check (`server/api/csrfGuard.ts`): **both** must pass. The origin check stops cross-origin browser attacks; the bearer check stops sibling processes on the same machine that bypass browser CORS entirely.
 
+**`/ws/pubsub` (#3433)**: the socket.io handshake presents the same token as `auth.token` (`usePubSub.ts` reads it through `getAuthToken()`), and a server middleware refuses a handshake without it with the same generic `unauthorized`. socket.io does not retry a refused handshake — the client socket is destroyed, so `socket.active` is false — so the SPA reconnects it explicitly, and only once it holds a token the server has not refused (next paragraph).
+
+**A server restart under an open page (#3438)**: the token is regenerated, so the page's next `/api/*` call answers 401 and its socket handshake is refused. index.html is served without a token and carries the current one on every request, so the page fetches `/` again (`src/utils/auth/authTokenRecovery.ts`), installs the token it carries, and goes on: `apiCall` and `apiFetchRaw` re-issue the refused request once, and `usePubSub` calls `socket.connect()`. Both happen only when index.html carried a token DIFFERENT from the refused one — a 401 the server sends for its own reasons (`/api/remote-host/reconnect` on an expired blob) reaches the caller unchanged, and a token refused twice is not retried. When index.html carries no usable token, `authTokenStale` raises `AuthTokenStaleBanner` with a Reload button, the last resort.
+
 **Exception — `/api/files/*`**: exempt from bearer auth because rendered markdown (`presentDocument`, wiki pages) embeds `<img src="/api/files/raw?path=...">` tags, and the browser's native image fetcher cannot attach an `Authorization` header. CSRF origin check + loopback-only binding still apply, so the exposure is limited to processes on localhost. The exemption is a negative-lookahead regex in `server/index.ts`.
 
 **Token lifecycle**
@@ -310,6 +314,7 @@ Every HTTP call to `/api/*` requires `Authorization: Bearer <token>`. Layered on
 | Server start                     | `generateAndWriteToken()` writes a fresh 32-byte hex token to `<workspace>/.session-token` (mode 0600)                                 |
 | Vue page load / reload / new tab | Vite plugin (dev) / Express handler (prod) reads the file and substitutes `<meta name="mulmoclaude-auth" content="…">` into index.html |
 | Vue bootstrap (`src/main.ts`)    | Reads the meta tag, calls `setAuthToken()` so every `apiFetch` attaches the header                                                     |
+| Server restart under an open page | The next 401 or socket refusal fetches `/` again, installs the token it carries and retries (#3438) — no reload                      |
 | HMR                              | No file I/O — token stays in Vue memory, SPA never reloads                                                                             |
 | `SIGINT` / `SIGTERM`             | Best-effort `unlink` of BOTH `.session-token` and `.server-port` (#3082)                                                               |
 | Crash / `kill -9`                | Both may linger. The token is harmless — the next startup generates a new one and the stale value stops matching. The PORT is not: it names a port this server has left, and a bridge that follows it presents its token to whatever took it. See [`bridge-protocol.md`](bridge-protocol.md) |
@@ -318,13 +323,18 @@ Every HTTP call to `/api/*` requires `Authorization: Bearer <token>`. Layered on
 
 **Server-side pinning (#316)**: setting `MULMOCLAUDE_AUTH_TOKEN=…` before `yarn dev` (or any process that starts Express) makes `generateAndWriteToken()` use that value verbatim instead of generating a fresh random token. The same var is honoured by the Vite dev plugin and by `@mulmobridge/client`, so pinning it once in a shared shell / `.env` / docker-compose file keeps one token across restarts. **A bridge on this host does not need that.** Since #3078 the shared client re-reads `.session-token` and `.server-port` after a failed connection and rebuilds its socket, so a long-running bridge follows a restart on its own — pinned or not. Pin it for a client that cannot read the workspace AT ALL: another machine, or a container without it mounted, where there is no file to re-read. A warning logs if the override is shorter than 32 chars; no other validation. Use random-per-startup (the default) everywhere else — a pinned token is one that outlives the run that issued it.
 
-**Current scope**: Vue client, Express middleware, and every bridge through `@mulmobridge/client`. A bridge presents the token in the socket.io handshake (`auth`), not as a `fetch` header, and it resolves it from `MULMOCLAUDE_AUTH_TOKEN` or `<workspace>/.session-token` — re-reading that pair after a failed connection rather than once at startup (#3078).
+**Current scope**: Vue client (HTTP and the `/ws/pubsub` socket), Express middleware, the pub/sub handshake middleware, the `/ws/chat` handshake in `@mulmobridge/chat-service`, and every bridge through `@mulmobridge/client`. A bridge presents the token in the socket.io handshake (`auth`), not as a `fetch` header, and it resolves it from `MULMOCLAUDE_AUTH_TOKEN` or `<workspace>/.session-token` — re-reading that pair after a failed connection rather than once at startup (#3078).
 
 **Files**
 
 - `server/api/auth/token.ts` — generate / write / unlink
 - `server/api/auth/bearerAuth.ts` — Express middleware
-- `src/utils/api.ts` — `setAuthToken()` + header injection (no call site changes needed; `apiFetch` auto-attaches)
+- `@mulmoclaude/common/token-guard` — the bearer rule (constant-time compare on byte lengths, non-empty checks, the generic message) shared by the middleware, the view-token check, the pub/sub handshake guard, the `/ws/chat` handshake in `@mulmobridge/chat-service` and the webhook bridge
+- `server/events/pub-sub/handshakeAuth.ts` — the `/ws/pubsub` handshake rule (pure); `server/events/pub-sub/index.ts` installs it as socket.io middleware
+- `src/utils/auth/authToken.ts` — the one token store: `setAuthToken()` at bootstrap, `getAuthToken()` for every header and the socket handshake
+- `src/utils/auth/authTokenRecovery.ts` — fetches `/` again after a refusal and installs the token it carries; `authTokenStale` drives `AuthTokenStaleBanner.vue`
+- `src/utils/api.ts` — header injection (no call site changes needed; `apiFetch` auto-attaches) and the one re-issue after a 401, for `apiCall` and `apiFetchRaw` alike
+- `src/composables/usePubSub.ts` — presents the token in the socket.io handshake and reconnects after a refusal once a different token is installed
 - `vite.config.ts` — `mulmoclaudeAuthTokenPlugin` for dev HTML substitution
 - `@mulmobridge/client` (token.ts) — bridge-side resolver (env var → file)
 - `@mulmobridge/client` (client.ts) — shared socket.io setup for every bridge (see `docs/bridge-protocol.md`)

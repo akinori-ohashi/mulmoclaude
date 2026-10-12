@@ -142,6 +142,11 @@ const esMessages = {
     body: "Tu teléfono no podrá enviar a este dispositivo hasta que vuelvas a conectarte.",
     reconnect: "Reconectar",
   },
+  authTokenStale: {
+    title: "Esta página necesita recargarse",
+    body: "El servidor rechazó el token de esta página y no se pudo obtener uno nuevo. Recarga para continuar.",
+    reload: "Recargar",
+  },
   remoteHost: {
     title: "Host remoto",
     online: "Host remoto en línea",
@@ -391,6 +396,12 @@ const esMessages = {
       helperText: "Niveles más altos permiten más tiempo de pensamiento pero aumentan la latencia y el uso de tokens.",
       configured: "Esfuerzo: {level}",
       notConfigured: "Sin configurar",
+      userSettingsLabel: "Cargar los ajustes de usuario y los plugins de Claude Code",
+      userSettingsHint:
+        "Lee las skills, los plugins y los hooks de ~/.claude, los mismos que usa Claude Code. Desactívalo si los plugins instalados traen tantas skills que cada petición se vuelve pesada; las skills del propio espacio de trabajo siguen funcionando. Se aplica desde el siguiente mensaje. Si está desactivado, un modelo sin configurar ya no sigue ~/.claude/settings.json.",
+      skillListingSummary: "Skills cargadas en el último turno: {count}.",
+      skillListingPlugins: "De los plugins: {plugins}.",
+      skillListingHeavy: "Con tantas skills cada petición pesa más; al desactivarlo se quitan las de ~/.claude.",
       loadError: "Error al cargar los ajustes",
       saveError: "Error al guardar",
     },

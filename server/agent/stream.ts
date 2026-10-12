@@ -4,8 +4,9 @@ import { authFailureMessage, isAuthFailureFrame } from "./authFailure.js";
 export const AGENT_SESSION_EVENT_TYPE = "agent_session" as const;
 
 // Text the CLI injects into the conversation as a `user`-role message rather
-// than the assistant producing it — today that is the SKILL.md body it
-// synthesises after a `Skill` tool call. Kept OFF the wire protocol on purpose:
+// than the assistant producing it: the SKILL.md body it synthesises after a
+// `Skill` tool call, and its own context (autocompact summary, output-limit
+// continuation). Kept OFF the wire protocol on purpose:
 // it is never broadcast to session subscribers, because a consumer that
 // accumulates `text` events (the bridge relay) would post injected context as
 // the assistant's reply. `handleAgentEvent` decides what it actually is.

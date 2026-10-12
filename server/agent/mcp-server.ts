@@ -7,6 +7,7 @@
 import type { ToolDefinition } from "gui-chat-protocol";
 import { mcpTools, isMcpToolEnabled } from "./mcp-tools/index.js";
 import { resolveActiveTools } from "./resolveActiveTools.js";
+import { findDispatchableMcpTool } from "./dispatchableMcpTool.js";
 import { TOOL_ENDPOINTS, PLUGIN_DEFS, MCP_PLUGIN_NAMES } from "./plugin-names.js";
 import { loadRuntimePlugins } from "../plugins/runtime-loader.js";
 import { loadDevPlugins, parseDevPluginsEnv } from "../plugins/dev-loader.js";
@@ -179,13 +180,14 @@ function notifyToolsListChanged(): void {
   respond({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
 }
 
+const publishedToolNames = (): ReadonlySet<string> => new Set(tools.map((toolDef) => toolDef.name));
+
 // Whether a tool name resolves without waiting for runtime-plugin load:
-// the `manageSkills` special case, any pure MCP tool (incl. the always-on
-// `handlePermission`), or a static plugin already in `tools`. A name that
-// is none of these may be a runtime plugin still loading.
+// the `manageSkills` special case, or a tool already published in `tools`
+// (static plugins and active pure MCP tools, incl. the always-on
+// `handlePermission`). Any other name may be a runtime plugin still loading.
 function isToolKnown(name: string): boolean {
   if (name === "manageSkills") return true;
-  if (mcpTools.some((toolDef) => toolDef.definition.name === name)) return true;
   return tools.some((toolDef) => toolDef.name === name);
 }
 
@@ -535,7 +537,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
   // The tool handler may hit a slow external API (e.g. X), so pass a
   // longer bridge timeout than the default 10 s used for localhost
   // roundtrips — see MCP_TOOL_BRIDGE_TIMEOUT_MS.
-  const mcpTool = mcpTools.find((toolDef) => toolDef.definition.name === name);
+  const mcpTool = findDispatchableMcpTool(name, mcpTools, publishedToolNames());
   if (mcpTool) {
     const res = await postJson(`/api/mcp-tools/${name}`, args, {
       allowHttpError: true,

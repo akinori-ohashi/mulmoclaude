@@ -2,6 +2,7 @@ import { definePluginMeta } from "../meta-types";
 
 export const META = definePluginMeta({
   toolName: "presentMulmoScript",
+  packageName: "@mulmoclaude/mulmoscript-plugin",
   apiNamespace: "mulmoScript",
   apiRoutes: {
     /** POST /api/mulmoScript/save — create-new (`script`) or

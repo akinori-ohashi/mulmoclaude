@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { WORKSPACE_DIRS } from "../../server/workspace/paths.js";
 import {
+  DAILY_SYSTEM_PROMPT,
   buildDailyUserPrompt,
   buildOptimizationUserPrompt,
   extractJsonObject,
@@ -245,5 +247,12 @@ describe("isOptimizationOutput", () => {
 
   it("rejects non-object input", () => {
     assert.equal(isOptimizationOutput(null), false);
+  });
+});
+
+describe("DAILY_SYSTEM_PROMPT session links", () => {
+  it("points at the chat directory defined in WORKSPACE_DIRS", () => {
+    assert.ok(DAILY_SYSTEM_PROMPT.includes(`\`/${WORKSPACE_DIRS.chat}/<sessionId>.jsonl\``));
+    assert.ok(!DAILY_SYSTEM_PROMPT.includes("(/chat/"));
   });
 });

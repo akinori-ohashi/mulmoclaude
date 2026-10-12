@@ -55,6 +55,7 @@ export default defineConfig({
         "skill-bridge/index": "src/skill-bridge/index.ts",
         "file-change/index": "src/file-change/index.ts",
         "notifier/index": "src/notifier/index.ts",
+        "prompt-files/index": "src/prompt-files/index.ts",
         "scheduler/index": "src/scheduler/index.ts",
         "whisper/index": "src/whisper/index.ts",
         "whisper/client": "src/whisper/client.ts",

@@ -9,7 +9,13 @@ import { execFileSync } from "node:child_process";
 
 // Mirrors `engines.node` in packages/mulmoclaude/package.json.
 // test/utils/launcher/test_preflight.ts fails if the two drift.
-export const REQUIRED_NODE = { major: 22, minor: 19 };
+// One floor per supported major; the last also admits every later major,
+// and a major with no floor of its own (23, 25) is unsupported.
+export const REQUIRED_NODE = [
+  { major: 22, minor: 22, patch: 2 },
+  { major: 24, minor: 15, patch: 0 },
+  { major: 26, minor: 0, patch: 0 },
+];
 
 // These probes run a local binary that reads its own package metadata;
 // anything past a few seconds means it is wedged, not slow.
@@ -22,30 +28,50 @@ const COMMAND_PROBE_TIMEOUT_MS = 5000;
  * Returns null for anything unparseable rather than guessing — an
  * unknown version must not silently pass the requirement.
  * @param {string} raw
- * @returns {{ major: number, minor: number } | null}
+ * @returns {import("./preflight.d.mts").NodeVersion | null}
  */
 export function parseNodeVersion(raw) {
   if (typeof raw !== "string") return null;
-  const match = /^v?(\d+)\.(\d+)\./.exec(raw.trim());
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(raw.trim());
   if (!match) return null;
-  return { major: Number(match[1]), minor: Number(match[2]) };
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
+}
+
+function compareVersions(left, right) {
+  return left.major - right.major || left.minor - right.minor || left.patch - right.patch;
+}
+
+function floorFor(found, required) {
+  const newest = required[required.length - 1];
+  if (found.major > newest.major) return newest;
+  return required.find((floor) => floor.major === found.major);
 }
 
 /**
  * @param {string} raw
- * @param {{ major: number, minor: number }} [required]
+ * @param {readonly import("./preflight.d.mts").NodeVersion[]} [required]
  * @returns {boolean}
  */
 export function isNodeVersionSupported(raw, required = REQUIRED_NODE) {
   const found = parseNodeVersion(raw);
   if (found === null) return false;
-  if (found.major !== required.major) return found.major > required.major;
-  return found.minor >= required.minor;
+  const floor = floorFor(found, required);
+  return floor !== undefined && compareVersions(found, floor) >= 0;
+}
+
+function formatVersion({ major, minor, patch }) {
+  return `${major}.${minor}.${patch}`;
 }
 
 /** Human-readable form of a requirement, for the {required} placeholder. */
 export function formatRequiredNode(required = REQUIRED_NODE) {
-  return `${required.major}.${required.minor}`;
+  return required.map(formatVersion).join(" / ");
+}
+
+/** The same requirement as an `engines.node` range. */
+export function formatEnginesRange(required = REQUIRED_NODE) {
+  const carets = required.slice(0, -1).map((floor) => `^${formatVersion(floor)}`);
+  return [...carets, `>=${formatVersion(required[required.length - 1])}`].join(" || ");
 }
 
 /**

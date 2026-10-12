@@ -8,6 +8,10 @@
 
 [English](README.md) · [日本語](README.ja.md) · [简体中文](README.zh.md) · [한국어](README.ko.md) · [Español](README.es.md) · [Português (BR)](README.pt-BR.md) · **Français** · [Deutsch](README.de.md)
 
+📖 **Guide de l'utilisateur: [https://receptron.github.io/mulmoclaude/](https://receptron.github.io/mulmoclaude/)**
+
+🛠️ **Guide d'installation pour Mac (en japonais): [https://receptron.github.io/mulmoclaude/setup/](https://receptron.github.io/mulmoclaude/setup/)**
+
 **Un assistant IA qui sait tout de vous et vous accompagne 24 heures sur 24 ne se vend nulle part. Vous ne pouvez pas en acheter un — vous ne pouvez que le cultiver. MulmoClaude est un outil pour cultiver votre propre assistant IA, sur votre propre ordinateur.**
 
 La substance d'un assistant n'est pas le modèle d'IA — le modèle n'est que le moteur. Ce qui fait la valeur d'un assistant, c'est tout ce qu'il sait de vous : vos conversations, votre agenda, vos notes, vos données et les applications que vous utilisez. Une chose aussi importante ne devrait être confiée à aucun fournisseur de services — plus vous l'utilisez, plus il devient difficile de partir. MulmoClaude est open source et s'exécute localement : tout ce que votre assistant accumule — souvenirs, données, applications — reste entre vos mains, sous forme de simples fichiers dans votre workspace.
@@ -39,7 +43,7 @@ Le lanceur démarre le serveur et ouvre [http://localhost:3001](http://localhost
 
 ### Prérequis
 
-- **Node.js 22.19+** — environnement d'exécution
+- **Node.js 22.22.2+ / 24.15+ / 26+** — environnement d'exécution
 - **[Claude Code CLI](https://claude.ai/code)** — installé et authentifié. Exécutez `claude` une fois pour terminer l'OAuth
 - **ffmpeg** — requis pour la génération de vidéos. À ignorer si vous ne générez pas de vidéos
   - macOS : `brew install ffmpeg`
@@ -197,6 +201,7 @@ Chaque rôle donne à Claude une personnalité différente, une palette d'outils
 | Rôle                | Description                                                                                   |
 | ------------------- | --------------------------------------------------------------------------------------------- |
 | **General**         | Assistant polyvalent — tâches, planificateur, wiki, documents, cartes mentales                |
+| **Simple** | Pour la conversation légère — petit prompt système, formulaires et collections uniquement |
 | **Office**          | Documents, feuilles de calcul, formulaires, présentations, tableaux de bord de données        |
 | **Guide & Planner** | Guides de voyage, livres de recettes, planificateurs de voyage avec une sortie visuelle riche |
 | **Artist**          | Génération d'images, édition d'images, art génératif avec p5.js                               |

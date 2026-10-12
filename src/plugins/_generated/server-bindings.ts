@@ -2,7 +2,7 @@
 // Run `yarn plugins:codegen` after adding/removing/renaming a plugin.
 
 import type { ServerPluginBinding } from "../server-bindings-types";
-import { mcpEndpoint } from "../server-bindings-types";
+import { mcpBinding } from "../server-bindings-types";
 
 import accountingDef from "../accounting/definition";
 import canvasDef from "../canvas/definition";
@@ -37,18 +37,18 @@ import { META as spreadsheetMeta } from "../spreadsheet/meta";
  *  both `apiNamespace` and `mcpDispatch`. Plugins without those fields (image plugins,
  *  external npm plugins) live in `_extras.ts`. Combined inside `src/plugins/server.ts`. */
 export const GENERATED_SERVER_BINDINGS: readonly ServerPluginBinding[] = [
-  { def: accountingDef, endpoint: mcpEndpoint(accountingMeta) },
-  { def: canvasDef, endpoint: mcpEndpoint(canvasMeta) },
-  { def: chartDef, endpoint: mcpEndpoint(chartMeta) },
-  { def: manageSkillsDef, endpoint: mcpEndpoint(manageSkillsMeta) },
-  { def: markdownDef, endpoint: mcpEndpoint(markdownMeta) },
-  { def: photoLocationsDef, endpoint: mcpEndpoint(photoLocationsMeta) },
-  { def: presentCollectionDef, endpoint: mcpEndpoint(presentCollectionMeta) },
-  { def: presentFormDef, endpoint: mcpEndpoint(presentFormMeta) },
-  { def: presentHtmlDef, endpoint: mcpEndpoint(presentHtmlMeta) },
-  { def: presentMulmoScriptDef, endpoint: mcpEndpoint(presentMulmoScriptMeta) },
-  { def: presentSVGDef, endpoint: mcpEndpoint(presentSVGMeta) },
-  { def: presentShapeScriptDef, endpoint: mcpEndpoint(presentShapeScriptMeta) },
-  { def: schedulerAutomationsDef, endpoint: mcpEndpoint(schedulerAutomationsMeta) },
-  { def: spreadsheetDef, endpoint: mcpEndpoint(spreadsheetMeta) },
+  mcpBinding(accountingDef, accountingMeta),
+  mcpBinding(canvasDef, canvasMeta),
+  mcpBinding(chartDef, chartMeta),
+  mcpBinding(manageSkillsDef, manageSkillsMeta),
+  mcpBinding(markdownDef, markdownMeta),
+  mcpBinding(photoLocationsDef, photoLocationsMeta),
+  mcpBinding(presentCollectionDef, presentCollectionMeta),
+  mcpBinding(presentFormDef, presentFormMeta),
+  mcpBinding(presentHtmlDef, presentHtmlMeta),
+  mcpBinding(presentMulmoScriptDef, presentMulmoScriptMeta),
+  mcpBinding(presentSVGDef, presentSVGMeta),
+  mcpBinding(presentShapeScriptDef, presentShapeScriptMeta),
+  mcpBinding(schedulerAutomationsDef, schedulerAutomationsMeta),
+  mcpBinding(spreadsheetDef, spreadsheetMeta),
 ];

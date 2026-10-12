@@ -22,6 +22,9 @@ import path from "node:path";
 import { runClaudeCli, ClaudeCliNotFoundError, type Summarize } from "../journal/archivist-cli.js";
 import { makeLlmMemoryClassifier } from "./llm-classifier.js";
 import { migrateLegacyMemory } from "./migrate.js";
+import { decideLegacyMigration, type LegacyMemoryState, type LegacyMigrationSkipReason } from "./legacy-migration-gate.js";
+import { hasTopicFormat } from "./topic-detect.js";
+import { WORKSPACE_FILES } from "../paths.js";
 import { errorMessage } from "../../utils/errors.js";
 import { log } from "../../system/logger/index.js";
 
@@ -32,35 +35,11 @@ export interface RunMigrationDeps {
 }
 
 export async function runMemoryMigrationOnce(workspaceRoot: string, deps: RunMigrationDeps = {}): Promise<void> {
-  const legacyPath = path.join(workspaceRoot, "conversations", "memory.md");
-  if (!existsSync(legacyPath)) {
-    log.debug("memory", "migration: no legacy file, skipping");
-    return;
-  }
-  // If the file is suspiciously empty (just the placeholder we used
-  // to write at init), skip — the migration would yield zero entries
-  // and the rename to `.backup` is pointless.
-  const stat = statSync(legacyPath);
-  if (stat.size < 64) {
-    log.info("memory", "migration: legacy file is below the placeholder threshold, skipping");
-    return;
-  }
-  // The rename to `.backup` is the final step of `migrateLegacyMemory`,
-  // so its presence is the "migration completed" marker. A workspace
-  // where both `memory.md` AND `memory.md.backup` exist means the
-  // user re-introduced the legacy file after a previous successful
-  // migration (probably by mistake or by extracting the backup).
-  // Re-running here would re-classify the bullets and could clobber
-  // typed entries the user has been editing in place; skip with a
-  // clear log instead. The interrupted-migration retry case still
-  // works because no `.backup` exists in that state — the rename
-  // never ran.
+  const legacyPath = path.join(workspaceRoot, WORKSPACE_FILES.memory);
   const backupPath = `${legacyPath}.backup`;
-  if (existsSync(backupPath)) {
-    log.info("memory", "migration: legacy file present but .backup also exists — refusing to re-run", {
-      legacyPath,
-      backupPath,
-    });
+  const gate = decideLegacyMigration(readLegacyMemoryState(workspaceRoot, legacyPath, backupPath));
+  if (!gate.run) {
+    logSkip(gate.reason, legacyPath, backupPath);
     return;
   }
   const summarize = deps.summarize ?? runClaudeCli;
@@ -80,5 +59,29 @@ export async function runMemoryMigrationOnce(workspaceRoot: string, deps: RunMig
       return;
     }
     log.error("memory", "migration: threw, legacy memory left in place", { error: errorMessage(err) });
+  }
+}
+
+function readLegacyMemoryState(workspaceRoot: string, legacyPath: string, backupPath: string): LegacyMemoryState {
+  let legacySizeBytes: number | null = null;
+  try {
+    legacySizeBytes = statSync(legacyPath).size;
+  } catch {
+    // ENOENT (or a rename racing us) → treat as absent.
+  }
+  return { legacySizeBytes, backupExists: existsSync(backupPath), topicFormat: hasTopicFormat(workspaceRoot) };
+}
+
+function logSkip(reason: LegacyMigrationSkipReason, legacyPath: string, backupPath: string): void {
+  if (reason === "no-legacy-file") {
+    log.debug("memory", "migration: no legacy file, skipping");
+  } else if (reason === "topic-format") {
+    log.info("memory", "migration: workspace uses topic format, leaving legacy file alone", { legacyPath });
+  } else if (reason === "placeholder") {
+    log.info("memory", "migration: legacy file is below the placeholder threshold, skipping");
+  } else {
+    // A previous run renamed memory.md to .backup as its last step, so the user re-introduced the
+    // file; re-classifying it could clobber typed entries they have been editing.
+    log.info("memory", "migration: legacy file present but .backup also exists — refusing to re-run", { legacyPath, backupPath });
   }
 }

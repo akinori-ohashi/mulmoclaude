@@ -23,7 +23,8 @@ import type { RelayDeps } from "../../packages/chat-service/src/relay.ts";
 import type { Logger, OnSessionEventFn, Role } from "../../packages/chat-service/src/types.ts";
 import type { ChatStateStore, TransportChatState } from "../../packages/chat-service/src/chat-state.ts";
 import { createStreamParser, INJECTED_TEXT, type AgentEvent, type RawStreamEvent } from "../../server/agent/stream.js";
-import { splitSkillAndReply } from "../../server/agent/skillEvents.js";
+import { splitSkillAndReply, type PendingSkill } from "../../server/agent/skillEvents.js";
+import { classifyInjectedText } from "../../server/agent/injectedText.js";
 
 const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "cli-stream-skill.jsonl");
 const SKILL_BODY_PREFIX = "Base directory for this skill: ";
@@ -41,22 +42,24 @@ function parseFixture(): AgentEvent[] {
 
 /** Mirror of `handleAgentEvent`'s publish decision: `claude_session_id` is meta
  *  and injected text is withheld, becoming a `skill` event when a Skill call is
- *  pending. Everything else goes out as-is. */
+ *  pending. Everything else goes out as-is. The injected-text decision itself is
+ *  the server's own `classifyInjectedText`, so this cannot drift from it. */
 function publishedByServer(events: AgentEvent[]): Record<string, unknown>[] {
   const published: Record<string, unknown>[] = [];
-  let pendingSkillName: string | null = null;
+  let pendingSkill: PendingSkill | null = null;
   for (const event of events) {
     if (event.type === EVENT_TYPES.claudeSessionId) continue;
-    if (event.type === EVENT_TYPES.toolCall) pendingSkillName = event.toolName === "Skill" ? "bigskill" : null;
+    if (event.type === EVENT_TYPES.toolCall) pendingSkill = event.toolName === "Skill" ? { skillName: "bigskill", toolUseId: event.toolUseId } : null;
     if (event.type !== INJECTED_TEXT) {
       published.push({ ...event });
       continue;
     }
-    if (!pendingSkillName) continue;
+    const injected = classifyInjectedText(pendingSkill);
+    if (injected.kind === "cli-context") continue;
     const { skillPart, replyPart } = splitSkillAndReply(event.message, null);
-    published.push({ source: "assistant", type: EVENT_TYPES.skill, skillName: pendingSkillName, message: skillPart });
+    published.push({ source: "assistant", type: EVENT_TYPES.skill, skillName: injected.skill.skillName, message: skillPart });
     if (replyPart) published.push({ source: "assistant", type: EVENT_TYPES.text, message: replyPart });
-    pendingSkillName = null;
+    pendingSkill = null;
   }
   published.push({ type: EVENT_TYPES.sessionFinished });
   return published;

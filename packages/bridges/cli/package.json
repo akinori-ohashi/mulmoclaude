@@ -30,11 +30,11 @@
   "license": "MIT",
   "author": "Receptron Team",
   "dependencies": {
-    "@mulmobridge/client": "^1.4.0",
-    "dotenv": "^17.0.0"
+    "@mulmobridge/client": "^1.4.2",
+    "dotenv": "^18.0.7"
   },
   "devDependencies": {
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.5",
     "typescript": "^6.0.3"
   },
   "homepage": "https://github.com/receptron/mulmoclaude/tree/main/packages/bridges/cli#readme",

@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { tmpdir } from "os";
 import {
@@ -14,6 +14,7 @@ import {
   formatPluginSection,
 } from "../../server/agent/prompt.js";
 import { WORKSPACE_FILES } from "../../server/workspace/paths.js";
+import { helpsAssetDir } from "@mulmoclaude/core/workspace-setup";
 import type { Role } from "../../src/config/roles.js";
 import type { MemorySnapshot } from "../../server/workspace/memory/snapshot.js";
 
@@ -235,18 +236,41 @@ describe("buildSystemPrompt", () => {
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
     assert.ok(result.includes("Image references in markdown / HTML"));
-    // Each rule in the section must appear so a future refactor that
-    // accidentally drops a bullet trips this test.
-    assert.match(result, /always use a \*\*relative path\*\*/i);
+    // Each prohibition must stay in the prompt itself so a future
+    // refactor that drops one trips this test; the long-form guidance
+    // lives in the help file the section points at.
+    assert.match(result, /path \*\*relative to that file\*\*/i);
     // Absolute `/artifacts/images/...` is explicitly forbidden because
     // it breaks `file://` direct-disk rendering (Goal #2 of the plan).
-    assert.match(result, /never use an \*\*absolute path\*\*/i);
-    assert.match(result, /never use a workspace-rooted, no-leading-slash form/i);
-    assert.match(result, /never write `\/api\/files\/raw\?path=\.\.\.` urls/i);
-    // Stage D (#1011): explicit OK to use raw HTML tags inside .md
-    // files when markdown's ![]() can't express what's needed
-    // (`<picture>`, `<video poster>`, `<img width>`). Same path rules.
-    assert.match(result, /raw html tags work inside `\.md` files/i);
+    assert.match(result, /never `\/artifacts\/\.\.\.`/i);
+    assert.match(result, /a workspace-rooted `artifacts\/\.\.\.`/i);
+    assert.match(result, /a `\/api\/files\/raw\?\.\.\.` URL/i);
+    assert.ok(result.includes("config/helps/image-references.md"));
+    // Stage D (#1011): raw HTML tags inside .md files (`<picture>`,
+    // `<video poster>`, `<img width>`) — kept in the help file.
+    const help = readFileSync(join(helpsAssetDir(), "image-references.md"), "utf-8");
+    assert.match(help, /raw html tags work inside `\.md` files/i);
+    assert.match(help, /never use an \*\*absolute path\*\*/i);
+  });
+
+  it("routes collection custom views to the right help (#3402)", () => {
+    const result = buildSystemPrompt({ role: makeRole(), workspacePath: workspace, useDocker: false, memorySnapshot: EMPTY_ATOMIC_SNAPSHOT });
+    // The choice between the two contracts is made before any help is read,
+    // so both pointers and the phone-request rule stay in the prompt itself.
+    assert.ok(result.includes("config/helps/custom-view.md"));
+    assert.ok(result.includes("config/helps/custom-view-remote.md"));
+    assert.match(result, /`target: "mobile"` view/);
+    assert.match(result, /never bake records into a standalone HTML artifact/);
+    // The trigger words decide which help gets read, so they stay inline too.
+    for (const trigger of ["phone", "remote", "mobile", "リモート", "スマホ", "モバイル"]) {
+      assert.ok(result.includes(trigger), `custom-view trigger word: ${trigger}`);
+    }
+    // The contract details moved to the help files.
+    const remoteHelp = readFileSync(join(helpsAssetDir(), "custom-view-remote.md"), "utf-8");
+    assert.match(remoteHelp, /no `fetch` of any kind/);
+    assert.match(remoteHelp, /phone-sized frame/);
+    const desktopHelp = readFileSync(join(helpsAssetDir(), "custom-view.md"), "utf-8");
+    assert.match(desktopHelp, /dataUrl/);
   });
 
   it("contains the file-link convention in chat replies (#1300 / PR #1325 layer B)", () => {

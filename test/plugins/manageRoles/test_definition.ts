@@ -51,3 +51,16 @@ describe("manageRoles tool definition — model", () => {
     assert.match(modelDescription(), /echo back/i);
   });
 });
+
+describe("manageRoles tool definition — excludedAlwaysActiveTools", () => {
+  it("declares the field and tells the agent to echo it back on update", () => {
+    const { parameters: params } = definition;
+    assert.ok(isRecord(params) && isRecord(params.properties));
+    const { role } = params.properties;
+    assert.ok(isRecord(role) && isRecord(role.properties));
+    const { excludedAlwaysActiveTools: field } = role.properties;
+    assert.ok(isRecord(field));
+    assert.equal(field.type, "array");
+    assert.match(String(field.description), /ALWAYS echo back/);
+  });
+});

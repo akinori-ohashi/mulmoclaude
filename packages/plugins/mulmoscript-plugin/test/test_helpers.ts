@@ -212,6 +212,10 @@ describe("beatMayHaveMovie", () => {
     assert.equal(beatMayHaveMovie({ image: { type: "html_tailwind", animation: { fps: 30 } } }), true);
   });
 
+  it("returns true for remotion beats, which can render an _animated.mp4", () => {
+    assert.equal(beatMayHaveMovie({ image: { type: "remotion" } }), true);
+  });
+
   it("returns false for html_tailwind without animation", () => {
     assert.equal(beatMayHaveMovie({ image: { type: "html_tailwind" } }), false);
   });

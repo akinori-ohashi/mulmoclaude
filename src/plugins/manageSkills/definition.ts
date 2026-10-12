@@ -14,7 +14,7 @@ const toolDefinition: ToolDefinition = {
     `Use the ${TOOL_NAME} tool for the user's skill library:\n\n` +
     `- **list** (default, no args): show every available skill in the canvas.\n` +
     `- **save**: when the user asks to turn the current conversation into a skill (e.g. "skill 化して" / "save this as a skill"), do these steps:\n` +
-    `  1. Read the current chat transcript via the Read tool. The path is \`chat/<session-id>.jsonl\` under the workspace; if you don't know the session id, list \`chat/\` first.\n` +
+    `  1. Read the current chat transcript via the Read tool. The path is \`conversations/chat/<session-id>.jsonl\` under the workspace; if you don't know the session id, list \`conversations/chat/\` first.\n` +
     `  2. Distill the conversation into a short markdown body explaining the steps you took, in second person ("First, do X. Then, do Y."). Keep it focused on the reusable workflow, not the one-off details.\n` +
     `  3. Pick a kebab-case slug (lowercase letters, digits, hyphens; no leading/trailing hyphen; 1-64 chars). If the user gave a name in the request, use it.\n` +
     `  4. Write a one-line description for the YAML frontmatter.\n` +

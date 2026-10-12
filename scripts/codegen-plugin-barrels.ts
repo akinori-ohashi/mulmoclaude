@@ -299,11 +299,11 @@ function emitServerBindingsBarrel(definitions: readonly DefEntry[], metas: reado
     seenMetas.add(meta.importName);
     metaImports.push(`import { META as ${meta.importName} } from "${meta.importPath}";`);
   }
-  const rows = pairs.map(({ def, meta }) => `  { def: ${def.importName}, endpoint: mcpEndpoint(${meta.importName}) },`).join("\n");
+  const rows = pairs.map(({ def, meta }) => `  mcpBinding(${def.importName}, ${meta.importName}),`).join("\n");
   return [
     HEADER,
     'import type { ServerPluginBinding } from "../server-bindings-types";',
-    'import { mcpEndpoint } from "../server-bindings-types";',
+    'import { mcpBinding } from "../server-bindings-types";',
     "",
     defImports.join("\n"),
     metaImports.join("\n"),

@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "gui-chat-protocol";
+import { REMOTION_COMPONENT_GUIDE } from "mulmocast/remotion/guide";
 
 export const TOOL_NAME = "presentMulmoScript";
 
@@ -6,10 +7,12 @@ export const TOOL_NAME = "presentMulmoScript";
 // MulmoClaude (host built-in shim re-exports this) and MulmoTerminal.
 // (Extracted byte-identical from the host definition; evolves here with the
 // package version.)
-export const TOOL_DEFINITION: ToolDefinition = {
-  type: "function",
-  name: TOOL_NAME,
-  description: `Save and present a MulmoScript story or presentation as a visual storyboard in the canvas.
+
+const REMOTION_GUIDE_FILE = "remotion-component-guide.md";
+
+/** The full usage reference: the MCP tool description, and also the prompt
+ *  file a host that supports the split writes for the agent to Read. */
+const SCRIPT_REFERENCE = `Save and present a MulmoScript story or presentation as a visual storyboard in the canvas.
 
 Provide EXACTLY ONE of \`script\` or \`filePath\`:
 
@@ -90,8 +93,39 @@ Beat visual options (choose one per beat):
 - "image": { "type": "chart", "title": "...", "chartData": { "type": "bar"|"line"|"pie"|..., "data": { "labels": [...], "datasets": [...] } } }  ← PREFER for data/numbers/comparisons. chartData is a full Chart.js config: labels/datasets go under "data", not at the top level.
 - "image": { "type": "mermaid", "title": "...", "code": { "kind": "text", "text": "..." } }  ← PREFER for flows/diagrams/relationships
 - "image": { "type": "html_tailwind", "html": "...", "script"?: "..." }  ← PREFER for rich layouts, animations, custom visuals
+- "image": { "type": "remotion", "prompt": "..." | "code": {...}, "fps"?: 30 }  → a Remotion animation ("fps" is optional, 1–60, default 30). ONLY use when the user asks for Remotion or is known to have the optional remotion packages installed — without them generation fails. Cannot be combined with "moviePrompt" on the same beat. Give EXACTLY ONE of:
+  - "prompt": "scene description" → mulmocast has Claude Code write the component. Slow and costly (several Claude calls per scene). Choose it when the user is happy to leave the scene to it. Keep the look consistent across these beats with a top-level "remotionParams": { "brief": "palette, type, mood" }.
+  - "code": { "kind": "path", "path": "scenes/intro.tsx" } (relative to the script's folder) or { "kind": "text", "text": "<TSX source>" } → YOU write the finished component and mulmocast renders it as is. Choose it when the user wants to refine the scene with you in the conversation, or when you can write it yourself. Read the REMOTION_COMPONENT_GUIDE first (the ${REMOTION_GUIDE_FILE} file beside this one, or the section of that name at the end of this tool's description): one self-contained file (no relative imports), only the allowed imports. If rendering fails, mulmocast stops and names the file and the error — fix the component and render again.
 
-IMPORTANT: "imagePrompt" and "moviePrompt" are plain string fields on the beat, NOT nested under "image".`,
+IMPORTANT: "imagePrompt" and "moviePrompt" are plain string fields on the beat, NOT nested under "image".`;
+
+const REFERENCE_FILE = "presentMulmoScript.md";
+
+/** The contract for a remotion beat's \`code\`, taken from mulmocast so it follows its renderer. */
+const REMOTION_GUIDE = `# REMOTION_COMPONENT_GUIDE — how to write a remotion beat's \`code\`
+
+${REMOTION_COMPONENT_GUIDE}`;
+
+/** Injected into the system prompt instead of the full reference by a host that
+ *  supports `promptCompact` / `promptFiles` (`@mulmoclaude/core/prompt-files`). */
+const PROMPT_COMPACT = [
+  "Save and present a MulmoScript story or presentation as a storyboard in the canvas.",
+  "Pass exactly one of `script` (a new presentation) or `filePath` (re-display an existing one; add `beatIndex` + `beat` to replace one beat — prefer that over re-sending the whole script).",
+  "Set `autoGenerateMovie` only when the user has asked for the movie — it is expensive.",
+  "Before writing or editing a script, Read {{promptFilesDir}}/" + REFERENCE_FILE + " for the required structure, provider rules and beat types.",
+  "Before writing a remotion beat's `code` component, Read {{promptFilesDir}}/" + REMOTION_GUIDE_FILE + ".",
+].join(" ");
+
+/** `ToolDefinition` plus the optional prompt split; hosts that do not know it
+ *  ignore the extra fields and keep using `description`. */
+type ToolDefinitionWithPromptFiles = ToolDefinition & { promptCompact: string; promptFiles: Record<string, string> };
+
+export const TOOL_DEFINITION: ToolDefinitionWithPromptFiles = {
+  type: "function",
+  name: TOOL_NAME,
+  description: [SCRIPT_REFERENCE, REMOTION_GUIDE].join("\n\n"),
+  promptCompact: PROMPT_COMPACT,
+  promptFiles: { [REFERENCE_FILE]: SCRIPT_REFERENCE, [REMOTION_GUIDE_FILE]: REMOTION_GUIDE },
   parameters: {
     type: "object",
     properties: {
