@@ -57,6 +57,7 @@ h3.sub .sn{flex:none;width:1.75rem;height:1.75rem;border-radius:50%;background:v
 .note.ok strong{background:var(--tag-ok-bg);color:var(--tag-ok)}
 .note strong:empty{display:none}
 .note.pre{border:1px solid var(--line);border-radius:8px;padding:.7rem .9rem}
+.note ul{margin:.3rem 0 0;padding-left:1.2rem}
 /* こんなときは: 角の丸い薄い色の箱。開くと中身 */
 details{margin:1rem 0;border-radius:8px;background:var(--more-bg)}
 details>summary{cursor:pointer;padding:.65rem 1rem;font-weight:700;list-style:none;display:flex;align-items:center;gap:.6rem}
@@ -333,7 +334,7 @@ h2 .no:empty{display:none}
 <body>
 <div class="wrap">
 <h1>MulmoClaude のインストール</h1>
-<div class="intro"><div class="note pre"><strong>前提</strong><span>この手順書は、第1章<a href="claude-install.html">「MulmoClaude はじめての準備」</a>を済ませた人向けです。</span></div>
+<div class="intro"><div class="note pre"><strong>前提</strong><span>この手順書は、次の章を済ませた人向けです。<ul><li><a href="claude-install.html">第1章「MulmoClaude はじめての準備」</a></li></ul></span></div>
 <p>この手順書では、Mac に Docker Desktop と MulmoClaude を入れ、ブラウザで使い始めるまでを説明します。上から順に進めてください。目安は20〜30分です。</p>
 <p>画面の図はすべてイメージで、実際の表示とは少し違うことがあります。</p></div>
 <ul class="toc"><li><a href="#docker">Docker Desktop を入れるか決める</a></li><li><a href="#step1">ステップ 1　Docker Desktop を入れる</a></li><li><a href="#step2">ステップ 2　MulmoClaude を起動する</a></li><li><a href="#step3">ステップ 3　アイコンから起動できるようにする</a></li><li><a href="#trouble">うまくいかないとき</a></li></ul>
