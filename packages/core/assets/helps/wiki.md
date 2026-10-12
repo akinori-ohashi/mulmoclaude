@@ -203,11 +203,11 @@ For browse / lint queries, point the user at the `/wiki` UI:
 - `/wiki/log` — the activity log
 - The Lint button on `/wiki` runs a health check
 
-## Relationship to `memory.md`
+## Relationship to memory
 
-|        | `memory.md`                              | `data/wiki/`                                |
-| ------ | ---------------------------------------- | ------------------------------------------- |
-| Scope  | Brief distilled facts, always in context | Deep structured knowledge, loaded on demand |
-| Growth | Intentionally small                      | Grows unboundedly                           |
+|        | `conversations/memory/`                                            | `data/wiki/`                                |
+| ------ | ------------------------------------------------------------------ | ------------------------------------------- |
+| Scope  | Brief distilled facts; an index line per topic file in every session | Deep structured knowledge, loaded on demand |
+| Growth | Intentionally small                                                | Grows unboundedly                           |
 
-Over time, Claude can distill key insights from the wiki back into `memory.md` as compact ambient context for all roles.
+Over time, Claude can distill key insights from the wiki into a memory topic file (`conversations/memory/<type>/<topic>.md`, see `config/helps/memory-topic.md`) as compact ambient context for all roles.

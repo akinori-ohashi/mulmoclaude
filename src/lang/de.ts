@@ -612,8 +612,9 @@ const deMessages = {
         "Pro-Aufgabe Zeit-/Intervall-Überschreibungen über dem Systemzeitplan. Der Agent bearbeitet dies, wenn du den Zeitpunkt einer wiederkehrenden Aufgabe änderst.",
     },
     schedulerItems: {
-      title: "Scheduler-Item-Warteschlange",
-      summary: "Geplante Aufrufe, die zur Auslösung bereitstehen. Agent-verwaltet; nicht von Hand bearbeiten, ohne jedes Feld zu verstehen.",
+      title: "Alte Kalendereinträge",
+      summary:
+        "Einträge aus der entfernten Kalenderansicht. Die App zeigt sie nicht mehr an, und nichts führt sie nach Zeitplan aus; nur die alten /api/scheduler-Aktionen lesen und schreiben diese Datei noch. Geplante Aufgaben liegen in config/scheduler/tasks.json.",
     },
     wikiIndex: {
       title: "Wiki-Index",
@@ -635,9 +636,9 @@ const deMessages = {
         "Formatspezifikation, die der Agent liest, um Wiki-Seiten konsistent zu halten. Empfindlich — eine bestimmte Struktur wird erwartet; bevorzuge Agent-getriebene Bearbeitung.",
     },
     memory: {
-      title: "Memory",
+      title: "Memory (alte Datei)",
       summary:
-        "Destillierte Fakten über dich, immer als Kontext für neue Gespräche geladen. Der Journal-Extraktor hängt automatisch an; manuelle Bearbeitung ebenfalls möglich.",
+        "Das ältere Ein-Datei-Gedächtnis. Nur Arbeitsbereiche im älteren Format lesen es; aktuelle Arbeitsbereiche speichern Fakten als Themendateien unter conversations/memory/<type>/<topic>.md und ignorieren diese Datei, Änderungen hier wirken dort also nicht.",
     },
     summariesIndex: {
       title: "Zusammenfassungs-Index",
