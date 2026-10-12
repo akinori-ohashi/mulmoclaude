@@ -630,7 +630,8 @@ const enMessages = {
     },
     schedulerItems: {
       title: "Legacy calendar items",
-      summary: "Calendar items from the removed Calendar view. Nothing displays or runs them anymore; scheduled tasks live in config/scheduler/tasks.json.",
+      summary:
+        "Calendar items from the removed Calendar view. The app no longer shows them and nothing runs them on a schedule; only the legacy /api/scheduler actions still read and write this file. Scheduled tasks live in config/scheduler/tasks.json.",
     },
     wikiIndex: {
       title: "Wiki index",

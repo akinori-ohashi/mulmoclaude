@@ -613,7 +613,8 @@ const esMessages = {
     },
     schedulerItems: {
       title: "Elementos de calendario antiguos",
-      summary: "Elementos de la vista de Calendario eliminada. Ya no se muestran ni se ejecutan; las tareas programadas están en config/scheduler/tasks.json.",
+      summary:
+        "Elementos de la vista de Calendario eliminada. La app ya no los muestra y nada los ejecuta según una programación; solo las acciones antiguas de /api/scheduler siguen leyendo y escribiendo este archivo. Las tareas programadas están en config/scheduler/tasks.json.",
     },
     wikiIndex: {
       title: "Índice de la wiki",

@@ -590,7 +590,8 @@ const zhMessages = {
     },
     schedulerItems: {
       title: "旧日历条目",
-      summary: "已删除的日历视图中的条目。它们不再显示也不再执行；计划任务位于 config/scheduler/tasks.json。",
+      summary:
+        "已删除的日历视图中的条目。应用不再显示它们，也不会按计划执行它们；只有旧的 /api/scheduler 操作仍会读写此文件。计划任务位于 config/scheduler/tasks.json。",
     },
     wikiIndex: {
       title: "Wiki 索引",

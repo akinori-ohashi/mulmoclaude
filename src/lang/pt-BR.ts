@@ -603,7 +603,8 @@ const ptBRMessages = {
     },
     schedulerItems: {
       title: "Itens de calendário antigos",
-      summary: "Itens da visualização de Calendário removida. Não são mais exibidos nem executados; as tarefas agendadas ficam em config/scheduler/tasks.json.",
+      summary:
+        "Itens da visualização de Calendário removida. O app não os mostra mais e nada os executa por agendamento; só as ações antigas de /api/scheduler ainda leem e gravam este arquivo. As tarefas agendadas ficam em config/scheduler/tasks.json.",
     },
     wikiIndex: {
       title: "Índice da wiki",

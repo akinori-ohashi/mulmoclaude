@@ -609,7 +609,7 @@ const frMessages = {
     schedulerItems: {
       title: "Anciens éléments de calendrier",
       summary:
-        "Éléments de la vue Calendrier supprimée. Ils ne sont plus affichés ni exécutés ; les tâches planifiées se trouvent dans config/scheduler/tasks.json.",
+        "Éléments de la vue Calendrier supprimée. L'application ne les affiche plus et rien ne les exécute selon un planning ; seules les anciennes actions /api/scheduler lisent et écrivent encore ce fichier. Les tâches planifiées se trouvent dans config/scheduler/tasks.json.",
     },
     wikiIndex: {
       title: "Index du wiki",

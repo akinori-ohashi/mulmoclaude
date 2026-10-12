@@ -16,7 +16,7 @@ The system prompt no longer lists an unused `data/contacts/` address book or cal
 scheduled tasks (they live in `config/scheduler/tasks.json`). The `config/helps/index.md` layout map replaces the
 pre-#284 root `chat/` / `todos/` / `memory.md` tree, and `config/helps/wiki.md` points wiki distillation at a memory
 topic file instead of the legacy `memory.md`. The file explorer now labels `conversations/memory.md` and
-`data/scheduler/items.json` as legacy files (`@mulmoclaude/core` 5.11.3).
+`data/scheduler/items.json` (calendar items the app no longer shows or runs, still reachable through `/api/scheduler`) as legacy files (`@mulmoclaude/core` 5.11.3).
 
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.3`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 

@@ -602,7 +602,8 @@ const koMessages = {
     },
     schedulerItems: {
       title: "이전 캘린더 항목",
-      summary: "삭제된 캘린더 화면의 항목입니다. 이제 표시되거나 실행되지 않습니다. 예약 작업은 config/scheduler/tasks.json에 있습니다.",
+      summary:
+        "삭제된 캘린더 화면의 항목입니다. 앱에 표시되지 않으며 일정에 따라 실행되지도 않습니다. 이 파일을 읽고 쓰는 것은 이전 /api/scheduler 작업뿐입니다. 예약 작업은 config/scheduler/tasks.json에 있습니다.",
     },
     wikiIndex: {
       title: "위키 인덱스",

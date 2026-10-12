@@ -604,7 +604,8 @@ const jaMessages = {
     },
     schedulerItems: {
       title: "旧カレンダー項目",
-      summary: "削除済みのカレンダー画面の項目。今は表示も実行もされません。予定タスクは config/scheduler/tasks.json にあります。",
+      summary:
+        "削除済みのカレンダー画面の項目。アプリには表示されず、予定どおりに実行されることもありません。このファイルを読み書きするのは旧来の /api/scheduler の操作だけです。予定タスクは config/scheduler/tasks.json にあります。",
     },
     wikiIndex: {
       title: "Wiki インデックス",
