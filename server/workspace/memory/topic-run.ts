@@ -35,7 +35,7 @@ import { WORKSPACE_DIRS, WORKSPACE_FILES } from "../paths.js";
 import { LEGACY_MEMORY_PLACEHOLDER_MAX_BYTES } from "./legacy-migration-gate.js";
 import { loadAllMemoryEntries } from "./io.js";
 import { makeLlmMemoryClusterer, type MemoryClusterer } from "./topic-cluster.js";
-import { clusterAtomicIntoStaging, stagingIndexPath, topicStagingPath } from "./topic-migrate.js";
+import { clusterAtomicIntoStaging, isStagingSwappable, topicStagingPath } from "./topic-migrate.js";
 import { swapStagingIntoMemory } from "./topic-swap.js";
 import { MEMORY_TYPES } from "./types.js";
 import { errorMessage } from "../../utils/errors.js";
@@ -77,12 +77,12 @@ export async function runTopicMigrationOnce(workspaceRoot: string, deps: RunTopi
   // incomplete one (crash during the cluster call or mid-write) would replace memory/ with a partial tree, so it
   // is discarded and the cluster runs again below.
   if (existsSync(stagingPath)) {
-    if (existsSync(stagingIndexPath(stagingPath))) {
+    if (await isStagingSwappable(stagingPath, (await loadAllMemoryEntries(workspaceRoot)).length)) {
       log.info("memory", "topic-run: existing staging detected, retrying swap", { stagingPath });
       await runSwap(workspaceRoot);
       return;
     }
-    log.warn("memory", "topic-run: discarding incomplete staging from an interrupted run", { stagingPath });
+    log.warn("memory", "topic-run: discarding an incomplete or lossy staging from an interrupted run", { stagingPath });
     await rm(stagingPath, { recursive: true, force: true });
   }
   if (shouldDeferForLegacyMigration(workspaceRoot)) return;

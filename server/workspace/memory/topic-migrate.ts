@@ -13,10 +13,11 @@
 // the one-shot atomic → topic migration chain and goes when the
 // chain goes.
 
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { writeFileAtomic } from "../../utils/files/atomic.js";
+import { readTextSafe } from "../../utils/files/safe.js";
 import { log } from "../../system/logger/index.js";
 import { errorMessage } from "../../utils/errors.js";
 import { WORKSPACE_DIRS } from "../paths.js";
@@ -47,6 +48,30 @@ const STAGING_INDEX_FILE = "MEMORY.md";
 
 export function stagingIndexPath(stagingPath: string): string {
   return path.join(stagingPath, STAGING_INDEX_FILE);
+}
+
+async function countBulletLines(file: string): Promise<number> {
+  const text = await readTextSafe(file);
+  return text === null ? 0 : text.split("\n").filter((line) => line.startsWith("- ")).length;
+}
+
+async function countStagedBullets(stagingPath: string): Promise<number> {
+  const perType = await Promise.all(
+    MEMORY_TYPES.map(async (type) => {
+      const dir = path.join(stagingPath, type);
+      const names = await readdir(dir).catch(() => []);
+      const counts = await Promise.all(names.filter((name) => name.endsWith(".md")).map((name) => countBulletLines(path.join(dir, name))));
+      return counts.reduce((total, count) => total + count, 0);
+    }),
+  );
+  return perType.reduce((total, count) => total + count, 0);
+}
+
+/** A leftover staging may be swapped only if it was fully written (index present) and holds a bullet for every
+ *  atomic entry — the index alone is not enough, because builds before #3458 indexed lossy stagings too. */
+export async function isStagingSwappable(stagingPath: string, atomicEntryCount: number): Promise<boolean> {
+  if ((await readTextSafe(stagingIndexPath(stagingPath))) === null) return false;
+  return (await countStagedBullets(stagingPath)) >= atomicEntryCount;
 }
 
 interface WrittenTopic {
