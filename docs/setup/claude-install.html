@@ -323,7 +323,7 @@ h2 .no:empty{display:none}
 <ol class="mk-pins"><li><span class="mk-pin">1</span>貼り付けた文字</li></ol>
 </div>
 </figure>
-<div class="note "><strong>メモ</strong>return を押したあと、何も表示されずに次の行に「%」が出るだけのこともあります。それで正常です。</div>
+<div class="note "><strong>メモ</strong><span>return を押したあと、何も表示されずに次の行に「%」が出るだけのこともあります。それで正常です。</span></div>
 </div></div></section>
 <section class="step" id="step2"><h2><span class="no">ステップ 2</span>Node.js を入れる</h2>
 <p>MulmoClaude を動かすために、Node.js を入れます。</p>
@@ -400,7 +400,7 @@ h2 .no:empty{display:none}
 <span class="mk-prompt">yourname@MacBook-Air ~ %</span> <span class="mk-cursor"></span></div>
 </div>
 </figure>
-<div class="note ok"><strong>確認</strong>v で始まる数字が出れば成功です。数字は入れた時期によって変わります。</div>
+<div class="note ok"><strong>確認</strong><span>v で始まる数字が出れば成功です。数字は入れた時期によって変わります。</span></div>
 </div></div></section>
 <section class="step" id="step3"><h2><span class="no">ステップ 3</span>Claude Code を入れる</h2>
 <div class="substep"><h3 class="sub"><span class="sn">1</span>Claude Code をインストールする</h3><div class="sub-body">
@@ -423,7 +423,7 @@ Setting up Claude Code...
 <span class="mk-prompt">yourname@MacBook-Air ~ %</span> <span class="mk-cursor"></span></div>
 </div>
 </figure>
-<div class="note ok"><strong>確認</strong>「Claude Code successfully installed!」と出れば成功です。</div>
+<div class="note ok"><strong>確認</strong><span>「Claude Code successfully installed!」と出れば成功です。</span></div>
 <details><summary>黄色い Setup notes が出たとき</summary>
 <p>画面に出た行と同じコマンドを、下の枠の「コピー」でコピーします。</p>
 <div class="cmd"><pre>echo &#x27;export PATH=&quot;$HOME/.local/bin:$PATH&quot;&#x27; &gt;&gt; ~/.zshrc &amp;&amp; source ~/.zshrc</pre><button type="button">コピー</button></div>
@@ -443,7 +443,7 @@ Setting up Claude Code...
 <p>インストールのコマンドを実行したのと同じターミナルで、一番下の「%」の後ろをクリックします。command+V で貼り付け、return を押します。</p>
 <p>何も表示されず、次の行に「%」が出れば終わりです。</p>
 </details>
-<div class="note warn"><strong>注意</strong>「curl: (28)」と出て止まったら、この手順書の最後にある「curl: (28) と出てインストールが止まったとき」へ進んでください。</div>
+<div class="note warn"><strong>注意</strong><span>「curl: (28)」と出て止まったら、この手順書の最後にある「curl: (28) と出てインストールが止まったとき」へ進んでください。</span></div>
 </div></div>
 <div class="substep"><h3 class="sub"><span class="sn">2</span>Claude Code が入ったか確かめる</h3><div class="sub-body">
 <p>ターミナルを開き直し、次を貼り付けて return を押します。</p>
@@ -455,7 +455,7 @@ Setting up Claude Code...
 <span class="mk-prompt">yourname@MacBook-Air ~ %</span> <span class="mk-cursor"></span></div>
 </div>
 </figure>
-<div class="note ok"><strong>確認</strong>数字が出れば成功です。</div>
+<div class="note ok"><strong>確認</strong><span>数字が出れば成功です。</span></div>
 </div></div></section>
 <section class="step" id="step4"><h2><span class="no">ステップ 4</span>ログインして話しかける</h2>
 <div class="substep"><h3 class="sub"><span class="sn">1</span>Claude Code を起動する</h3><div class="sub-body">
@@ -554,7 +554,7 @@ Setting up Claude Code...
   何から始めましょうか？</div>
 </div>
 </figure>
-<div class="note ok"><strong>確認</strong>返事が表示されれば完了です。</div>
+<div class="note ok"><strong>確認</strong><span>返事が表示されれば完了です。</span></div>
 <p>終わるときは <code>/exit</code> と打って return を押します。次からは <code>claude</code> と打つだけで始まります。</p>
 </div></div></section>
 <section class="step" id="trouble"><h2><span class="no"></span>うまくいかないとき</h2>
@@ -604,7 +604,7 @@ Setting up Claude Code...
 </div>
 <figcaption>Mac のプロキシ設定をターミナルで確認した画面です。</figcaption></figure>
 <ul><li>「HTTPSEnable : 1」と「HTTPSProxy」「HTTPSPort」が出たら、プロキシを使う設定です。この画面を撮り、管理者への連絡に添えてください。</li><li>「ProxyAutoConfigEnable : 1」が出たら、自動設定ファイル（PAC）を使う方式です。これも画面を撮って添えてください。</li><li>どちらも出なければ、プロキシ以外の理由も考えられます。そのまま管理者に相談してください。</li></ul>
-<div class="note warn"><strong>注意</strong>Mac の「システム設定」でプロキシの設定を外したり、書き換えたりしないでください。スマホのテザリングで会社のネットワークを迂回する場合も、先に会社の規程を確認してください。</div>
+<div class="note warn"><strong>注意</strong><span>Mac の「システム設定」でプロキシの設定を外したり、書き換えたりしないでください。スマホのテザリングで会社のネットワークを迂回する場合も、先に会社の規程を確認してください。</span></div>
 </div></div>
 <h4 class="minor">管理者に伝えること</h4>
 <p>撮った画面を添えて、管理者（情報システム担当）に次のことを伝えてください。</p>
