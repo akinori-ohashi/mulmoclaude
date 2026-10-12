@@ -147,6 +147,9 @@ describe("memory/topic-migrate — edge cases", () => {
       const result = await clusterAtomicIntoStaging(fresh, partial);
       assert.equal(result.inputCount, 2);
       assert.equal(result.bulletsLost, 1);
+      // A lossy cluster is never staged, so no crash can leave it for the retry-swap path (#3458).
+      assert.equal(result.noop, true);
+      assert.equal(await stat(topicStagingPath(fresh)).catch(() => null), null);
     } finally {
       await rm(fresh, { recursive: true, force: true });
     }
@@ -328,6 +331,29 @@ describe("memory/topic-migrate — edge cases", () => {
       const linkMatches = indexContent.match(/\.md/g) ?? [];
       assert.equal(linkMatches.length, 1);
       assert.match(indexContent, /preference\/dev\.md/);
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("discards the staging instead of indexing it when a topic file fails to write (#3471)", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-topic-mig-writefail-"));
+    try {
+      await writeMemoryEntry(fresh, { name: "yarn", description: "npm 不可", type: "preference", body: "yarn", slug: "preference_yarn" });
+      await writeMemoryEntry(fresh, { name: "egypt", description: "trip", type: "fact", body: "egypt", slug: "fact_egypt" });
+      const blockingClusterer: MemoryClusterer = async () => {
+        // A plain file where the fact/ dir must go makes that topic's write fail.
+        await writeFile(path.join(topicStagingPath(fresh), "fact"), "not a directory");
+        return {
+          preference: [{ topic: "dev", unsectionedBullets: ["yarn"] }],
+          interest: [],
+          fact: [{ topic: "travel", unsectionedBullets: ["egypt"] }],
+          reference: [],
+        };
+      };
+      const result = await clusterAtomicIntoStaging(fresh, blockingClusterer);
+      assert.equal(result.noop, true);
+      assert.equal(await stat(topicStagingPath(fresh)).catch(() => null), null, "a partial staging must not survive with an index");
     } finally {
       await rm(fresh, { recursive: true, force: true });
     }

@@ -1,10 +1,8 @@
-// Swap `conversations/memory/` ↔ `conversations/memory.next/`
-// after the user has approved the staging diff (#1070 PR-A).
+// Swap `conversations/memory/` ↔ `conversations/memory.next/` (#1070 PR-A).
 //
-// Library only — invoked from a CLI helper or the agent (a tool
-// surface for the agent will land later). The swap is intentionally
-// NOT auto-run: the whole point of staging is to give the user a
-// chance to inspect.
+// Run automatically by `runTopicMigrationOnce` right after staging,
+// (a cluster that dropped bullets is never staged, so the workspace stays
+// atomic). `yarn memory:swap` runs it by hand.
 //
 // CLEANUP 2026-07-01: see `topic-run.ts` — this file is part of
 // the one-shot atomic → topic migration chain and goes when the

@@ -86,7 +86,7 @@ The migration is one-shot, idempotent, and runs in the background on server star
 1. **Pre-conditions** ([`topic-run.ts`](../server/workspace/memory/topic-run.ts)) — workspace has atomic entries; legacy `memory.md` migration has already run; topic format isn't already active. Anything else, return early.
 2. **Cluster** ([`topic-cluster.ts`](../server/workspace/memory/topic-cluster.ts)) — call out to an LLM with the full atomic entry list. The LLM returns `{ type → topic → bullets[] }`. The clusterer is injectable so tests use a stub.
 3. **Stage** ([`topic-migrate.ts`](../server/workspace/memory/topic-migrate.ts)) — write the clustered files to `conversations/memory.next/<type>/<topic>.md` plus a regenerated `MEMORY.md`. The original `memory/` directory is untouched.
-4. **Inspect** — the user diffs `memory/` vs `memory.next/` manually. Auto-swap is opt-in (see below) precisely so the user gets a chance to look first.
+4. **Check** — if the cluster accounts for fewer bullets than there were atomic entries (`bulletsLost > 0`), nothing is staged, the workspace stays atomic, and the next start clusters again. Otherwise the swap runs right away; there is no manual review step.
 5. **Swap** ([`topic-swap.ts`](../server/workspace/memory/topic-swap.ts)) — atomic rename: `memory/` → `memory/.atomic-backup-<ts>/`, then `memory.next/` → `memory/`. The backup name carries a timestamp so re-runs from a richer workspace don't clobber prior backups.
 
 After step 5, the next request reads topic format. The atomic backup stays under `.atomic-backup-<ts>/` indefinitely — it's tiny, and keeping it there means the user can always grep their old layout without restoring anything.
