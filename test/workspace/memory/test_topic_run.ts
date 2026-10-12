@@ -199,9 +199,9 @@ describe("memory/topic-run — idempotency guards", () => {
       const stagingPath = topicStagingPath(fresh);
       await mkdir(path.join(stagingPath, "preference"), { recursive: true });
       let summarizeCalled = false;
-      const summarize: Summarize = async (...args) => {
+      const summarize: Summarize = async () => {
         summarizeCalled = true;
-        return stubSummarize(...args);
+        return JSON.stringify({ preference: [{ topic: "dev", unsectionedBullets: ["yarn"] }], interest: [], fact: [], reference: [] });
       };
       await runTopicMigrationOnce(fresh, { summarize });
       assert.equal(summarizeCalled, true, "an incomplete staging must not be swapped; the cluster runs again");
