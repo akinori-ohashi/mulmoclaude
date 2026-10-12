@@ -24,7 +24,8 @@ function roleById(roleId: string) {
 function systemPromptLength(roleId: string): number {
   const workspace = mkdtempSync(path.join(tmpdir(), "simple-role-"));
   try {
-    return buildSystemPrompt({ role: roleById(roleId), workspacePath: workspace, useDocker: false, memorySnapshot: EMPTY_MEMORY }).length;
+    return buildSystemPrompt({ role: roleById(roleId), workspacePath: workspace, hostWorkspacePath: workspace, useDocker: false, memorySnapshot: EMPTY_MEMORY })
+      .length;
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
