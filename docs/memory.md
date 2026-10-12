@@ -53,9 +53,9 @@ The four types and their meanings (also shown to the agent in the Memory Managem
 
 ## How the agent reads it
 
-`buildMemoryContext()` in [`server/agent/prompt.ts`](../server/agent/prompt.ts) injects the current memory directly into the system prompt under a `## Memory` section, wrapped in a `<reference type="memory">` envelope so a poisoned entry can't impersonate instructions. The full body of every topic file lands inline; the agent doesn't have to round-trip a tool call to read memory.
+`buildMemoryContext()` in [`server/agent/prompt.ts`](../server/agent/prompt.ts) injects the current memory directly into the system prompt under a `## Memory` section, wrapped in a `<reference type="memory">` envelope so a poisoned entry can't impersonate instructions. Since #1432 only an index line per topic file lands in the prompt (`[type] <type>/<topic>.md — sections`), not the file's body; when a line looks relevant, the agent `Read`s that file before answering.
 
-`MEMORY.md` is the index, not the source of truth — its line per topic file is `- [name](slug.md) — description` and the H2 headings the file contains. The agent reads the index for shape, then reads bullet bodies inline.
+`MEMORY.md` is the on-disk index, not the source of truth — its line per topic file is `- <type>/<topic>.md — <H2 sections>`, grouped under a `## <type>` heading.
 
 Detection between the legacy "atomic" layout and the current "topic" layout is done at request time in [`topic-detect.ts`](../server/workspace/memory/topic-detect.ts): if any of the canonical type subdirectories (`preference/` / `interest/` / `fact/` / `reference/`) exists under `memory/`, topic format wins. No module-level cache — a manual swap takes effect on the next request.
 

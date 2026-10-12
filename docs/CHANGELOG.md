@@ -10,6 +10,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Fixes
 
+#### Prompt and help pages describe the current workspace layout (#3461)
+
+The system prompt no longer lists an unused `data/contacts/` address book or calls `data/scheduler/` the home of
+scheduled tasks (they live in `config/scheduler/tasks.json`). The `config/helps/index.md` layout map replaces the
+pre-#284 root `chat/` / `todos/` / `memory.md` tree, and `config/helps/wiki.md` points wiki distillation at a memory
+topic file instead of the legacy `memory.md`. The file explorer now labels `conversations/memory.md` and
+`data/scheduler/items.json` (calendar items the app no longer shows or runs, still reachable through `/api/scheduler`) as legacy files (`@mulmoclaude/core` 5.11.3).
+
 #### Billing help pages no longer ask you to Unstar the retired `mc-*` skills (#3463)
 
 Startup already removes copied `mc-*` billing preset skills through the generic retired-preset prune, so the separate

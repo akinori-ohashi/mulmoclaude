@@ -89,14 +89,13 @@ describe("memory/llm-classifier — makeLlmMemoryClassifier", () => {
     assert.match(call.system, /preference/);
   });
 
-  it("returns null when the summarize callback throws", async () => {
+  it("propagates a summarize failure instead of turning it into a skip (#3457)", async () => {
     const classifier = makeLlmMemoryClassifier({
       summarize: async () => {
         throw new Error("boom");
       },
     });
-    const verdict = await classifier({ section: "", body: "anything" });
-    assert.equal(verdict, null);
+    await assert.rejects(classifier({ section: "", body: "anything" }), /boom/);
   });
 
   it("returns null when the LLM emits garbage", async () => {

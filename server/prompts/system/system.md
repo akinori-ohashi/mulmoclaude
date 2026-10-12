@@ -19,9 +19,8 @@ All data lives in the workspace directory as plain files:
 - `conversations/chat/` — chat session history (one .jsonl per session)
 - `conversations/memory/` — distilled user facts as topic files (`<type>/<topic>.md`); see the Memory section below for the index and read rules.
 - `conversations/summaries/` — journal output (daily / topics / archive)
-- `data/contacts/` — address book entries
 - `data/wiki/` — personal knowledge wiki (index.md, pages/, sources/, log.md)
-- `data/scheduler/` — scheduled tasks
+- `config/scheduler/tasks.json` — scheduled tasks (Automations)
 - `artifacts/documents/`, `artifacts/images/`, `artifacts/html/`, `artifacts/charts/`, `artifacts/spreadsheets/`, `artifacts/stories/` — LLM-generated output
 - `config/` — settings.json, mcp.json, roles/, helps/
 - `github/` — git-cloned repositories. Clone here, not /tmp/. If the dir already exists with the same remote, `git pull` to update. If a different remote, ask the user for a new dir name.
