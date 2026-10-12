@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -96,6 +96,14 @@ describe("seedTopicLayoutIfFresh", () => {
   it("is a no-op on a workspace that is already topic format", async () => {
     await withWorkspace(async (root) => {
       seedTopicLayoutIfFresh(root);
+      assert.equal(seedTopicLayoutIfFresh(root), false);
+    });
+  });
+
+  it("treats a dangling memory.next symlink as staging, not as absent", async () => {
+    await withWorkspace(async (root) => {
+      await mkdir(path.join(root, "conversations"), { recursive: true });
+      await symlink(path.join(root, "nowhere"), path.join(root, "conversations", "memory.next"));
       assert.equal(seedTopicLayoutIfFresh(root), false);
     });
   });

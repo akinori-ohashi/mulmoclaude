@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { WORKSPACE_DIRS, WORKSPACE_FILES } from "../paths.js";
@@ -25,11 +25,13 @@ function readOrMissing<T>(read: () => T): ReadResult<T> {
 function readMemoryLayoutState(workspaceRoot: string): MemoryLayoutState {
   const entries = readOrMissing(() => readdirSync(path.join(workspaceRoot, WORKSPACE_DIRS.memoryDir)));
   const legacyText = readOrMissing(() => readFileSync(path.join(workspaceRoot, WORKSPACE_FILES.memory), "utf-8"));
+  // lstat, not existsSync: a broken symlink or a permission error must not read as "no staging".
+  const staging = readOrMissing(() => lstatSync(path.join(workspaceRoot, WORKSPACE_DIRS.memoryStaging)));
   return {
     memoryDirEntries: entries ?? [],
     legacyMemoryText: legacyText ?? null,
-    stagingExists: existsSync(path.join(workspaceRoot, WORKSPACE_DIRS.memoryStaging)),
-    unreadable: entries === undefined || legacyText === undefined,
+    stagingExists: staging !== null,
+    unreadable: entries === undefined || legacyText === undefined || staging === undefined,
   };
 }
 
