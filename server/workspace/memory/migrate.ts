@@ -167,7 +167,7 @@ function emptyResult(noop: boolean): MigrationResult {
 // rides along as `section` so the classifier can use it as context.
 // Parsing is character-driven (no regex) to keep sonar happy and to
 // make the bullet-vs-header classification obvious from the code.
-function parseCandidates(raw: string): MemoryCandidate[] {
+export function parseCandidates(raw: string): MemoryCandidate[] {
   const lines = raw.split("\n");
   let section = "";
   const out: MemoryCandidate[] = [];

@@ -19,7 +19,10 @@ import path from "node:path";
 import { writeFileAtomic } from "../../utils/files/atomic.js";
 import { log } from "../../system/logger/index.js";
 import { errorMessage } from "../../utils/errors.js";
-import { WORKSPACE_DIRS } from "../paths.js";
+import { WORKSPACE_DIRS, WORKSPACE_FILES } from "../paths.js";
+import { readTextSafe } from "../../utils/files/safe.js";
+import { parseCandidates } from "./migrate.js";
+import { legacyFoldEntries } from "./legacy-fold.js";
 import { loadAllMemoryEntries } from "./io.js";
 import { MEMORY_TYPES, type MemoryEntry, type MemoryType } from "./types.js";
 import type { ClusterMap, ClusterTopic, MemoryClusterer } from "./topic-cluster.js";
@@ -51,10 +54,12 @@ interface WrittenTopic {
 }
 
 export async function clusterAtomicIntoStaging(workspaceRoot: string, clusterer: MemoryClusterer): Promise<TopicMigrationResult> {
-  const entries = await loadAllMemoryEntries(workspaceRoot);
+  const atomicEntries = await loadAllMemoryEntries(workspaceRoot);
   const stagingPath = topicStagingPath(workspaceRoot);
-  if (entries.length === 0) return emptyResult(stagingPath);
-  log.info("memory", "topic-migrate: clustering", { entryCount: entries.length });
+  if (atomicEntries.length === 0) return emptyResult(stagingPath);
+  const foldedEntries = await loadLegacyFoldEntries(workspaceRoot, atomicEntries);
+  const entries = [...atomicEntries, ...foldedEntries];
+  log.info("memory", "topic-migrate: clustering", { entryCount: entries.length, foldedFromMemoryMd: foldedEntries.length });
 
   const map = await runClustererOrCleanup(entries, stagingPath, clusterer);
   if (!map) return { ...emptyResult(stagingPath), inputCount: entries.length };
@@ -72,6 +77,11 @@ export async function clusterAtomicIntoStaging(workspaceRoot: string, clusterer:
   };
   log.info("memory", "topic-migrate: staging ready", { stagingPath, topicCounts, bulletsLost: result.bulletsLost });
   return result;
+}
+
+async function loadLegacyFoldEntries(workspaceRoot: string, atomicEntries: readonly MemoryEntry[]): Promise<MemoryEntry[]> {
+  const legacyText = await readTextSafe(path.join(workspaceRoot, WORKSPACE_FILES.memory));
+  return legacyText === null ? [] : legacyFoldEntries(parseCandidates(legacyText), atomicEntries);
 }
 
 // Wipe stale staging BEFORE the cluster call. If the clusterer
