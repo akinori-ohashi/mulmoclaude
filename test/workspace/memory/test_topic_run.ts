@@ -175,4 +175,19 @@ describe("memory/topic-run — idempotency guards", () => {
       await rm(fresh, { recursive: true, force: true });
     }
   });
+
+  it("keeps the atomic layout and discards the staging when the cluster dropped bullets (#3458)", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-topic-run-lossy-"));
+    try {
+      await writeMemoryEntry(fresh, { name: "yarn", description: "npm 不可", type: "preference", body: "yarn", slug: "preference_yarn" });
+      await writeMemoryEntry(fresh, { name: "emacs", description: "editor", type: "preference", body: "emacs", slug: "preference_emacs" });
+      // The stub places one bullet for two entries.
+      await runTopicMigrationOnce(fresh, { summarize: stubSummarize });
+      assert.equal(await stat(topicStagingPath(fresh)).catch(() => null), null, "lossy staging must not be left for a retry-swap");
+      assert.equal(await stat(path.join(fresh, "conversations", "memory", "preference")).catch(() => null), null, "must stay atomic");
+      assert.ok((await stat(path.join(fresh, "conversations", "memory", "preference_emacs.md"))).isFile());
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
 });

@@ -27,6 +27,7 @@
 // `topic-detect.ts` — minus the atomic-format branch) stays.
 
 import { existsSync, statSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 
 import { runClaudeCli, ClaudeCliNotFoundError, type Summarize } from "../journal/archivist-cli.js";
@@ -143,6 +144,10 @@ async function clusterAndSwap(workspaceRoot: string, clusterer: MemoryClusterer)
       topicCounts: result.topicCounts,
       bulletsLost: result.bulletsLost,
     });
+    if (result.bulletsLost > 0) {
+      await discardLossyStaging(result.stagingPath, result.bulletsLost);
+      return;
+    }
     await runSwap(workspaceRoot);
   } catch (err) {
     // Defensive: `makeLlmMemoryClusterer` swallows summarize errors
@@ -157,6 +162,14 @@ async function clusterAndSwap(workspaceRoot: string, clusterer: MemoryClusterer)
     }
     log.error("memory", "topic-run: cluster threw", { error: errorMessage(err) });
   }
+}
+
+// The cluster dropped bullets, so swapping would take them out of the prompt. Discard the staging rather than
+// leave it: a leftover `memory.next/` is retried as a swap on the next start without this check. The workspace
+// stays atomic (fully readable) and the next start clusters again.
+async function discardLossyStaging(stagingPath: string, bulletsLost: number): Promise<void> {
+  log.warn("memory", "topic-run: cluster dropped bullets, keeping the atomic layout and retrying next start", { bulletsLost });
+  await rm(stagingPath, { recursive: true, force: true });
 }
 
 // Swap staging into the live memory dir. The atomic format is

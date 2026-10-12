@@ -241,7 +241,7 @@ warnIfCspExtended();
 //
 // Both runners are idempotent: legacy no-ops when the source file
 // is gone, topic no-ops when the workspace already uses the topic
-// format or staging is already pending review. The agent can serve
+// format, and retries the swap when staging is left from a crash. The agent can serve
 // traffic while the chain runs, but the journal waits for it
 // (`memoryMigrationsSettled`) so its extractor can't append to a
 // `memory.md` that is mid-migration.
