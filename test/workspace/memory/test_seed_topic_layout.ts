@@ -8,7 +8,7 @@ import { LEGACY_MEMORY_PLACEHOLDER, shouldSeedTopicLayout, type MemoryLayoutStat
 import { seedTopicLayoutIfFresh } from "../../../server/workspace/memory/seed-topic-layout-run.js";
 import { hasTopicFormat } from "../../../server/workspace/memory/topic-detect.js";
 
-const FRESH: MemoryLayoutState = { memoryDirEntries: [], legacyMemoryText: null, stagingExists: false };
+const FRESH: MemoryLayoutState = { memoryDirEntries: [], legacyMemoryText: null, stagingExists: false, unreadable: false };
 const seed = (overrides: Partial<MemoryLayoutState>): boolean => shouldSeedTopicLayout({ ...FRESH, ...overrides });
 
 describe("shouldSeedTopicLayout", () => {
@@ -16,9 +16,23 @@ describe("shouldSeedTopicLayout", () => {
     assert.equal(seed({}), true);
   });
 
-  it("seeds when the memory dir holds only the atomic index or dot-entries", () => {
+  it("seeds when the memory dir holds only the atomic index or Finder metadata", () => {
     assert.equal(seed({ memoryDirEntries: ["MEMORY.md"] }), true);
     assert.equal(seed({ memoryDirEntries: [".DS_Store", "MEMORY.md"] }), true);
+  });
+
+  it("does not seed over an .atomic-backup dir or any other dot-entry", () => {
+    assert.equal(seed({ memoryDirEntries: [".atomic-backup-20261011-2041"] }), false);
+    assert.equal(seed({ memoryDirEntries: [".hidden"] }), false);
+  });
+
+  it("does not seed when part of the state could not be read", () => {
+    assert.equal(seed({ unreadable: true }), false);
+  });
+
+  it("recognises the placeholder saved with CRLF line endings or a BOM", () => {
+    assert.equal(seed({ legacyMemoryText: LEGACY_MEMORY_PLACEHOLDER.replace(/\n/g, "\r\n") }), true);
+    assert.equal(seed({ legacyMemoryText: `\uFEFF${LEGACY_MEMORY_PLACEHOLDER}` }), true);
   });
 
   it("seeds over the exact pre-#1029 placeholder memory.md", () => {
