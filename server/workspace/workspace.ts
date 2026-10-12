@@ -5,6 +5,7 @@ import { log } from "../system/logger/index.js";
 import { EAGER_WORKSPACE_DIRS, WORKSPACE_PATHS, workspacePath } from "./paths.js";
 import { readWorkspaceTextSync, writeWorkspaceTextSync } from "../utils/files/workspace-io.js";
 import { loadCustomDirs, ensureCustomDirs } from "./custom-dirs.js";
+import { seedTopicLayoutIfFresh } from "./memory/seed-topic-layout-run.js";
 // Helps + preset skills + their sync logic now live in @mulmoclaude/core/workspace-setup
 // (shared with MulmoTerminal); the bundled source dirs come from the package.
 import { seedHelps, presetSkillsAssetDir, syncActivePresetSkills, syncPresetSkills } from "@mulmoclaude/core/workspace-setup";
@@ -23,14 +24,10 @@ export function initWorkspace(): string {
     mkdirSync(WORKSPACE_PATHS[key], { recursive: true });
   }
 
-  // Ensure the typed-memory directory exists (#1029). Individual
-  // entry files are written by the agent or by the legacy-memory
-  // migration; init just guarantees the directory is there so the
-  // reader and migration both have a place to write to. The legacy
-  // `conversations/memory.md` is no longer auto-created — migration
-  // converts it on first start and the new layout becomes the source
-  // of truth thereafter.
+  // Ensure the memory directory exists. A workspace with no memory to lose starts directly in the
+  // topic layout (#1070); one that has any goes through the boot-time migration chain instead.
   mkdirSync(WORKSPACE_PATHS.memoryDir, { recursive: true });
+  if (seedTopicLayoutIfFresh(workspacePath)) log.info("memory", "new workspace: starting in the topic memory layout");
 
   // Always sync the bundled help docs into workspace/helps/.
   seedHelps({ destDir: WORKSPACE_PATHS.helps });
