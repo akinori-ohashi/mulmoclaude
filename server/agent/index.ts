@@ -172,7 +172,7 @@ async function prepareAgentRun(input: RunAgentInput, deps: AgentRunDeps): Promis
 // Load the memory snapshot and assemble the full system prompt for
 // this turn, dumping it to the log on the first message of a --debug
 // session.
-async function buildFullSystemPrompt(input: RunAgentInput, useDocker: boolean): Promise<string> {
+export async function buildFullSystemPrompt(input: RunAgentInput, useDocker: boolean): Promise<string> {
   const { role, workspacePath, claudeSessionId, userTimezone } = input;
 
   // Pre-load memory once (atomic vs topic format chosen inside
