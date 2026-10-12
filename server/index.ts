@@ -109,8 +109,7 @@ import { preflightUserServers, logPreflightResult } from "./agent/mcpPreflight.j
 import { loadMcpConfig, loadSettings } from "./system/config.js";
 import { getVoiceInputStatus, stopWhisperSidecar, warmupVoiceInput } from "./system/whisper/index.js";
 import { initWorkspace, workspacePath } from "./workspace/workspace.js";
-import { runMemoryMigrationOnce } from "./workspace/memory/run.js";
-import { runTopicMigrationOnce } from "./workspace/memory/topic-run.js";
+import { startMemoryMigrations } from "./workspace/memory/startup.js";
 import { migrateCookingRecipesFromPlugin } from "./workspace/cooking-recipes/migrate.js";
 import { env, isAblated, isGeminiAvailable } from "./system/env.js";
 import { buildSandboxStatus } from "./api/sandboxStatus.js";
@@ -243,26 +242,20 @@ warnIfCspExtended();
 // Both runners are idempotent: legacy no-ops when the source file
 // is gone, topic no-ops when the workspace already uses the topic
 // format or staging is already pending review. The agent can serve
-// traffic while the chain runs.
-//
-// `.then(noop, noop)` keeps the floating-promises rule happy
-// without smuggling in a `void` (banned by sonarjs/void-use). Each
-// runner logs its own failures; the chain's outer rejection
-// handler is therefore a hard backstop only.
+// traffic while the chain runs, but the journal waits for it
+// (`memoryMigrationsSettled`) so its extractor can't append to a
+// `memory.md` that is mid-migration.
 //
 // CLEANUP 2026-07-01: this whole chain is one-shot migration code
 // for #1029 + #1070. After every active workspace has flipped to
 // the topic format, delete the chain plus the runners under
-// `server/workspace/memory/` (run.ts / migrate.ts /
+// `server/workspace/memory/` (startup.ts + the journal's wait on it / run.ts / migrate.ts /
 // llm-classifier.ts / topic-run.ts / topic-migrate.ts /
 // topic-cluster.ts / topic-swap.ts) and the
 // `scripts/memory-swap-topic-staging.ts` helper. Topic-format
 // reading / writing (`topic-types.ts`, `topic-io.ts`,
 // `topic-detect.ts`) plus the topic branch in `prompt.ts` stays.
-const noop = (): void => {};
-runMemoryMigrationOnce(workspacePath)
-  .then(() => runTopicMigrationOnce(workspacePath))
-  .then(noop, noop);
+startMemoryMigrations(workspacePath);
 
 // Recipe-book plugin → `mc-cooking-coach` skill migration (#1286).
 // Boot-time idempotent copy from the plugin's `files.data` scope
