@@ -13,6 +13,7 @@ import path from "node:path";
 import { loadAllMemoryEntries, memoryDirOf, memoryIndexOf } from "../../../server/workspace/memory/io.js";
 import { migrateLegacyMemory, writeLegacyMemoryForTest, type MemoryClassifier } from "../../../server/workspace/memory/migrate.js";
 import type { MemoryType } from "../../../server/workspace/memory/types.js";
+import { ClaudeCliNotFoundError } from "../../../server/workspace/journal/archivist-cli.js";
 
 // Predictable classifier: name → type. Anything not listed → null
 // (skipped). Lets the test assert exactly which lines moved.
@@ -178,6 +179,26 @@ describe("memory/migrate — classifier failures keep memory.md (#3457)", () => 
       const result = await migrateLegacyMemory(fresh, classifier);
       assert.ok(result.classifierFailures >= 1);
       assert.ok(calls < bulletCount, `expected the batch to stop early, got ${calls} calls for ${bulletCount} bullets`);
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("stops the other workers too when the CLI is missing", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-nocli-"));
+    const bulletCount = 20;
+    try {
+      const bullets = Array.from({ length: bulletCount }, (_, index) => `- fact number ${index}`);
+      await writeLegacyMemoryForTest(fresh, ["# Memory", ...bullets, ""].join("\n"));
+      let calls = 0;
+      const classifier: MemoryClassifier = async () => {
+        calls++;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        throw new ClaudeCliNotFoundError();
+      };
+      await assert.rejects(migrateLegacyMemory(fresh, classifier), ClaudeCliNotFoundError);
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      assert.ok(calls < bulletCount, `expected the workers to stop, got ${calls} calls for ${bulletCount} bullets`);
     } finally {
       await rm(fresh, { recursive: true, force: true });
     }
