@@ -35,7 +35,7 @@ import { WORKSPACE_DIRS, WORKSPACE_FILES } from "../paths.js";
 import { LEGACY_MEMORY_PLACEHOLDER_MAX_BYTES } from "./legacy-migration-gate.js";
 import { loadAllMemoryEntries } from "./io.js";
 import { makeLlmMemoryClusterer, type MemoryClusterer } from "./topic-cluster.js";
-import { clusterAtomicIntoStaging, isStagingSwappable, topicStagingPath } from "./topic-migrate.js";
+import { clusterAtomicIntoStaging, countClusterInput, isStagingSwappable, topicStagingPath } from "./topic-migrate.js";
 import { swapStagingIntoMemory } from "./topic-swap.js";
 import { MEMORY_TYPES } from "./types.js";
 import { errorMessage } from "../../utils/errors.js";
@@ -77,7 +77,7 @@ export async function runTopicMigrationOnce(workspaceRoot: string, deps: RunTopi
   // incomplete one (crash during the cluster call or mid-write) would replace memory/ with a partial tree, so it
   // is discarded and the cluster runs again below.
   if (existsSync(stagingPath)) {
-    if (await isStagingSwappable(stagingPath, (await loadAllMemoryEntries(workspaceRoot)).length)) {
+    if (await isStagingSwappable(stagingPath, await countClusterInput(workspaceRoot))) {
       log.info("memory", "topic-run: existing staging detected, retrying swap", { stagingPath });
       await runSwap(workspaceRoot);
       return;
