@@ -386,8 +386,7 @@ namespace. Publishers are in-process:
   literally cannot publish under another's namespace.
 - **Most host code** calls `publishNotification()` in `server/events/notifications.ts`, the
   legacy wrapper below — `server/agent/mcp-tools/notify.ts`, `server/plugins/diagnostics.ts`,
-  `server/agent/mcpFailureMonitor.ts`, `server/system/shadowedEnv.ts` and
-  `server/workspace/billing-migration.ts` among them. Do not trust that list to stay complete —
+  `server/agent/mcpFailureMonitor.ts` and `server/system/shadowedEnv.ts` among them. Do not trust that list to stay complete —
   and do not expect a grep to give you a clean count either, because two of the callers
   (`mcp-tools/notify.ts`, `mcpFailureMonitor.ts`) take it as an injected `publish` dependency so
   tests can mock it, and at least one file names it only in a comment:

@@ -56,7 +56,7 @@ use the `mc-` prefix.**
 > The `dataPath` values are prefix-free. If the user previously used the legacy
 > `mc-invoice` / `mc-profile` preset skills, these same paths hold their existing
 > records — re-creating with these slugs **re-attaches to that data** (no
-> migration). They can then Unstar the old `mc-*` skills in the skill manager.
+> migration). Startup removes the old copied `mc-*` skills automatically; a symlinked one can be Unstarred in the skill manager.
 
 ## Order: `profile` before `invoice`
 

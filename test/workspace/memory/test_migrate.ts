@@ -13,6 +13,7 @@ import path from "node:path";
 import { loadAllMemoryEntries, memoryDirOf, memoryIndexOf } from "../../../server/workspace/memory/io.js";
 import { migrateLegacyMemory, writeLegacyMemoryForTest, type MemoryClassifier } from "../../../server/workspace/memory/migrate.js";
 import type { MemoryType } from "../../../server/workspace/memory/types.js";
+import { ClaudeCliNotFoundError } from "../../../server/workspace/journal/archivist-cli.js";
 
 // Predictable classifier: name → type. Anything not listed → null
 // (skipped). Lets the test assert exactly which lines moved.
@@ -137,6 +138,101 @@ describe("memory/migrate — edge cases", () => {
       const [written] = all;
       assert.ok(written);
       assert.equal(written.type, "fact");
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("memory/migrate — classifier failures keep memory.md (#3457)", () => {
+  it("writes nothing and leaves memory.md in place when one classification fails", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-fail-"));
+    try {
+      await writeLegacyMemoryForTest(fresh, ["# Memory", "## Mixed", "- uses yarn", "- quota hits here", "- likes Emacs", ""].join("\n"));
+      const classifier: MemoryClassifier = async ({ body }) => {
+        if (body.includes("quota")) throw new Error("usage limit reached");
+        return { type: "preference" };
+      };
+      const result = await migrateLegacyMemory(fresh, classifier);
+      assert.equal(result.classifierFailures, 1);
+      assert.equal(result.written.preference, 0);
+      assert.deepEqual(await loadAllMemoryEntries(fresh), []);
+      const legacy = await stat(path.join(fresh, "conversations", "memory.md"));
+      assert.ok(legacy.isFile(), "memory.md must stay readable for the next attempt");
+      assert.equal(await stat(path.join(fresh, "conversations", "memory.md.backup")).catch(() => null), null);
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("stops classifying the remaining candidates after the first failure", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-stop-"));
+    const bulletCount = 20;
+    try {
+      const bullets = Array.from({ length: bulletCount }, (_, index) => `- fact number ${index}`);
+      await writeLegacyMemoryForTest(fresh, ["# Memory", ...bullets, ""].join("\n"));
+      let calls = 0;
+      const classifier: MemoryClassifier = async () => {
+        calls++;
+        throw new Error("usage limit reached");
+      };
+      const result = await migrateLegacyMemory(fresh, classifier);
+      assert.ok(result.classifierFailures >= 1);
+      assert.ok(calls < bulletCount, `expected the batch to stop early, got ${calls} calls for ${bulletCount} bullets`);
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("stops the other workers too when the CLI is missing", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-nocli-"));
+    const bulletCount = 20;
+    try {
+      const bullets = Array.from({ length: bulletCount }, (_, index) => `- fact number ${index}`);
+      await writeLegacyMemoryForTest(fresh, ["# Memory", ...bullets, ""].join("\n"));
+      let calls = 0;
+      const classifier: MemoryClassifier = async () => {
+        calls++;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        throw new ClaudeCliNotFoundError();
+      };
+      await assert.rejects(migrateLegacyMemory(fresh, classifier), ClaudeCliNotFoundError);
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      assert.ok(calls < bulletCount, `expected the workers to stop, got ${calls} calls for ${bulletCount} bullets`);
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("stops the other workers when one call reports a missing CLI while the rest still succeed", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-mixed-"));
+    const bulletCount = 40;
+    try {
+      const bullets = Array.from({ length: bulletCount }, (_, index) => `- fact number ${index}`);
+      await writeLegacyMemoryForTest(fresh, ["# Memory", ...bullets, ""].join("\n"));
+      let calls = 0;
+      const classifier: MemoryClassifier = async ({ body }) => {
+        calls++;
+        if (body === "fact number 0") throw new ClaudeCliNotFoundError();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return { type: "fact" };
+      };
+      await assert.rejects(migrateLegacyMemory(fresh, classifier), ClaudeCliNotFoundError);
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      assert.ok(calls < bulletCount, `expected the other workers to stop, got ${calls} calls for ${bulletCount} bullets`);
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("still archives memory.md when every candidate was deliberately skipped (null), not failed", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-allnull-"));
+    try {
+      await writeLegacyMemoryForTest(fresh, ["# Memory", "- vague one", "- vague two", ""].join("\n"));
+      const result = await migrateLegacyMemory(fresh, async () => null);
+      assert.equal(result.classifierFailures, 0);
+      assert.equal(result.skippedByClassifier, 2);
+      assert.ok((await stat(path.join(fresh, "conversations", "memory.md.backup"))).isFile());
     } finally {
       await rm(fresh, { recursive: true, force: true });
     }

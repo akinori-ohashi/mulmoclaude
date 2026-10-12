@@ -55,7 +55,7 @@ export const SYSTEM_FILE_DESCRIPTORS: readonly Entry[] = [
   {
     kind: "exact",
     path: "config/scheduler/overrides.json",
-    descriptor: { id: "schedulerOverrides", schemaRef: "server/utils/files/scheduler-io.ts", editPolicy: "agent-managed" },
+    descriptor: { id: "schedulerOverrides", schemaRef: "server/utils/files/scheduler-overrides-io.ts", editPolicy: "agent-managed" },
   },
   // ── data/ ──
   {

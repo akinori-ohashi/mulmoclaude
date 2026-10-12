@@ -18,10 +18,8 @@ import type { MemoryClassification, MemoryCandidate, MemoryClassifier } from "./
 import { isMemoryType } from "./types.js";
 import { extractFirstObject, stripFenceAndWhitespace } from "./llm-json.js";
 
-import { ClaudeCliNotFoundError, type Summarize } from "../journal/archivist-cli.js";
-import { errorMessage } from "../../utils/errors.js";
+import type { Summarize } from "../journal/archivist-cli.js";
 import { isRecord } from "../../utils/types.js";
-import { log } from "../../system/logger/index.js";
 
 const SYSTEM_PROMPT = `You are classifying a single bullet from a personal-memory file into one of four types.
 
@@ -46,26 +44,10 @@ interface DepsForLlmClassifier {
 }
 
 export function makeLlmMemoryClassifier(deps: DepsForLlmClassifier): MemoryClassifier {
+  // A failed call throws (CLI missing, quota, auth, timeout) so the migration can tell it apart from
+  // the LLM deliberately answering `null` — only the latter is a real skip.
   return async (candidate: MemoryCandidate) => {
-    const userPrompt = buildUserPrompt(candidate);
-    let raw: string;
-    try {
-      raw = await deps.summarize(SYSTEM_PROMPT, userPrompt);
-    } catch (err) {
-      // Let `ClaudeCliNotFoundError` escape so the caller can abort
-      // the whole migration. Without this, every candidate runs
-      // through the classifier, gets `null` back, and migrateLegacyMemory
-      // produces an empty result + (pre-#1091) renames the legacy file
-      // to `.backup`. Even with #1091 the user pays N classifier
-      // failures (each spawns claude) before realising the CLI is
-      // missing (#1061 review).
-      if (err instanceof ClaudeCliNotFoundError) throw err;
-      log.warn("memory", "llm classifier: summarize threw", {
-        preview: candidate.body.slice(0, 80),
-        error: errorMessage(err),
-      });
-      return null;
-    }
+    const raw = await deps.summarize(SYSTEM_PROMPT, buildUserPrompt(candidate));
     return parseClassifierVerdict(raw);
   };
 }

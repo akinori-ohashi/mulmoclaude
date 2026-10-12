@@ -58,7 +58,12 @@ export interface MigrationResult {
    *  surface to the user. The migration continues past write errors
    *  so a single bad entry doesn't strand the whole batch. */
   writeErrors: number;
+  /** Candidates whose classifier call failed. Any failure aborts before writing or renaming,
+   *  so `memory.md` stays readable and the next start retries. */
+  classifierFailures: number;
 }
+
+type ClassifyOutcome = { kind: "classified"; classification: MemoryClassification } | { kind: "skipped" } | { kind: "failed" };
 
 // Number of in-flight `classify` calls. Each call spawns the Claude
 // CLI, so there's a real cost to going wide; 4 is empirically a
@@ -85,13 +90,35 @@ export async function migrateLegacyMemory(workspaceRoot: string, classify: Memor
     candidateCount: candidates.length,
     concurrency: CLASSIFY_CONCURRENCY,
   });
-  const classifications = await classifyInParallel(classify, candidates);
+  const outcomes = await classifyInParallel(classify, candidates);
 
   const result = emptyResult(false);
+  result.classifierFailures = outcomes.filter((outcome) => outcome.kind === "failed").length;
+  if (result.classifierFailures > 0) {
+    log.warn("memory", "migration: classifier failed, leaving memory.md in place for the next start", {
+      classifierFailures: result.classifierFailures,
+      candidateCount: candidates.length,
+    });
+    return result;
+  }
+  await writeClassifiedEntries(workspaceRoot, candidates, outcomes, result);
+
+  await regenerateIndex(workspaceRoot);
+  await renameToBackup(sourcePath);
+  return result;
+}
+
+async function writeClassifiedEntries(
+  workspaceRoot: string,
+  candidates: readonly MemoryCandidate[],
+  outcomes: readonly ClassifyOutcome[],
+  result: MigrationResult,
+): Promise<void> {
   const usedSlugs = new Set<string>();
 
   for (const [index, candidate] of candidates.entries()) {
-    const classification = classifications[index];
+    const outcome = outcomes[index];
+    const classification = outcome?.kind === "classified" ? outcome.classification : null;
     if (!classification) {
       result.skippedByClassifier += 1;
     } else {
@@ -119,32 +146,35 @@ export async function migrateLegacyMemory(workspaceRoot: string, classify: Memor
       });
     }
   }
-
-  await regenerateIndex(workspaceRoot);
-  await renameToBackup(sourcePath);
-  return result;
 }
 
 // Classify candidates with bounded concurrency. Workers pull
 // indices off a shared cursor and write into a pre-allocated array
 // so `result[i]` matches `candidates[i]`. Each await falls inside
-// `safeClassify`, which already swallows individual classifier
-// throws (logging once); a concurrent failure can therefore not
-// poison the rest of the batch.
-async function classifyInParallel(classify: MemoryClassifier, candidates: readonly MemoryCandidate[]): Promise<(MemoryClassification | null)[]> {
-  // `Array.from`, not `new Array(n).fill(null)`: `fill` on the `any[]` that
-  // `new Array(n)` produces keeps the element type `any`. Both build the same
-  // dense array of nulls.
-  const results: (MemoryClassification | null)[] = Array.from({ length: candidates.length }, () => null);
+// `safeClassify`, which turns an individual classifier throw into a
+// `failed` outcome (logging once); a concurrent failure can therefore
+// not poison the rest of the batch.
+async function classifyInParallel(classify: MemoryClassifier, candidates: readonly MemoryCandidate[]): Promise<ClassifyOutcome[]> {
+  const results: ClassifyOutcome[] = Array.from({ length: candidates.length }, (): ClassifyOutcome => ({ kind: "skipped" }));
   let nextIndex = 0;
+  // One failure already aborts the migration, so stop spending classifier calls on the rest.
+  let failed = false;
   const worker = async (): Promise<void> => {
-    while (true) {
+    while (!failed) {
       const index = nextIndex;
       nextIndex += 1;
       const candidate = candidates[index];
       // Absent element == the shared cursor ran past the end.
       if (candidate === undefined) return;
-      results[index] = await safeClassify(classify, candidate);
+      let outcome: ClassifyOutcome;
+      try {
+        outcome = await safeClassify(classify, candidate);
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
+      results[index] = outcome;
+      if (outcome.kind === "failed") failed = true;
     }
   };
   const workers = Array.from({ length: Math.min(CLASSIFY_CONCURRENCY, candidates.length) }, () => worker());
@@ -158,6 +188,7 @@ function emptyResult(noop: boolean): MigrationResult {
     written: { preference: 0, interest: 0, fact: 0, reference: 0 },
     skippedByClassifier: 0,
     writeErrors: 0,
+    classifierFailures: 0,
   };
 }
 
@@ -200,11 +231,11 @@ function extractBullet(line: string): string | null {
   return body.length > 0 ? body : null;
 }
 
-async function safeClassify(classify: MemoryClassifier, candidate: MemoryCandidate): Promise<MemoryClassification | null> {
+async function safeClassify(classify: MemoryClassifier, candidate: MemoryCandidate): Promise<ClassifyOutcome> {
   try {
     const verdict = await classify(candidate);
-    if (verdict && isMemoryType(verdict.type)) return verdict;
-    return null;
+    if (verdict && isMemoryType(verdict.type)) return { kind: "classified", classification: verdict };
+    return { kind: "skipped" };
   } catch (err) {
     // Startup-wide failures (CLI missing) MUST escape so
     // `runMemoryMigrationOnce` can log once + leave the legacy file
@@ -216,7 +247,7 @@ async function safeClassify(classify: MemoryClassifier, candidate: MemoryCandida
       preview: candidate.body.slice(0, 80),
       error: errorMessage(err),
     });
-    return null;
+    return { kind: "failed" };
   }
 }
 

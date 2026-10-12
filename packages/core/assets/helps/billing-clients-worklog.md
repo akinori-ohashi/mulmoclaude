@@ -45,8 +45,8 @@ the cross-bundle links resolve:
 > The `dataPath` values are deliberately prefix-free. If the user previously used
 > the legacy `mc-clients` / `mc-worklog` preset skills, these same paths hold
 > their existing records — re-creating with these slugs **re-attaches to that
-> data** (no migration, no data loss). They can then Unstar the old `mc-*` skills
-> in the skill manager.
+> data** (no migration, no data loss). Startup removes the old copied `mc-*`
+> skills automatically; a symlinked one can be Unstarred in the skill manager.
 
 ## Order: `clients` before `worklog`
 
