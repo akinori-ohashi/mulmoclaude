@@ -84,7 +84,6 @@ import { announceShadowedEnv, SHADOWED_ENV_KEYS_VAR } from "./system/shadowedEnv
 import { announceOptionalDeps } from "./system/announceOptionalDeps.js";
 import { announceGeminiKey } from "./system/announceGeminiKey.js";
 import { currentLaunchRouteFacts } from "./system/geminiKeyGuidance.js";
-import { migrateLegacyBillingPresets } from "./workspace/billing-migration.js";
 import { APP_VERSION } from "./system/appVersion.js";
 import { createChatService } from "@mulmobridge/chat-service";
 import { readSessionJsonl, readSessionMeta } from "./utils/files/session-io.js";
@@ -1073,13 +1072,6 @@ async function initBootDiagnostics(): Promise<void> {
   // the user's first dictation doesn't pay the ~10s+ model-load cost
   // inside the request. No-op when voice input is off / not ready.
   warmupVoiceInput(bootSettings);
-
-  // --- Billing-suite migration ---
-  // The invoicing collections moved from bundled `mc-*` presets to
-  // help-file recipes. Remove any lingering starred `mc-*` billing
-  // skill from `.claude/skills/` (records preserved) and fire a
-  // one-time bell. No-op once the dirs are gone. Never throws.
-  migrateLegacyBillingPresets();
 
   // --- Collection completion watchers ---
   // Mount `fs.watch` over every discovered collection's dataDir so

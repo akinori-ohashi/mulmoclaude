@@ -8,6 +8,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Fixes
+
+#### Billing help pages no longer ask you to Unstar the retired `mc-*` skills (#3463)
+
+Startup already removes copied `mc-*` billing preset skills through the generic retired-preset prune, so the separate
+billing-migration step that was meant to remove them and show a one-time "Invoicing moved" notice found nothing to do
+and has been deleted. `config/helps/billing-clients-worklog.md` and `config/helps/billing-invoice.md` now say the old
+skills are removed at startup (`@mulmoclaude/core` 5.11.3).
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.3`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ## [2.4.0] - 2026-10-11
 
 **Every socket now checks the bearer token, an open page survives a server restart, and Node.js 22.22.2+ / 24.15+ / 26+ is the new minimum.**
