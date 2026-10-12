@@ -157,14 +157,18 @@ async function writeClassifiedEntries(
 async function classifyInParallel(classify: MemoryClassifier, candidates: readonly MemoryCandidate[]): Promise<ClassifyOutcome[]> {
   const results: ClassifyOutcome[] = Array.from({ length: candidates.length }, (): ClassifyOutcome => ({ kind: "skipped" }));
   let nextIndex = 0;
+  // One failure already aborts the migration, so stop spending classifier calls on the rest.
+  let failed = false;
   const worker = async (): Promise<void> => {
-    while (true) {
+    while (!failed) {
       const index = nextIndex;
       nextIndex += 1;
       const candidate = candidates[index];
       // Absent element == the shared cursor ran past the end.
       if (candidate === undefined) return;
-      results[index] = await safeClassify(classify, candidate);
+      const outcome = await safeClassify(classify, candidate);
+      results[index] = outcome;
+      if (outcome.kind === "failed") failed = true;
     }
   };
   const workers = Array.from({ length: Math.min(CLASSIFY_CONCURRENCY, candidates.length) }, () => worker());

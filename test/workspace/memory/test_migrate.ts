@@ -164,6 +164,25 @@ describe("memory/migrate — classifier failures keep memory.md (#3457)", () => 
     }
   });
 
+  it("stops classifying the remaining candidates after the first failure", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-stop-"));
+    const bulletCount = 20;
+    try {
+      const bullets = Array.from({ length: bulletCount }, (_, index) => `- fact number ${index}`);
+      await writeLegacyMemoryForTest(fresh, ["# Memory", ...bullets, ""].join("\n"));
+      let calls = 0;
+      const classifier: MemoryClassifier = async () => {
+        calls++;
+        throw new Error("usage limit reached");
+      };
+      const result = await migrateLegacyMemory(fresh, classifier);
+      assert.ok(result.classifierFailures >= 1);
+      assert.ok(calls < bulletCount, `expected the batch to stop early, got ${calls} calls for ${bulletCount} bullets`);
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
   it("still archives memory.md when every candidate was deliberately skipped (null), not failed", async () => {
     const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-memory-mig-allnull-"));
     try {
