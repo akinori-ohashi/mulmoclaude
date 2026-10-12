@@ -612,8 +612,8 @@ const esMessages = {
         "Sobrescrituras de hora / intervalo por tarea aplicadas sobre el horario del sistema. El agente las edita cuando pides cambiar la franja de una tarea recurrente.",
     },
     schedulerItems: {
-      title: "Cola de elementos del programador",
-      summary: "Invocaciones programadas listas para dispararse. Gestionado por el agente; no edites a mano salvo que entiendas cada campo.",
+      title: "Elementos de calendario antiguos",
+      summary: "Elementos de la vista de Calendario eliminada. Ya no se muestran ni se ejecutan; las tareas programadas están en config/scheduler/tasks.json.",
     },
     wikiIndex: {
       title: "Índice de la wiki",
@@ -633,9 +633,9 @@ const esMessages = {
         "Especificación de formato que el agente lee para mantener las páginas consistentes. Frágil — espera una estructura concreta; prefiere ediciones del agente.",
     },
     memory: {
-      title: "Memoria",
+      title: "Memoria (archivo antiguo)",
       summary:
-        "Hechos destilados sobre ti, cargados siempre como contexto en conversaciones nuevas. El extractor del journal añade automáticamente; también puedes editar a mano.",
+        "La memoria antigua de un solo archivo. Solo la leen los espacios de trabajo con el formato antiguo; los actuales guardan los hechos como archivos de tema en conversations/memory/<type>/<topic>.md e ignoran este archivo, así que editarlo no tiene efecto en ellos.",
     },
     summariesIndex: {
       title: "Índice de resúmenes",

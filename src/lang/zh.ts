@@ -589,8 +589,8 @@ const zhMessages = {
       summary: "在系统调度之上叠加的每任务时间 / 间隔覆盖。当你要求修改某个定期任务的时间时，代理会写入此文件。",
     },
     schedulerItems: {
-      title: "调度器条目队列",
-      summary: "等待触发的预定调用队列。代理管理；除非你清楚每个字段的含义，否则不要手动编辑。",
+      title: "旧日历条目",
+      summary: "已删除的日历视图中的条目。它们不再显示也不再执行；计划任务位于 config/scheduler/tasks.json。",
     },
     wikiIndex: {
       title: "Wiki 索引",
@@ -609,8 +609,9 @@ const zhMessages = {
       summary: "代理用于保持 Wiki 页面一致性的格式规范。脆弱 — 代理期望特定结构，建议交由代理编辑。",
     },
     memory: {
-      title: "记忆",
-      summary: "关于你的精炼事实，作为新对话的上下文始终加载。journal 提取器会自动追加，也可手动编辑。",
+      title: "记忆（旧文件）",
+      summary:
+        "旧的单文件记忆。只有仍使用旧格式的工作区会读取它；当前工作区把事实保存为 conversations/memory/<type>/<topic>.md 下的主题文件，并忽略此文件，因此编辑它不会生效。",
     },
     summariesIndex: {
       title: "总结索引",
