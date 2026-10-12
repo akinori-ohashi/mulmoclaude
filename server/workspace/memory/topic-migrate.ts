@@ -75,6 +75,13 @@ export async function clusterAtomicIntoStaging(workspaceRoot: string, clusterer:
 
   const topicCounts: Record<MemoryType, number> = { preference: 0, interest: 0, fact: 0, reference: 0 };
   const written = await writeTopicsToStaging(stagingPath, map, topicCounts);
+  const topicsInCluster = MEMORY_TYPES.reduce((total, type) => total + map[type].length, 0);
+  if (written.length < topicsInCluster) {
+    // The index marks a staging complete for the retry-swap path, so a partial tree must not get one.
+    log.warn("memory", "topic-migrate: some topic files failed to stage, discarding the staging", { written: written.length, topicsInCluster });
+    await rm(stagingPath, { recursive: true, force: true });
+    return { ...emptyResult(stagingPath), inputCount: entries.length };
+  }
   await writeStagingIndex(stagingPath, written);
 
   const result: TopicMigrationResult = {
