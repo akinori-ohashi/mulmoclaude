@@ -1,9 +1,8 @@
-// Swap `conversations/memory/` ↔ `conversations/memory.next/`
-// after the user has approved the staging diff (#1070 PR-A).
+// Swap `conversations/memory/` ↔ `conversations/memory.next/` (#1070 PR-A).
 //
 // Run automatically by `runTopicMigrationOnce` right after staging,
-// unless the cluster dropped bullets (then the staging is discarded and
-// the workspace stays atomic). `yarn memory:swap` runs it by hand.
+// (a cluster that dropped bullets is never staged, so the workspace stays
+// atomic). `yarn memory:swap` runs it by hand.
 //
 // CLEANUP 2026-07-01: see `topic-run.ts` — this file is part of
 // the one-shot atomic → topic migration chain and goes when the

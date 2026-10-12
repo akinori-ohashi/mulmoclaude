@@ -147,6 +147,9 @@ describe("memory/topic-migrate — edge cases", () => {
       const result = await clusterAtomicIntoStaging(fresh, partial);
       assert.equal(result.inputCount, 2);
       assert.equal(result.bulletsLost, 1);
+      // A lossy cluster is never staged, so no crash can leave it for the retry-swap path (#3458).
+      assert.equal(result.noop, true);
+      assert.equal(await stat(topicStagingPath(fresh)).catch(() => null), null);
     } finally {
       await rm(fresh, { recursive: true, force: true });
     }

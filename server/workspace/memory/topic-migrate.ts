@@ -3,8 +3,8 @@
 // Reads the existing #1029-style atomic entries from
 // `conversations/memory/`, runs a clusterer, and writes the
 // proposed topic layout to a STAGING dir
-// `conversations/memory.next/`. Does NOT swap. The user runs
-// `topic-swap.ts` after reviewing.
+// `conversations/memory.next/`. Does NOT swap — `runTopicMigrationOnce`
+// does that right after. A cluster that dropped bullets is never staged.
 //
 // Library only — `runTopicMigrationOnce` (in PR-B) decides when
 // to call this from server startup.
@@ -42,6 +42,13 @@ export function topicStagingPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, WORKSPACE_DIRS.memoryStaging);
 }
 
+// Written last, so its presence means every topic file was staged.
+const STAGING_INDEX_FILE = "MEMORY.md";
+
+export function stagingIndexPath(stagingPath: string): string {
+  return path.join(stagingPath, STAGING_INDEX_FILE);
+}
+
 interface WrittenTopic {
   type: MemoryType;
   topic: ClusterTopic;
@@ -58,6 +65,13 @@ export async function clusterAtomicIntoStaging(workspaceRoot: string, clusterer:
 
   const map = await runClustererOrCleanup(entries, stagingPath, clusterer);
   if (!map) return { ...emptyResult(stagingPath), inputCount: entries.length };
+  // Checked before anything is written: a lossy staging left by a crash would be promoted by the retry-swap path.
+  const bulletsLost = countBulletsLost(entries, map);
+  if (bulletsLost > 0) {
+    log.warn("memory", "topic-migrate: cluster dropped bullets, not staging it; the atomic layout stays", { bulletsLost });
+    await rm(stagingPath, { recursive: true, force: true });
+    return { ...emptyResult(stagingPath), inputCount: entries.length, bulletsLost };
+  }
 
   const topicCounts: Record<MemoryType, number> = { preference: 0, interest: 0, fact: 0, reference: 0 };
   const written = await writeTopicsToStaging(stagingPath, map, topicCounts);
@@ -67,7 +81,7 @@ export async function clusterAtomicIntoStaging(workspaceRoot: string, clusterer:
     noop: false,
     inputCount: entries.length,
     topicCounts,
-    bulletsLost: countBulletsLost(entries, map),
+    bulletsLost,
     stagingPath,
   };
   log.info("memory", "topic-migrate: staging ready", { stagingPath, topicCounts, bulletsLost: result.bulletsLost });
@@ -233,7 +247,7 @@ async function writeStagingIndex(stagingPath: string, written: WrittenTopic[]): 
   if (written.length === 0) {
     lines.push("_(no entries yet)_", "");
   }
-  await writeFileAtomic(path.join(stagingPath, "MEMORY.md"), lines.join("\n"), { uniqueTmp: true });
+  await writeFileAtomic(stagingIndexPath(stagingPath), lines.join("\n"), { uniqueTmp: true });
 }
 
 function formatStagingIndexLine(entry: WrittenTopic): string {

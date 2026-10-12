@@ -35,7 +35,7 @@ import { WORKSPACE_DIRS, WORKSPACE_FILES } from "../paths.js";
 import { LEGACY_MEMORY_PLACEHOLDER_MAX_BYTES } from "./legacy-migration-gate.js";
 import { loadAllMemoryEntries } from "./io.js";
 import { makeLlmMemoryClusterer, type MemoryClusterer } from "./topic-cluster.js";
-import { clusterAtomicIntoStaging, topicStagingPath } from "./topic-migrate.js";
+import { clusterAtomicIntoStaging, stagingIndexPath, topicStagingPath } from "./topic-migrate.js";
 import { swapStagingIntoMemory } from "./topic-swap.js";
 import { MEMORY_TYPES } from "./types.js";
 import { errorMessage } from "../../utils/errors.js";
@@ -73,14 +73,17 @@ export async function runTopicMigrationOnce(workspaceRoot: string, deps: RunTopi
     return;
   }
   const stagingPath = topicStagingPath(workspaceRoot);
-  // If staging is left over from a prior run that crashed between
-  // cluster and swap, just retry the swap. Re-clustering would burn
-  // another LLM call and (because clusterAtomicIntoStaging wipes
-  // staging up front) discard the prior cluster result.
+  // A complete staging left by a crash between cluster and swap is swapped without another LLM call. An
+  // incomplete one (crash during the cluster call or mid-write) would replace memory/ with a partial tree, so it
+  // is discarded and the cluster runs again below.
   if (existsSync(stagingPath)) {
-    log.info("memory", "topic-run: existing staging detected, retrying swap", { stagingPath });
-    await runSwap(workspaceRoot);
-    return;
+    if (existsSync(stagingIndexPath(stagingPath))) {
+      log.info("memory", "topic-run: existing staging detected, retrying swap", { stagingPath });
+      await runSwap(workspaceRoot);
+      return;
+    }
+    log.warn("memory", "topic-run: discarding incomplete staging from an interrupted run", { stagingPath });
+    await rm(stagingPath, { recursive: true, force: true });
   }
   if (shouldDeferForLegacyMigration(workspaceRoot)) return;
 
@@ -144,10 +147,6 @@ async function clusterAndSwap(workspaceRoot: string, clusterer: MemoryClusterer)
       topicCounts: result.topicCounts,
       bulletsLost: result.bulletsLost,
     });
-    if (result.bulletsLost > 0) {
-      await discardLossyStaging(result.stagingPath, result.bulletsLost);
-      return;
-    }
     await runSwap(workspaceRoot);
   } catch (err) {
     // Defensive: `makeLlmMemoryClusterer` swallows summarize errors
@@ -162,14 +161,6 @@ async function clusterAndSwap(workspaceRoot: string, clusterer: MemoryClusterer)
     }
     log.error("memory", "topic-run: cluster threw", { error: errorMessage(err) });
   }
-}
-
-// The cluster dropped bullets, so swapping would take them out of the prompt. Discard the staging rather than
-// leave it: a leftover `memory.next/` is retried as a swap on the next start without this check. The workspace
-// stays atomic (fully readable) and the next start clusters again.
-async function discardLossyStaging(stagingPath: string, bulletsLost: number): Promise<void> {
-  log.warn("memory", "topic-run: cluster dropped bullets, keeping the atomic layout and retrying next start", { bulletsLost });
-  await rm(stagingPath, { recursive: true, force: true });
 }
 
 // Swap staging into the live memory dir. The atomic format is
