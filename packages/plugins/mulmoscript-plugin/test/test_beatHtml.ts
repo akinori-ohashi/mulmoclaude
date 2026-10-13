@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_CANVAS, beatPreviewDocument, buildBeatHtmlDocument, previewOptionsOf } from "../src/vue/beatHtml.js";
+import { CHART_DRIVER_JS, DEFAULT_CANVAS, authorScriptTag, beatPreviewDocument, buildBeatHtmlDocument, previewOptionsOf } from "../src/vue/beatHtml.js";
 
 const OPTIONS = previewOptionsOf({});
 
@@ -115,13 +115,15 @@ describe("previewOptionsOf", () => {
     assert.equal(beatPreviewDocument(movie, 0, OPTIONS), null);
   });
 
-  it("leaves an html_tailwind beat that needs its script, elements or animation on the PNG path", () => {
+  it("draws an html_tailwind beat with its script field, but leaves elements / animation on the PNG path", () => {
     const html = '<div id="x">Hi</div>';
     const scripted = { text: "x", image: { type: "html_tailwind", html, script: "document.getElementById('x').textContent='Run';" } };
+    const doc = beatPreviewDocument(scripted, 0, OPTIONS);
+    assert.ok(doc);
+    assert.match(doc, /<script>\ndocument\.getElementById\('x'\)\.textContent='Run';\n<\/script>/);
+    assert.match(doc, /script-src 'unsafe-inline' https:;/);
     const animated = { text: "x", image: { type: "html_tailwind", html, animation: true } };
-    assert.equal(beatPreviewDocument(scripted, 0, OPTIONS), null);
     assert.equal(beatPreviewDocument(animated, 0, OPTIONS), null);
-    assert.ok(beatPreviewDocument({ text: "x", image: { type: "html_tailwind", html } }, 0, OPTIONS));
   });
 
   it("leaves a text beat with a background image (its own or the deck's) on the PNG path", () => {
@@ -133,5 +135,76 @@ describe("previewOptionsOf", () => {
     const deckOptions = previewOptionsOf({ imageParams: { backgroundImage: { type: "image", source: { kind: "url", url: "https://example.com/bg.png" } } } });
     assert.equal(beatPreviewDocument(textSlide, 0, deckOptions), null);
     assert.ok(beatPreviewDocument(textSlide, 0, OPTIONS));
+  });
+
+  it("keeps the narrow script sources for beats without an author script", () => {
+    const doc = beatPreviewDocument(textSlide, 0, OPTIONS);
+    assert.ok(doc);
+    assert.match(doc, /script-src 'unsafe-inline' https:\/\/cdn\.tailwindcss\.com https:\/\/cdn\.jsdelivr\.net;/);
+  });
+});
+
+describe("authorScriptTag", () => {
+  it("emits a module script when the code imports or exports, a classic one otherwise", () => {
+    assert.equal(authorScriptTag(undefined), "");
+    assert.equal(authorScriptTag("run();"), "<script>\nrun();\n</script>");
+    assert.equal(
+      authorScriptTag(["  import x from 'https://esm.sh/x';", "x();"]),
+      "<script type=\"module\">\n  import x from 'https://esm.sh/x';\nx();\n</script>",
+    );
+    assert.match(authorScriptTag("export const a = 1;"), /^<script type="module">/);
+  });
+});
+
+type ChartConfig = { type: string; data: { datasets: Record<string, unknown>[] }; options?: Record<string, unknown> };
+
+// Runs the driver against one fake canvas and returns the config Chart.js would have received.
+function driveChart(config: unknown): ChartConfig {
+  const drawn: ChartConfig[] = [];
+  const canvas = { dataset: { mulmoChart: JSON.stringify(config) } };
+  const fakeDocument = { querySelectorAll: () => [canvas] };
+  function FakeChart(_ctx: unknown, chartConfig: ChartConfig): void {
+    drawn.push(chartConfig);
+  }
+  new Function("document", "Chart", "console", CHART_DRIVER_JS)(fakeDocument, FakeChart, console);
+  const [first] = drawn;
+  assert.ok(first, "the driver drew no chart");
+  return first;
+}
+
+describe("chart driver", () => {
+  it("turns a treemap's colour array into a function cycling through it, as the PNG template does", () => {
+    const config = driveChart({ type: "treemap", data: { datasets: [{ tree: [1, 2, 3], backgroundColor: ["red", "blue"] }] } });
+    const [dataset] = config.data.datasets;
+    assert.ok(dataset);
+    const colour = dataset.backgroundColor;
+    assert.equal(typeof colour, "function");
+    if (typeof colour !== "function") return;
+    assert.deepEqual(
+      [0, 1, 2].map((dataIndex) => colour({ dataIndex })),
+      ["red", "blue", "red"],
+    );
+  });
+
+  it("turns a sankey's colorFrom / colorTo maps into lookups with a grey fallback", () => {
+    const flows = [{ from: "a", to: "b", flow: 1 }];
+    const config = driveChart({ type: "sankey", data: { datasets: [{ data: flows, colorFrom: { a: "green" }, colorTo: {} }] } });
+    const [dataset] = config.data.datasets;
+    assert.ok(dataset);
+    const from = dataset.colorFrom;
+    const to = dataset.colorTo;
+    assert.ok(typeof from === "function" && typeof to === "function");
+    if (typeof from !== "function" || typeof to !== "function") return;
+    const point = { dataset: { data: flows }, dataIndex: 0 };
+    assert.equal(from(point), "green");
+    assert.equal(to(point), "#999");
+  });
+
+  it("leaves other chart types' colours alone and turns animation off", () => {
+    const config = driveChart({ type: "bar", data: { datasets: [{ data: [1], backgroundColor: ["red"] }] } });
+    const [dataset] = config.data.datasets;
+    assert.ok(dataset);
+    assert.deepEqual(dataset.backgroundColor, ["red"]);
+    assert.equal(config.options?.animation, false);
   });
 });
