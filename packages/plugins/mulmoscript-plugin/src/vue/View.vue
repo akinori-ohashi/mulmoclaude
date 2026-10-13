@@ -154,6 +154,29 @@
                 <span class="material-icons text-sm">close</span>
               </button>
             </template>
+            <template v-else-if="beatPreviewDocs[index]">
+              <div class="relative w-full aspect-video">
+                <iframe
+                  :srcdoc="beatPreviewDocs[index] ?? ''"
+                  sandbox="allow-scripts"
+                  class="absolute inset-0 w-full h-full border-0 pointer-events-none"
+                  :title="`Beat ${index + 1}`"
+                  :data-testid="`mulmo-script-beat-html-${index}`"
+                />
+                <!-- The iframe swallows clicks; this layer opens the lightbox like the PNG thumbnail does. -->
+                <div class="absolute inset-0 cursor-zoom-in" @click="openLightbox(index)" />
+              </div>
+              <button
+                v-if="beatMovies[index] && canFetchMedia"
+                class="absolute inset-0 m-auto w-12 h-12 flex items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70"
+                :title="m.play"
+                :aria-label="m.play"
+                :data-testid="`mulmo-script-beat-movie-play-${index}`"
+                @click.stop="playBeatMovie(index)"
+              >
+                <span class="material-icons text-3xl">play_arrow</span>
+              </button>
+            </template>
             <template v-else>
               <img
                 v-if="renderedImages[index]"
@@ -211,7 +234,7 @@
               <span class="text-xs text-blue-500 font-medium">{{ m.drop }}</span>
             </div>
             <div
-              v-else-if="!renderedImages[index] && renderState[index] !== 'rendering'"
+              v-else-if="!hasBeatVisual(index) && renderState[index] !== 'rendering'"
               class="absolute bottom-0 inset-x-0 text-center text-xs text-gray-400 bg-white/70 py-0.5 pointer-events-none"
             >
               {{ m.orDropImage }}
@@ -223,7 +246,7 @@
                  text-only beats fall back to a prompt derived from
                  the narration text (mulmocast prompt.js). -->
             <button
-              v-if="!renderedImages[index] && renderState[index] !== 'rendering' && !movieGenerating && !isBeatImageReference(effectiveBeat(index))"
+              v-if="!hasBeatVisual(index) && renderState[index] !== 'rendering' && !movieGenerating && !isBeatImageReference(effectiveBeat(index))"
               class="absolute top-1.5 right-1.5 flex items-center gap-1 px-2 py-0.5 text-xs rounded border border-blue-400 text-blue-600 bg-white hover:bg-blue-50"
               @click="renderBeat(index)"
             >
@@ -403,6 +426,7 @@ import { useCharacterImages } from "./composables/useCharacterImages";
 import { useDeckEditor } from "./composables/useDeckEditor";
 import type { LightboxState, MulmoScript } from "./viewTypes";
 import BeatLightbox from "./components/BeatLightbox.vue";
+import { beatPreviewDocument, previewOptionsOf } from "./beatHtml";
 import CharacterStrip from "./components/CharacterStrip.vue";
 import MulmoScriptToolbar from "./components/MulmoScriptToolbar.vue";
 import { useT } from "../lang/index";
@@ -445,6 +469,17 @@ const root = computed(() => data.value?.root);
 /** The story as the wire addresses it — the pair that is its identity. */
 const storyRef = (): StoryRef => ({ filePath: filePath.value, root: root.value });
 const beats = computed<Beat[]>(() => script.value.beats ?? []);
+
+// Beats beatToHtml can draw are shown as HTML in a sandboxed iframe instead of a server-rendered PNG (#3472).
+// Reads through `effectiveBeat`, so an unsaved edit shows at once; null keeps the PNG path for that beat.
+const beatPreviewDocs = computed<(string | null)[]>(() => {
+  const options = previewOptionsOf(script.value);
+  return beats.value.map((_, index) => beatPreviewDocument(effectiveBeat(index), index, options));
+});
+
+function hasBeatVisual(index: number): boolean {
+  return Boolean(renderedImages[index] || beatPreviewDocs.value[index]);
+}
 
 // Per-beat render state
 type RenderState = "idle" | "rendering" | "done" | "error";
@@ -550,6 +585,7 @@ function openLightbox(index: number) {
   stopPlayingAudio();
   lightbox.value = {
     src: renderedImages[index] ?? "",
+    htmlDoc: beatPreviewDocs.value[index] ?? undefined,
     text: effectiveBeat(index).text,
     index,
   };
@@ -580,7 +616,7 @@ function closeLightbox() {
 // text.
 const isPlayReady = computed<boolean>(() => {
   if (beats.value.length === 0) return false;
-  if (!renderedImages[0]) return false;
+  if (!hasBeatVisual(0)) return false;
   // Audio is only required when the beat has text (the source of TTS).
   // Beats without text are valid; they just play silently.
   if (effectiveBeat(0).text && !beatAudios[0]) return false;
@@ -663,7 +699,7 @@ function advanceFromBeat(fromIndex: number): void {
 const hasPrev = computed(() => {
   if (!lightbox.value) return false;
   for (let i = lightbox.value.index - 1; i >= 0; i--) {
-    if (renderedImages[i]) return true;
+    if (hasBeatVisual(i)) return true;
   }
   return false;
 });
@@ -671,7 +707,7 @@ const hasPrev = computed(() => {
 const hasNext = computed(() => {
   if (!lightbox.value) return false;
   for (let i = lightbox.value.index + 1; i < beats.value.length; i++) {
-    if (renderedImages[i]) return true;
+    if (hasBeatVisual(i)) return true;
   }
   return false;
 });
@@ -683,7 +719,7 @@ const beatTexts = computed(() => beats.value.map((_, index) => effectiveBeat(ind
 function jumpToBeat(index: number) {
   if (!lightbox.value) return;
   if (index === lightbox.value.index) return;
-  if (!renderedImages[index]) return;
+  if (!hasBeatVisual(index)) return;
   // Carry the playback mode forward (audio OR silent timer) so a
   // user clicking the beat-strip thumbnail mid-playback keeps the
   // presentation rolling (#1073).
@@ -705,7 +741,7 @@ function lightboxMove(delta: number) {
   const wasPlaying = playingAudio.value !== null || silentPlaybackTimer.value !== null;
   let i = lightbox.value.index + delta;
   while (i >= 0 && i < total) {
-    if (renderedImages[i]) {
+    if (hasBeatVisual(i)) {
       openLightbox(i);
       if (wasPlaying) playBeat(i);
       return;
@@ -1132,6 +1168,8 @@ function openCharacterLightbox(key: string) {
 // user clicks Generate explicitly (avoids surprise paid text2image
 // calls on every page refresh).
 async function hydrateBeatImage(beat: Beat, index: number, hasCharacters: boolean, autoRenderTypes: readonly string[]): Promise<void> {
+  // Drawn in the browser — no PNG probe, no Chrome render on open.
+  if (beatPreviewDocs.value[index]) return;
   await loadExistingBeatImage(index);
   if (renderedImages[index]) return;
   if (shouldAutoRenderBeat(beat, hasCharacters, autoRenderTypes)) {

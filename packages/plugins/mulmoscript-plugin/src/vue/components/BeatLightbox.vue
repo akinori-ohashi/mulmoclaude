@@ -12,7 +12,15 @@
           ‹
         </button>
         <div class="flex flex-col items-center">
-          <img :src="lightbox.src" class="max-w-[80vw] max-h-[85vh] object-contain rounded shadow-2xl" />
+          <iframe
+            v-if="lightbox.htmlDoc"
+            :srcdoc="lightbox.htmlDoc"
+            sandbox="allow-scripts"
+            class="w-[80vw] max-h-[85vh] aspect-video border-0 rounded shadow-2xl bg-white"
+            :title="`Beat ${lightbox.index + 1}`"
+            data-testid="mulmo-script-lightbox-html"
+          />
+          <img v-else :src="lightbox.src" class="max-w-[80vw] max-h-[85vh] object-contain rounded shadow-2xl" />
           <div v-if="!lightbox.isCharacter && beatCount > 1" class="relative w-full h-1">
             <div class="flex gap-1 h-full">
               <div
