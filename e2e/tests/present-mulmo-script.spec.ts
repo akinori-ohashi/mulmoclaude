@@ -19,6 +19,8 @@ const SESSION_PATH = "/chat/mulmo-session";
 const PNG_1X1 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=";
 // Prefix the View's <img src> ends up with after the success mock fires.
 const PNG_DATA_URI_PREFIX = "data:image/png;base64,iVBOR";
+// The per-beat button label (mulmoscript-plugin `m.generate`, English locale).
+const GENERATE_LABEL = "Generate";
 
 const SAMPLE_SCRIPT = {
   $mulmocast: { version: "1.1" },
@@ -163,14 +165,26 @@ test.describe("presentMulmoScript plugin", () => {
   // The View reads exactly those shapes, so the frontend wiring is the
   // regression net for the extraction.
 
-  test("render-beat success: mocked image surfaces in the View", async ({ page }) => {
-    // Beat 0 is a textSlide → auto-rendered on mount via the
-    // `renderBeat` dispatch kind. Waiting for the mocked image to
-    // surface proves the server→frontend contract (`{ ok: true,
-    // image: <data-uri> }`) still holds through the extraction.
+  // Beat 0 (textSlide) is drawn in the browser by beatToHtml (#3472); beat 1 (imagePrompt) still goes through the
+  // server's `renderBeat`, which the user starts with the Generate button.
+  test("textSlide beat is drawn as HTML in a sandboxed iframe, without a renderBeat call (#3472)", async ({ page }) => {
     const getRenderBeatCalls = await mockRenderBeatSuccess(page, PNG_1X1);
     await openMulmoSessionAndSelectScript(page, SESSION_PATH);
     await assertScriptHeader(page, SCRIPT_TITLE);
+    const frame = page.getByTestId("mulmo-script-beat-html-0");
+    await expect(frame).toBeVisible();
+    await expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+    await expect(page.frameLocator('[data-testid="mulmo-script-beat-html-0"]').getByText("Slide 1")).toBeVisible();
+    const calls = getRenderBeatCalls();
+    expect(calls.filter((call) => (call as { beatIndex?: number }).beatIndex === 0)).toHaveLength(0);
+  });
+
+  test("render-beat success: mocked image surfaces in the View", async ({ page }) => {
+    // Generating beat 1 proves the server→frontend contract (`{ ok: true, image: <data-uri> }`) still holds.
+    const getRenderBeatCalls = await mockRenderBeatSuccess(page, PNG_1X1);
+    await openMulmoSessionAndSelectScript(page, SESSION_PATH);
+    await assertScriptHeader(page, SCRIPT_TITLE);
+    await page.getByRole("button", { name: GENERATE_LABEL, exact: true }).first().click();
     await waitForRenderedBeatImage(page, PNG_DATA_URI_PREFIX);
 
     const calls = getRenderBeatCalls();
@@ -181,12 +195,11 @@ test.describe("presentMulmoScript plugin", () => {
   });
 
   test("render-beat error: mocked { error } surfaces to the UI", async ({ page }) => {
-    // Auto-render on mount hits the renderBeat kind for textSlide
-    // beats, which now resolves to { ok: false, error }. The View
-    // renders the error string in the placeholder slot.
+    // Generating beat 1 resolves to { ok: false, error }; the View shows the error string in the placeholder slot.
     await mockRenderBeatError(page, "Image was not generated");
     await openMulmoSessionAndSelectScript(page, SESSION_PATH);
     await assertScriptHeader(page, SCRIPT_TITLE);
+    await page.getByRole("button", { name: GENERATE_LABEL, exact: true }).first().click();
     await expect(page.getByText("Image was not generated")).toBeVisible();
   });
 

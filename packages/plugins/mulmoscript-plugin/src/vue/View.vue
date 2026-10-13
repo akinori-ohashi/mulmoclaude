@@ -155,16 +155,15 @@
               </button>
             </template>
             <template v-else-if="beatPreviewDocs[index]">
-              <div class="relative w-full aspect-video">
-                <iframe
+              <div class="relative w-full">
+                <BeatHtmlFrame
                   :srcdoc="beatPreviewDocs[index] ?? ''"
-                  sandbox="allow-scripts"
-                  class="absolute inset-0 w-full h-full border-0 pointer-events-none"
+                  :canvas="previewCanvas"
                   :title="`Beat ${index + 1}`"
-                  :data-testid="`mulmo-script-beat-html-${index}`"
+                  :testid="`mulmo-script-beat-html-${index}`"
                 />
                 <!-- The iframe swallows clicks; this layer opens the lightbox like the PNG thumbnail does. -->
-                <div class="absolute inset-0 cursor-zoom-in" @click="openLightbox(index)" />
+                <div class="absolute inset-0 cursor-zoom-in" :data-testid="`mulmo-script-beat-html-open-${index}`" @click="openLightbox(index)" />
               </div>
               <button
                 v-if="beatMovies[index] && canFetchMedia"
@@ -386,6 +385,7 @@
       :playing-audio-index="playingAudio?.index ?? null"
       :audio-progress="audioProgress"
       :has-current-audio="Boolean(beatAudios[lightbox.index])"
+      :preview-canvas="previewCanvas"
       @close="closeLightbox"
       @move="lightboxMove"
       @jump="jumpToBeat"
@@ -426,6 +426,7 @@ import { useCharacterImages } from "./composables/useCharacterImages";
 import { useDeckEditor } from "./composables/useDeckEditor";
 import type { LightboxState, MulmoScript } from "./viewTypes";
 import BeatLightbox from "./components/BeatLightbox.vue";
+import BeatHtmlFrame from "./components/BeatHtmlFrame.vue";
 import { beatPreviewDocument, previewOptionsOf } from "./beatHtml";
 import CharacterStrip from "./components/CharacterStrip.vue";
 import MulmoScriptToolbar from "./components/MulmoScriptToolbar.vue";
@@ -472,10 +473,11 @@ const beats = computed<Beat[]>(() => script.value.beats ?? []);
 
 // Beats beatToHtml can draw are shown as HTML in a sandboxed iframe instead of a server-rendered PNG (#3472).
 // Reads through `effectiveBeat`, so an unsaved edit shows at once; null keeps the PNG path for that beat.
-const beatPreviewDocs = computed<(string | null)[]>(() => {
-  const options = previewOptionsOf(script.value);
-  return beats.value.map((_, index) => beatPreviewDocument(effectiveBeat(index), index, options));
-});
+const previewOptions = computed(() => previewOptionsOf(script.value));
+const previewCanvas = computed(() => previewOptions.value.canvas);
+const beatPreviewDocs = computed<(string | null)[]>(() =>
+  beats.value.map((_, index) => beatPreviewDocument(effectiveBeat(index), index, previewOptions.value)),
+);
 
 function hasBeatVisual(index: number): boolean {
   return Boolean(renderedImages[index] || beatPreviewDocs.value[index]);

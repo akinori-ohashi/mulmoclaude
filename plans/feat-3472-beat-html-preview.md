@@ -25,15 +25,27 @@ The MulmoScript view (`@mulmoclaude/mulmoscript-plugin`) renders every `textSlid
 ## Shape
 
 - `src/vue/beatHtml.ts` — pure, browser-safe:
-  - `beatPreviewDocument(beat, index, options)` → the full `srcdoc` string, or `null` when `beatToHtml` cannot
-    render the beat.
-  - `buildBeatHtmlDocument(fragment, options)` — page assembly: CSP meta, runtimes only when `requires` asks
-    (Chart.js + `chartPlugins`, mermaid + its theme), Tailwind, `slideUtilityCss`, the fragment's own `css`, and a
-    tiny script scaling the canvas-sized page into the iframe.
-- `View.vue` / `BeatLightbox.vue`: show the iframe when a document exists; skip the PNG probe / auto-render /
+  - `previewOptionsOf(script)` — canvas size (`canvasSize`, default 1280×720), deck slide theme, and the script's
+    `textSlideParams`, all validated with mulmocast's own schemas.
+  - `beatPreviewDocument(beat, index, options)` → the full `srcdoc` string, or `null` when the beat fails
+    `mulmoBeatSchema` or `beatToHtml` cannot render it.
+  - `buildBeatHtmlDocument(fragment, { canvas, tailwind })` — page assembly: CSP meta; Chart.js + plugins + a chart
+    driver (deck's, which is not exported) when `requires` asks; mermaid@10 + its theme; `slideUtilityCss`; the
+    fragment's own `css`.
+  - textSlide / markdown come back bare from `beatToHtml`; they get the CSS the PNG path applies (named markdown
+    style, else `getTextSlideStyle` — defaults + deck/beat `textSlideParams.cssStyles` — and the vertical centring
+    of a bullet-less textSlide).
+  - Tailwind is loaded only for `html_tailwind`: its preflight would reset the text-slide CSS, and the PNG path does
+    not load it for the other types either.
+- `src/vue/components/BeatHtmlFrame.vue`: lays the iframe out at the canvas size (so `100vh` means what it does in
+  the PNG render) and scales it to its box with a `ResizeObserver`.
+- `View.vue` / `BeatLightbox.vue`: show the frame when a document exists; skip the PNG probe / auto-render /
   generate / ↺ buttons for those beats.
 - `@mulmocast/deck` becomes a `peer` + `dev` dependency of the plugin (host-provided; MulmoTerminal already declares
   it, the `mulmoclaude` launcher gains it).
+
+Known difference from the PNG: a mermaid diagram is drawn at its natural size in the top-left rather than scaled
+to fill the slide (`beatToHtml`'s mermaid fragment brings no layout CSS).
 
 ## Tests
 

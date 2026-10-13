@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { DEFAULT_CANVAS, beatPreviewDocument, buildBeatHtmlDocument, previewOptionsOf } from "../src/vue/beatHtml.js";
 
-const OPTIONS = { canvas: { ...DEFAULT_CANVAS } };
+const OPTIONS = previewOptionsOf({});
 
 const textSlide = { text: "hi", image: { type: "textSlide", slide: { title: "Quarterly review", bullets: ["Revenue up"] } } };
 const markdown = { text: "hi", image: { type: "markdown", markdown: ["# Heading", "", "- point one"] } };
@@ -52,15 +52,15 @@ describe("buildBeatHtmlDocument", () => {
   it("adds Chart.js and its plugins only when the fragment requires them", () => {
     const doc = buildBeatHtmlDocument(
       { html: "<canvas></canvas>", requires: ["chart"], chartPlugins: ["https://cdn.jsdelivr.net/npm/chartjs-chart-sankey"] },
-      DEFAULT_CANVAS,
+      { canvas: DEFAULT_CANVAS, tailwind: false },
     );
     assert.match(doc, /npm\/chart\.js/);
     assert.match(doc, /chartjs-chart-sankey/);
-    assert.doesNotMatch(buildBeatHtmlDocument({ html: "<p>x</p>" }, DEFAULT_CANVAS), /npm\/chart\.js/);
+    assert.doesNotMatch(buildBeatHtmlDocument({ html: "<p>x</p>" }, { canvas: DEFAULT_CANVAS, tailwind: false }), /npm\/chart\.js/);
   });
 
   it("lays the page out at the canvas size and includes the fragment's own css", () => {
-    const doc = buildBeatHtmlDocument({ html: "<p>x</p>", css: ".scoped{color:red}" }, { width: 1080, height: 1920 });
+    const doc = buildBeatHtmlDocument({ html: "<p>x</p>", css: ".scoped{color:red}" }, { canvas: { width: 1080, height: 1920 }, tailwind: false });
     assert.match(doc, /width:1080px;height:1920px/);
     assert.match(doc, /\.scoped\{color:red\}/);
   });
@@ -68,7 +68,9 @@ describe("buildBeatHtmlDocument", () => {
 
 describe("previewOptionsOf", () => {
   it("defaults to the 1280x720 canvas and no theme", () => {
-    assert.deepEqual(previewOptionsOf({}), { canvas: { width: 1280, height: 720 }, slideTheme: undefined });
+    const options = previewOptionsOf({});
+    assert.deepEqual(options.canvas, { width: 1280, height: 720 });
+    assert.equal(options.slideTheme, undefined);
     assert.deepEqual(previewOptionsOf(null).canvas, { width: 1280, height: 720 });
   });
 
@@ -78,5 +80,31 @@ describe("previewOptionsOf", () => {
 
   it("ignores a malformed canvas size", () => {
     assert.deepEqual(previewOptionsOf({ canvasSize: { width: "wide" } }).canvas, { width: 1280, height: 720 });
+  });
+
+  it("styles textSlide and markdown beats like the PNG path: default text-slide CSS, overridable per deck", () => {
+    const plain = beatPreviewDocument(textSlide, 0, OPTIONS);
+    assert.ok(plain);
+    assert.match(plain, /font-family: Arial/);
+    const custom = beatPreviewDocument(textSlide, 0, previewOptionsOf({ textSlideParams: { cssStyles: ["h1 { color: rebeccapurple }"] } }));
+    assert.ok(custom);
+    assert.match(custom, /rebeccapurple/);
+  });
+
+  it("centres a textSlide without bullets vertically, as the PNG path does", () => {
+    const titleOnly = { text: "x", image: { type: "textSlide", slide: { title: "Only a title" } } };
+    const doc = beatPreviewDocument(titleOnly, 0, OPTIONS);
+    assert.ok(doc);
+    assert.match(doc, new RegExp(`margin-top: ${DEFAULT_CANVAS.height * 0.45}px`));
+  });
+
+  it("loads Tailwind only for html_tailwind beats, whose markup is written against it", () => {
+    const htmlTailwind = { text: "x", image: { type: "html_tailwind", html: '<div class="text-4xl">Hello</div>' } };
+    const tailwindDoc = beatPreviewDocument(htmlTailwind, 0, OPTIONS);
+    assert.ok(tailwindDoc);
+    assert.match(tailwindDoc, /<script src="https:\/\/cdn\.tailwindcss\.com">/);
+    const textDoc = beatPreviewDocument(textSlide, 0, OPTIONS);
+    assert.ok(textDoc);
+    assert.doesNotMatch(textDoc, /<script src="https:\/\/cdn\.tailwindcss\.com">/);
   });
 });

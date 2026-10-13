@@ -1,9 +1,10 @@
 // A beat rendered in the browser with mulmocast's `beatToHtml`, wrapped as a self-contained page for a sandboxed
 // iframe (`srcdoc`). Pure: no DOM, no network — the iframe does the loading.
 
-import { beatToHtml, type BeatHtmlFragment } from "mulmocast/browser";
+import { MulmoPresentationStyleMethods, beatToHtml, type BeatHtmlFragment, type MulmoBeat, type MulmoPresentationStyle } from "mulmocast/browser";
+import { getMarkdownStyle } from "mulmocast/data";
 import { slideThemeSchema, slideUtilityCss, type SlideTheme } from "@mulmocast/deck";
-import { mulmoBeatSchema, mulmoCanvasDimensionSchema } from "@mulmocast/types";
+import { mulmoBeatSchema, mulmoCanvasDimensionSchema, mulmoPresentationStyleSchema } from "@mulmocast/types";
 import { isRecord } from "@mulmoclaude/common";
 
 // mulmocast's own HTML export (`actions/html.js`) loads the same runtimes for the same fragments.
@@ -32,6 +33,8 @@ export interface CanvasSize {
 export interface BeatPreviewOptions {
   canvas: CanvasSize;
   slideTheme?: SlideTheme | undefined;
+  /** Carries the script's `textSlideParams`, for the text-slide CSS the PNG path applies. */
+  presentationStyle: MulmoPresentationStyle;
 }
 
 function recordField(value: unknown, key: string): unknown {
@@ -43,13 +46,36 @@ export function previewOptionsOf(script: unknown): BeatPreviewOptions {
   const canvas = mulmoCanvasDimensionSchema.safeParse(recordField(script, "canvasSize"));
   const slideParams = recordField(script, "slideParams") ?? recordField(recordField(script, "presentationStyle"), "slideParams");
   const theme = slideThemeSchema.safeParse(recordField(slideParams, "theme"));
-  return { canvas: canvas.success ? canvas.data : { ...DEFAULT_CANVAS }, slideTheme: theme.success ? theme.data : undefined };
+  return {
+    canvas: canvas.success ? canvas.data : { ...DEFAULT_CANVAS },
+    slideTheme: theme.success ? theme.data : undefined,
+    presentationStyle: textSlidePresentationStyle(recordField(script, "textSlideParams")),
+  };
 }
 
-// Lays the page out at the script's canvas size and scales it to the iframe, the way the PNG would look.
-function fitScript(canvas: CanvasSize): string {
-  return `<script>(function(){var w=${canvas.width},h=${canvas.height};function fit(){var s=Math.min(innerWidth/w,innerHeight/h);document.documentElement.style.zoom=String(s);}addEventListener("resize",fit);fit();})();</script>`;
+// `getTextSlideStyle` reads only `textSlideParams`; the schema needs a `$mulmocast` header to parse at all.
+const PRESENTATION_HEADER = { $mulmocast: { version: "1.1" } } as const;
+
+function textSlidePresentationStyle(textSlideParams: unknown): MulmoPresentationStyle {
+  const withParams = mulmoPresentationStyleSchema.safeParse({ ...PRESENTATION_HEADER, textSlideParams });
+  return withParams.success ? withParams.data : mulmoPresentationStyleSchema.parse(PRESENTATION_HEADER);
 }
+
+// textSlide / markdown markup comes back bare; the PNG path styles it with the beat's named markdown style or the
+// deck's text-slide CSS (mulmocast `resolveCombinedStyle`), and vertically centres a bullet-less textSlide.
+function textBeatCss(beat: MulmoBeat, options: BeatPreviewOptions): string {
+  const image = beat.image;
+  if (!image || (image.type !== "textSlide" && image.type !== "markdown")) return "";
+  const named = image.style ? getMarkdownStyle(image.style)?.css : undefined;
+  const base = named ?? MulmoPresentationStyleMethods.getTextSlideStyle(options.presentationStyle, beat);
+  if (image.type !== "textSlide" || (image.slide.bullets?.length ?? 0) > 0) return base;
+  const marginTop = options.canvas.height * (image.slide.subtitle ? 0.4 : 0.45);
+  return `${base}\nbody {margin-top: ${marginTop}px;}`;
+}
+
+// Same driver as `@mulmocast/deck`'s (not exported there): the chart config rides on each canvas as
+// `data-mulmo-chart`, and the page draws it. Runs at the end of <body>, so the canvases already exist.
+const CHART_DRIVER = `<script>document.querySelectorAll('canvas[data-mulmo-chart]').forEach(function(ctx){var d=JSON.parse(ctx.dataset.mulmoChart);if(!d.options)d.options={};d.options.animation=false;d.options.responsive=true;d.options.maintainAspectRatio=false;new Chart(ctx,d);});</script>`;
 
 function runtimeTags(fragment: BeatHtmlFragment): string[] {
   const requires = fragment.requires ?? [];
@@ -68,17 +94,26 @@ function mermaidInit(fragment: BeatHtmlFragment): string {
   return `<script>mermaid.initialize({ startOnLoad: true, theme: ${JSON.stringify(theme)} });</script>`;
 }
 
-export function buildBeatHtmlDocument(fragment: BeatHtmlFragment, canvas: CanvasSize): string {
+export interface BeatDocumentOptions {
+  canvas: CanvasSize;
+  /** Only `html_tailwind` markup is written against Tailwind; its preflight would reset the text-slide CSS. */
+  tailwind: boolean;
+}
+
+export function buildBeatHtmlDocument(fragment: BeatHtmlFragment, options: BeatDocumentOptions): string {
+  const { canvas } = options;
   const head = [
     '<meta charset="UTF-8">',
     `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">`,
-    `<script src="${TAILWIND_CDN}"></script>`,
+    options.tailwind ? `<script src="${TAILWIND_CDN}"></script>` : "",
     ...runtimeTags(fragment),
     `<style>${slideUtilityCss}</style>`,
-    `<style>html,body{margin:0;width:${canvas.width}px;height:${canvas.height}px;overflow:hidden;background:#fff}</style>`,
+    // The host lays the iframe out at the canvas size (`BeatHtmlFrame.vue`), so this only pins the page to it.
+    `<style>html,body{width:${canvas.width}px;height:${canvas.height}px;overflow:hidden;background:#fff}</style>`,
     fragment.css ? `<style>${fragment.css}</style>` : "",
   ];
-  const body = [fragment.html, mermaidInit(fragment), fitScript(canvas)];
+  const chartDriver = (fragment.requires ?? []).includes("chart") ? CHART_DRIVER : "";
+  const body = [fragment.html, chartDriver, mermaidInit(fragment)];
   return `<!doctype html><html><head>${head.join("")}</head><body>${body.join("")}</body></html>`;
 }
 
@@ -88,7 +123,10 @@ export function beatPreviewDocument(beat: unknown, index: number, options: BeatP
   if (!parsed.success) return null;
   try {
     const fragment = beatToHtml(parsed.data, { idPrefix: `beat-${index}`, ...(options.slideTheme ? { slideTheme: options.slideTheme } : {}) });
-    return fragment ? buildBeatHtmlDocument(fragment, options.canvas) : null;
+    if (!fragment) return null;
+    const textCss = textBeatCss(parsed.data, options);
+    const styled = textCss ? { ...fragment, css: [textCss, fragment.css ?? ""].join("\n") } : fragment;
+    return buildBeatHtmlDocument(styled, { canvas: options.canvas, tailwind: parsed.data.image?.type === "html_tailwind" });
   } catch {
     return null;
   }

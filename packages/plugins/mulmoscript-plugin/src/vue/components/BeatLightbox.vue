@@ -12,14 +12,15 @@
           ‹
         </button>
         <div class="flex flex-col items-center">
-          <iframe
-            v-if="lightbox.htmlDoc"
-            :srcdoc="lightbox.htmlDoc"
-            sandbox="allow-scripts"
-            class="w-[80vw] max-h-[85vh] aspect-video border-0 rounded shadow-2xl bg-white"
-            :title="`Beat ${lightbox.index + 1}`"
-            data-testid="mulmo-script-lightbox-html"
-          />
+          <div v-if="lightbox.htmlDoc" class="w-[80vw] max-w-[calc(85vh*16/9)] rounded shadow-2xl overflow-hidden">
+            <BeatHtmlFrame
+              :srcdoc="lightbox.htmlDoc"
+              :canvas="previewCanvas"
+              :title="`Beat ${lightbox.index + 1}`"
+              testid="mulmo-script-lightbox-html"
+              interactive
+            />
+          </div>
           <img v-else :src="lightbox.src" class="max-w-[80vw] max-h-[85vh] object-contain rounded shadow-2xl" />
           <div v-if="!lightbox.isCharacter && beatCount > 1" class="relative w-full h-1">
             <div class="flex gap-1 h-full">
@@ -87,6 +88,8 @@
 // the template can read `.index` / `.src` without a guard.
 import { beatTooltip } from "../helpers";
 import type { LightboxState } from "../viewTypes";
+import type { CanvasSize } from "../beatHtml";
+import BeatHtmlFrame from "./BeatHtmlFrame.vue";
 import { useT } from "../../lang/index";
 
 const m = useT();
@@ -100,6 +103,7 @@ defineProps<{
   playingAudioIndex: number | null;
   audioProgress: number;
   hasCurrentAudio: boolean;
+  previewCanvas: CanvasSize;
 }>();
 
 const emit = defineEmits<{
