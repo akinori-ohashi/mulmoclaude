@@ -107,4 +107,12 @@ describe("previewOptionsOf", () => {
     assert.ok(textDoc);
     assert.doesNotMatch(textDoc, /<script src="https:\/\/cdn\.tailwindcss\.com">/);
   });
+
+  it("lets a movie beat with a URL source play: the CSP allows https media", () => {
+    const movie = { text: "x", image: { type: "movie", source: { kind: "url", url: "https://example.com/clip.mp4" } } };
+    const doc = beatPreviewDocument(movie, 0, OPTIONS);
+    assert.ok(doc);
+    assert.match(doc, /<video/);
+    assert.match(doc, /media-src https:/);
+  });
 });

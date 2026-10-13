@@ -21,6 +21,8 @@ const PREVIEW_CSP = [
   "style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
   "font-src https: data:",
   "img-src https: data: blob:",
+  // A `movie` beat with a URL source comes back as a <video>.
+  "media-src https: data: blob:",
 ].join("; ");
 
 export const DEFAULT_CANVAS = { width: 1280, height: 720 } as const;
