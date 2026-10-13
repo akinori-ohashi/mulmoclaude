@@ -1962,20 +1962,20 @@
   dependencies:
     dompurify "^3.4.14"
 
-"@mulmocast/deck@^2.0.0", "@mulmocast/deck@^2.1.0":
+"@mulmocast/deck@^2.1.0":
   version "2.1.0"
   resolved "https://registry.yarnpkg.com/@mulmocast/deck/-/deck-2.1.0.tgz#e90a8ae033fff62abf6fb17b90498b38d288ad90"
   integrity sha512-iT3iCodNafOmXeBvE7lBEzOcQETPCplujKsFcoibeNWhx9QWJy3TUHukJd5f9S96a6nZabgh+0WcnvnhXemKeg==
   dependencies:
     zod "^4.6.5"
 
-"@mulmocast/types@^2.19.0":
-  version "2.19.0"
-  resolved "https://registry.yarnpkg.com/@mulmocast/types/-/types-2.19.0.tgz#68e6f32ba8b507a11bcc65fa25ee6addc067e893"
-  integrity sha512-hdkmoO0iImNXRVYaFCfPuMoUx49GkQC1B7MIrMyOh2YGN9EqDDJN0pwgIl6nDdRxZ4KQFQULz/Orsa0MuvFLkg==
+"@mulmocast/types@^2.21.0":
+  version "2.21.0"
+  resolved "https://registry.yarnpkg.com/@mulmocast/types/-/types-2.21.0.tgz#fecd8b548625884793752989a3dd66b19447427b"
+  integrity sha512-TfNRMygFK23DmjIX+HLSTZP6hBTTyMJ1aybAtgp+/PpvO6n9m1IgSqR5s1bjphaq05gnbXJpRKjELsCHMVJEgQ==
   dependencies:
-    "@mulmocast/deck" "^2.0.0"
-    zod "^4.4.3"
+    "@mulmocast/deck" "^2.1.0"
+    zod "^4.6.5"
 
 "@mulmochat-plugin/quiz@^2.0.0":
   version "2.0.0"
@@ -10879,7 +10879,7 @@ zod@^3.23.8:
   resolved "https://registry.yarnpkg.com/zod/-/zod-3.25.76.tgz#26841c3f6fd22a6a2760e7ccb719179768471e34"
   integrity sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==
 
-"zod@^3.25 || ^4.0", zod@^4.4.3, zod@^4.6.5:
+"zod@^3.25 || ^4.0", zod@^4.6.5:
   version "4.6.5"
   resolved "https://registry.yarnpkg.com/zod/-/zod-4.6.5.tgz#e3af3edbdc260239c52f73caad05dbbffe6e82cd"
   integrity sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==

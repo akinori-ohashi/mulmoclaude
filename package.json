@@ -111,7 +111,7 @@
     "@mulmobridge/telegram": "^1.2.0",
     "@mulmocast/beat-editor": "^1.1.1",
     "@mulmocast/deck": "^2.1.0",
-    "@mulmocast/types": "^2.19.0",
+    "@mulmocast/types": "^2.21.0",
     "@mulmochat-plugin/quiz": "^2.0.0",
     "@mulmochat-plugin/ui-image": "^0.4.1",
     "@receptron/task-scheduler": "^1.0.3",

@@ -57,7 +57,7 @@
     "@eslint/js": "^10.0.1",
     "@mulmocast/beat-editor": "^1.1.1",
     "@mulmocast/deck": "^2.1.0",
-    "@mulmocast/types": "^2.19.0",
+    "@mulmocast/types": "^2.21.0",
     "@mulmoclaude/common": "^1.5.0",
     "@mulmoclaude/core": "^5.11.3",
     "@tailwindcss/vite": "^4.3.2",
