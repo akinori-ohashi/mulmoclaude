@@ -114,4 +114,13 @@ describe("previewOptionsOf", () => {
     assert.equal(beatPreviewDocument(image, 0, OPTIONS), null);
     assert.equal(beatPreviewDocument(movie, 0, OPTIONS), null);
   });
+
+  it("leaves an html_tailwind beat that needs its script, elements or animation on the PNG path", () => {
+    const html = '<div id="x">Hi</div>';
+    const scripted = { text: "x", image: { type: "html_tailwind", html, script: "document.getElementById('x').textContent='Run';" } };
+    const animated = { text: "x", image: { type: "html_tailwind", html, animation: true } };
+    assert.equal(beatPreviewDocument(scripted, 0, OPTIONS), null);
+    assert.equal(beatPreviewDocument(animated, 0, OPTIONS), null);
+    assert.ok(beatPreviewDocument({ text: "x", image: { type: "html_tailwind", html } }, 0, OPTIONS));
+  });
 });

@@ -121,10 +121,18 @@ export function buildBeatHtmlDocument(fragment: BeatHtmlFragment, options: BeatD
   return `<!doctype html><html><head>${head.join("")}</head><body>${body.join("")}</body></html>`;
 }
 
+// beatToHtml emits an html_tailwind beat at rest: no `script` field, no swipe `elements` driver, no `animation`.
+// The PNG path runs those, so such a beat stays on it rather than being shown without them.
+function needsScriptedRender(beat: MulmoBeat): boolean {
+  const image = beat.image;
+  if (!image || image.type !== "html_tailwind") return false;
+  return image.script !== undefined || image.elements !== undefined || image.animation !== undefined;
+}
+
 /** The `srcdoc` for a beat, or null when `beatToHtml` cannot render it (the caller keeps the PNG path). */
 export function beatPreviewDocument(beat: unknown, index: number, options: BeatPreviewOptions): string | null {
   const parsed = mulmoBeatSchema.safeParse(beat);
-  if (!parsed.success || !HTML_PREVIEW_TYPES.has(parsed.data.image?.type ?? "")) return null;
+  if (!parsed.success || !HTML_PREVIEW_TYPES.has(parsed.data.image?.type ?? "") || needsScriptedRender(parsed.data)) return null;
   try {
     const fragment = beatToHtml(parsed.data, { idPrefix: `beat-${index}`, ...(options.slideTheme ? { slideTheme: options.slideTheme } : {}) });
     if (!fragment) return null;
