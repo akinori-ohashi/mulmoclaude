@@ -133,9 +133,9 @@ describe("wait-for-backend CLI — follows the port the backend published", () =
     const { code, out } = await runCliWhilePublishing(fixture);
 
     assert.equal(code, 0, out);
-    assert.match(out, new RegExp(`backend ready on :${fixture.boundPort}`));
+    assert.match(out, new RegExp(`backend ready on :${fixture.boundPort}\\b`));
     assert.match(out, /published by this backend/);
-    assert.doesNotMatch(out, new RegExp(`ready on :${UNSERVED_PORT}`));
+    assert.doesNotMatch(out, new RegExp(`ready on :${UNSERVED_PORT}\\b`));
   });
 
   it("does not follow a leftover file from a dead run", async () => {
@@ -179,7 +179,7 @@ describe("wait-for-backend CLI — follows the port the backend published", () =
     const { code, out } = await runCliWhilePublishing(fixture, { port: 0 });
 
     assert.equal(code, 0, out);
-    assert.match(out, new RegExp(`backend ready on :${fixture.boundPort}`));
+    assert.match(out, new RegExp(`backend ready on :${fixture.boundPort}\\b`));
   });
 
   it("never reports readiness for a port nothing attributed to this startup", async () => {
