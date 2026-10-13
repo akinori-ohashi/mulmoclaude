@@ -386,6 +386,7 @@
       :audio-progress="audioProgress"
       :has-current-audio="Boolean(beatAudios[lightbox.index])"
       :preview-canvas="previewCanvas"
+      :html-doc="lightboxHtmlDoc"
       @close="closeLightbox"
       @move="lightboxMove"
       @jump="jumpToBeat"
@@ -475,6 +476,8 @@ const beats = computed<Beat[]>(() => script.value.beats ?? []);
 // Reads through `effectiveBeat`, so an unsaved edit shows at once; null keeps the PNG path for that beat.
 const previewOptions = computed(() => previewOptionsOf(script.value));
 const previewCanvas = computed(() => previewOptions.value.canvas);
+// Read live rather than snapshotted on open, so an edit landing while the lightbox is up shows at once.
+const lightboxHtmlDoc = computed(() => (lightbox.value && !lightbox.value.isCharacter ? (beatPreviewDocs.value[lightbox.value.index] ?? null) : null));
 const beatPreviewDocs = computed<(string | null)[]>(() =>
   beats.value.map((_, index) => beatPreviewDocument(effectiveBeat(index), index, previewOptions.value)),
 );
@@ -587,7 +590,6 @@ function openLightbox(index: number) {
   stopPlayingAudio();
   lightbox.value = {
     src: renderedImages[index] ?? "",
-    htmlDoc: beatPreviewDocs.value[index] ?? undefined,
     text: effectiveBeat(index).text,
     index,
   };
@@ -970,7 +972,8 @@ async function updateBeat(index: number) {
 
   if (JSON.stringify(beat.image) !== prevImage) {
     Reflect.deleteProperty(renderedImages, index);
-    renderBeat(index);
+    // A beat now drawn in the browser needs no server render (#3472).
+    if (!beatPreviewDocs.value[index]) renderBeat(index);
   }
 
   // Audio files are content-addressed by the beat's text

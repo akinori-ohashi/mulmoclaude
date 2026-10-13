@@ -18,8 +18,6 @@ export interface ImageEntry {
  *  prev/next arrows stay hidden for characters. */
 export interface LightboxState {
   src: string;
-  /** A beat drawn in the browser (#3472): shown in a sandboxed iframe instead of `src`. */
-  htmlDoc?: string | undefined;
   text?: string | undefined;
   index: number;
   isCharacter?: boolean | undefined;
