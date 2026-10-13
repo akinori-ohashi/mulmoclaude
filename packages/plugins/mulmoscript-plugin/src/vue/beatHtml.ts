@@ -13,15 +13,19 @@ const CHART_JS_CDN = "https://cdn.jsdelivr.net/npm/chart.js";
 const MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
 
 // The fragment is not sanitized (see `BeatHtmlFragment.html`) and the iframe has no same-origin access; this policy
-// only decides what the page may load. Inline script stays allowed: mermaid's init, the fit script, and author
-// script in an `html_tailwind` beat all need it.
-const PREVIEW_CSP = [
-  "default-src 'none'",
-  "script-src 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
-  "style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
-  "font-src https: data:",
-  "img-src https: data: blob:",
-].join("; ");
+// only decides what the page may load. Inline script stays allowed: mermaid's init, the chart driver, and author
+// script in an `html_tailwind` beat all need it. An `html_tailwind` author script may import from any https CDN,
+// as it can in the PNG render; the sandbox, not the source list, is what keeps it away from the host.
+function previewCsp(authorScripts: boolean): string {
+  const scriptSources = authorScripts ? "https:" : "https://cdn.tailwindcss.com https://cdn.jsdelivr.net";
+  return [
+    "default-src 'none'",
+    `script-src 'unsafe-inline' ${scriptSources}`,
+    "style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
+    "font-src https: data:",
+    "img-src https: data: blob:",
+  ].join("; ");
+}
 
 // The generated types the PNG path used to render with Chrome (#3472). `image` / `movie` beats, which beatToHtml also
 // draws, point at real files and URLs and stay on the PNG path.
@@ -80,9 +84,37 @@ function textBeatCss(beat: MulmoBeat, options: BeatPreviewOptions): string {
   return `${base}\nbody {margin-top: ${marginTop}px;}`;
 }
 
-// Same driver as `@mulmocast/deck`'s (not exported there): the chart config rides on each canvas as
-// `data-mulmo-chart`, and the page draws it. Runs at the end of <body>, so the canvases already exist.
-const CHART_DRIVER = `<script>document.querySelectorAll('canvas[data-mulmo-chart]').forEach(function(ctx){var d=JSON.parse(ctx.dataset.mulmoChart);if(!d.options)d.options={};d.options.animation=false;d.options.responsive=true;d.options.maintainAspectRatio=false;new Chart(ctx,d);});</script>`;
+// Draws each `data-mulmo-chart` canvas, as `@mulmocast/deck`'s driver does (not exported there), plus the
+// treemap / sankey colour conversions mulmocast's `assets/html/chart.html` applies for the PNG — JSON cannot carry
+// the scriptable colour functions those chart types need. Runs at the end of <body>, so the canvases exist.
+export const CHART_DRIVER_JS = [
+  "document.querySelectorAll('canvas[data-mulmo-chart]').forEach(function(ctx){",
+  "var d=JSON.parse(ctx.dataset.mulmoChart);",
+  "if(!d.options)d.options={};d.options.animation=false;d.options.responsive=true;d.options.maintainAspectRatio=false;",
+  "var sets=(d.data&&d.data.datasets)||[];",
+  "if(d.type==='treemap'){sets.forEach(function(ds){if(Array.isArray(ds.backgroundColor)){var colors=ds.backgroundColor;ds.backgroundColor=function(c){return colors[c.dataIndex%colors.length];};}});}",
+  "if(d.type==='sankey'){sets.forEach(function(ds){",
+  "if(ds.colorFrom&&typeof ds.colorFrom==='object'){var fromMap=ds.colorFrom;ds.colorFrom=function(c){return fromMap[c.dataset.data[c.dataIndex].from]||'#999';};}",
+  "if(ds.colorTo&&typeof ds.colorTo==='object'){var toMap=ds.colorTo;ds.colorTo=function(c){return toMap[c.dataset.data[c.dataIndex].to]||'#999';};}",
+  "});}",
+  "try{new Chart(ctx,d);}catch(e){console.error('Chart init error:',e);}",
+  "});",
+].join("");
+
+const CHART_DRIVER = `<script>${CHART_DRIVER_JS}</script>`;
+
+/** An `html_tailwind` beat's `script` field as mulmocast's PNG render injects it: a module script when it uses
+ *  ESM `import` / `export`, a classic one otherwise. beatToHtml leaves the field out. */
+export function authorScriptTag(script: string | readonly string[] | undefined): string {
+  // Same test as mulmocast's `buildUserScript` (`if (!script)`): an empty string is no script.
+  if (script === undefined || script === "") return "";
+  const code = typeof script === "string" ? script : script.join("\n");
+  const isModule = code.split("\n").some((line) => {
+    const trimmed = line.trimStart();
+    return trimmed.startsWith("import ") || trimmed.startsWith("export ");
+  });
+  return isModule ? `<script type="module">\n${code}\n</script>` : `<script>\n${code}\n</script>`;
+}
 
 function runtimeTags(fragment: BeatHtmlFragment): string[] {
   const requires = fragment.requires ?? [];
@@ -105,13 +137,15 @@ export interface BeatDocumentOptions {
   canvas: CanvasSize;
   /** Only `html_tailwind` markup is written against Tailwind; its preflight would reset the text-slide CSS. */
   tailwind: boolean;
+  /** The `html_tailwind` beat's own `script` field, appended after its markup. */
+  authorScript?: string;
 }
 
 export function buildBeatHtmlDocument(fragment: BeatHtmlFragment, options: BeatDocumentOptions): string {
   const { canvas } = options;
   const head = [
     '<meta charset="UTF-8">',
-    `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">`,
+    `<meta http-equiv="Content-Security-Policy" content="${previewCsp(Boolean(options.authorScript))}">`,
     options.tailwind ? `<script src="${TAILWIND_CDN}"></script>` : "",
     ...runtimeTags(fragment),
     `<style>${slideUtilityCss}</style>`,
@@ -120,16 +154,16 @@ export function buildBeatHtmlDocument(fragment: BeatHtmlFragment, options: BeatD
     fragment.css ? `<style>${fragment.css}</style>` : "",
   ];
   const chartDriver = (fragment.requires ?? []).includes("chart") ? CHART_DRIVER : "";
-  const body = [fragment.html, chartDriver, mermaidInit(fragment)];
+  const body = [fragment.html, options.authorScript ?? "", chartDriver, mermaidInit(fragment)];
   return `<!doctype html><html><head>${head.join("")}</head><body>${body.join("")}</body></html>`;
 }
 
-// beatToHtml emits an html_tailwind beat at rest: no `script` field, no swipe `elements` driver, no `animation`.
-// The PNG path runs those, so such a beat stays on it rather than being shown without them.
+// beatToHtml emits an html_tailwind beat at rest. Its `script` field is added back here (`authorScriptTag`), but
+// the swipe `elements` driver and frame `animation` need mulmocast's render loop, so such a beat stays on the PNG path.
 function needsScriptedRender(beat: MulmoBeat): boolean {
   const image = beat.image;
   if (!image || image.type !== "html_tailwind") return false;
-  return image.script !== undefined || image.elements !== undefined || image.animation !== undefined;
+  return image.elements !== undefined || image.animation !== undefined;
 }
 
 // The PNG path paints a background image behind textSlide / markdown (often a local file the browser cannot
@@ -155,7 +189,9 @@ export function beatPreviewDocument(beat: unknown, index: number, options: BeatP
     if (!fragment) return null;
     const textCss = textBeatCss(parsed.data, options);
     const styled = textCss ? { ...fragment, css: [textCss, fragment.css ?? ""].join("\n") } : fragment;
-    return buildBeatHtmlDocument(styled, { canvas: options.canvas, tailwind: parsed.data.image?.type === "html_tailwind" });
+    const image = parsed.data.image;
+    const authorScript = image?.type === "html_tailwind" ? authorScriptTag(image.script) : "";
+    return buildBeatHtmlDocument(styled, { canvas: options.canvas, tailwind: image?.type === "html_tailwind", ...(authorScript ? { authorScript } : {}) });
   } catch {
     return null;
   }
