@@ -10,10 +10,12 @@ The MulmoScript view (`@mulmoclaude/mulmoscript-plugin`) renders every `textSlid
 
 ## Decisions (maintainer: recommended options)
 
-1. **Preview**: a beat `beatToHtml` can render is always shown as HTML in the list and the lightbox. Those beats are
-   no longer probed for / auto-rendered to PNG. PNGs are made only by the operations that need them (movie / PDF
-   export render their own). A beat `beatToHtml` returns `undefined` for (or throws on) falls back to the old PNG
-   path unchanged. The script is the source of truth, so an edited beat never shows a stale PNG.
+1. **Preview**: the six generated types (`textSlide`, `markdown`, `chart`, `mermaid`, `html_tailwind`, `slide`) are
+   shown as HTML in the list and the lightbox, and are no longer probed for / auto-rendered to PNG. PNGs are made
+   only by the operations that need them (movie / PDF export render their own). Any beat the browser rendering
+   cannot reproduce stays on the PNG path unchanged: `image` / `movie` beats, `html_tailwind` with a `script` field,
+   `elements` or `animation`, text beats with a background image (own or deck-wide), and anything `beatToHtml`
+   returns `undefined` for or throws on. The script is the source of truth, so an edited beat never shows a stale PNG.
 2. **Isolation**: every fragment goes into its own `sandbox="allow-scripts"` iframe (`srcdoc`, no
    `allow-same-origin`) carrying a CSP meta. The fragment is not sanitized by mulmocast and `html_tailwind` carries
    author HTML, so it must not touch the host DOM; the iframe also gives the same rendering inside MulmoTerminal's
