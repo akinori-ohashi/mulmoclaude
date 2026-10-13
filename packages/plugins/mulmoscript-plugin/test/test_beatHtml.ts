@@ -111,6 +111,7 @@ describe("previewOptionsOf", () => {
     assert.equal(loads(textSlide), false);
     assert.equal(loads(markdown), false);
     assert.equal(loads({ text: "x", image: { type: "markdown", markdown: ["# T", "```mermaid", "graph TD; A-->B", "```"] } }), true);
+    assert.equal(loads({ text: "x", image: { type: "markdown", markdown: '# T\r\n\r\n```mermaid title="Flow"\r\ngraph TD; A-->B\r\n```\r\n' } }), true);
   });
 
   it("leaves image and movie beats on the PNG path, though beatToHtml could draw them", () => {
@@ -218,5 +219,10 @@ describe("chart driver", () => {
     const doc = beatPreviewDocument({ text: "x", image: { type: "html_tailwind", html: "<p>x</p>", script: "" } }, 0, OPTIONS);
     assert.ok(doc);
     assert.doesNotMatch(doc, /script-src 'unsafe-inline' https:;/);
+  });
+
+  it("draws a figure slide (deck 2.1's layout)", () => {
+    const figure = { text: "x", image: { type: "slide", slide: { layout: "figure", title: "Fig", figure: { type: "mermaid", code: "graph TD; A-->B" } } } };
+    assert.ok(beatPreviewDocument(figure, 0, OPTIONS));
   });
 });

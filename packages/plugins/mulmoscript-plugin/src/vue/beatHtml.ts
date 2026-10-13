@@ -1,10 +1,20 @@
 // A beat rendered in the browser with mulmocast's `beatToHtml`, wrapped as a self-contained page for a sandboxed
 // iframe (`srcdoc`). Pure: no DOM, no network — the iframe does the loading.
 
-import { MulmoPresentationStyleMethods, beatToHtml, type BeatHtmlFragment, type MulmoBeat, type MulmoPresentationStyle } from "mulmocast/browser";
+// Schemas and types from the same mulmocast build as beatToHtml. @mulmocast/types validates the same at runtime (it
+// reads @mulmocast/deck), but its declarations inline an older deck's slide types (no `figure`).
+import {
+  MulmoPresentationStyleMethods,
+  beatToHtml,
+  mulmoBeatSchema,
+  mulmoCanvasDimensionSchema,
+  mulmoPresentationStyleSchema,
+  type BeatHtmlFragment,
+  type MulmoBeat,
+  type MulmoPresentationStyle,
+} from "mulmocast/browser";
 import { getMarkdownStyle } from "mulmocast/data";
 import { slideThemeSchema, slideUtilityCss, type SlideTheme } from "@mulmocast/deck";
-import { mulmoBeatSchema, mulmoCanvasDimensionSchema, mulmoPresentationStyleSchema } from "@mulmocast/types";
 import { isRecord } from "@mulmoclaude/common";
 
 // mulmocast's own HTML export (`actions/html.js`) loads the same runtimes for the same fragments.
@@ -171,15 +181,14 @@ function needsScriptedRender(beat: MulmoBeat): boolean {
 // html_tailwind is author markup and gets it as the PNG render does.
 const ALWAYS_TAILWIND_TYPES: ReadonlySet<string> = new Set(["slide", "chart", "mermaid", "html_tailwind"]);
 
-function needsTailwind(beat: MulmoBeat): boolean {
+function needsTailwind(beat: MulmoBeat, fragment: BeatHtmlFragment): boolean {
   const image = beat.image;
   if (!image) return false;
   if (ALWAYS_TAILWIND_TYPES.has(image.type)) return true;
   if (image.type !== "markdown") return false;
-  const { markdown } = image;
-  if (typeof markdown !== "string" && !Array.isArray(markdown)) return true;
-  const text = typeof markdown === "string" ? markdown : markdown.join("\n");
-  return text.includes("```mermaid");
+  // A layout object (incl. 2x2), or a mermaid fence — read from what beatToHtml actually produced, not re-lexed here.
+  const isLayout = typeof image.markdown !== "string" && !Array.isArray(image.markdown);
+  return isLayout || (fragment.requires ?? []).includes("mermaid");
 }
 
 // The PNG path paints a background image behind textSlide / markdown (often a local file the browser cannot
@@ -207,7 +216,7 @@ export function beatPreviewDocument(beat: unknown, index: number, options: BeatP
     const styled = textCss ? { ...fragment, css: [textCss, fragment.css ?? ""].join("\n") } : fragment;
     const image = parsed.data.image;
     const authorScript = image?.type === "html_tailwind" ? authorScriptTag(image.script) : "";
-    return buildBeatHtmlDocument(styled, { canvas: options.canvas, tailwind: needsTailwind(parsed.data), ...(authorScript ? { authorScript } : {}) });
+    return buildBeatHtmlDocument(styled, { canvas: options.canvas, tailwind: needsTailwind(parsed.data, fragment), ...(authorScript ? { authorScript } : {}) });
   } catch {
     return null;
   }
