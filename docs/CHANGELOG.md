@@ -8,6 +8,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Highlights
+
+#### MulmoScript beats preview in the browser (#3472, #3477, PR #3476, #3478, #3479)
+
+The MulmoScript view now draws generated beats (`textSlide`, `markdown`, `chart`, `mermaid`, `slide` and plain
+`html_tailwind`) in the browser with mulmocast's `beatToHtml`, so a preview no longer waits for a rendered PNG.
+Chart and mermaid beats draw as `@mulmocast/deck` figure slides, and slide, chart and mermaid beats load Tailwind.
+Beats the browser cannot reproduce (`html_tailwind` with `elements` / `animation`, background images, `image` /
+`movie`) still show the PNG. `@mulmoclaude/mulmoscript-plugin` 5.4.0 needs `mulmocast` 2.21+ and `@mulmocast/deck`
+2.1+ from the host.
+
 ## [2.4.1] - 2026-10-12
 
 **Memory no longer leaks out of the prompt during or after the format migration, sandbox users see their wiki again, and new workspaces start in the topic memory layout.**
