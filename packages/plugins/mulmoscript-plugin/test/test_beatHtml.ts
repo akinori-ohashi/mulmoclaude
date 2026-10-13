@@ -98,14 +98,19 @@ describe("previewOptionsOf", () => {
     assert.match(doc, new RegExp(`margin-top: ${DEFAULT_CANVAS.height * 0.45}px`));
   });
 
-  it("loads Tailwind only for html_tailwind beats, whose markup is written against it", () => {
-    const htmlTailwind = { text: "x", image: { type: "html_tailwind", html: '<div class="text-4xl">Hello</div>' } };
-    const tailwindDoc = beatPreviewDocument(htmlTailwind, 0, OPTIONS);
-    assert.ok(tailwindDoc);
-    assert.match(tailwindDoc, /<script src="https:\/\/cdn\.tailwindcss\.com">/);
-    const textDoc = beatPreviewDocument(textSlide, 0, OPTIONS);
-    assert.ok(textDoc);
-    assert.doesNotMatch(textDoc, /<script src="https:\/\/cdn\.tailwindcss\.com">/);
+  it("loads Tailwind for the fragments mulmocast documents as needing it, and not for text beats", () => {
+    const tailwindTag = /<script src="https:\/\/cdn\.tailwindcss\.com">/;
+    const loads = (beat: unknown): boolean => tailwindTag.test(beatPreviewDocument(beat, 0, OPTIONS) ?? "");
+    assert.equal(loads({ text: "x", image: { type: "html_tailwind", html: '<div class="text-4xl">Hello</div>' } }), true);
+    assert.equal(loads({ text: "x", image: { type: "slide", slide: { layout: "title", title: "Deck" } } }), true);
+    assert.equal(
+      loads({ text: "x", image: { type: "chart", title: "c", chartData: { type: "bar", data: { labels: ["a"], datasets: [{ data: [1] }] } } } }),
+      true,
+    );
+    assert.equal(loads(mermaid), true);
+    assert.equal(loads(textSlide), false);
+    assert.equal(loads(markdown), false);
+    assert.equal(loads({ text: "x", image: { type: "markdown", markdown: ["# T", "```mermaid", "graph TD; A-->B", "```"] } }), true);
   });
 
   it("leaves image and movie beats on the PNG path, though beatToHtml could draw them", () => {
