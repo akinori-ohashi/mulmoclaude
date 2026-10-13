@@ -39,6 +39,8 @@ export interface BeatPreviewOptions {
   slideTheme?: SlideTheme | undefined;
   /** Carries the script's `textSlideParams`, for the text-slide CSS the PNG path applies. */
   presentationStyle: MulmoPresentationStyle;
+  /** The deck sets `imageParams.backgroundImage`, which the PNG path paints behind text beats. */
+  deckBackgroundImage: boolean;
 }
 
 function recordField(value: unknown, key: string): unknown {
@@ -54,6 +56,7 @@ export function previewOptionsOf(script: unknown): BeatPreviewOptions {
     canvas: canvas.success ? canvas.data : { ...DEFAULT_CANVAS },
     slideTheme: theme.success ? theme.data : undefined,
     presentationStyle: textSlidePresentationStyle(recordField(script, "textSlideParams")),
+    deckBackgroundImage: recordField(recordField(script, "imageParams"), "backgroundImage") !== undefined,
   };
 }
 
@@ -129,10 +132,24 @@ function needsScriptedRender(beat: MulmoBeat): boolean {
   return image.script !== undefined || image.elements !== undefined || image.animation !== undefined;
 }
 
+// The PNG path paints a background image behind textSlide / markdown (often a local file the browser cannot
+// reach), which beatToHtml's markup does not carry — such a beat stays on the PNG path.
+function needsBackgroundImage(beat: MulmoBeat, options: BeatPreviewOptions): boolean {
+  const image = beat.image;
+  if (!image || (image.type !== "textSlide" && image.type !== "markdown")) return false;
+  return image.backgroundImage !== undefined || options.deckBackgroundImage;
+}
+
 /** The `srcdoc` for a beat, or null when `beatToHtml` cannot render it (the caller keeps the PNG path). */
 export function beatPreviewDocument(beat: unknown, index: number, options: BeatPreviewOptions): string | null {
   const parsed = mulmoBeatSchema.safeParse(beat);
-  if (!parsed.success || !HTML_PREVIEW_TYPES.has(parsed.data.image?.type ?? "") || needsScriptedRender(parsed.data)) return null;
+  if (
+    !parsed.success ||
+    !HTML_PREVIEW_TYPES.has(parsed.data.image?.type ?? "") ||
+    needsScriptedRender(parsed.data) ||
+    needsBackgroundImage(parsed.data, options)
+  )
+    return null;
   try {
     const fragment = beatToHtml(parsed.data, { idPrefix: `beat-${index}`, ...(options.slideTheme ? { slideTheme: options.slideTheme } : {}) });
     if (!fragment) return null;

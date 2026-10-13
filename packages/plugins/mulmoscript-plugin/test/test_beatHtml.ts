@@ -123,4 +123,15 @@ describe("previewOptionsOf", () => {
     assert.equal(beatPreviewDocument(animated, 0, OPTIONS), null);
     assert.ok(beatPreviewDocument({ text: "x", image: { type: "html_tailwind", html } }, 0, OPTIONS));
   });
+
+  it("leaves a text beat with a background image (its own or the deck's) on the PNG path", () => {
+    const withOwn = {
+      text: "x",
+      image: { type: "textSlide", slide: { title: "T" }, backgroundImage: { type: "image", source: { kind: "url", url: "https://example.com/bg.png" } } },
+    };
+    assert.equal(beatPreviewDocument(withOwn, 0, OPTIONS), null);
+    const deckOptions = previewOptionsOf({ imageParams: { backgroundImage: { type: "image", source: { kind: "url", url: "https://example.com/bg.png" } } } });
+    assert.equal(beatPreviewDocument(textSlide, 0, deckOptions), null);
+    assert.ok(beatPreviewDocument(textSlide, 0, OPTIONS));
+  });
 });
