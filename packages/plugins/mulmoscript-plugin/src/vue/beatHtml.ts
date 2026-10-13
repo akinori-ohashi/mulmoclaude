@@ -106,7 +106,8 @@ const CHART_DRIVER = `<script>${CHART_DRIVER_JS}</script>`;
 /** An `html_tailwind` beat's `script` field as mulmocast's PNG render injects it: a module script when it uses
  *  ESM `import` / `export`, a classic one otherwise. beatToHtml leaves the field out. */
 export function authorScriptTag(script: string | readonly string[] | undefined): string {
-  if (script === undefined) return "";
+  // Same test as mulmocast's `buildUserScript` (`if (!script)`): an empty string is no script.
+  if (script === undefined || script === "") return "";
   const code = typeof script === "string" ? script : script.join("\n");
   const isModule = code.split("\n").some((line) => {
     const trimmed = line.trimStart();

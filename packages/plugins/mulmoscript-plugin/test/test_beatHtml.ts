@@ -147,6 +147,7 @@ describe("previewOptionsOf", () => {
 describe("authorScriptTag", () => {
   it("emits a module script when the code imports or exports, a classic one otherwise", () => {
     assert.equal(authorScriptTag(undefined), "");
+    assert.equal(authorScriptTag(""), "");
     assert.equal(authorScriptTag("run();"), "<script>\nrun();\n</script>");
     assert.equal(
       authorScriptTag(["  import x from 'https://esm.sh/x';", "x();"]),
@@ -206,5 +207,11 @@ describe("chart driver", () => {
     assert.ok(dataset);
     assert.deepEqual(dataset.backgroundColor, ["red"]);
     assert.equal(config.options?.animation, false);
+  });
+
+  it("keeps the narrow CSP for an html_tailwind beat whose script field is empty", () => {
+    const doc = beatPreviewDocument({ text: "x", image: { type: "html_tailwind", html: "<p>x</p>", script: "" } }, 0, OPTIONS);
+    assert.ok(doc);
+    assert.doesNotMatch(doc, /script-src 'unsafe-inline' https:;/);
   });
 });
