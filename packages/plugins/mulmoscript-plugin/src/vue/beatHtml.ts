@@ -21,9 +21,11 @@ const PREVIEW_CSP = [
   "style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
   "font-src https: data:",
   "img-src https: data: blob:",
-  // A `movie` beat with a URL source comes back as a <video>.
-  "media-src https: data: blob:",
 ].join("; ");
+
+// The generated types the PNG path used to render with Chrome (#3472). `image` / `movie` beats, which beatToHtml also
+// draws, point at real files and URLs and stay on the PNG path.
+const HTML_PREVIEW_TYPES: ReadonlySet<string> = new Set(["textSlide", "markdown", "chart", "mermaid", "html_tailwind", "slide"]);
 
 export const DEFAULT_CANVAS = { width: 1280, height: 720 } as const;
 
@@ -122,7 +124,7 @@ export function buildBeatHtmlDocument(fragment: BeatHtmlFragment, options: BeatD
 /** The `srcdoc` for a beat, or null when `beatToHtml` cannot render it (the caller keeps the PNG path). */
 export function beatPreviewDocument(beat: unknown, index: number, options: BeatPreviewOptions): string | null {
   const parsed = mulmoBeatSchema.safeParse(beat);
-  if (!parsed.success) return null;
+  if (!parsed.success || !HTML_PREVIEW_TYPES.has(parsed.data.image?.type ?? "")) return null;
   try {
     const fragment = beatToHtml(parsed.data, { idPrefix: `beat-${index}`, ...(options.slideTheme ? { slideTheme: options.slideTheme } : {}) });
     if (!fragment) return null;

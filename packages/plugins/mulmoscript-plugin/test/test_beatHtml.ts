@@ -108,11 +108,10 @@ describe("previewOptionsOf", () => {
     assert.doesNotMatch(textDoc, /<script src="https:\/\/cdn\.tailwindcss\.com">/);
   });
 
-  it("lets a movie beat with a URL source play: the CSP allows https media", () => {
+  it("leaves image and movie beats on the PNG path, though beatToHtml could draw them", () => {
+    const image = { text: "x", image: { type: "image", source: { kind: "url", url: "https://example.com/a.png" } } };
     const movie = { text: "x", image: { type: "movie", source: { kind: "url", url: "https://example.com/clip.mp4" } } };
-    const doc = beatPreviewDocument(movie, 0, OPTIONS);
-    assert.ok(doc);
-    assert.match(doc, /<video/);
-    assert.match(doc, /media-src https:/);
+    assert.equal(beatPreviewDocument(image, 0, OPTIONS), null);
+    assert.equal(beatPreviewDocument(movie, 0, OPTIONS), null);
   });
 });
