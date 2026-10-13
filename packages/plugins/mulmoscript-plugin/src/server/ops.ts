@@ -42,7 +42,10 @@ import {
   addSessionProgressCallback,
   removeSessionProgressCallback,
 } from "mulmocast";
-import type { MulmoBeat, MulmoImagePromptMedia, MulmoStudioContext } from "@mulmocast/types";
+import type { MulmoBeat, MulmoImagePromptMedia } from "@mulmocast/types";
+// From mulmocast itself, which builds the context: @mulmocast/types inlines the deck slide types of its own build,
+// so its copy drifts from mulmocast's whenever deck gains a layout (deck 2.1.0's `figure`).
+import type { MulmoStudioContext } from "mulmocast";
 import { DEFAULT_ROOT, normalizeRoot } from "../core/contract";
 import type { MulmoScriptGenerationEvent } from "../core/contract";
 import { isAbsoluteStoryPath, normalizeStoryPath, STORY_TARGET_EXTENSIONS, storyRefWithin, storiesRelativePath } from "../core/paths";

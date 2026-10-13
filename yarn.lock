@@ -1962,12 +1962,12 @@
   dependencies:
     dompurify "^3.4.14"
 
-"@mulmocast/deck@^2.0.0", "@mulmocast/deck@^2.0.2":
-  version "2.0.2"
-  resolved "https://registry.yarnpkg.com/@mulmocast/deck/-/deck-2.0.2.tgz#1639a57e3a8ea60c359eaac1e4fd67af8564bcc4"
-  integrity sha512-+nGutuJeBi/5W/cUdpwogOgYWxtWNNb/PnmdCkuk12ulzzTlAKwB7yQn46QlDw9D41XoGIsRFQK1awujNeStxA==
+"@mulmocast/deck@^2.0.0", "@mulmocast/deck@^2.1.0":
+  version "2.1.0"
+  resolved "https://registry.yarnpkg.com/@mulmocast/deck/-/deck-2.1.0.tgz#e90a8ae033fff62abf6fb17b90498b38d288ad90"
+  integrity sha512-iT3iCodNafOmXeBvE7lBEzOcQETPCplujKsFcoibeNWhx9QWJy3TUHukJd5f9S96a6nZabgh+0WcnvnhXemKeg==
   dependencies:
-    zod "^4.4.3"
+    zod "^4.6.5"
 
 "@mulmocast/types@^2.19.0":
   version "2.19.0"
@@ -8035,10 +8035,10 @@ mulmocast-vision@^1.0.12:
     puppeteer "^25.3.0"
     yauzl "^3.4.0"
 
-mulmocast@^2.19.0, mulmocast@^2.20.0:
-  version "2.20.0"
-  resolved "https://registry.yarnpkg.com/mulmocast/-/mulmocast-2.20.0.tgz#22bd206e048f769847ec188f4bde0fdda4d37cdc"
-  integrity sha512-XsNzOgIrnfnClj26X+eYq7557r8Y7QdHpYPC99NSWnmXdjLaRqh6cRLCvrIMSZbKL9oSQBDbXlQdJsqm1I4cdA==
+mulmocast@^2.21.0:
+  version "2.21.0"
+  resolved "https://registry.yarnpkg.com/mulmocast/-/mulmocast-2.21.0.tgz#5e5b85f94d79544018071fff61dea93dfc24f6b7"
+  integrity sha512-M/4WnblfMi4FcJ6dl4vdALna4bCYVSk5iM+4ErZ8gFIKLkpCVLWRkML8DYerKqiUsdoB6T+RInFEtCBcpv2K1Q==
   dependencies:
     "@google-cloud/text-to-speech" "^7.1.1"
     "@google/genai" "^2.28.0"
@@ -8056,7 +8056,7 @@ mulmocast@^2.19.0, mulmocast@^2.20.0:
     "@modelcontextprotocol/sdk" "^1.32.1"
     "@modernized/fluent-ffmpeg" "^1.0.3"
     "@mozilla/readability" "^0.6.0"
-    "@mulmocast/deck" "^2.0.2"
+    "@mulmocast/deck" "^2.1.0"
     "@tavily/core" "^0.7.14"
     archiver "^8.0.0"
     clipboardy "^5.3.2"
