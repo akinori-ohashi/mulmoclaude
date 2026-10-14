@@ -19,6 +19,8 @@ Beats the browser cannot reproduce (`html_tailwind` with `elements` / `animation
 `movie`) still show the PNG. `@mulmoclaude/mulmoscript-plugin` 5.4.0 needs `mulmocast` 2.21+ and `@mulmocast/deck`
 2.1+ from the host.
 
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.3`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.4.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ## [2.4.1] - 2026-10-12
 
 **Memory no longer leaks out of the prompt during or after the format migration, sandbox users see their wiki again, and new workspaces start in the topic memory layout.**
