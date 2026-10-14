@@ -37,6 +37,7 @@ function previewCsp(authorScripts: boolean): string {
     "style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
     "font-src https: data:",
     "img-src https: data: blob:",
+    "media-src https: data: blob:",
   ].join("; ");
 }
 
@@ -191,36 +192,43 @@ function needsTailwind(beat: MulmoBeat, fragment: BeatHtmlFragment): boolean {
   return isLayout || (fragment.requires ?? []).includes("mermaid");
 }
 
-// A `path` image sits next to the script on disk, where the PNG path reads it and the sandboxed preview cannot, so a
-// beat whose background or branding uses one stays on the PNG path. So does a chart / mermaid beat with a named
-// `style`, which beatToHtml does not apply. A beat-level `null` switches the deck's setting off, as mulmocast resolves it.
+// The PNG path reads a `path` image from disk next to the script and fetches any url; the sandboxed preview can do
+// neither for a workspace file, and its CSP loads images over https only. A beat whose background or branding needs
+// one stays on the PNG path. So does a chart / mermaid beat with a named `style`, which beatToHtml does not apply.
+// A beat-level `null` switches the deck's setting off, as mulmocast resolves it.
 const BACKGROUND_IMAGE_TYPES: ReadonlySet<string> = new Set(["textSlide", "markdown", "chart", "mermaid"]);
 
-function isLocalFile(source: { kind: string } | undefined): boolean {
+const PREVIEW_IMAGE_URL = /^(https|data):/i;
+
+type ImageSource = { kind: "url"; url: string } | { kind: "base64"; data: string } | { kind: "path"; path: string };
+
+function previewCannotLoad(source: ImageSource | undefined): boolean {
+  if (source?.kind === "url") return !PREVIEW_IMAGE_URL.test(source.url);
   return source?.kind === "path";
 }
 
-function backgroundReadsLocalFile(beatValue: unknown, deckValue: DeckBackgroundImage | undefined): boolean {
+function backgroundNeedsPng(beatValue: unknown, deckValue: DeckBackgroundImage | undefined): boolean {
   const resolved = beatValue === undefined ? deckValue : backgroundImageOf(beatValue);
-  return typeof resolved === "object" && isLocalFile(resolved.source);
+  if (typeof resolved === "string") return !PREVIEW_IMAGE_URL.test(resolved);
+  return previewCannotLoad(resolved?.source);
 }
 
-function brandingReadsLocalFile(beatValue: SlideBranding | null | undefined, deckValue: SlideBranding | undefined): boolean {
+function brandingNeedsPng(beatValue: SlideBranding | null | undefined, deckValue: SlideBranding | undefined): boolean {
   const resolved = beatValue === undefined ? deckValue : (beatValue ?? undefined);
-  return isLocalFile(resolved?.logo?.source) || isLocalFile(resolved?.backgroundImage?.source);
+  return previewCannotLoad(resolved?.logo?.source) || previewCannotLoad(resolved?.backgroundImage?.source);
 }
 
 function needsPngRender(beat: MulmoBeat, options: BeatPreviewOptions): boolean {
   const image = beat.image;
   if (!image) return false;
-  if (image.type === "slide") return brandingReadsLocalFile(image.branding, options.deckBranding);
+  if (image.type === "slide") return brandingNeedsPng(image.branding, options.deckBranding);
   if (!BACKGROUND_IMAGE_TYPES.has(image.type)) return false;
   if ((image.type === "chart" || image.type === "mermaid") && image.style) return true;
-  return backgroundReadsLocalFile(recordField(image, "backgroundImage"), options.deckBackgroundImage);
+  return backgroundNeedsPng(recordField(image, "backgroundImage"), options.deckBackgroundImage);
 }
 
 /** A background or branding image as the PNG path inlines it (`MulmoMediaSourceMethods.toDataUrl`): a url as
- *  written, base64 as a PNG `data:` URI unless it already is one. A `path` never gets here (`needsPngRender`). */
+ *  written, base64 as a PNG `data:` URI unless it already is one. A `path` or non-https url never gets here (`needsPngRender`). */
 export function previewMediaUrl(source: MulmoMediaSource): string | undefined {
   if (source.kind === "url") return source.url;
   if (source.kind === "base64") return source.data.startsWith("data:") ? source.data : `data:image/png;base64,${source.data}`;

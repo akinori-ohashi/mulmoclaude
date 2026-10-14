@@ -195,6 +195,22 @@ describe("previewOptionsOf", () => {
     assert.ok(beatPreviewDocument({ ...textSlide, image: { ...textSlide.image, backgroundImage: urlBackground } }, 0, deckOptions));
   });
 
+  it("leaves a background or branding the CSP would block (a non-https url) on the PNG path", () => {
+    const httpBackground = { type: "image", source: { kind: "url", url: "http://example.com/bg.png" } };
+    assert.equal(beatPreviewDocument({ ...textSlide, image: { ...textSlide.image, backgroundImage: httpBackground } }, 0, OPTIONS), null);
+    assert.equal(beatPreviewDocument(textSlide, 0, previewOptionsOf({ imageParams: { backgroundImage: "http://example.com/bg.png" } })), null);
+    const httpLogo = { logo: { source: { kind: "url", url: "http://example.com/logo.png" } } };
+    const slide = { text: "x", image: { type: "slide", slide: { layout: "title", title: "Deck" }, branding: httpLogo } };
+    assert.equal(beatPreviewDocument(slide, 0, OPTIONS), null);
+    assert.ok(beatPreviewDocument(textSlide, 0, previewOptionsOf({ imageParams: { backgroundImage: "HTTPS://example.com/bg.png" } })));
+  });
+
+  it("lets the page load video and audio over https, as an html_tailwind beat's markup may", () => {
+    const doc = beatPreviewDocument({ text: "x", image: { type: "html_tailwind", html: '<video src="https://example.com/a.mp4"></video>' } }, 0, OPTIONS);
+    assert.ok(doc);
+    assert.match(doc, /media-src https: data: blob:/);
+  });
+
   it("leaves a chart or mermaid beat with a named style on the PNG path, as the PNG render applies it", () => {
     assert.equal(beatPreviewDocument({ ...mermaid, image: { ...mermaid.image, style: "github" } }, 0, OPTIONS), null);
   });
