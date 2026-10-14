@@ -151,6 +151,17 @@ describe("previewOptionsOf", () => {
     assert.ok(beatPreviewDocument(mermaid, 0, OPTIONS));
   });
 
+  it("leaves a chart or mermaid beat with a named style on the PNG path, as the PNG render applies it", () => {
+    assert.equal(beatPreviewDocument({ ...mermaid, image: { ...mermaid.image, style: "github" } }, 0, OPTIONS), null);
+  });
+
+  it("reads a deck-level null background or branding as none", () => {
+    const options = previewOptionsOf({ imageParams: { backgroundImage: null }, slideParams: { branding: null } });
+    assert.equal(options.deckBackgroundImage, false);
+    assert.equal(options.deckBranding, false);
+    assert.ok(beatPreviewDocument(textSlide, 0, options));
+  });
+
   it("previews a beat whose null background switches the deck's off", () => {
     const deckOptions = previewOptionsOf({ imageParams: { backgroundImage: "https://example.com/bg.png" } });
     assert.ok(beatPreviewDocument({ ...textSlide, image: { ...textSlide.image, backgroundImage: null } }, 0, deckOptions));

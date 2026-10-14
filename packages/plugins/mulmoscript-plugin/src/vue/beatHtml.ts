@@ -72,8 +72,9 @@ export function previewOptionsOf(script: unknown): BeatPreviewOptions {
     canvas: canvas.success ? canvas.data : { ...DEFAULT_CANVAS },
     slideTheme: theme.success ? theme.data : undefined,
     presentationStyle: textSlidePresentationStyle(recordField(script, "textSlideParams")),
-    deckBackgroundImage: recordField(recordField(script, "imageParams"), "backgroundImage") !== undefined,
-    deckBranding: recordField(slideParams, "branding") !== undefined,
+    // mulmocast reads a deck-level `null` as "none", like an absent field.
+    deckBackgroundImage: recordField(recordField(script, "imageParams"), "backgroundImage") != null,
+    deckBranding: recordField(slideParams, "branding") != null,
   };
 }
 
@@ -195,8 +196,8 @@ function needsTailwind(beat: MulmoBeat, fragment: BeatHtmlFragment): boolean {
 }
 
 // The PNG path paints a background image behind these beats and branding on slides (often local files the browser
-// cannot reach); beatToHtml's markup carries neither, so such a beat stays on the PNG path. A beat-level `null`
-// switches the deck's setting off, as mulmocast resolves it.
+// cannot reach), and styles chart / mermaid with a named `style`; beatToHtml's markup carries none of them, so such
+// a beat stays on the PNG path. A beat-level `null` switches the deck's setting off, as mulmocast resolves it.
 const BACKGROUND_IMAGE_TYPES: ReadonlySet<string> = new Set(["textSlide", "markdown", "chart", "mermaid"]);
 
 function resolvesToSet(beatValue: unknown, deckValue: boolean): boolean {
@@ -209,6 +210,7 @@ function needsDecoration(beat: MulmoBeat, options: BeatPreviewOptions): boolean 
   if (!image) return false;
   if (image.type === "slide") return resolvesToSet(image.branding, options.deckBranding);
   if (!BACKGROUND_IMAGE_TYPES.has(image.type)) return false;
+  if ((image.type === "chart" || image.type === "mermaid") && image.style) return true;
   return resolvesToSet(recordField(image, "backgroundImage"), options.deckBackgroundImage);
 }
 
