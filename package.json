@@ -140,7 +140,7 @@
     "material-icons": "^1.13.14",
     "material-symbols": "^0.48.0",
     "mermaid": "^12.2.0",
-    "mulmocast": "^2.21.0",
+    "mulmocast": "^2.22.0",
     "node-html-parser": "^9.0.4",
     "node-pty": "^1.1.0",
     "puppeteer": "^25.13.0",
