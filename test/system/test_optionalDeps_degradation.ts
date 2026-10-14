@@ -4,8 +4,9 @@
 // real ffmpeg/docker needed — the probe cache is seeded directly).
 //
 // Proves:
-//  1. ffmpeg absent  → generateMovie / renderBeat return a clean
-//     HTTP 503 instead of letting mulmocast crash mid-stream.
+//  1. ffmpeg absent  → generateMovie returns a clean HTTP 503 instead
+//     of letting mulmocast crash mid-stream; renderBeat is not refused
+//     up front (only beats that make or use a movie need ffmpeg).
 //  2. ffmpeg absent  → boot announce emits a `deps` warn that
 //     attributes the affected plugin (presentMulmoScript).
 //  3. ffmpeg present → no false "missing" warning.
@@ -102,11 +103,11 @@ async function callRoute(url: string, body: unknown): Promise<MockResponse> {
 describe("optional-deps: ffmpeg route guard", () => {
   afterEach(() => _resetOptionalDepsCacheForTest());
 
-  it("renderBeat returns 503 with a clear message when ffmpeg is unavailable", async () => {
+  it("renderBeat is not refused up front when ffmpeg is unavailable — a still beat renders without it", async () => {
     _setOptionalDepsCacheForTest(FFMPEG_ABSENT);
     const res = await callRoute(API_ROUTES.mulmoScript.renderBeat.url, { filePath: "stories/x.json", beatIndex: 0 });
-    assert.equal(res.statusCode, 503);
-    assert.match(String((res.body as { error?: string }).error), /ffmpeg is not installed/);
+    assert.notEqual(res.statusCode, 503);
+    assert.doesNotMatch(String((res.body as { error?: string }).error), /ffmpeg is not installed/);
   });
 
   it("generateMovie returns 503 with a clear message when ffmpeg is unavailable", async () => {
