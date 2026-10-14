@@ -904,7 +904,12 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
     try {
       const result = await runStoryOp<{ image: string }>(filePath, { force, operation: "render-beat", root }, async ({ context }) => {
         const beat = context.studio.script.beats[beatIndex];
-        if (beatImageNeedsFfmpeg(beat, beat !== undefined && MulmoBeatMethods.isPluginVideo(beat))) {
+        const needsFfmpeg = beatImageNeedsFfmpeg(beat, {
+          isPluginVideo: beat !== undefined && MulmoBeatMethods.isPluginVideo(beat),
+          styleMovieParams: context.presentationStyle.movieParams,
+          suppressSpeech: Boolean(context.studio.script.audioParams?.suppressSpeech),
+        });
+        if (needsFfmpeg) {
           const ffmpeg = ffmpegGuard();
           if (ffmpeg) return ffmpeg;
         }
