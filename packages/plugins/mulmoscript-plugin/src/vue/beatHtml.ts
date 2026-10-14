@@ -53,8 +53,10 @@ export interface BeatPreviewOptions {
   slideTheme?: SlideTheme | undefined;
   /** Carries the script's `textSlideParams`, for the text-slide CSS the PNG path applies. */
   presentationStyle: MulmoPresentationStyle;
-  /** The deck sets `imageParams.backgroundImage`, which the PNG path paints behind text beats. */
+  /** The deck sets `imageParams.backgroundImage`, which the PNG path paints behind text, chart and mermaid beats. */
   deckBackgroundImage: boolean;
+  /** The deck sets `slideParams.branding` (logo / background), which the PNG path draws on slide beats. */
+  deckBranding: boolean;
 }
 
 function recordField(value: unknown, key: string): unknown {
@@ -70,7 +72,9 @@ export function previewOptionsOf(script: unknown): BeatPreviewOptions {
     canvas: canvas.success ? canvas.data : { ...DEFAULT_CANVAS },
     slideTheme: theme.success ? theme.data : undefined,
     presentationStyle: textSlidePresentationStyle(recordField(script, "textSlideParams")),
-    deckBackgroundImage: recordField(recordField(script, "imageParams"), "backgroundImage") !== undefined,
+    // mulmocast reads a deck-level `null` as "none", like an absent field.
+    deckBackgroundImage: recordField(recordField(script, "imageParams"), "backgroundImage") != null,
+    deckBranding: recordField(slideParams, "branding") != null,
   };
 }
 
@@ -191,23 +195,29 @@ function needsTailwind(beat: MulmoBeat, fragment: BeatHtmlFragment): boolean {
   return isLayout || (fragment.requires ?? []).includes("mermaid");
 }
 
-// The PNG path paints a background image behind textSlide / markdown (often a local file the browser cannot
-// reach), which beatToHtml's markup does not carry — such a beat stays on the PNG path.
-function needsBackgroundImage(beat: MulmoBeat, options: BeatPreviewOptions): boolean {
+// The PNG path paints a background image behind these beats and branding on slides (often local files the browser
+// cannot reach), and styles chart / mermaid with a named `style`; beatToHtml's markup carries none of them, so such
+// a beat stays on the PNG path. A beat-level `null` switches the deck's setting off, as mulmocast resolves it.
+const BACKGROUND_IMAGE_TYPES: ReadonlySet<string> = new Set(["textSlide", "markdown", "chart", "mermaid"]);
+
+function resolvesToSet(beatValue: unknown, deckValue: boolean): boolean {
+  if (beatValue === null) return false;
+  return beatValue !== undefined || deckValue;
+}
+
+function needsDecoration(beat: MulmoBeat, options: BeatPreviewOptions): boolean {
   const image = beat.image;
-  if (!image || (image.type !== "textSlide" && image.type !== "markdown")) return false;
-  return image.backgroundImage !== undefined || options.deckBackgroundImage;
+  if (!image) return false;
+  if (image.type === "slide") return resolvesToSet(image.branding, options.deckBranding);
+  if (!BACKGROUND_IMAGE_TYPES.has(image.type)) return false;
+  if ((image.type === "chart" || image.type === "mermaid") && image.style) return true;
+  return resolvesToSet(recordField(image, "backgroundImage"), options.deckBackgroundImage);
 }
 
 /** The `srcdoc` for a beat, or null when `beatToHtml` cannot render it (the caller keeps the PNG path). */
 export function beatPreviewDocument(beat: unknown, index: number, options: BeatPreviewOptions): string | null {
   const parsed = mulmoBeatSchema.safeParse(beat);
-  if (
-    !parsed.success ||
-    !HTML_PREVIEW_TYPES.has(parsed.data.image?.type ?? "") ||
-    needsScriptedRender(parsed.data) ||
-    needsBackgroundImage(parsed.data, options)
-  )
+  if (!parsed.success || !HTML_PREVIEW_TYPES.has(parsed.data.image?.type ?? "") || needsScriptedRender(parsed.data) || needsDecoration(parsed.data, options))
     return null;
   try {
     const fragment = beatToHtml(parsed.data, { idPrefix: `beat-${index}`, ...(options.slideTheme ? { slideTheme: options.slideTheme } : {}) });
