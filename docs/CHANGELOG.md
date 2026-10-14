@@ -10,16 +10,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ### Highlights
 
-#### MulmoScript beats preview in the browser (#3472, #3477, PR #3476, #3478, #3479)
+#### MulmoScript beats preview in the browser (#3472, #3477, PR #3476, #3478, #3479, #3486, #3488)
 
 The MulmoScript view now draws generated beats (`textSlide`, `markdown`, `chart`, `mermaid`, `slide` and plain
 `html_tailwind`) in the browser with mulmocast's `beatToHtml`, so a preview no longer waits for a rendered PNG.
 Chart and mermaid beats draw as `@mulmocast/deck` figure slides, and slide, chart and mermaid beats load Tailwind.
-Beats the browser cannot reproduce (`html_tailwind` with `elements` / `animation`, background images, `image` /
-`movie`) still show the PNG. `@mulmoclaude/mulmoscript-plugin` 5.4.0 needs `mulmocast` 2.21+ and `@mulmocast/deck`
-2.1+ from the host.
+`html_tailwind` beats with `script` / `elements` / `animation`, and background images and slide branding given as a
+URL or base64, also draw in the browser. Beats the browser cannot reproduce (images given as a local `path`, `http:`
+URLs, chart / mermaid with a named style, `image` / `movie`) still show the PNG. `@mulmoclaude/mulmoscript-plugin`
+5.5.0 needs `mulmocast` 2.22+ and `@mulmocast/deck` 2.1+ from the host.
 
-Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.3`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.4.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.3`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.4.1] - 2026-10-12
 
