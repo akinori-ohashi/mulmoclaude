@@ -52,7 +52,7 @@ import { errorMessage } from "@mulmoclaude/common";
 import { resolveWithinRoot } from "@mulmoclaude/core/files";
 import { fileToDataUri, stripDataUri } from "./support";
 import { beatMovieCandidates } from "./beatMovieCandidates";
-import { beatImageNeedsFfmpeg } from "./beatNeedsFfmpeg";
+import { beatRendersWithoutFfmpeg } from "./beatRendersWithoutFfmpeg";
 import { missingRootCapabilities } from "./types";
 import { enableGraphAIErrorCapture, setMulmoErrorCaptureLogger, withMulmoErrorCapture } from "./mulmoErrorCapture";
 import type {
@@ -904,12 +904,12 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
     try {
       const result = await runStoryOp<{ image: string }>(filePath, { force, operation: "render-beat", root }, async ({ context }) => {
         const beat = context.studio.script.beats[beatIndex];
-        const needsFfmpeg = beatImageNeedsFfmpeg(beat, {
+        const withoutFfmpeg = beatRendersWithoutFfmpeg(beat, {
           isPluginVideo: beat !== undefined && MulmoBeatMethods.isPluginVideo(beat),
           styleMovieParams: context.presentationStyle.movieParams,
           suppressSpeech: Boolean(context.studio.script.audioParams?.suppressSpeech),
         });
-        if (needsFfmpeg) {
+        if (!withoutFfmpeg) {
           const ffmpeg = ffmpegGuard();
           if (ffmpeg) return ffmpeg;
         }
