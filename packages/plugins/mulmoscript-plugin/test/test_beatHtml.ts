@@ -143,6 +143,30 @@ describe("previewOptionsOf", () => {
     assert.ok(beatPreviewDocument(textSlide, 0, OPTIONS));
   });
 
+  it("leaves chart and mermaid beats with a background image on the PNG path, as the PNG render paints one", () => {
+    const background = { type: "image", source: { kind: "url", url: "https://example.com/bg.png" } };
+    assert.equal(beatPreviewDocument({ ...mermaid, image: { ...mermaid.image, backgroundImage: background } }, 0, OPTIONS), null);
+    const deckOptions = previewOptionsOf({ imageParams: { backgroundImage: background } });
+    assert.equal(beatPreviewDocument(mermaid, 0, deckOptions), null);
+    assert.ok(beatPreviewDocument(mermaid, 0, OPTIONS));
+  });
+
+  it("previews a beat whose null background switches the deck's off", () => {
+    const deckOptions = previewOptionsOf({ imageParams: { backgroundImage: "https://example.com/bg.png" } });
+    assert.ok(beatPreviewDocument({ ...textSlide, image: { ...textSlide.image, backgroundImage: null } }, 0, deckOptions));
+    assert.ok(beatPreviewDocument({ ...mermaid, image: { ...mermaid.image, backgroundImage: null } }, 0, deckOptions));
+  });
+
+  it("leaves a slide with branding (its own or the deck's) on the PNG path, unless the beat switches it off", () => {
+    const slide = { text: "x", image: { type: "slide", slide: { layout: "title", title: "Deck" } } };
+    const branding = { logo: { source: { kind: "url", url: "https://example.com/logo.png" } } };
+    assert.ok(beatPreviewDocument(slide, 0, OPTIONS));
+    assert.equal(beatPreviewDocument({ ...slide, image: { ...slide.image, branding } }, 0, OPTIONS), null);
+    const deckOptions = previewOptionsOf({ slideParams: { theme: undefined, branding } });
+    assert.equal(beatPreviewDocument(slide, 0, deckOptions), null);
+    assert.ok(beatPreviewDocument({ ...slide, image: { ...slide.image, branding: null } }, 0, deckOptions));
+  });
+
   it("keeps the narrow script sources for beats without an author script", () => {
     const doc = beatPreviewDocument(textSlide, 0, OPTIONS);
     assert.ok(doc);
