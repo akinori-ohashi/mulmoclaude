@@ -64,7 +64,7 @@
     "jszip": "^3.10.2",
     "mammoth": "^1.13.0",
     "marked": "^18.1.1",
-    "mulmocast": "^2.21.0",
+    "mulmocast": "^2.22.0",
     "node-html-parser": "^9.0.4",
     "puppeteer": "^25.13.0",
     "sharp": "^0.35.5",

@@ -5,16 +5,19 @@
 // reads @mulmocast/deck), but its declarations inline an older deck's slide types (no `figure`).
 import {
   MulmoPresentationStyleMethods,
+  backgroundImageSchema,
   beatToHtml,
   mulmoBeatSchema,
   mulmoCanvasDimensionSchema,
   mulmoPresentationStyleSchema,
+  type BackgroundImage,
   type BeatHtmlFragment,
   type MulmoBeat,
+  type MulmoMediaSource,
   type MulmoPresentationStyle,
 } from "mulmocast/browser";
 import { getMarkdownStyle } from "mulmocast/data";
-import { slideThemeSchema, slideUtilityCss, type SlideTheme } from "@mulmocast/deck";
+import { slideBrandingSchema, slideThemeSchema, slideUtilityCss, type SlideBranding, type SlideTheme } from "@mulmocast/deck";
 import { isRecord } from "@mulmoclaude/common";
 
 // mulmocast's own HTML export (`actions/html.js`) loads the same runtimes for the same fragments.
@@ -23,9 +26,9 @@ const CHART_JS_CDN = "https://cdn.jsdelivr.net/npm/chart.js";
 const MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
 
 // The fragment is not sanitized (see `BeatHtmlFragment.html`) and the iframe has no same-origin access; this policy
-// only decides what the page may load. Inline script stays allowed: mermaid's init, the chart driver, and author
-// script in an `html_tailwind` beat all need it. An `html_tailwind` author script may import from any https CDN,
-// as it can in the PNG render; the sandbox, not the source list, is what keeps it away from the host.
+// only decides what the page may load. Inline script stays allowed: mermaid's init, the chart driver, and an
+// `html_tailwind` beat's `documentScript` all need it. That script may import from any https CDN, as it can in the
+// PNG render; the sandbox, not the source list, is what keeps it away from the host.
 function previewCsp(authorScripts: boolean): string {
   const scriptSources = authorScripts ? "https:" : "https://cdn.tailwindcss.com https://cdn.jsdelivr.net";
   return [
@@ -34,6 +37,7 @@ function previewCsp(authorScripts: boolean): string {
     "style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
     "font-src https: data:",
     "img-src https: data: blob:",
+    "media-src https: data: blob:",
   ].join("; ");
 }
 
@@ -48,15 +52,18 @@ export interface CanvasSize {
   height: number;
 }
 
+// The schema's type admits `null` ("switched off"); a resolved deck value never holds it.
+type DeckBackgroundImage = NonNullable<BackgroundImage>;
+
 export interface BeatPreviewOptions {
   canvas: CanvasSize;
   slideTheme?: SlideTheme | undefined;
   /** Carries the script's `textSlideParams`, for the text-slide CSS the PNG path applies. */
   presentationStyle: MulmoPresentationStyle;
-  /** The deck sets `imageParams.backgroundImage`, which the PNG path paints behind text, chart and mermaid beats. */
-  deckBackgroundImage: boolean;
-  /** The deck sets `slideParams.branding` (logo / background), which the PNG path draws on slide beats. */
-  deckBranding: boolean;
+  /** The deck's `imageParams.backgroundImage`, painted behind text, chart and mermaid beats. */
+  deckBackgroundImage: DeckBackgroundImage | undefined;
+  /** The deck's `slideParams.branding` (logo / background), drawn on slide beats. */
+  deckBranding: SlideBranding | undefined;
 }
 
 function recordField(value: unknown, key: string): unknown {
@@ -72,10 +79,20 @@ export function previewOptionsOf(script: unknown): BeatPreviewOptions {
     canvas: canvas.success ? canvas.data : { ...DEFAULT_CANVAS },
     slideTheme: theme.success ? theme.data : undefined,
     presentationStyle: textSlidePresentationStyle(recordField(script, "textSlideParams")),
-    // mulmocast reads a deck-level `null` as "none", like an absent field.
-    deckBackgroundImage: recordField(recordField(script, "imageParams"), "backgroundImage") != null,
-    deckBranding: recordField(slideParams, "branding") != null,
+    deckBackgroundImage: backgroundImageOf(recordField(recordField(script, "imageParams"), "backgroundImage")),
+    deckBranding: brandingOf(recordField(slideParams, "branding")),
   };
+}
+
+// mulmocast reads a `null` as "none", like an absent field.
+function backgroundImageOf(value: unknown): DeckBackgroundImage | undefined {
+  const parsed = backgroundImageSchema.safeParse(value);
+  return parsed.success ? (parsed.data ?? undefined) : undefined;
+}
+
+function brandingOf(value: unknown): SlideBranding | undefined {
+  const parsed = slideBrandingSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 // `getTextSlideStyle` reads only `textSlideParams`; the schema needs a `$mulmocast` header to parse at all.
@@ -117,19 +134,6 @@ export const CHART_DRIVER_JS = [
 
 const CHART_DRIVER = `<script>${CHART_DRIVER_JS}</script>`;
 
-/** An `html_tailwind` beat's `script` field as mulmocast's PNG render injects it: a module script when it uses
- *  ESM `import` / `export`, a classic one otherwise. beatToHtml leaves the field out. */
-export function authorScriptTag(script: string | readonly string[] | undefined): string {
-  // Same test as mulmocast's `buildUserScript` (`if (!script)`): an empty string is no script.
-  if (script === undefined || script === "") return "";
-  const code = typeof script === "string" ? script : script.join("\n");
-  const isModule = code.split("\n").some((line) => {
-    const trimmed = line.trimStart();
-    return trimmed.startsWith("import ") || trimmed.startsWith("export ");
-  });
-  return isModule ? `<script type="module">\n${code}\n</script>` : `<script>\n${code}\n</script>`;
-}
-
 function runtimeTags(fragment: BeatHtmlFragment): string[] {
   const requires = fragment.requires ?? [];
   const tags: string[] = [];
@@ -151,33 +155,26 @@ export interface BeatDocumentOptions {
   canvas: CanvasSize;
   /** Load Tailwind (see `needsTailwind`); its preflight would reset the text-slide CSS, so not for every beat. */
   tailwind: boolean;
-  /** The `html_tailwind` beat's own `script` field, appended after its markup. */
-  authorScript?: string;
 }
 
 export function buildBeatHtmlDocument(fragment: BeatHtmlFragment, options: BeatDocumentOptions): string {
   const { canvas } = options;
   const head = [
     '<meta charset="UTF-8">',
-    `<meta http-equiv="Content-Security-Policy" content="${previewCsp(Boolean(options.authorScript))}">`,
+    `<meta http-equiv="Content-Security-Policy" content="${previewCsp(Boolean(fragment.documentScript))}">`,
     options.tailwind ? `<script src="${TAILWIND_CDN}"></script>` : "",
     ...runtimeTags(fragment),
     `<style>${slideUtilityCss}</style>`,
-    // The host lays the iframe out at the canvas size (`BeatHtmlFrame.vue`), so this only pins the page to it.
-    `<style>html,body{width:${canvas.width}px;height:${canvas.height}px;overflow:hidden;background:#fff}</style>`,
+    // The host lays the iframe out at the canvas size (`BeatHtmlFrame.vue`), so this only pins the page to it. White
+    // goes on body alone so it spreads to the canvas, as in the PNG page; on html it would cover a background's ::before.
+    `<style>html,body{width:${canvas.width}px;height:${canvas.height}px;overflow:hidden}body{background:#fff}</style>`,
+    // Background first, as the PNG path writes it, so a text beat's own rules still win where both set a property.
+    fragment.documentCss ? `<style>${fragment.documentCss}</style>` : "",
     fragment.css ? `<style>${fragment.css}</style>` : "",
   ];
   const chartDriver = (fragment.requires ?? []).includes("chart") ? CHART_DRIVER : "";
-  const body = [fragment.html, options.authorScript ?? "", chartDriver, mermaidInit(fragment)];
+  const body = [fragment.html, fragment.documentScript ?? "", chartDriver, mermaidInit(fragment)];
   return `<!doctype html><html><head>${head.join("")}</head><body>${body.join("")}</body></html>`;
-}
-
-// beatToHtml emits an html_tailwind beat at rest. Its `script` field is added back here (`authorScriptTag`), but
-// the swipe `elements` driver and frame `animation` need mulmocast's render loop, so such a beat stays on the PNG path.
-function needsScriptedRender(beat: MulmoBeat): boolean {
-  const image = beat.image;
-  if (!image || image.type !== "html_tailwind") return false;
-  return image.elements !== undefined || image.animation !== undefined;
 }
 
 // Which fragments are written against Tailwind, per mulmocast's docs/api.md ("Providing Tailwind"): deck draws
@@ -195,38 +192,65 @@ function needsTailwind(beat: MulmoBeat, fragment: BeatHtmlFragment): boolean {
   return isLayout || (fragment.requires ?? []).includes("mermaid");
 }
 
-// The PNG path paints a background image behind these beats and branding on slides (often local files the browser
-// cannot reach), and styles chart / mermaid with a named `style`; beatToHtml's markup carries none of them, so such
-// a beat stays on the PNG path. A beat-level `null` switches the deck's setting off, as mulmocast resolves it.
+// The PNG path reads a `path` image from disk next to the script and fetches any url; the sandboxed preview can do
+// neither for a workspace file, and its CSP loads images over https only. A beat whose background or branding needs
+// one stays on the PNG path. So does a chart / mermaid beat with a named `style`, which beatToHtml does not apply.
+// A beat-level `null` switches the deck's setting off, as mulmocast resolves it.
 const BACKGROUND_IMAGE_TYPES: ReadonlySet<string> = new Set(["textSlide", "markdown", "chart", "mermaid"]);
 
-function resolvesToSet(beatValue: unknown, deckValue: boolean): boolean {
-  if (beatValue === null) return false;
-  return beatValue !== undefined || deckValue;
+const PREVIEW_IMAGE_URL = /^(https|data):/i;
+
+type ImageSource = { kind: "url"; url: string } | { kind: "base64"; data: string } | { kind: "path"; path: string };
+
+function previewCannotLoad(source: ImageSource | undefined): boolean {
+  if (source?.kind === "url") return !PREVIEW_IMAGE_URL.test(source.url);
+  return source?.kind === "path";
 }
 
-function needsDecoration(beat: MulmoBeat, options: BeatPreviewOptions): boolean {
+function backgroundNeedsPng(beatValue: unknown, deckValue: DeckBackgroundImage | undefined): boolean {
+  const resolved = beatValue === undefined ? deckValue : backgroundImageOf(beatValue);
+  if (typeof resolved === "string") return !PREVIEW_IMAGE_URL.test(resolved);
+  return previewCannotLoad(resolved?.source);
+}
+
+function brandingNeedsPng(beatValue: SlideBranding | null | undefined, deckValue: SlideBranding | undefined): boolean {
+  const resolved = beatValue === undefined ? deckValue : (beatValue ?? undefined);
+  return previewCannotLoad(resolved?.logo?.source) || previewCannotLoad(resolved?.backgroundImage?.source);
+}
+
+function needsPngRender(beat: MulmoBeat, options: BeatPreviewOptions): boolean {
   const image = beat.image;
   if (!image) return false;
-  if (image.type === "slide") return resolvesToSet(image.branding, options.deckBranding);
+  if (image.type === "slide") return brandingNeedsPng(image.branding, options.deckBranding);
   if (!BACKGROUND_IMAGE_TYPES.has(image.type)) return false;
   if ((image.type === "chart" || image.type === "mermaid") && image.style) return true;
-  return resolvesToSet(recordField(image, "backgroundImage"), options.deckBackgroundImage);
+  return backgroundNeedsPng(recordField(image, "backgroundImage"), options.deckBackgroundImage);
+}
+
+/** A background or branding image as the PNG path inlines it (`MulmoMediaSourceMethods.toDataUrl`): a url as
+ *  written, base64 as a PNG `data:` URI unless it already is one. A `path` or non-https url never gets here (`needsPngRender`). */
+export function previewMediaUrl(source: MulmoMediaSource): string | undefined {
+  if (source.kind === "url") return source.url;
+  if (source.kind === "base64") return source.data.startsWith("data:") ? source.data : `data:image/png;base64,${source.data}`;
+  return undefined;
 }
 
 /** The `srcdoc` for a beat, or null when `beatToHtml` cannot render it (the caller keeps the PNG path). */
 export function beatPreviewDocument(beat: unknown, index: number, options: BeatPreviewOptions): string | null {
   const parsed = mulmoBeatSchema.safeParse(beat);
-  if (!parsed.success || !HTML_PREVIEW_TYPES.has(parsed.data.image?.type ?? "") || needsScriptedRender(parsed.data) || needsDecoration(parsed.data, options))
-    return null;
+  if (!parsed.success || !HTML_PREVIEW_TYPES.has(parsed.data.image?.type ?? "") || needsPngRender(parsed.data, options)) return null;
   try {
-    const fragment = beatToHtml(parsed.data, { idPrefix: `beat-${index}`, ...(options.slideTheme ? { slideTheme: options.slideTheme } : {}) });
+    const fragment = beatToHtml(parsed.data, {
+      idPrefix: `beat-${index}`,
+      resolveMediaUrl: previewMediaUrl,
+      ...(options.slideTheme ? { slideTheme: options.slideTheme } : {}),
+      ...(options.deckBackgroundImage ? { backgroundImage: options.deckBackgroundImage } : {}),
+      ...(options.deckBranding ? { branding: options.deckBranding } : {}),
+    });
     if (!fragment) return null;
     const textCss = textBeatCss(parsed.data, options);
     const styled = textCss ? { ...fragment, css: [textCss, fragment.css ?? ""].join("\n") } : fragment;
-    const image = parsed.data.image;
-    const authorScript = image?.type === "html_tailwind" ? authorScriptTag(image.script) : "";
-    return buildBeatHtmlDocument(styled, { canvas: options.canvas, tailwind: needsTailwind(parsed.data, fragment), ...(authorScript ? { authorScript } : {}) });
+    return buildBeatHtmlDocument(styled, { canvas: options.canvas, tailwind: needsTailwind(parsed.data, fragment) });
   } catch {
     return null;
   }

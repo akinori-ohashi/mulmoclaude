@@ -50,7 +50,7 @@
     "@mulmoclaude/core": "^5.11.3",
     "graphai": "^2.0.18",
     "gui-chat-protocol": "^2.3.0",
-    "mulmocast": "^2.21.0",
+    "mulmocast": "^2.22.0",
     "vue": "^3.5.0"
   },
   "devDependencies": {
@@ -70,7 +70,7 @@
     "globals": "^17.13.0",
     "graphai": "^2.0.18",
     "gui-chat-protocol": "^2.3.0",
-    "mulmocast": "^2.21.0",
+    "mulmocast": "^2.22.0",
     "tailwindcss": "^4.3.2",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",

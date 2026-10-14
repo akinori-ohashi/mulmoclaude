@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { CHART_DRIVER_JS, DEFAULT_CANVAS, authorScriptTag, beatPreviewDocument, buildBeatHtmlDocument, previewOptionsOf } from "../src/vue/beatHtml.js";
+import { CHART_DRIVER_JS, DEFAULT_CANVAS, beatPreviewDocument, buildBeatHtmlDocument, previewMediaUrl, previewOptionsOf } from "../src/vue/beatHtml.js";
 
 const OPTIONS = previewOptionsOf({});
 
@@ -64,6 +64,21 @@ describe("buildBeatHtmlDocument", () => {
     assert.match(doc, /width:1080px;height:1920px/);
     assert.match(doc, /\.scoped\{color:red\}/);
   });
+
+  it("puts the white page background on body only, so a background image's ::before is not covered by html", () => {
+    const doc = buildBeatHtmlDocument({ html: "<p>x</p>" }, { canvas: DEFAULT_CANVAS, tailwind: false });
+    assert.match(doc, /overflow:hidden\}body\{background:#fff\}/);
+  });
+
+  it("writes documentCss before the fragment css, and documentScript after the markup", () => {
+    const doc = buildBeatHtmlDocument(
+      { html: "<p>x</p>", css: ".text{}", documentCss: "body{background-image:none}", documentScript: "<script>run()</script>" },
+      { canvas: DEFAULT_CANVAS, tailwind: false },
+    );
+    assert.match(doc, /body\{background-image:none\}<\/style><style>\.text\{\}/);
+    assert.match(doc, /<p>x<\/p><script>run\(\)<\/script>/);
+    assert.match(doc, /script-src 'unsafe-inline' https:;/);
+  });
 });
 
 describe("previewOptionsOf", () => {
@@ -121,59 +136,105 @@ describe("previewOptionsOf", () => {
     assert.equal(beatPreviewDocument(movie, 0, OPTIONS), null);
   });
 
-  it("draws an html_tailwind beat with its script field, but leaves elements / animation on the PNG path", () => {
+  it("draws an html_tailwind beat with its script after the markup, and widens the script sources for it", () => {
     const html = '<div id="x">Hi</div>';
     const scripted = { text: "x", image: { type: "html_tailwind", html, script: "document.getElementById('x').textContent='Run';" } };
     const doc = beatPreviewDocument(scripted, 0, OPTIONS);
     assert.ok(doc);
-    assert.match(doc, /<script>\ndocument\.getElementById\('x'\)\.textContent='Run';\n<\/script>/);
+    assert.match(doc, /<div id="x">Hi<\/div><script>\ndocument\.getElementById\('x'\)\.textContent='Run';\n<\/script>/);
     assert.match(doc, /script-src 'unsafe-inline' https:;/);
-    const animated = { text: "x", image: { type: "html_tailwind", html, animation: true } };
-    assert.equal(beatPreviewDocument(animated, 0, OPTIONS), null);
   });
 
-  it("leaves a text beat with a background image (its own or the deck's) on the PNG path", () => {
-    const withOwn = {
-      text: "x",
-      image: { type: "textSlide", slide: { title: "T" }, backgroundImage: { type: "image", source: { kind: "url", url: "https://example.com/bg.png" } } },
-    };
-    assert.equal(beatPreviewDocument(withOwn, 0, OPTIONS), null);
-    const deckOptions = previewOptionsOf({ imageParams: { backgroundImage: { type: "image", source: { kind: "url", url: "https://example.com/bg.png" } } } });
+  it("draws an animated html_tailwind beat with mulmocast's runtime, frame state and paused CSS animations", () => {
+    const animated = { text: "x", image: { type: "html_tailwind", html: "<div data-mulmo-animate></div>", animation: true } };
+    const doc = beatPreviewDocument(animated, 0, OPTIONS);
+    assert.ok(doc);
+    assert.match(doc, /window\.__MULMO/);
+    assert.match(doc, /animation-play-state/);
+  });
+
+  it("draws swipe elements with their driver", () => {
+    const swipe = { text: "x", image: { type: "html_tailwind", elements: [{ id: "box", text: "x", opacity: 0, to: { opacity: 1, timing: [0, 1] } }] } };
+    const doc = beatPreviewDocument(swipe, 0, OPTIONS);
+    assert.ok(doc);
+    assert.match(doc, /new MulmoAnimation\(\)/);
+  });
+
+  const urlBackground = { type: "image", source: { kind: "url", url: "https://example.com/bg.png" } };
+  const pathBackground = { type: "image", source: { kind: "path", path: "images/bg.png" } };
+
+  it("paints a text beat's url background (its own or the deck's) behind the page, before the text CSS", () => {
+    const own = beatPreviewDocument({ ...textSlide, image: { ...textSlide.image, backgroundImage: urlBackground } }, 0, OPTIONS);
+    assert.ok(own);
+    assert.match(own, /background-image: url\('https:\/\/example\.com\/bg\.png'\)[\s\S]*font-family: Arial/);
+    const deck = beatPreviewDocument(textSlide, 0, previewOptionsOf({ imageParams: { backgroundImage: "https://example.com/bg.png" } }));
+    assert.ok(deck);
+    assert.match(deck, /url\('https:\/\/example\.com\/bg\.png'\)/);
+    assert.doesNotMatch(beatPreviewDocument(textSlide, 0, OPTIONS) ?? "", /background-image/);
+  });
+
+  it("paints a base64 background as a data URI, which mulmocast's default resolver would skip", () => {
+    const base64Background = { type: "image", source: { kind: "base64", data: "iVBORw0KGgo=" } };
+    const doc = beatPreviewDocument({ ...textSlide, image: { ...textSlide.image, backgroundImage: base64Background } }, 0, OPTIONS);
+    assert.ok(doc);
+    assert.match(doc, /url\('data:image\/png;base64,iVBORw0KGgo='\)/);
+  });
+
+  it("paints a chart or mermaid beat's url background", () => {
+    const doc = beatPreviewDocument({ ...mermaid, image: { ...mermaid.image, backgroundImage: urlBackground } }, 0, OPTIONS);
+    assert.ok(doc);
+    assert.match(doc, /https:\/\/example\.com\/bg\.png/);
+  });
+
+  it("leaves a beat whose resolved background is a local file on the PNG path", () => {
+    assert.equal(beatPreviewDocument({ ...textSlide, image: { ...textSlide.image, backgroundImage: pathBackground } }, 0, OPTIONS), null);
+    assert.equal(beatPreviewDocument({ ...mermaid, image: { ...mermaid.image, backgroundImage: pathBackground } }, 0, OPTIONS), null);
+    const deckOptions = previewOptionsOf({ imageParams: { backgroundImage: pathBackground } });
     assert.equal(beatPreviewDocument(textSlide, 0, deckOptions), null);
-    assert.ok(beatPreviewDocument(textSlide, 0, OPTIONS));
+    assert.ok(beatPreviewDocument({ ...textSlide, image: { ...textSlide.image, backgroundImage: null } }, 0, deckOptions));
+    assert.ok(beatPreviewDocument({ ...textSlide, image: { ...textSlide.image, backgroundImage: urlBackground } }, 0, deckOptions));
   });
 
-  it("leaves chart and mermaid beats with a background image on the PNG path, as the PNG render paints one", () => {
-    const background = { type: "image", source: { kind: "url", url: "https://example.com/bg.png" } };
-    assert.equal(beatPreviewDocument({ ...mermaid, image: { ...mermaid.image, backgroundImage: background } }, 0, OPTIONS), null);
-    const deckOptions = previewOptionsOf({ imageParams: { backgroundImage: background } });
-    assert.equal(beatPreviewDocument(mermaid, 0, deckOptions), null);
-    assert.ok(beatPreviewDocument(mermaid, 0, OPTIONS));
+  it("leaves a background or branding the CSP would block (a non-https url) on the PNG path", () => {
+    const httpBackground = { type: "image", source: { kind: "url", url: "http://example.com/bg.png" } };
+    assert.equal(beatPreviewDocument({ ...textSlide, image: { ...textSlide.image, backgroundImage: httpBackground } }, 0, OPTIONS), null);
+    assert.equal(beatPreviewDocument(textSlide, 0, previewOptionsOf({ imageParams: { backgroundImage: "http://example.com/bg.png" } })), null);
+    const httpLogo = { logo: { source: { kind: "url", url: "http://example.com/logo.png" } } };
+    const slide = { text: "x", image: { type: "slide", slide: { layout: "title", title: "Deck" }, branding: httpLogo } };
+    assert.equal(beatPreviewDocument(slide, 0, OPTIONS), null);
+    assert.ok(beatPreviewDocument(textSlide, 0, previewOptionsOf({ imageParams: { backgroundImage: "HTTPS://example.com/bg.png" } })));
+  });
+
+  it("lets the page load video and audio over https, as an html_tailwind beat's markup may", () => {
+    const doc = beatPreviewDocument({ text: "x", image: { type: "html_tailwind", html: '<video src="https://example.com/a.mp4"></video>' } }, 0, OPTIONS);
+    assert.ok(doc);
+    assert.match(doc, /media-src https: data: blob:/);
   });
 
   it("leaves a chart or mermaid beat with a named style on the PNG path, as the PNG render applies it", () => {
     assert.equal(beatPreviewDocument({ ...mermaid, image: { ...mermaid.image, style: "github" } }, 0, OPTIONS), null);
   });
 
-  it("reads a deck-level null background or branding as none", () => {
-    const options = previewOptionsOf({ imageParams: { backgroundImage: null }, slideParams: { branding: null } });
-    assert.equal(options.deckBackgroundImage, false);
-    assert.equal(options.deckBranding, false);
-    assert.ok(beatPreviewDocument(textSlide, 0, options));
+  it("reads a deck-level null or malformed background or branding as none", () => {
+    const nulls = previewOptionsOf({ imageParams: { backgroundImage: null }, slideParams: { branding: null } });
+    assert.equal(nulls.deckBackgroundImage, undefined);
+    assert.equal(nulls.deckBranding, undefined);
+    assert.ok(beatPreviewDocument(textSlide, 0, nulls));
+    const malformed = previewOptionsOf({ imageParams: { backgroundImage: 42 }, slideParams: { branding: { logo: "x" } } });
+    assert.equal(malformed.deckBackgroundImage, undefined);
+    assert.equal(malformed.deckBranding, undefined);
   });
 
-  it("previews a beat whose null background switches the deck's off", () => {
-    const deckOptions = previewOptionsOf({ imageParams: { backgroundImage: "https://example.com/bg.png" } });
-    assert.ok(beatPreviewDocument({ ...textSlide, image: { ...textSlide.image, backgroundImage: null } }, 0, deckOptions));
-    assert.ok(beatPreviewDocument({ ...mermaid, image: { ...mermaid.image, backgroundImage: null } }, 0, deckOptions));
-  });
-
-  it("leaves a slide with branding (its own or the deck's) on the PNG path, unless the beat switches it off", () => {
+  it("draws a slide's url branding (its own or the deck's), and leaves a local-file one on the PNG path", () => {
     const slide = { text: "x", image: { type: "slide", slide: { layout: "title", title: "Deck" } } };
-    const branding = { logo: { source: { kind: "url", url: "https://example.com/logo.png" } } };
-    assert.ok(beatPreviewDocument(slide, 0, OPTIONS));
-    assert.equal(beatPreviewDocument({ ...slide, image: { ...slide.image, branding } }, 0, OPTIONS), null);
-    const deckOptions = previewOptionsOf({ slideParams: { theme: undefined, branding } });
+    const urlBranding = { logo: { source: { kind: "url", url: "https://example.com/logo.png" } } };
+    const pathBranding = { backgroundImage: { source: { kind: "path", path: "images/bg.png" } } };
+    const own = beatPreviewDocument({ ...slide, image: { ...slide.image, branding: urlBranding } }, 0, OPTIONS);
+    assert.ok(own);
+    assert.match(own, /https:\/\/example\.com\/logo\.png/);
+    assert.match(beatPreviewDocument(slide, 0, previewOptionsOf({ slideParams: { branding: urlBranding } })) ?? "", /example\.com\/logo\.png/);
+    assert.equal(beatPreviewDocument({ ...slide, image: { ...slide.image, branding: pathBranding } }, 0, OPTIONS), null);
+    const deckOptions = previewOptionsOf({ slideParams: { branding: pathBranding } });
     assert.equal(beatPreviewDocument(slide, 0, deckOptions), null);
     assert.ok(beatPreviewDocument({ ...slide, image: { ...slide.image, branding: null } }, 0, deckOptions));
   });
@@ -185,16 +246,12 @@ describe("previewOptionsOf", () => {
   });
 });
 
-describe("authorScriptTag", () => {
-  it("emits a module script when the code imports or exports, a classic one otherwise", () => {
-    assert.equal(authorScriptTag(undefined), "");
-    assert.equal(authorScriptTag(""), "");
-    assert.equal(authorScriptTag("run();"), "<script>\nrun();\n</script>");
-    assert.equal(
-      authorScriptTag(["  import x from 'https://esm.sh/x';", "x();"]),
-      "<script type=\"module\">\n  import x from 'https://esm.sh/x';\nx();\n</script>",
-    );
-    assert.match(authorScriptTag("export const a = 1;"), /^<script type="module">/);
+describe("previewMediaUrl", () => {
+  it("uses a url as written and turns base64 into a PNG data URI, as the PNG path inlines them", () => {
+    assert.equal(previewMediaUrl({ kind: "url", url: "https://example.com/a.png" }), "https://example.com/a.png");
+    assert.equal(previewMediaUrl({ kind: "base64", data: "iVBORw0KGgo=" }), "data:image/png;base64,iVBORw0KGgo=");
+    assert.equal(previewMediaUrl({ kind: "base64", data: "data:image/jpeg;base64,/9j/" }), "data:image/jpeg;base64,/9j/");
+    assert.equal(previewMediaUrl({ kind: "path", path: "images/a.png" }), undefined);
   });
 });
 
