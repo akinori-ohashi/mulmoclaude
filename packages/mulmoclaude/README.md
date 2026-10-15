@@ -29,6 +29,7 @@ Your browser opens to `http://localhost:3001`. That's it.
 | "Schedule a daily news digest"           | Recurring task that runs automatically                                                    |
 | "Generate an image of a sunset"          | AI-generated image (Gemini)                                                               |
 | "Make slides on …"                       | Marp-rendered slide deck with PDF export                                                  |
+| "Make a narrated video about …"          | MulmoScript storyboard previewed in the browser; movie / PDF export (movies need ffmpeg)  |
 | "Add this to my calendar"                | Event in your Google Calendar (sign in, no setup)                                         |
 | "Put that on my task list"               | Task in Google Tasks, with notes and a due date                                           |
 | "Subscribe to this RSS feed"             | Data feed on `/feeds`, fetched on a schedule                                              |
