@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-10-15
+
+**MulmoScript beats preview in the browser instead of waiting for a rendered PNG, and still beat images render without ffmpeg.**
+
 ### Highlights
 
 #### MulmoScript beats preview in the browser (#3472, #3477, PR #3476, #3478, #3479, #3486, #3488)
