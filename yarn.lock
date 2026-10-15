@@ -8141,10 +8141,10 @@ mulmocast-vision@^1.0.12:
     puppeteer "^25.3.0"
     yauzl "^3.4.0"
 
-mulmocast@^2.22.0:
-  version "2.22.0"
-  resolved "https://registry.yarnpkg.com/mulmocast/-/mulmocast-2.22.0.tgz#cc738e9b9aafad5ceb9da20d1b20b44059ab2094"
-  integrity sha512-NZCyZ16DCr2Q6225u+j9aoHCmXA3vCyNNrHH5MEC82WtzLfDTDBVFSJ3OelVi34DNrNYTnfOrUimwG36yLpnrw==
+mulmocast@^2.22.1:
+  version "2.22.1"
+  resolved "https://registry.yarnpkg.com/mulmocast/-/mulmocast-2.22.1.tgz#d8123b9cc220b76cf786ebd01c3697fc72127637"
+  integrity sha512-uuBByGFvKZg0apj5AjXD9d9zyPNnFVvR2f84JxHNp6eaLzrdwar9wcEXQ9AgyOPvKMWvwDD6vVJpt/sTFJLw1g==
   dependencies:
     "@google-cloud/text-to-speech" "^7.1.1"
     "@google/genai" "^2.28.0"
