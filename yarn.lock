@@ -1262,7 +1262,7 @@
   dependencies:
     google-gax "^6.0.0"
 
-"@google/genai@^2.23.0", "@google/genai@^2.28.0", "@google/genai@^2.30.0":
+"@google/genai@^2.23.0", "@google/genai@^2.29.1", "@google/genai@^2.30.0":
   version "2.30.0"
   resolved "https://registry.yarnpkg.com/@google/genai/-/genai-2.30.0.tgz#841a256a199936d8f6ef3ff1339d809e5a672421"
   integrity sha512-Gkv1ix8iZey/V3WF4lHaRS8C71P533jenDT/lA+fdPTCfXYfmCVHvo+0H5jTgzonqsmROQG7QpzLJkpoP/x7bg==
@@ -5191,7 +5191,7 @@ domutils@^3.0.1, domutils@^3.1.0, domutils@^3.2.2:
     domelementtype "^2.3.0"
     domhandler "^5.0.3"
 
-dotenv@^18.0.7, dotenv@^18.0.8:
+dotenv@^18.0.8:
   version "18.0.8"
   resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-18.0.8.tgz#e51b1e4424d73df5e17802954dc503aaa565bd1a"
   integrity sha512-2KDeoFoK/zRtcnbunCDlLG5VWVMcyqeQc6iK65o231nfNAcuGrKoqUQfJFUtBI+QlShk5HKIHxwebBtUl3rEfA==
@@ -7060,10 +7060,10 @@ jackspeak@^3.1.2:
   optionalDependencies:
     "@pkgjs/parseargs" "^0.11.0"
 
-jinglescript@^0.7.0:
-  version "0.7.0"
-  resolved "https://registry.yarnpkg.com/jinglescript/-/jinglescript-0.7.0.tgz#2c0ec1c8597b25cb46f3ace2782681265dd51f90"
-  integrity sha512-4GatPDuSThsQwXIdDejkWLq5UeaAoKIYfI05jtaTiEz+9C4HidUzx8E6vRCfS7CDWdIoPInYdzuzwkxpMqfY2Q==
+jinglescript@^0.8.0:
+  version "0.8.0"
+  resolved "https://registry.yarnpkg.com/jinglescript/-/jinglescript-0.8.0.tgz#82560b0a3a35e933a6cac43e2f53bb6298e57a92"
+  integrity sha512-2DfgBmipstC2cXDBKTsbA1XFdmSC0VAnZszh9DgRjMXzdQGikXQ6svLPAgsPIXSiybitu7+bu9jT8Hk5jNpq8A==
   dependencies:
     "@modelcontextprotocol/sdk" "^1.32.1"
     zod "^4.6.5"
@@ -7786,7 +7786,7 @@ marked@^16.3.0:
   resolved "https://registry.yarnpkg.com/marked/-/marked-16.4.2.tgz#4959a64be6c486f0db7467ead7ce288de54290a3"
   integrity sha512-TI3V8YYWvkVf3KJe1dRkpnjs68JUPyEa5vjKrp1XEEJUAOaQc+Qj+L1qWbPd0SJuAdQkFU0h73sXXqwDYxsiDA==
 
-marked@^18.1.0, marked@^18.1.1:
+marked@^18.1.1:
   version "18.1.1"
   resolved "https://registry.yarnpkg.com/marked/-/marked-18.1.1.tgz#dd6288f8217971f7b0beefcabc52c92a6519b3e3"
   integrity sha512-zEGgrtUG8crk+TrMacJSVABU4DYDDkS8uqgU3ohrn/2fW9C2AEfUrO3m6IhpIpQpl7YcVpiXXC9cSMWDANT3dg==
@@ -8045,13 +8045,13 @@ mulmocast-vision@^1.0.12:
     puppeteer "^25.3.0"
     yauzl "^3.4.0"
 
-mulmocast@^2.22.1:
-  version "2.22.1"
-  resolved "https://registry.yarnpkg.com/mulmocast/-/mulmocast-2.22.1.tgz#d8123b9cc220b76cf786ebd01c3697fc72127637"
-  integrity sha512-uuBByGFvKZg0apj5AjXD9d9zyPNnFVvR2f84JxHNp6eaLzrdwar9wcEXQ9AgyOPvKMWvwDD6vVJpt/sTFJLw1g==
+mulmocast@^2.23.0:
+  version "2.23.0"
+  resolved "https://registry.yarnpkg.com/mulmocast/-/mulmocast-2.23.0.tgz#73c9c6efbfe0364cb6f72ed474a55c7d0b916df9"
+  integrity sha512-lLZgtwq/Z8VSCPkWPA/3M7jh7G3NyNKZHhBIsuQpyy49fX+ADFdbQRG0jm3iPpd/1v1y4DQMEAtXoX1atNpaRw==
   dependencies:
     "@google-cloud/text-to-speech" "^7.1.1"
-    "@google/genai" "^2.28.0"
+    "@google/genai" "^2.29.1"
     "@graphai/anthropic_agent" "^2.1.0"
     "@graphai/browserless_agent" "^2.0.4"
     "@graphai/gemini_agent" "^2.1.0"
@@ -8070,15 +8070,15 @@ mulmocast@^2.22.1:
     "@tavily/core" "^0.7.14"
     archiver "^8.0.0"
     clipboardy "^5.3.2"
-    dotenv "^18.0.7"
+    dotenv "^18.0.8"
     graphai "^2.0.18"
-    jinglescript "^0.7.0"
+    jinglescript "^0.8.0"
     js-tiktoken "^1.0.21"
     jsdom "^30.1.2"
-    marked "^18.1.0"
+    marked "^18.1.1"
     mulmocast-vision "^1.0.12"
     ora "^9.4.1"
-    puppeteer "^25.13.0"
+    puppeteer "^25.14.0"
     replicate "^1.4.0"
     yaml "^2.9.1"
     yargs "^18.2.0"
@@ -8917,7 +8917,7 @@ puppeteer-core@25.14.0:
     webdriver-bidi-protocol "1.0.1"
     ws "^8.22.0"
 
-puppeteer@^25.13.0, puppeteer@^25.14.0, puppeteer@^25.3.0:
+puppeteer@^25.14.0, puppeteer@^25.3.0:
   version "25.14.0"
   resolved "https://registry.yarnpkg.com/puppeteer/-/puppeteer-25.14.0.tgz#c17186820448d63f27e81b4064cbf53aac89c437"
   integrity sha512-+s1Iqbl9DsGLOaQdgCQyhtgHZsF9hi4Iu8iuBqxzraxUXoRG1QkYQI0CA1/VsNK1gZWJfs50BL/oOb1L+Yz8Yg==
