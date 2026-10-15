@@ -18,7 +18,14 @@ Chart and mermaid beats draw as `@mulmocast/deck` figure slides, and slide, char
 `html_tailwind` beats with `script` / `elements` / `animation`, and background images and slide branding given as a
 URL or base64, also draw in the browser. Beats the browser cannot reproduce (images given as a local `path`, `http:`
 URLs, chart / mermaid with a named style, `image` / `movie`) still show the PNG. `@mulmoclaude/mulmoscript-plugin`
-5.5.0 needs `mulmocast` 2.22+ and `@mulmocast/deck` 2.1+ from the host.
+5.5.0 needs `mulmocast` 2.22.1+ and `@mulmocast/deck` 2.1+ from the host.
+
+#### Beat images render without ffmpeg (#3475, PR #3490)
+
+Rendering a still beat image (the "generate" button, ↺, and the PDF path's per-beat images) no longer requires ffmpeg.
+mulmocast 2.22.1 stopped probing still PNGs with ffprobe, and the plugin now refuses only beats that make or use a
+movie (movie images, animated beats, `moviePrompt`, lip sync with `suppressSpeech`, named first/last frame images) when
+ffmpeg is missing.
 
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.3`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
