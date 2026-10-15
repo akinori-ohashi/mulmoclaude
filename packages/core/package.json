@@ -239,7 +239,7 @@
     "google-auth-library": "^11.3.0",
     "iconv-lite": "^0.7.3",
     "js-yaml": "^5.4.3",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "peerDependencies": {
     "@receptron/task-scheduler": "^1.0.3",

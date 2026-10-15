@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "vuedraggable": "^4.1.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "peerDependencies": {
     "@mulmoclaude/core": "^5.11.3",

@@ -40,7 +40,7 @@
     "vite-plugin-dts": "^5.1.2",
     "vue": "^3.5.43",
     "vue-tsc": "^3.3.13",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "license": "MIT",
   "homepage": "https://github.com/receptron/mulmoclaude/tree/main/packages/plugins/recipe-book-plugin#readme",
