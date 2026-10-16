@@ -32,6 +32,8 @@ import { previewSnippet } from "../../utils/logPreview.js";
 import { publishFileChange } from "../../events/file-change.js";
 import { makeArtifactsFileOps } from "../../plugins/runtime.js";
 import { isAblated } from "../../system/env.js";
+import { executeKenteiScript } from "../../plugins/kentei-builtin.js";
+import { META as KENTEI_META } from "../../../src/plugins/manageKenteiScript/meta.js";
 
 const router = Router();
 
@@ -404,6 +406,16 @@ bindRoute(
     if (result.data?.filePath) void publishFileChange(result.data.filePath);
     return result;
   }),
+);
+
+// manageKenteiScript — KenteiScript quizzes (`kenteiscript` package). The
+// package owns the actions, the TYPESAFE_API_KEY check and the script / path
+// handling; the host adds `files.byPath` (`.json` only) so a `path` relative to
+// the workspace, or absolute, can be read (server/plugins/kentei-builtin.ts).
+bindRoute(
+  router,
+  API_ROUTES.kentei.dispatch,
+  wrapPluginExecute((req) => executeKenteiScript(sessionToolContext(req, KENTEI_META.toolName), req.body)),
 );
 
 // mapControl — Google Map (showLocation / Places / Directions etc.)

@@ -8,6 +8,7 @@ import { META as canvasMeta } from "../canvas/meta";
 import { META as chartMeta } from "../chart/meta";
 import { META as editImagesMeta } from "../editImages/meta";
 import { META as generateImageMeta } from "../generateImage/meta";
+import { META as manageKenteiScriptMeta } from "../manageKenteiScript/meta";
 import { META as manageSkillsMeta } from "../manageSkills/meta";
 import { META as markdownMeta } from "../markdown/meta";
 import { META as photoLocationsMeta } from "../photoLocations/meta";
@@ -29,6 +30,7 @@ export const GENERATED_PLUGIN_METAS = [
   chartMeta,
   editImagesMeta,
   generateImageMeta,
+  manageKenteiScriptMeta,
   manageSkillsMeta,
   markdownMeta,
   photoLocationsMeta,

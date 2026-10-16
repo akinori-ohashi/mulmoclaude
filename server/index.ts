@@ -59,6 +59,10 @@ import "./plugins/html-builtin.js";
 // presentShapeScript View's useRuntime().dispatch({ kind }) resolves — the
 // source editor's load / save against artifacts/shapes/.
 import "./plugins/shapescript-builtin.js";
+// Side-effect: registers the built-in "kentei" dispatch handler so the
+// manageKenteiScript View's useRuntime().dispatch({ kind: "grade" }) resolves
+// (JEV grading with the server's TYPESAFE_API_KEY).
+import "./plugins/kentei-builtin.js";
 import { enableShapeScriptManifold } from "./plugins/shapescript-csg.js";
 import { loadRuntimePlugins } from "./plugins/runtime-loader.js";
 import { evaluateDevPluginGate, loadDevPlugins, parseDevPluginsEnv } from "./plugins/dev-loader.js";
