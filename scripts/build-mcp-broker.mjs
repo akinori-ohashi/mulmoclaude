@@ -1,6 +1,8 @@
 // Bundle the MCP broker (`server/agent/mcp-server.ts`) into a single ESM file
 // at `server/build/mcp-server.mjs`. Run as `yarn build:mcp-broker` (chained
-// from `yarn build`).
+// from `yarn build`, and from every `yarn dev` variant before the server starts,
+// so a dev checkout never serves a bundle older than its source: see
+// scripts/lib/devChain.mjs).
 //
 // Why: the CLI spawns the broker per turn and waits ~5s for it to answer
 // `initialize`. Under `tsx` over a Windows/macOS Docker bind mount that took
