@@ -82,13 +82,26 @@ export function isMcpToolOfferedTo(role: Role, toolName: string, alwaysActive: b
   return alwaysActive === true && !(role.excludedAlwaysActiveTools ?? []).includes(toolName);
 }
 
+// Static GUI plugins that work only with a key in the server's environment,
+// as an MCP tool's `requiredEnv`: without it the tool is not offered (neither
+// in the prompt nor in --allowedTools), so a role falls back to another one
+// (the Tutor quizzes with putQuestions) instead of calling a tool that can
+// only reply "set the key and restart".
+const STATIC_PLUGIN_REQUIRED_ENV: Readonly<Record<string, readonly string[]>> = {
+  manageKenteiScript: ["TYPESAFE_API_KEY"],
+};
+
+export function isStaticPluginEnabled(name: string): boolean {
+  return (STATIC_PLUGIN_REQUIRED_ENV[name] ?? []).every((key) => Boolean(process.env[key]?.trim()));
+}
+
 export function getActiveToolDescriptors(role: Role): ActiveToolDescriptor[] {
   const allowed = new Set<string>(role.availablePlugins);
   const seen = new Set<string>();
   const out: ActiveToolDescriptor[] = [];
 
   for (const def of PLUGIN_DEFS) {
-    if (!allowed.has(def.name) || seen.has(def.name)) continue;
+    if (!allowed.has(def.name) || seen.has(def.name) || !isStaticPluginEnabled(def.name)) continue;
     out.push({
       name: def.name,
       fullName: fullNameFor(def.name),
