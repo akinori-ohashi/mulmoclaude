@@ -62,7 +62,7 @@
     "ignore": "^7.0.12",
     "js-yaml": "^5.4.3",
     "jszip": "^3.10.2",
-    "kenteiscript": "^0.1.1",
+    "kenteiscript": "^0.1.2",
     "mammoth": "^1.13.0",
     "marked": "^18.1.1",
     "mulmocast": "^2.23.0",
