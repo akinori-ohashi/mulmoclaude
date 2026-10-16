@@ -24,9 +24,18 @@ const bothPanes = (serverScript) => `concurrently -n server,client -k "cross-env
  *  "is this publish mine?" question answerable at all (#2981). */
 const RESET = "yarn wait:backend --reset";
 
+/** The MCP broker bundle (`server/build/mcp-server.mjs`) is preferred over the
+ *  broker's source whenever it exists (`brokerSpawn` in server/agent/config.ts),
+ *  however old it is, and only `yarn build` used to make it. A checkout that
+ *  pulled a new tool kept serving the bundle from before it: the host allowed
+ *  `manageKenteiScript`, the bundle had never heard of it, and the agent fell
+ *  back to another tool without a word. Rebuilt on every start (under a second),
+ *  after the workspace packages it inlines are built. */
+const BROKER = "yarn build:mcp-broker";
+
 /** @type {Readonly<Record<string, readonly string[]>>} */
 export const VARIANTS = Object.freeze({
-  dev: Object.freeze(["node scripts/dev-build-if-needed.mjs", RESET, bothPanes("server")]),
-  debug: Object.freeze(["node scripts/dev-build-if-needed.mjs", RESET, bothPanes("server:debug")]),
-  "full-build": Object.freeze(["yarn build:packages:dev", RESET, bothPanes("server")]),
+  dev: Object.freeze(["node scripts/dev-build-if-needed.mjs", BROKER, RESET, bothPanes("server")]),
+  debug: Object.freeze(["node scripts/dev-build-if-needed.mjs", BROKER, RESET, bothPanes("server:debug")]),
+  "full-build": Object.freeze(["yarn build:packages:dev", BROKER, RESET, bothPanes("server")]),
 });
