@@ -8,6 +8,7 @@ import { REGISTRATION as canvasRegistration } from "../canvas";
 import { REGISTRATION as chartRegistration } from "../chart";
 import { REGISTRATION as editImagesRegistration } from "../editImages";
 import { REGISTRATION as generateImageRegistration } from "../generateImage";
+import { REGISTRATION as manageKenteiScriptRegistration } from "../manageKenteiScript";
 import { REGISTRATION as manageSkillsRegistration } from "../manageSkills";
 import { REGISTRATION as markdownRegistration } from "../markdown";
 import { REGISTRATION as photoLocationsRegistration } from "../photoLocations";
@@ -33,6 +34,7 @@ export const GENERATED_PLUGIN_REGISTRATIONS: readonly PluginRegistration[] = [
   chartRegistration,
   editImagesRegistration,
   generateImageRegistration,
+  manageKenteiScriptRegistration,
   manageSkillsRegistration,
   markdownRegistration,
   photoLocationsRegistration,
