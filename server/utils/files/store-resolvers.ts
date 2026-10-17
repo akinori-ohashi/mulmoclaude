@@ -1,5 +1,5 @@
 // Shared resolver factory for file-store modules (attachment-store,
-// image-store, spreadsheet-store). Each store used to define its own
+// image-store). Each store used to define its own
 // `safeResolve(relativePath)` wrapper of identical shape: ensure the
 // root dir exists, cache its realpath, strip the leading store
 // prefix, hand off to `resolveWithinRoot`. That left three name-cloned

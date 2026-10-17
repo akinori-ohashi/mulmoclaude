@@ -1,12 +1,15 @@
 import type { PluginRegistration, ToolPlugin } from "../../tools/types";
-import toolDefinition, { TOOL_NAME, type SpreadsheetEndpoints, type SpreadsheetToolData } from "./definition";
+import { View, Preview, type SpreadsheetToolData } from "@gui-chat-plugin/spreadsheet/vue";
+// Vite lib mode does not inject the package's stylesheet; the consumer imports it.
+import "@gui-chat-plugin/spreadsheet/style.css";
+import { TOOL_DEFINITION, TOOL_NAME, type SpreadsheetEndpoints } from "./definition";
 import { makeRouteExecute } from "../execute";
 import { wrapWithScope } from "../scope";
-import View from "./View.vue";
-import Preview from "./Preview.vue";
 
+// wrapWithScope provides the runtime the package View needs: dispatch for
+// loading and saving the workbook, and the host locale for its strings.
 const spreadsheetPlugin: ToolPlugin<SpreadsheetToolData> = {
-  toolDefinition,
+  toolDefinition: TOOL_DEFINITION,
 
   execute: makeRouteExecute<SpreadsheetEndpoints, SpreadsheetToolData>("spreadsheet", "create", TOOL_NAME),
 

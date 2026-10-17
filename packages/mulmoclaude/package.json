@@ -27,6 +27,7 @@
     "@gui-chat-plugin/google-map": "^2.0.0",
     "@gui-chat-plugin/mindmap": "^2.0.0",
     "@gui-chat-plugin/shapescript": "^8.2.2",
+    "@gui-chat-plugin/spreadsheet": "^3.0.0",
     "@marp-team/marp-core": "^4.4.0",
     "@mulmobridge/chat-service": "^2.0.0",
     "@mulmobridge/client": "^1.4.2",

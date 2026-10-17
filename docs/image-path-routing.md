@@ -118,7 +118,6 @@ Call sites:
 | `server/api/routes/mulmo-script.ts` | 384 | mulmo-script story dir | story-scoped wrapper |
 | `server/api/routes/sessions.ts` | 4 | session-id lookup | session-scoped wrapper |
 | `server/utils/files/image-store.ts` | 22-30 | `safeResolve` (image overwrite + base64 read) | strips `images/` prefix before checking |
-| `server/utils/files/spreadsheet-store.ts` | 22-26 | `safeResolve` (parallel of image-store) | same shape |
 
 Every workspace endpoint goes through one of these wrappers — there is no route
 that accepts a `path` query and reads bytes without one. The only route that
@@ -377,8 +376,8 @@ These are observations, not bugs to fix in this audit.
    `realpathSync` on the candidate (safe.ts:82), a request for a path inside the
    workspace that doesn't exist yet returns `null`. `files.ts:611-639` works
    around this for the PUT case by stat-ing the syntactic candidate first to
-   distinguish 404 from "outside workspace." Other callers (image-store,
-   spreadsheet-store) write through `writeFileAtomic` to the absolute path
+   distinguish 404 from "outside workspace." Other callers (image-store)
+   write through `writeFileAtomic` to the absolute path
    directly without a safe-resolve check beforehand — they trust their input
    shape via separate prefix checks (`isImagePath`).
 
