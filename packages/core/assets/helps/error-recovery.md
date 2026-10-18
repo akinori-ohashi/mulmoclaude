@@ -253,10 +253,12 @@ npx mulmoclaude
 ```
 
 On macOS the agent is forwarded through Docker Desktop's built-in
-socket, whatever `$SSH_AUTH_SOCK` says. On other platforms it is
-forwarded only when the host's `$SSH_AUTH_SOCK` points at an existing
-socket; when it doesn't, the server log says
-`SSH agent forward requested but skipped` — use `gh` over HTTPS then.
+socket, whatever `$SSH_AUTH_SOCK` says. On other platforms the host's
+`$SSH_AUTH_SOCK` has to be set to a path that exists on the host. When
+forwarding is not attached, the server log says
+`SSH agent forward requested but skipped` with a `reason` — use `gh`
+over HTTPS then. Either way, `ssh-add -l` below is what proves the
+agent actually works.
 
 After restart, inside the agent's first tool turn verify:
 
