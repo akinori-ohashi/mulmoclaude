@@ -22,7 +22,7 @@ Never pre-calculate — let the spreadsheet compute using cell refs, functions, 
 
 ## Available Functions
 
-Only these are available; any other function name evaluates to `#NAME?`.
+Only these are available. A formula that calls any other function shows an error (such as `#NAME?`) instead of a result.
 
 - Mathematical: ABS, CEILING, EXP, FLOOR, INT, LN, LOG, LOG10, MOD, PI, POWER, ROUND, ROUNDDOWN, ROUNDUP, SIGN, SQRT, TRUNC
 - Statistical: AVERAGE, AVERAGEIF, COUNT, COUNTA, COUNTIF, MAX, MEDIAN, MIN, MODE, STDEV, SUM, SUMIF, VAR
