@@ -5,6 +5,9 @@ const es: Messages = {
   chartCount: (count) => `${count} gráfico${count === 1 ? "" : "s"}`,
   chartTitle: (num) => `Gráfico ${num}`,
   png: "PNG",
+  fromSpreadsheet: (range) => `De la hoja de cálculo: ${range}`,
+  notLinked: "Sin vincular: este host no puede leer la hoja de cálculo.",
+  unreadableSource: "No se pudo leer el rango de la hoja de cálculo.",
 };
 
 export default es;

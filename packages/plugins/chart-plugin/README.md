@@ -4,6 +4,19 @@ ECharts visualization plugin (presentChart) — shared gui-chat-protocol plugin 
 
 A plugin for [MulmoClaude](https://github.com/receptron/mulmoclaude) and [MulmoTerminal](https://github.com/receptron/mulmoterminal) — loaded by the host, not run standalone.
 
+## Drawing from a spreadsheet
+
+A chart entry may carry `source: { spreadsheet, range }` instead of inline data — the path
+`presentSpreadsheet` reported and a range such as `Summary!A1:C13`. The View draws `option` with
+`dataset: { source: rows }`, where `rows` is the range calculated, and draws it again whenever the
+host announces that the workbook changed (`file:<path>` on the plugin's runtime channel). So
+editing the sheet moves the chart.
+
+The host does the reading: it passes `sources: { read(source) }` in the execute context (a plugin
+does not import the spreadsheet plugin), and routes the View's `dispatch({ kind: "readSource" })`
+to the same `execute`. A host without `sources` still draws inline charts, and refuses a sourced
+one with a message telling the agent to pass the data inline.
+
 ## Dev loop
 
 ```bash
