@@ -252,8 +252,10 @@ $env:SANDBOX_MOUNT_CONFIGS = "gh"
 npx mulmoclaude
 ```
 
-The SSH agent is forwarded only when the host's `$SSH_AUTH_SOCK` points
-at an existing socket; when it doesn't, the server log says
+On macOS the agent is forwarded through Docker Desktop's built-in
+socket, whatever `$SSH_AUTH_SOCK` says. On other platforms it is
+forwarded only when the host's `$SSH_AUTH_SOCK` points at an existing
+socket; when it doesn't, the server log says
 `SSH agent forward requested but skipped` — use `gh` over HTTPS then.
 
 After restart, inside the agent's first tool turn verify:
