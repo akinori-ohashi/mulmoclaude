@@ -43,7 +43,7 @@ import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as echarts from "echarts";
 import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/vue";
 import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
-import { chartOption, readSourceReply, settleWithin, sourceSpreadsheets, sourcesSignature } from "../core/source";
+import { chartOption, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
 import { useT } from "../lang";
 
 const t = useT();
@@ -184,6 +184,9 @@ function followSources(): void {
 }
 
 function showDocument(): void {
+  // Any read still in flight belongs to the document being replaced, even when
+  // the new one has no source and starts no read of its own.
+  loadGeneration += 1;
   sourceRows.value = [];
   sourceProblems.value = [];
   followSources();
@@ -205,10 +208,10 @@ onBeforeUnmount(() => {
 });
 
 // Re-render when the selected result switches to a different document (another
-// chart result in the sidebar), or the host updates this one in place with other
-// sources — the old rows and subscriptions must not outlive them.
+// chart result in the sidebar), or the host updates this one in place — new
+// options to draw, or other sources whose rows and subscriptions must replace the old.
 watch(
-  () => [data.value?.filePath, sourcesSignature(charts.value.map((chart) => chart.source))],
+  () => [data.value?.filePath, JSON.stringify(data.value?.document ?? null)],
   () => showDocument(),
 );
 

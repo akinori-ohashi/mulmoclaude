@@ -77,10 +77,6 @@ export function settleWithin<T>(promise: Promise<T>, ms: number, message: string
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer.id));
 }
 
-/** What a document's sources are, as one comparable string: a change means the
- *  View must read and subscribe again. */
-export const sourcesSignature = (sources: (ChartSource | undefined)[]): string => JSON.stringify(sources.map((source) => source ?? null));
-
 /** Each workbook the document reads, once. */
 export function sourceSpreadsheets(sources: (ChartSource | undefined)[]): string[] {
   return [...new Set(sources.flatMap((source) => (source ? [source.spreadsheet] : [])))];

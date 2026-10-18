@@ -21,7 +21,6 @@ import {
   readSourceReply,
   settleWithin,
   sourceSpreadsheets,
-  sourcesSignature,
   withSourceRows,
 } from "../../../packages/plugins/chart-plugin/src/core/source";
 import type { ChartSource, ChartSourceRows } from "../../../packages/plugins/chart-plugin/src/core/types";
@@ -167,16 +166,6 @@ describe("settleWithin", () => {
 
   it("rejects with the message when the promise does not settle in time", async () => {
     await assert.rejects(settleWithin(new Promise<never>(() => {}), 10, "late"), /late/);
-  });
-});
-
-describe("sourcesSignature", () => {
-  it("changes when a source is added, removed or retargeted, and not otherwise", () => {
-    const base = sourcesSignature([SOURCE, undefined]);
-    assert.equal(sourcesSignature([{ ...SOURCE }, undefined]), base);
-    assert.notEqual(sourcesSignature([SOURCE]), base);
-    assert.notEqual(sourcesSignature([{ ...SOURCE, range: "Summary!A1:B4" }, undefined]), base);
-    assert.notEqual(sourcesSignature([undefined, SOURCE]), base);
   });
 });
 
