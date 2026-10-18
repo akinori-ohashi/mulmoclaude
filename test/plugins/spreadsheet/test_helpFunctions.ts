@@ -12,16 +12,16 @@ import { functionRegistry } from "../../../src/plugins/spreadsheet/engine/functi
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const HELP_PATH = path.join(repoRoot, "packages/core/assets/helps/spreadsheet.md");
-// Formulas start at "=" and end at the quote, backtick or line that closes them.
-const FORMULA = /=[^"`\n]*/g;
-// The engine upper-cases a name before looking it up, so match any case.
+// The engine upper-cases a name before looking it up, so match any case. The
+// whole text is scanned rather than just the formulas in it, so a prose word
+// written directly before "(" fails the check too — deliberately, as a false
+// alarm is cheaper than a missed call.
 const FUNCTION_CALL = /\b([A-Za-z][A-Za-z0-9]*)\(/g;
 
 // A Windows checkout gives the help CRLF line endings.
 const readHelp = (): string => fs.readFileSync(HELP_PATH, "utf8").replaceAll("\r\n", "\n");
 
-const calledFunctions = (text: string): string[] =>
-  [...text.matchAll(FORMULA)].flatMap((formula) => [...formula[0].matchAll(FUNCTION_CALL)].map((match) => match[1] ?? ""));
+const calledFunctions = (text: string): string[] => [...text.matchAll(FUNCTION_CALL)].map((match) => match[1] ?? "");
 
 /** `- Category: NAME, NAME` lines in the help's "Available Functions" section. */
 const helpFunctionsByCategory = (help: string): Map<string, string[]> => {
@@ -29,15 +29,16 @@ const helpFunctionsByCategory = (help: string): Map<string, string[]> => {
   assert.notEqual(start, -1, "the help has an Available Functions section");
   const end = help.indexOf("\n## ", start + 1);
   const section = help.slice(start, end === -1 ? undefined : end);
-  return new Map(
-    [...section.matchAll(/^- ([^:\n]+): (.+)$/gm)].map((match) => [
-      (match[1] ?? "").trim(),
-      (match[2] ?? "")
-        .split(",")
-        .map((name) => name.trim())
-        .sort(),
-    ]),
-  );
+  const entries = [...section.matchAll(/^- ([^:\n]+): (.+)$/gm)].map((match): [string, string[]] => [
+    (match[1] ?? "").trim(),
+    (match[2] ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .sort(),
+  ]);
+  const categories = entries.map(([category]) => category);
+  assert.deepEqual(categories, [...new Set(categories)], "each category appears once");
+  return new Map(entries);
 };
 
 const registeredByCategory = (): Map<string, string[]> =>
