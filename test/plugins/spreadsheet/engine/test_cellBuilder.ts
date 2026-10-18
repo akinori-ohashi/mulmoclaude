@@ -6,6 +6,9 @@ describe("looksLikeFormula", () => {
   it("detects function calls at the start", () => {
     assert.equal(looksLikeFormula("SUM(A1:A3)"), true);
     assert.equal(looksLikeFormula("LOG10(100)"), true);
+    // A cell reference before "(" is not a call, though LOG10 has the same shape.
+    assert.equal(looksLikeFormula("A1(2)"), false);
+    assert.equal(looksLikeFormula("B12(x)"), false);
     assert.equal(looksLikeFormula("MAX(B1, C1)"), true);
     assert.equal(looksLikeFormula("-IF(A1>0, 1, 0)"), true);
   });

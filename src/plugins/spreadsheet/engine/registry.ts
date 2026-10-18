@@ -101,6 +101,11 @@ class FunctionRegistry {
 
 export const functionRegistry = new FunctionRegistry();
 
+/** Whether `name` written before "(" is a function call. A letters-only name is,
+ *  registered or not (an unknown one reports #NAME?). A name with digits is only
+ *  when registered: LOG10 is also shaped like a cell reference, so `A1(2)` is not. */
+export const isCallableName = (name: string): boolean => /^[A-Z]+$/i.test(name) || functionRegistry.hasFunction(name);
+
 /**
  * Lenient numeric coercion for range aggregation: anything unreadable is 0.
  * PINNED behaviour (booleans are 0, not Excel's 1/0) — the string parsing lives

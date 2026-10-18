@@ -4,7 +4,7 @@
  * Evaluates spreadsheet formulas including functions, cell references, and arithmetic
  */
 
-import { functionRegistry, tooFewArgumentsError } from "./registry";
+import { functionRegistry, isCallableName, tooFewArgumentsError } from "./registry";
 import type { CellValue } from "./types";
 import { parseDate } from "./date-parser";
 import { caretToPow, replaceConcatOperator, rewriteComparisonEq, isSafeArithmetic, isSafeComparison } from "./translateFormula";
@@ -282,7 +282,7 @@ export function evaluateFormula(formula: string, context: EvaluatorContext): Cel
   // Check if it's a SIMPLE function call (not a complex expression)
   // We need to ensure the formula is JUST a function, not "FUNC(...) + something"
   const [, funcName, argsStr] = formula.match(/^([A-Z][A-Z0-9]*)\((.*)\)$/i) ?? [];
-  if (funcName !== undefined && argsStr !== undefined) {
+  if (funcName !== undefined && argsStr !== undefined && isCallableName(funcName)) {
     // Check that the closing paren is actually the end of the function
     // by counting parentheses in argsStr
     let parenDepth = 0;
@@ -346,8 +346,13 @@ export function evaluateFormula(formula: string, context: EvaluatorContext): Cel
 
   while (searchIndex < expr.length && iterations < maxIterations) {
     iterations++;
+    // A call written inside a string literal is text, not a call.
+    if (expr[searchIndex] === '"' || expr[searchIndex] === "'") {
+      searchIndex = endOfStringLiteral(expr, searchIndex);
+      continue;
+    }
     const [, funcName] = expr.substring(searchIndex).match(/^([A-Z][A-Z0-9]*)\(/i) ?? [];
-    if (funcName === undefined) {
+    if (funcName === undefined || !isCallableName(funcName)) {
       // No more functions found, move to next character
       searchIndex++;
       if (searchIndex >= expr.length) break;
