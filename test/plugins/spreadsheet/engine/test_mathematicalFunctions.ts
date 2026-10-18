@@ -167,3 +167,17 @@ describe("the handlers surface the errors end-to-end", () => {
     assert.equal(evalFormula('=IFERROR("hello", 42)'), "hello");
   });
 });
+
+const evaluateA1 = (formula: string): unknown =>
+  cellAt(new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: formula }]] } satisfies SheetData).data, 0, 0);
+
+// LOG10 is the one registered name with a digit in it; the evaluator once
+// recognised letters only, so it evaluated to #ERROR! wherever it appeared.
+describe("a function name containing a digit", () => {
+  it("evaluates LOG10 alone, inside arithmetic, nested, and in lower case", () => {
+    assert.equal(evaluateA1("=LOG10(100)"), 2);
+    assert.equal(evaluateA1("=LOG10(100)+1"), 3);
+    assert.equal(evaluateA1("=SUM(LOG10(100), 1)"), 3);
+    assert.equal(evaluateA1("=log10(1000)"), 3);
+  });
+});

@@ -5,6 +5,7 @@ import { buildCellFromInput, looksLikeFormula, parseNonStringInput } from "../..
 describe("looksLikeFormula", () => {
   it("detects function calls at the start", () => {
     assert.equal(looksLikeFormula("SUM(A1:A3)"), true);
+    assert.equal(looksLikeFormula("LOG10(100)"), true);
     assert.equal(looksLikeFormula("MAX(B1, C1)"), true);
     assert.equal(looksLikeFormula("-IF(A1>0, 1, 0)"), true);
   });

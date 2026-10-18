@@ -281,7 +281,7 @@ export function evaluateFormula(formula: string, context: EvaluatorContext): Cel
 
   // Check if it's a SIMPLE function call (not a complex expression)
   // We need to ensure the formula is JUST a function, not "FUNC(...) + something"
-  const [, funcName, argsStr] = formula.match(/^([A-Z]+)\((.*)\)$/i) ?? [];
+  const [, funcName, argsStr] = formula.match(/^([A-Z][A-Z0-9]*)\((.*)\)$/i) ?? [];
   if (funcName !== undefined && argsStr !== undefined) {
     // Check that the closing paren is actually the end of the function
     // by counting parentheses in argsStr
@@ -346,7 +346,7 @@ export function evaluateFormula(formula: string, context: EvaluatorContext): Cel
 
   while (searchIndex < expr.length && iterations < maxIterations) {
     iterations++;
-    const [, funcName] = expr.substring(searchIndex).match(/^([A-Z]+)\(/i) ?? [];
+    const [, funcName] = expr.substring(searchIndex).match(/^([A-Z][A-Z0-9]*)\(/i) ?? [];
     if (funcName === undefined) {
       // No more functions found, move to next character
       searchIndex++;

@@ -29,7 +29,7 @@ export interface MiniEditorInput {
 // Anchored at the start of the input (after optional unary +/-) so we
 // only treat expressions that clearly begin with a function call as
 // formulas. Unanchored would match "abc FOO(" inside ordinary text.
-const FORMULA_FUNCTION_CALL = /^[-+]?\s*[A-Z]+\s*\(/i;
+const FORMULA_FUNCTION_CALL = /^[-+]?\s*[A-Z][A-Z0-9]*\s*\(/i;
 
 // `A1 + B2` style — cell reference next to an arithmetic operator.
 const FORMULA_CELL_OP = /[A-Z]+\d+\s*[+\-*/^]/;
