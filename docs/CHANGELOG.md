@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Under the hood
+
+#### Remote host: a host can tell its machines apart (PR #3506)
+
+`@mulmoclaude/core/remote-host` lets a host write a `machineId` and a `label` into every presence beat (`HostRunnerOptions.machine`), and decide its channel id once signed in (`RemoteHostDeps.resolveHostId`, bounded by a timeout). MulmoTerminal uses this to connect several machines under one account (receptron/mulmoterminal#3092). MulmoClaude passes neither, so its presence and channel are unchanged.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.1.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ## [2.6.0] - 2026-10-18
 
 **The Tutor role can quiz you with a KenteiScript test you answer in your own words, and the spreadsheet help lists every built-in function.**
