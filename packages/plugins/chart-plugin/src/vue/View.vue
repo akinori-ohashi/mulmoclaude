@@ -113,7 +113,12 @@ function disableWheelZoom(option: Record<string, unknown>): Record<string, unkno
   return { ...option, dataZoom: next };
 }
 
+// renderAll is queued (queueMicrotask) and can run after the View is gone; a
+// chart created then would stay alive and observed with nothing to dispose it.
+const lifecycle = { unmounted: false };
+
 function renderAll(): void {
+  if (lifecycle.unmounted) return;
   disposeAll();
   for (let i = 0; i < charts.value.length; i += 1) {
     const element = containers.value[i];
@@ -200,6 +205,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  lifecycle.unmounted = true;
   window.removeEventListener("resize", handleResize);
   unsubscribeAll();
   loadGeneration += 1;
