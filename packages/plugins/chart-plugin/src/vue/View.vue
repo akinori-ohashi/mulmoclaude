@@ -80,7 +80,13 @@ function setChartRef(idx: number, element: HTMLDivElement | null): void {
   containers.value[idx] = element;
 }
 
+// A card's width changes without the window's (the Canvas is expanded, a pane is
+// dragged), and ECharts measures its container only on resize(). So each
+// container is watched, not just the window. Absent where there is no layout.
+const containerObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => handleResize());
+
 function disposeAll(): void {
+  containerObserver?.disconnect();
   for (const instance of instances) {
     instance?.dispose();
   }
@@ -126,6 +132,7 @@ function renderAll(): void {
       // others; skip it and leave its canvas blank.
     }
     instances[i] = instance;
+    containerObserver?.observe(element);
   }
 }
 
