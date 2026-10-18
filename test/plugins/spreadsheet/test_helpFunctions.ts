@@ -5,7 +5,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { functionRegistry } from "../../../src/plugins/spreadsheet/engine/functions/index.ts";
@@ -19,7 +19,7 @@ const HELP_PATH = path.join(repoRoot, "packages/core/assets/helps/spreadsheet.md
 const FUNCTION_CALL = /\b([A-Za-z][A-Za-z0-9]*)\(/g;
 
 // A Windows checkout gives the help CRLF line endings.
-const readHelp = (): string => fs.readFileSync(HELP_PATH, "utf8").replaceAll("\r\n", "\n");
+const readHelp = (): string => readFileSync(HELP_PATH, "utf8").replaceAll("\r\n", "\n");
 
 const calledFunctions = (text: string): string[] => [...text.matchAll(FUNCTION_CALL)].map((match) => match[1] ?? "");
 
