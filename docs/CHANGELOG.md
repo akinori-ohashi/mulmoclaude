@@ -8,11 +8,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-18
+
+**The Tutor role can quiz you with a KenteiScript test you answer in your own words, and the spreadsheet help lists every built-in function.**
+
+### Highlights
+
+#### Tutor quizzes with KenteiScript (PR #3494, PR #3495)
+
+The Tutor role gains `manageKenteiScript`, the plugin from the [`kenteiscript`](https://www.npmjs.com/package/kenteiscript)
+package: Claude writes a quiz as a small JSON script, you take it in the chat and answer in your own words, and each
+answer is graded on the server by TypeSafe JEV, with the results coming back to Claude as your next message. The tool is
+offered only when `TYPESAFE_API_KEY` is set; without the key, Tutor quizzes with its existing question flow instead.
+
 ### Fixes
 
-#### Spreadsheet: every built-in function is listed in the help, and `LOG10` calculates (#3501)
+#### Spreadsheet: every built-in function is listed in the help, and `LOG10` calculates (#3500, PR #3501)
 
 The spreadsheet help listed only some of the functions the engine provides, so the agent did not know about `SUMIF`, `COUNTIF`, `IFERROR`, `XLOOKUP` and the rest. It now lists all of them by category, and a test fails if the list and the engine drift apart. `LOG10` was listed but evaluated to `#ERROR!` because function names with digits were not recognised; it now calculates. Text inside a string literal that looks like a call (`="x"&"SUM(1,2)"`) is no longer evaluated.
+
+#### Sandbox help no longer names credential flags that do not exist (#3499, PR #3502)
+
+The error-recovery and sandbox help pages told the agent to use sandbox credential CLI flags that the launcher does not
+have. Those instructions are gone.
 
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.4`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
