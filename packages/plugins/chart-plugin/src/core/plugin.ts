@@ -1,14 +1,24 @@
 import type { FileOps, ToolPluginCore, ToolResult } from "gui-chat-protocol";
 import { TOOL_NAME, TOOL_DEFINITION } from "./definition";
 import { chartArtifactPath } from "./paths";
-import type { ChartArgs, ChartDocument, ChartEntry, PresentChartData } from "./types";
+import { isChartSource, isReadSourceArgs } from "./source";
+import type { ChartArgs, ChartDocument, ChartEntry, ChartSource, ChartSourceRows, PresentChartData, ReadSourceArgs, ReadSourceData } from "./types";
+
+/** Reads a chart's source as calculated rows. The HOST supplies it, because
+ *  calculating a workbook belongs to the spreadsheet plugin and a plugin does
+ *  not import another plugin. Throws with a message the agent can act on. */
+export interface ChartSourceReader {
+  read(source: ChartSource): Promise<ChartSourceRows>;
+}
 
 /** Host capabilities `executeChart` needs, delivered through the GENERIC
- *  gui-chat-protocol runtime — only `files.artifacts` (the shared,
- *  user-browsable output area). No chart-specific host method: all chart
- *  logic lives in this package. */
+ *  gui-chat-protocol runtime — `files.artifacts` (the shared,
+ *  user-browsable output area), and `sources` when the host can read a
+ *  chart's spreadsheet source. A host without `sources` still draws every
+ *  chart whose data is inline. */
 export interface ChartExecuteContext {
   files: { artifacts: FileOps };
+  sources?: ChartSourceReader | undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -23,6 +33,7 @@ function isValidChartEntry(value: unknown): value is ChartEntry {
   if (!isRecord(value)) return false;
   if (!isOptionalString(value.title)) return false;
   if (!isOptionalString(value.type)) return false;
+  if (value.source !== undefined && !isChartSource(value.source)) return false;
   return isRecord(value.option);
 }
 
@@ -53,7 +64,7 @@ export const executeChart = async (context: ChartExecuteContext, args: ChartArgs
   const { document, title } = args;
   if (!isValidChartDocument(document)) {
     return {
-      message: "document must be { charts: [{ option: {...}, title?, type? }, ...] } with at least one entry",
+      message: "document must be { charts: [{ option: {...}, title?, type?, source? }, ...] } with at least one entry, where source is { spreadsheet, range }",
       instructions: "Acknowledge that the chart could not be created and retry with a valid ECharts document shape.",
     };
   }
@@ -61,6 +72,14 @@ export const executeChart = async (context: ChartExecuteContext, args: ChartArgs
     return {
       message: "title must be a string when provided",
       instructions: "Acknowledge the error and retry with a string title (or omit it).",
+    };
+  }
+
+  const sourceProblem = await checkSources(context, document);
+  if (sourceProblem) {
+    return {
+      message: sourceProblem,
+      instructions: "Acknowledge that the chart could not be created. Fix the spreadsheet path or range, or pass the data inline in option instead of source.",
     };
   }
 
@@ -76,12 +95,42 @@ export const executeChart = async (context: ChartExecuteContext, args: ChartArgs
   };
 };
 
+/** Read every source once, so a wrong path or range reaches the agent now
+ *  rather than as a blank chart later. Null when all of them read. */
+async function checkSources(context: ChartExecuteContext, document: ChartDocument): Promise<string | null> {
+  const sources = document.charts.flatMap((chart) => (chart.source ? [chart.source] : []));
+  if (sources.length === 0) return null;
+  if (!context.sources) return "This host cannot read a spreadsheet source; pass the chart's data inline in option.";
+  for (const source of sources) {
+    try {
+      await context.sources.read(source);
+    } catch (error) {
+      return `Cannot read ${source.range} of ${source.spreadsheet}: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+  return null;
+}
+
+/** The View's `dispatch({ kind: "readSource", source })`: the source's current rows. */
+export const readChartSource = async (context: ChartExecuteContext, args: ReadSourceArgs): Promise<ToolResult<ReadSourceData>> => {
+  if (!context.sources) throw new Error("This host cannot read a spreadsheet source");
+  const rows = await context.sources.read(args.source);
+  return { message: `Read ${args.source.range} of ${args.source.spreadsheet}`, data: { rows } };
+};
+
+/** One entry point for the tool call and the View's dispatch, told apart by `kind`. */
+export const executeChartTool = async (
+  context: ChartExecuteContext,
+  args: ChartArgs | ReadSourceArgs,
+): Promise<ToolResult<PresentChartData | ReadSourceData>> => (isReadSourceArgs(args) ? readChartSource(context, args) : executeChart(context, args));
+
 export const pluginCore: ToolPluginCore<PresentChartData, PresentChartData, ChartArgs> = {
   toolDefinition: TOOL_DEFINITION,
-  // `executeChart` reads host backends off `context.files.artifacts` rather
-  // than gui-chat-protocol's `ToolContext`; bridge the nominal gap (the host
-  // injects the matching shape) the same way @mulmoclaude/markdown-plugin does.
-  execute: executeChart as unknown as ToolPluginCore<PresentChartData, PresentChartData, ChartArgs>["execute"],
+  // `execute` reads host backends off `context.files.artifacts` and
+  // `context.sources` rather than gui-chat-protocol's `ToolContext`; bridge the
+  // nominal gap (the host injects the matching shape) the same way
+  // @mulmoclaude/markdown-plugin does.
+  execute: executeChartTool as unknown as ToolPluginCore<PresentChartData, PresentChartData, ChartArgs>["execute"],
   generatingMessage: "Rendering chart…",
   isEnabled: () => true,
 };

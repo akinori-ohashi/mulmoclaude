@@ -28,6 +28,10 @@
             {{ t.png }}
           </button>
         </div>
+        <div v-if="chart.source" class="px-3 py-1 text-xs text-gray-500 border-b border-gray-100" :data-testid="`chart-source-${idx}`">
+          {{ t.fromSpreadsheet(chart.source.range) }}
+          <span v-if="sourceProblems[idx]" class="text-red-600" :data-testid="`chart-source-problem-${idx}`">{{ sourceProblems[idx] }}</span>
+        </div>
         <div :ref="(el) => setChartRef(idx, el as HTMLDivElement | null)" class="w-full h-[400px]" :data-testid="`chart-canvas-${idx}`" />
       </div>
     </div>
@@ -35,10 +39,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as echarts from "echarts";
-import type { ToolResultComplete } from "gui-chat-protocol/vue";
-import type { ChartEntry, PresentChartData } from "../core/types";
+import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/vue";
+import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
+import { readSourceReply, sourceSpreadsheets, withSourceRows } from "../core/source";
 import { useT } from "../lang";
 
 const t = useT();
@@ -50,6 +55,14 @@ const props = defineProps<{
 const data = computed(() => props.selectedResult.data);
 const charts = computed<ChartEntry[]>(() => data.value?.document?.charts ?? []);
 const title = computed(() => data.value?.title ?? data.value?.document?.title);
+
+// Optional: a host without a runtime still draws every inline chart, and says
+// on a sourced one that it cannot follow the spreadsheet.
+const runtime = inject(PLUGIN_RUNTIME_KEY, undefined);
+
+// Index-aligned with `charts`, like `instances`.
+const sourceRows = ref<(ChartSourceRows | undefined)[]>([]);
+const sourceProblems = ref<(string | undefined)[]>([]);
 
 const containers = ref<(HTMLDivElement | null)[]>([]);
 // Kept as a plain array (not `ref`): ECharts instances are managed
@@ -107,7 +120,7 @@ function renderAll(): void {
     }
     const instance = echarts.init(element);
     try {
-      instance.setOption(disableWheelZoom(chart.option));
+      instance.setOption(disableWheelZoom(optionFor(chart, sourceRows.value[i])));
     } catch {
       // A malformed ECharts option for one chart shouldn't break the
       // others; skip it and leave its canvas blank.
@@ -120,14 +133,69 @@ function handleResize(): void {
   for (const instance of instances) instance?.resize();
 }
 
-onMounted(() => {
+function optionFor(chart: ChartEntry, rows: ChartSourceRows | undefined): Record<string, unknown> {
+  return chart.source && rows ? withSourceRows(chart.option, rows) : chart.option;
+}
+
+function readSource(source: ChartSource): Promise<ChartSourceRows> {
+  if (!runtime) return Promise.reject(new Error(t.value.notLinked));
+  return runtime.dispatch({ kind: "readSource", source }, (raw) => {
+    const rows = readSourceReply(raw);
+    if (!rows) throw new Error(t.value.unreadableSource);
+    return rows;
+  });
+}
+
+// A newer load supersedes an older one still in flight, so a slow reply for an
+// earlier version of the sheet cannot overwrite the latest.
+let loadGeneration = 0;
+
+async function loadSources(): Promise<void> {
+  const generation = ++loadGeneration;
+  const results = await Promise.allSettled(charts.value.map((chart) => (chart.source ? readSource(chart.source) : Promise.resolve(undefined))));
+  if (generation !== loadGeneration) return;
+  sourceRows.value = results.map((result) => (result.status === "fulfilled" ? result.value : undefined));
+  sourceProblems.value = results.map((result) =>
+    result.status === "rejected" ? String(result.reason instanceof Error ? result.reason.message : result.reason) : undefined,
+  );
+  renderAll();
+}
+
+// The host announces a change to a watched file on `file:<path>`; each
+// workbook this document reads is watched while the View is open.
+let unsubscribers: (() => void)[] = [];
+
+function unsubscribeAll(): void {
+  unsubscribers.forEach((unsubscribe) => unsubscribe());
+  unsubscribers = [];
+}
+
+function followSources(): void {
+  unsubscribeAll();
+  if (!runtime) return;
+  unsubscribers = sourceSpreadsheets(charts.value.map((chart) => chart.source)).map((path) =>
+    runtime.pubsub.subscribe(`file:${path}`, () => void loadSources()),
+  );
+}
+
+function showDocument(): void {
+  sourceRows.value = [];
+  sourceProblems.value = [];
+  followSources();
   // Wait a tick so the refs are populated before we render.
   queueMicrotask(renderAll);
+  if (charts.value.some((chart) => chart.source)) void loadSources();
+}
+
+onMounted(() => {
+  showDocument();
   window.addEventListener("resize", handleResize);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", handleResize);
+  unsubscribeAll();
+  loadGeneration += 1;
   disposeAll();
 });
 
@@ -135,7 +203,7 @@ onBeforeUnmount(() => {
 // (e.g. user clicks another chart result in the sidebar).
 watch(
   () => data.value?.filePath,
-  () => queueMicrotask(renderAll),
+  () => showDocument(),
 );
 
 function exportPng(idx: number, chartTitle?: string): void {

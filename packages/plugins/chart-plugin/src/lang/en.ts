@@ -5,6 +5,9 @@ const en: Messages = {
   chartCount: (count) => `${count} chart${count === 1 ? "" : "s"}`,
   chartTitle: (num) => `Chart ${num}`,
   png: "PNG",
+  fromSpreadsheet: (range) => `From the spreadsheet: ${range}`,
+  notLinked: "Not linked: this host cannot read the spreadsheet.",
+  unreadableSource: "The spreadsheet range could not be read.",
 };
 
 export default en;

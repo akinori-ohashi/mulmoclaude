@@ -37,7 +37,24 @@ export const TOOL_DEFINITION: ToolDefinition = {
                 option: {
                   type: "object",
                   description:
-                    "Full ECharts option object. Include all series, axes, tooltip, legend, dataset — anything ECharts accepts. Keep data inline; large datasets are fine.",
+                    "Full ECharts option object. Include all series, axes, tooltip, legend, dataset — anything ECharts accepts. Keep data inline; large datasets are fine. With `source`, leave the data out: the chart is drawn with `dataset: { source: rows }` from the spreadsheet, so map columns with series[].encode or the default (first column is the category, each other column a series).",
+                },
+                source: {
+                  type: "object",
+                  description:
+                    "Optional. Draw this chart from a range of a spreadsheet saved by presentSpreadsheet instead of inline data, so it follows the sheet when the user edits it. The range's first row is the header (series names).",
+                  properties: {
+                    spreadsheet: {
+                      type: "string",
+                      description:
+                        "The path presentSpreadsheet reported for the saved spreadsheet (absolute, or workspace-relative such as artifacts/spreadsheets/2026/10/abc123.json).",
+                    },
+                    range: {
+                      type: "string",
+                      description: "Sheet and range, e.g. Summary!A1:C13. Without a sheet name, the first sheet.",
+                    },
+                  },
+                  required: ["spreadsheet", "range"],
                 },
               },
               required: ["option"],
