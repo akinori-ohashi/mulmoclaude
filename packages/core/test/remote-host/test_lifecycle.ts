@@ -180,6 +180,20 @@ describe("createRemoteHost resolveHostId failures", () => {
     assert.equal(rh.status().connected, false);
   });
 
+  it("a resolver that throws instead of rejecting is handled the same way", async () => {
+    let fail = false;
+    const resolveHostId = (): Promise<string> => {
+      if (fail) throw new Error("thrown synchronously");
+      return Promise.resolve(HOST_ID);
+    };
+    const { rh, runnerAt } = makeHarness(undefined, { resolveHostId });
+    await rh.connect("t1");
+    fail = true;
+    await assert.rejects(rh.connect("t2"), /thrown synchronously/);
+    assert.equal(runnerAt(0).stopped, true);
+    assert.equal(rh.status().connected, false);
+  });
+
   it("a resolution that never answers times out, and a later disconnect still runs", async () => {
     const resolveHostId = () => new Promise<string>(() => undefined);
     const { rh, runners, signOutCount } = makeHarness(undefined, { resolveHostId, resolveHostIdTimeoutMs: 5 });

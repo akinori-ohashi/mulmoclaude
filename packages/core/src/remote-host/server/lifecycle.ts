@@ -80,10 +80,9 @@ const eventText = (event: HostEvent): string => (event.message ? `${event.phase}
 
 // Bounded, because it runs inside a serialized transition: a lookup that never
 // settled would hold back every later connect and disconnect.
-const hostIdFor = (deps: RemoteHostDeps, uid: string): Promise<string> =>
-  deps.resolveHostId
-    ? withTimeout(deps.resolveHostId(uid), deps.resolveHostIdTimeoutMs ?? RESOLVE_HOST_ID_TIMEOUT_MS, "resolveHostId")
-    : Promise.resolve(deps.hostId);
+// Async so that a resolver throwing synchronously still arrives as a rejection.
+const hostIdFor = async (deps: RemoteHostDeps, uid: string): Promise<string> =>
+  deps.resolveHostId ? withTimeout(deps.resolveHostId(uid), deps.resolveHostIdTimeoutMs ?? RESOLVE_HOST_ID_TIMEOUT_MS, "resolveHostId") : deps.hostId;
 
 export const createRemoteHost = (deps: RemoteHostDeps): RemoteHostLifecycle => {
   const log = deps.log ?? silentLogger;
