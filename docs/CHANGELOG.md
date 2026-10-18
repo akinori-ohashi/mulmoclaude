@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Fixes
+
+#### Spreadsheet: every built-in function is listed in the help, and `LOG10` calculates (#3501)
+
+The spreadsheet help listed only some of the functions the engine provides, so the agent did not know about `SUMIF`, `COUNTIF`, `IFERROR`, `XLOOKUP` and the rest. It now lists all of them by category, and a test fails if the list and the engine drift apart. `LOG10` was listed but evaluated to `#ERROR!` because function names with digits were not recognised; it now calculates. Text inside a string literal that looks like a call (`="x"&"SUM(1,2)"`) is no longer evaluated.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.4`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ## [2.5.0] - 2026-10-15
 
 **MulmoScript beats preview in the browser instead of waiting for a rendered PNG, and still beat images render without ffmpeg.**
