@@ -33,6 +33,10 @@ export interface RemoteHostLogger {
 // instance, so this module needs no Firebase of its own.
 export interface RemoteHostDeps {
   hostId: string;
+  // Decide the hostId per session, once signed in — for a host whose id depends on
+  // what the account already has (mulmoterminal#3092). Runs before the old runner is
+  // torn down, so a rejection leaves it running. Absent ⇒ `hostId` is used.
+  resolveHostId?: (uid: string) => Promise<string>;
   signIn: (idToken: string) => Promise<string>;
   // Restore a session from a browser-parked blob (case A', mulmoserver#50) and
   // resolve to its uid — no popup. MUST reject when the blob yields no valid
@@ -99,9 +103,9 @@ export const createRemoteHost = (deps: RemoteHostDeps): RemoteHostLifecycle => {
 
   // Swap the running runner for one bound to `uid`. Callers authenticate FIRST
   // (before this teardown) so a failed connect/reconnect keeps a healthy session.
-  const attach = (uid: string, verb: string): RemoteHostStatus => {
+  const attach = (uid: string, hostId: string, verb: string): RemoteHostStatus => {
     stopIfRunning();
-    const runner = deps.startRunner({ uid, hostId: deps.hostId }, deps.handlers, {
+    const runner = deps.startRunner({ uid, hostId }, deps.handlers, {
       onEvent: (event) => log.debug(`host event: ${eventText(event)}`),
       onExpire: deps.onExpire,
       // Fatal listener death: drop the handle so status() stops reporting
@@ -115,17 +119,22 @@ export const createRemoteHost = (deps: RemoteHostDeps): RemoteHostLifecycle => {
       },
     });
     stopRunner = runner;
-    log.info(`${verb} as ${uid}, host runner started (hostId=${deps.hostId})`);
+    log.info(`${verb} as ${uid}, host runner started (hostId=${hostId})`);
     return status();
   };
 
-  const connect = (idToken: string): Promise<RemoteHostStatus> => serialize(async () => attach(await deps.signIn(idToken), "connected"));
+  const hostIdFor = (uid: string): Promise<string> => (deps.resolveHostId ? deps.resolveHostId(uid) : Promise.resolve(deps.hostId));
+
+  // Authenticate, then resolve the hostId, and only then swap runners.
+  const attachSession = async (uid: string, verb: string): Promise<RemoteHostStatus> => attach(uid, await hostIdFor(uid), verb);
+
+  const connect = (idToken: string): Promise<RemoteHostStatus> => serialize(async () => attachSession(await deps.signIn(idToken), "connected"));
 
   const reconnect = (sessionBlob: string): Promise<RemoteHostStatus> =>
     serialize(async () => {
       const { restore } = deps;
       if (!restore) throw new Error("remote-host reconnect requires a `restore` dependency");
-      return attach(await restore(sessionBlob), "reconnected");
+      return attachSession(await restore(sessionBlob), "reconnected");
     });
 
   const disconnect = (): Promise<RemoteHostStatus> =>
