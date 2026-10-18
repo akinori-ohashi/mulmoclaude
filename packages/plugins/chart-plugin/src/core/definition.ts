@@ -46,7 +46,8 @@ export const TOOL_DEFINITION: ToolDefinition = {
                   properties: {
                     spreadsheet: {
                       type: "string",
-                      description: "The path presentSpreadsheet reported for the saved spreadsheet (absolute, or workspace-relative such as artifacts/spreadsheets/2026/10/abc123.json).",
+                      description:
+                        "The path presentSpreadsheet reported for the saved spreadsheet (absolute, or workspace-relative such as artifacts/spreadsheets/2026/10/abc123.json).",
                     },
                     range: {
                       type: "string",
