@@ -12,9 +12,16 @@ import { functionRegistry } from "../../../src/plugins/spreadsheet/engine/functi
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const HELP_PATH = path.join(repoRoot, "packages/core/assets/helps/spreadsheet.md");
-const FUNCTION_CALL = /\b([A-Z][A-Z0-9]*)\(/g;
+// Formulas start at "=" and end at the quote, backtick or line that closes them.
+const FORMULA = /=[^"`\n]*/g;
+// The engine upper-cases a name before looking it up, so match any case.
+const FUNCTION_CALL = /\b([A-Za-z][A-Za-z0-9]*)\(/g;
 
-const readHelp = (): string => fs.readFileSync(HELP_PATH, "utf8");
+// A Windows checkout gives the help CRLF line endings.
+const readHelp = (): string => fs.readFileSync(HELP_PATH, "utf8").replaceAll("\r\n", "\n");
+
+const calledFunctions = (text: string): string[] =>
+  [...text.matchAll(FORMULA)].flatMap((formula) => [...formula[0].matchAll(FUNCTION_CALL)].map((match) => match[1] ?? ""));
 
 /** `- Category: NAME, NAME` lines in the help's "Available Functions" section. */
 const helpFunctionsByCategory = (help: string): Map<string, string[]> => {
@@ -42,7 +49,7 @@ describe("spreadsheet help lists exactly the registered functions", () => {
   });
 
   it("its formula examples only call registered functions", () => {
-    const called = [...readHelp().matchAll(FUNCTION_CALL)].map((match) => match[1] ?? "");
+    const called = calledFunctions(readHelp());
     assert.ok(called.length > 0, "the help shows formula examples");
     assert.deepEqual(
       called.filter((name) => !functionRegistry.hasFunction(name)),
