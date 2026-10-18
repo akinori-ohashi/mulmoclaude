@@ -22,7 +22,15 @@ Never pre-calculate — let the spreadsheet compute using cell refs, functions, 
 
 ## Available Functions
 
-SUM, AVERAGE, COUNT, MIN, MAX, IF, AND, OR, NOT, ROUND, ABS, TODAY, DATE, DATEDIF, YEAR, MONTH, DAY, CONCATENATE, LEFT, RIGHT, MID, LEN, TRIM, UPPER, LOWER, VLOOKUP, INDEX, MATCH, PMT, FV, PV, NPV, IRR.
+Only these are available. A formula that calls any other function shows an error (such as `#NAME?`) instead of a result.
+
+- Mathematical: ABS, CEILING, EXP, FLOOR, INT, LN, LOG, LOG10, MOD, PI, POWER, ROUND, ROUNDDOWN, ROUNDUP, SIGN, SQRT, TRUNC
+- Statistical: AVERAGE, AVERAGEIF, COUNT, COUNTA, COUNTIF, MAX, MEDIAN, MIN, MODE, STDEV, SUM, SUMIF, VAR
+- Logical: AND, FALSE, IF, IFERROR, IFNA, IFS, NOT, OR, TRUE
+- Text: CONCAT, CONCATENATE, EXACT, FIND, LEFT, LEN, LOWER, MID, PROPER, REPLACE, RIGHT, SEARCH, SUBSTITUTE, TEXT, TRIM, UPPER, VALUE
+- Date & Time: DATE, DATEDIF, DAY, HOUR, MINUTE, MONTH, NOW, SECOND, TIME, TODAY, YEAR
+- Lookup & Reference: HLOOKUP, INDEX, MATCH, VLOOKUP, XLOOKUP
+- Financial: FV, IPMT, IRR, NPER, NPV, PMT, PPMT, PV, RATE
 
 ## Dates
 
