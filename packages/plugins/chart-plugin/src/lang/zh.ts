@@ -8,6 +8,7 @@ const zh: Messages = {
   fromSpreadsheet: (range) => `来自表格：${range}`,
   notLinked: "未关联：此宿主无法读取表格。",
   unreadableSource: "无法读取表格范围。",
+  sourceTimedOut: "表格未能及时响应。",
 };
 
 export default zh;

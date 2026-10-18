@@ -8,6 +8,7 @@ const de: Messages = {
   fromSpreadsheet: (range) => `Aus der Tabelle: ${range}`,
   notLinked: "Nicht verknüpft: Dieser Host kann die Tabelle nicht lesen.",
   unreadableSource: "Der Tabellenbereich konnte nicht gelesen werden.",
+  sourceTimedOut: "Die Tabelle hat nicht rechtzeitig geantwortet.",
 };
 
 export default de;

@@ -43,7 +43,7 @@ import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as echarts from "echarts";
 import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/vue";
 import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
-import { readSourceReply, sourceSpreadsheets, sourcesSignature, withSourceRows } from "../core/source";
+import { chartOption, readSourceReply, settleWithin, sourceSpreadsheets, sourcesSignature } from "../core/source";
 import { useT } from "../lang";
 
 const t = useT();
@@ -133,21 +133,22 @@ function handleResize(): void {
   for (const instance of instances) instance?.resize();
 }
 
-// A sourced chart shows its rows, or nothing while they are missing: falling back
-// to `option` could show stale inline data next to the source's error. Only a host
-// without a runtime, which can never read the source, draws `option` as it is.
 function optionFor(chart: ChartEntry, rows: ChartSourceRows | undefined): Record<string, unknown> {
-  if (!chart.source || !runtime) return chart.option;
-  return withSourceRows(chart.option, rows ?? []);
+  return chartOption(chart, rows, runtime !== undefined);
 }
+
+// Long enough for a large workbook on a busy host; a read past it is reported
+// as a problem instead of leaving the chart silently blank.
+const SOURCE_READ_TIMEOUT_MS = 30_000;
 
 function readSource(source: ChartSource): Promise<ChartSourceRows> {
   if (!runtime) return Promise.reject(new Error(t.value.notLinked));
-  return runtime.dispatch({ kind: "readSource", source }, (raw) => {
+  const read = runtime.dispatch({ kind: "readSource", source }, (raw) => {
     const rows = readSourceReply(raw);
     if (!rows) throw new Error(t.value.unreadableSource);
     return rows;
   });
+  return settleWithin(read, SOURCE_READ_TIMEOUT_MS, t.value.sourceTimedOut);
 }
 
 // A newer load supersedes an older one still in flight, so a slow reply for an
