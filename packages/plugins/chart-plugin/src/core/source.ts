@@ -30,10 +30,16 @@ export function readSourceReply(raw: unknown): ChartSourceRows | null {
   return isChartSourceRows(raw.data.rows) ? raw.data.rows : null;
 }
 
-/** The option to draw: the source's rows as the ECharts dataset, replacing any inline one. */
+/** The option to draw: the source's rows as the ECharts dataset, replacing any inline one.
+ *  The first row is the header by contract; left to guess, ECharts reads a numeric
+ *  header (a year, `2025`) as data. */
 export function withSourceRows(option: Record<string, unknown>, rows: ChartSourceRows): Record<string, unknown> {
-  return { ...option, dataset: { source: rows } };
+  return { ...option, dataset: { source: rows, sourceHeader: true } };
 }
+
+/** What a document's sources are, as one comparable string: a change means the
+ *  View must read and subscribe again. */
+export const sourcesSignature = (sources: (ChartSource | undefined)[]): string => JSON.stringify(sources.map((source) => source ?? null));
 
 /** Each workbook the document reads, once. */
 export function sourceSpreadsheets(sources: (ChartSource | undefined)[]): string[] {

@@ -14,7 +14,7 @@ import {
   type ChartExecuteContext,
   type ChartSourceReader,
 } from "../../../packages/plugins/chart-plugin/src/core/plugin";
-import { isChartSource, isReadSourceArgs, readSourceReply, sourceSpreadsheets, withSourceRows } from "../../../packages/plugins/chart-plugin/src/core/source";
+import { isChartSource, isReadSourceArgs, readSourceReply, sourceSpreadsheets, sourcesSignature, withSourceRows } from "../../../packages/plugins/chart-plugin/src/core/source";
 import type { ChartSource, ChartSourceRows } from "../../../packages/plugins/chart-plugin/src/core/types";
 
 const SOURCE: ChartSource = { spreadsheet: "artifacts/spreadsheets/2026/10/abc.json", range: "Summary!A1:B3" };
@@ -101,13 +101,23 @@ describe("readSourceReply", () => {
 describe("withSourceRows / sourceSpreadsheets", () => {
   it("sets the rows as the dataset, replacing an inline one and keeping the rest", () => {
     const option = { dataset: { source: [["old"]] }, xAxis: { type: "category" } };
-    assert.deepEqual(withSourceRows(option, ROWS), { dataset: { source: ROWS }, xAxis: { type: "category" } });
+    assert.deepEqual(withSourceRows(option, ROWS), { dataset: { source: ROWS, sourceHeader: true }, xAxis: { type: "category" } });
     assert.deepEqual(option.dataset.source, [["old"]], "the stored option is not mutated");
   });
 
   it("lists each workbook once, skipping charts without a source", () => {
     const other = { spreadsheet: "artifacts/spreadsheets/2026/10/def.json", range: "A1:B2" };
     assert.deepEqual(sourceSpreadsheets([SOURCE, undefined, { ...SOURCE, range: "A1:A2" }, other]), [SOURCE.spreadsheet, other.spreadsheet]);
+  });
+});
+
+describe("sourcesSignature", () => {
+  it("changes when a source is added, removed or retargeted, and not otherwise", () => {
+    const base = sourcesSignature([SOURCE, undefined]);
+    assert.equal(sourcesSignature([{ ...SOURCE }, undefined]), base);
+    assert.notEqual(sourcesSignature([SOURCE]), base);
+    assert.notEqual(sourcesSignature([{ ...SOURCE, range: "Summary!A1:B4" }, undefined]), base);
+    assert.notEqual(sourcesSignature([undefined, SOURCE]), base);
   });
 });
 

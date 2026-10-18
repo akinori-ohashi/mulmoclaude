@@ -43,7 +43,7 @@ import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as echarts from "echarts";
 import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/vue";
 import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
-import { readSourceReply, sourceSpreadsheets, withSourceRows } from "../core/source";
+import { readSourceReply, sourceSpreadsheets, sourcesSignature, withSourceRows } from "../core/source";
 import { useT } from "../lang";
 
 const t = useT();
@@ -133,8 +133,12 @@ function handleResize(): void {
   for (const instance of instances) instance?.resize();
 }
 
+// A sourced chart shows its rows, or nothing while they are missing: falling back
+// to `option` could show stale inline data next to the source's error. Only a host
+// without a runtime, which can never read the source, draws `option` as it is.
 function optionFor(chart: ChartEntry, rows: ChartSourceRows | undefined): Record<string, unknown> {
-  return chart.source && rows ? withSourceRows(chart.option, rows) : chart.option;
+  if (!chart.source || !runtime) return chart.option;
+  return withSourceRows(chart.option, rows ?? []);
 }
 
 function readSource(source: ChartSource): Promise<ChartSourceRows> {
@@ -199,10 +203,11 @@ onBeforeUnmount(() => {
   disposeAll();
 });
 
-// Re-render when the selected result switches to a different document
-// (e.g. user clicks another chart result in the sidebar).
+// Re-render when the selected result switches to a different document (another
+// chart result in the sidebar), or the host updates this one in place with other
+// sources — the old rows and subscriptions must not outlive them.
 watch(
-  () => data.value?.filePath,
+  () => [data.value?.filePath, sourcesSignature(charts.value.map((chart) => chart.source))],
   () => showDocument(),
 );
 
