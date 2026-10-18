@@ -14,7 +14,14 @@ import {
   type ChartExecuteContext,
   type ChartSourceReader,
 } from "../../../packages/plugins/chart-plugin/src/core/plugin";
-import { isChartSource, isReadSourceArgs, readSourceReply, sourceSpreadsheets, sourcesSignature, withSourceRows } from "../../../packages/plugins/chart-plugin/src/core/source";
+import {
+  isChartSource,
+  isReadSourceArgs,
+  readSourceReply,
+  sourceSpreadsheets,
+  sourcesSignature,
+  withSourceRows,
+} from "../../../packages/plugins/chart-plugin/src/core/source";
 import type { ChartSource, ChartSourceRows } from "../../../packages/plugins/chart-plugin/src/core/types";
 
 const SOURCE: ChartSource = { spreadsheet: "artifacts/spreadsheets/2026/10/abc.json", range: "Summary!A1:B3" };
