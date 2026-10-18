@@ -11,6 +11,9 @@
  */
 
 import type { SpreadsheetCell } from "./types.js";
+import { isCallableName } from "./registry.js";
+// Registers the functions, so isCallableName knows LOG10 before any sheet is calculated.
+import "./functions/index.js";
 
 /** Inputs to the cell builder. Mirrors the mini editor refs in the
  *  View but as plain values so unit tests don't need a Vue runtime. */
@@ -29,7 +32,12 @@ export interface MiniEditorInput {
 // Anchored at the start of the input (after optional unary +/-) so we
 // only treat expressions that clearly begin with a function call as
 // formulas. Unanchored would match "abc FOO(" inside ordinary text.
-const FORMULA_FUNCTION_CALL = /^[-+]?\s*[A-Z]+\s*\(/i;
+const FORMULA_FUNCTION_CALL = /^[-+]?\s*([A-Z][A-Z0-9]*)\s*\(/i;
+
+const startsWithFunctionCall = (input: string): boolean => {
+  const name = input.match(FORMULA_FUNCTION_CALL)?.[1];
+  return name !== undefined && isCallableName(name);
+};
 
 // `A1 + B2` style — cell reference next to an arithmetic operator.
 const FORMULA_CELL_OP = /[A-Z]+\d+\s*[+\-*/^]/;
@@ -49,7 +57,7 @@ const STRICT_NUMBER = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/;
  * formula and gets the "=" prefix the engine expects.
  */
 export function looksLikeFormula(input: string): boolean {
-  return FORMULA_FUNCTION_CALL.test(input) || FORMULA_CELL_OP.test(input) || FORMULA_NUMERIC_OP.test(input);
+  return startsWithFunctionCall(input) || FORMULA_CELL_OP.test(input) || FORMULA_NUMERIC_OP.test(input);
 }
 
 /**

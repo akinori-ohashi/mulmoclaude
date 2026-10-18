@@ -167,3 +167,43 @@ describe("the handlers surface the errors end-to-end", () => {
     assert.equal(evalFormula('=IFERROR("hello", 42)'), "hello");
   });
 });
+
+const evaluateA1 = (formula: string): unknown =>
+  cellAt(new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: formula }]] } satisfies SheetData).data, 0, 0);
+
+// LOG10 is the one registered name with a digit in it; the evaluator once
+// recognised letters only, so it evaluated to #ERROR! wherever it appeared.
+describe("a function name containing a digit", () => {
+  it("evaluates LOG10 alone, inside arithmetic, nested, and in lower case", () => {
+    assert.equal(evaluateA1("=LOG10(100)"), 2);
+    assert.equal(evaluateA1("=LOG10(100)+1"), 3);
+    assert.equal(evaluateA1("=SUM(LOG10(100), 1)"), 3);
+    assert.equal(evaluateA1("=log10(1000)"), 3);
+  });
+});
+
+// A call written inside a string literal is text: the scan for calls skips
+// literals, as the argument parser already does.
+describe("function-looking text inside a string literal", () => {
+  it("is concatenated as text, not evaluated", () => {
+    assert.equal(evaluateA1('="x"&"SUM(1,2)"'), "xSUM(1,2)");
+    assert.equal(evaluateA1('="x"&"LOG10(100)"'), "xLOG10(100)");
+    assert.equal(evaluateA1('=LEN("ABS(-3)")'), 7);
+  });
+});
+
+/** B1's value when A1 holds 3 and B1 holds `formula`. */
+const besideThree = (formula: string): unknown =>
+  cellAt(new SpreadsheetEngine().calculate({ name: "S", data: [[{ v: 3 }, { v: formula }]] } satisfies SheetData).data, 0, 1);
+
+// Characterization, not a statement of Excel's behaviour: recognising registered
+// names with digits must leave a cell reference written before "(" as it was,
+// rather than turning it into an unknown-function #NAME?.
+describe("a cell reference followed by a parenthesis", () => {
+  it("evaluates as before, alone, inside a call, and inside arithmetic", () => {
+    assert.equal(besideThree("=A1(2)"), "#ERROR!");
+    assert.equal(besideThree("=MAX(A1(1),5)"), "#ERROR!");
+    assert.equal(besideThree('=A1("x")'), '3("x")');
+    assert.equal(besideThree('="x"&"A1(2)"'), "xA1(2)");
+  });
+});
