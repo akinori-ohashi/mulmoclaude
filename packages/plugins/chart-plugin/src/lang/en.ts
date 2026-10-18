@@ -8,6 +8,7 @@ const en: Messages = {
   fromSpreadsheet: (range) => `From the spreadsheet: ${range}`,
   notLinked: "Not linked: this host cannot read the spreadsheet.",
   unreadableSource: "The spreadsheet range could not be read.",
+  sourceTimedOut: "The spreadsheet did not answer in time.",
 };
 
 export default en;

@@ -6,4 +6,5 @@ export interface Messages {
   fromSpreadsheet(range: string): string;
   notLinked: string;
   unreadableSource: string;
+  sourceTimedOut: string;
 }

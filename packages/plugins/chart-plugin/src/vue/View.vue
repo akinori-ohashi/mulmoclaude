@@ -43,7 +43,7 @@ import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as echarts from "echarts";
 import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/vue";
 import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
-import { readSourceReply, sourceSpreadsheets, withSourceRows } from "../core/source";
+import { chartOption, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
 import { useT } from "../lang";
 
 const t = useT();
@@ -80,7 +80,13 @@ function setChartRef(idx: number, element: HTMLDivElement | null): void {
   containers.value[idx] = element;
 }
 
+// A card's width changes without the window's (the Canvas is expanded, a pane is
+// dragged), and ECharts measures its container only on resize(). So each
+// container is watched, not just the window. Absent where there is no layout.
+const containerObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => handleResize());
+
 function disposeAll(): void {
+  containerObserver?.disconnect();
   for (const instance of instances) {
     instance?.dispose();
   }
@@ -107,7 +113,12 @@ function disableWheelZoom(option: Record<string, unknown>): Record<string, unkno
   return { ...option, dataZoom: next };
 }
 
+// renderAll is queued (queueMicrotask) and can run after the View is gone; a
+// chart created then would stay alive and observed with nothing to dispose it.
+const lifecycle = { unmounted: false };
+
 function renderAll(): void {
+  if (lifecycle.unmounted) return;
   disposeAll();
   for (let i = 0; i < charts.value.length; i += 1) {
     const element = containers.value[i];
@@ -126,6 +137,7 @@ function renderAll(): void {
       // others; skip it and leave its canvas blank.
     }
     instances[i] = instance;
+    containerObserver?.observe(element);
   }
 }
 
@@ -134,16 +146,21 @@ function handleResize(): void {
 }
 
 function optionFor(chart: ChartEntry, rows: ChartSourceRows | undefined): Record<string, unknown> {
-  return chart.source && rows ? withSourceRows(chart.option, rows) : chart.option;
+  return chartOption(chart, rows, runtime !== undefined);
 }
+
+// Long enough for a large workbook on a busy host; a read past it is reported
+// as a problem instead of leaving the chart silently blank.
+const SOURCE_READ_TIMEOUT_MS = 30_000;
 
 function readSource(source: ChartSource): Promise<ChartSourceRows> {
   if (!runtime) return Promise.reject(new Error(t.value.notLinked));
-  return runtime.dispatch({ kind: "readSource", source }, (raw) => {
+  const read = runtime.dispatch({ kind: "readSource", source }, (raw) => {
     const rows = readSourceReply(raw);
     if (!rows) throw new Error(t.value.unreadableSource);
     return rows;
   });
+  return settleWithin(read, SOURCE_READ_TIMEOUT_MS, t.value.sourceTimedOut);
 }
 
 // A newer load supersedes an older one still in flight, so a slow reply for an
@@ -179,6 +196,9 @@ function followSources(): void {
 }
 
 function showDocument(): void {
+  // Any read still in flight belongs to the document being replaced, even when
+  // the new one has no source and starts no read of its own.
+  loadGeneration += 1;
   sourceRows.value = [];
   sourceProblems.value = [];
   followSources();
@@ -193,16 +213,18 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  lifecycle.unmounted = true;
   window.removeEventListener("resize", handleResize);
   unsubscribeAll();
   loadGeneration += 1;
   disposeAll();
 });
 
-// Re-render when the selected result switches to a different document
-// (e.g. user clicks another chart result in the sidebar).
+// Re-render when the selected result switches to a different document (another
+// chart result in the sidebar), or the host updates this one in place — new
+// options to draw, or other sources whose rows and subscriptions must replace the old.
 watch(
-  () => data.value?.filePath,
+  () => [data.value?.filePath, JSON.stringify(data.value?.document ?? null)],
   () => showDocument(),
 );
 

@@ -14,7 +14,15 @@ import {
   type ChartExecuteContext,
   type ChartSourceReader,
 } from "../../../packages/plugins/chart-plugin/src/core/plugin";
-import { isChartSource, isReadSourceArgs, readSourceReply, sourceSpreadsheets, withSourceRows } from "../../../packages/plugins/chart-plugin/src/core/source";
+import {
+  chartOption,
+  isChartSource,
+  isReadSourceArgs,
+  readSourceReply,
+  settleWithin,
+  sourceSpreadsheets,
+  withSourceRows,
+} from "../../../packages/plugins/chart-plugin/src/core/source";
 import type { ChartSource, ChartSourceRows } from "../../../packages/plugins/chart-plugin/src/core/types";
 
 const SOURCE: ChartSource = { spreadsheet: "artifacts/spreadsheets/2026/10/abc.json", range: "Summary!A1:B3" };
@@ -101,13 +109,63 @@ describe("readSourceReply", () => {
 describe("withSourceRows / sourceSpreadsheets", () => {
   it("sets the rows as the dataset, replacing an inline one and keeping the rest", () => {
     const option = { dataset: { source: [["old"]] }, xAxis: { type: "category" } };
-    assert.deepEqual(withSourceRows(option, ROWS), { dataset: { source: ROWS }, xAxis: { type: "category" } });
+    assert.deepEqual(withSourceRows(option, ROWS), { dataset: { source: ROWS, sourceHeader: true }, xAxis: { type: "category" } });
     assert.deepEqual(option.dataset.source, [["old"]], "the stored option is not mutated");
   });
 
   it("lists each workbook once, skipping charts without a source", () => {
     const other = { spreadsheet: "artifacts/spreadsheets/2026/10/def.json", range: "A1:B2" };
     assert.deepEqual(sourceSpreadsheets([SOURCE, undefined, { ...SOURCE, range: "A1:A2" }, other]), [SOURCE.spreadsheet, other.spreadsheet]);
+  });
+});
+
+describe("withSourceRows keeps the author's option apart from the data", () => {
+  it("keeps other dataset settings, overriding only source and sourceHeader", () => {
+    const option = { dataset: { dimensions: ["m", "v"], seriesLayoutBy: "row", source: [["old"]] } };
+    assert.deepEqual(withSourceRows(option, ROWS).dataset, { dimensions: ["m", "v"], seriesLayoutBy: "row", source: ROWS, sourceHeader: true });
+  });
+
+  it("puts the rows in the first of several datasets, keeping the transforms after it", () => {
+    const transform = { transform: { type: "sort", config: { dimension: "Sales" } } };
+    const option = { dataset: [{ source: [["old"]] }, transform] };
+    assert.deepEqual(withSourceRows(option, ROWS).dataset, [{ source: ROWS, sourceHeader: true }, transform]);
+  });
+
+  it("drops inline series data, which ECharts would draw instead of the dataset", () => {
+    const option = {
+      series: [
+        { type: "bar", data: [1, 2] },
+        { type: "line", encode: { y: "Sales" } },
+      ],
+    };
+    assert.deepEqual(withSourceRows(option, ROWS).series, [{ type: "bar" }, { type: "line", encode: { y: "Sales" } }]);
+    assert.deepEqual(withSourceRows({ series: { type: "bar", data: [3] } }, ROWS).series, { type: "bar" });
+  });
+});
+
+describe("chartOption", () => {
+  const inline = { title: "x", option: { series: [{ type: "bar", data: [9] }] } };
+  const sourced = { ...inline, source: SOURCE };
+
+  it("draws an inline chart, and any chart on a host without a runtime, as written", () => {
+    assert.equal(chartOption(inline, undefined, true), inline.option);
+    assert.equal(chartOption(sourced, undefined, false), sourced.option);
+  });
+
+  it("draws a sourced chart from its rows, or an empty dataset while they are missing", () => {
+    assert.deepEqual(chartOption(sourced, ROWS, true), { series: [{ type: "bar" }], dataset: { source: ROWS, sourceHeader: true } });
+    assert.deepEqual(chartOption(sourced, undefined, true), { series: [{ type: "bar" }], dataset: { source: [], sourceHeader: true } });
+  });
+});
+
+describe("settleWithin", () => {
+  it("passes a value or a rejection through when it settles in time", async () => {
+    assert.equal(await settleWithin(Promise.resolve(1), 1000, "late"), 1);
+    await assert.rejects(settleWithin(Promise.reject(new Error("no")), 1000, "late"), /no/);
+  });
+
+  it("rejects with the message when the promise does not settle in time", async () => {
+    await assert.rejects(settleWithin(new Promise<never>(() => {}), 10, "late"), /late/);
   });
 });
 
