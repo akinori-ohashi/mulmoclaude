@@ -51,7 +51,7 @@ Click the 🔒 icon in the top bar. The popup shows:
 
 - **Sandbox enabled / disabled** — whether Docker was detected and `DISABLE_SANDBOX` is off.
 - **Host credentials attached** (only when the sandbox is on):
-  - **SSH agent**: `forwarded` when `SANDBOX_SSH_AGENT_FORWARD=1` **and** the agent socket can be attached: on macOS that is Docker Desktop's built-in socket, whatever `$SSH_AUTH_SOCK` says; elsewhere `$SSH_AUTH_SOCK` has to be set to a path that exists on the host. If the flag is on but it can't be attached, the popup shows `not forwarded` and the server log carries the reason.
+  - **SSH agent**: `forwarded` when `SANDBOX_SSH_AGENT_FORWARD=1` **and** the agent socket was attached — on macOS Docker Desktop's built-in socket, whatever `$SSH_AUTH_SOCK` says; elsewhere the host's `$SSH_AUTH_SOCK`. If the flag is on but it wasn't attached, the popup shows `not forwarded` and the server log carries the reason.
   - **Mounted configs**: allowlisted names from `SANDBOX_MOUNT_CONFIGS` whose host path exists. Names you typed but whose host path is missing are silently dropped from the UI (they appear in the server log as `config mount skipped`).
 
 The popup also has a **sample query button** that asks Claude to summarise this information in natural language.
