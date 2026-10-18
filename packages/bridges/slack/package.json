@@ -22,6 +22,9 @@
   },
   "license": "MIT",
   "author": "Receptron Team",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "dependencies": {
     "@mulmobridge/client": "^1.4.2",
     "@mulmobridge/protocol": "^1.1.0",
