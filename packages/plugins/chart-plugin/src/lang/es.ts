@@ -8,6 +8,7 @@ const es: Messages = {
   fromSpreadsheet: (range) => `De la hoja de cálculo: ${range}`,
   notLinked: "Sin vincular: este host no puede leer la hoja de cálculo.",
   unreadableSource: "No se pudo leer el rango de la hoja de cálculo.",
+  sourceTimedOut: "La hoja de cálculo no respondió a tiempo.",
 };
 
 export default es;
