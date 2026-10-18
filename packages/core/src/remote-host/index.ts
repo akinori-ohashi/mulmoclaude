@@ -12,7 +12,7 @@
 // copies: the path helpers take the `firestore` instance as a parameter (rather
 // than importing a module-level singleton) so a single extracted module serves
 // every host's own Firebase init. The hostId is host-specific ("mulmoclaude",
-// "mulmoterminal") and is supplied by each host — there is no discovery.
+// "mulmoterminal") and is supplied by each host.
 import { CollectionReference, DocumentData, DocumentReference, Firestore, collection, doc } from "firebase/firestore";
 import { isRecord } from "@mulmoclaude/common";
 
@@ -113,9 +113,10 @@ function toJsonEntries(record: Record<string, unknown>, path: string): JsonObjec
  *  naming its path, instead of reaching Firestore as a silently mangled write. */
 export const coerceJsonObject = (payload: Record<string, unknown>): JsonObject => toJsonEntries(payload, "payload");
 
-// A channel routes commands to one specific host. Both sides agree on a
-// hardcoded hostId per use case (e.g. "mulmoclaude", "mulmoterminal"); there is
-// no discovery — the remote and host just share the id.
+// A channel routes commands to one specific host. A host's first machine uses the
+// host's fixed id ("mulmoclaude", "mulmoterminal"); a host that runs on several
+// machines gives each later one "<id>-<8 hex>" (RemoteHostDeps.resolveHostId), and
+// the remote finds those by listing users/{uid}/hosts.
 export interface Channel {
   uid: string;
   hostId: string;

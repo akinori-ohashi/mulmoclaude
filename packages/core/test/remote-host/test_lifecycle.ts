@@ -159,8 +159,13 @@ describe("createRemoteHost resolveHostId", () => {
     await rh.reconnect("r1");
     assert.deepEqual(runnerAt(0).channel, { uid: "uid-r1", hostId: "id-for-uid-r1" });
   });
+});
 
-  it("a failed resolution starts no runner and leaves the running one alone", async () => {
+// resolveHostId runs after signIn/restore has replaced the session, so a failure there
+// cannot leave the old runner looking connected, and a lookup that never answers cannot
+// hold the serialized transitions forever.
+describe("createRemoteHost resolveHostId failures", () => {
+  it("a failed resolution starts no runner, and stops the old one whose session was replaced", async () => {
     let fail = false;
     const resolveHostId = async () => {
       if (fail) throw new Error("hosts doc unreadable");
@@ -171,6 +176,16 @@ describe("createRemoteHost resolveHostId", () => {
     fail = true;
     await assert.rejects(rh.connect("t2"), /hosts doc unreadable/);
     assert.equal(runners.length, 1);
-    assert.equal(runnerAt(0).stopped, false);
+    assert.equal(runnerAt(0).stopped, true);
+    assert.equal(rh.status().connected, false);
+  });
+
+  it("a resolution that never answers times out, and a later disconnect still runs", async () => {
+    const resolveHostId = () => new Promise<string>(() => undefined);
+    const { rh, runners, signOutCount } = makeHarness(undefined, { resolveHostId, resolveHostIdTimeoutMs: 5 });
+    await assert.rejects(rh.connect("t1"), /resolveHostId did not answer/);
+    assert.equal(runners.length, 0);
+    assert.deepEqual(await rh.disconnect(), { connected: false, uid: null });
+    assert.equal(signOutCount(), 1);
   });
 });
