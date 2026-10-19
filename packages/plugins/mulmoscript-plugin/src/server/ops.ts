@@ -42,7 +42,9 @@ import {
   addSessionProgressCallback,
   removeSessionProgressCallback,
 } from "mulmocast";
-import type { MulmoBeat, MulmoImagePromptMedia, MulmoStudioContext } from "@mulmocast/types";
+// From mulmocast itself, which builds the context: @mulmocast/types inlines the deck slide types of its own build,
+// so its copy drifts from mulmocast's whenever deck gains a layout (deck 2.1.0's `figure`).
+import type { MulmoBeat, MulmoImagePromptMedia, MulmoStudioContext } from "mulmocast";
 import { DEFAULT_ROOT, normalizeRoot } from "../core/contract";
 import type { MulmoScriptGenerationEvent } from "../core/contract";
 import { isAbsoluteStoryPath, normalizeStoryPath, STORY_TARGET_EXTENSIONS, storyRefWithin, storiesRelativePath } from "../core/paths";
@@ -50,6 +52,7 @@ import { errorMessage } from "@mulmoclaude/common";
 import { resolveWithinRoot } from "@mulmoclaude/core/files";
 import { fileToDataUri, stripDataUri } from "./support";
 import { beatMovieCandidates } from "./beatMovieCandidates";
+import { beatRendersWithoutFfmpeg } from "./beatRendersWithoutFfmpeg";
 import { missingRootCapabilities } from "./types";
 import { enableGraphAIErrorCapture, setMulmoErrorCaptureLogger, withMulmoErrorCapture } from "./mulmoErrorCapture";
 import type {
@@ -635,7 +638,7 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
     };
   }
 
-  // mulmocast shells out to ffmpeg for movie / beat rendering. When the
+  // mulmocast shells out to ffmpeg for movies and movie beats. When the
   // host's probe reports it absent, intercept with a clear failure
   // instead of letting the library throw an opaque spawn ENOENT
   // mid-pipeline. `undefined` means the probe hasn't completed — assume
@@ -645,7 +648,7 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
       return {
         ok: false,
         code: "unavailable",
-        error: "ffmpeg is not installed — movie and beat rendering are unavailable. Install ffmpeg and restart the server.",
+        error: "ffmpeg is not installed — movies, and beats that make or use a movie, cannot be rendered. Install ffmpeg and restart the server.",
       };
     }
     return null;
@@ -894,14 +897,22 @@ export function createMulmoScriptServerOps(backend: MulmoScriptServerBackend) {
     const { filePath, beatIndex, force, chatSessionId, root } = args;
     const rootGuard = guardStoryGenerationRoot(root);
     if (rootGuard) return rootGuard;
-    const ffmpeg = ffmpegGuard();
-    if (ffmpeg) return ffmpeg;
 
     const mapKey = String(beatIndex);
     publishGeneration(chatSessionId, "beatImage", filePath, mapKey, false, { root });
     let genError: string | undefined;
     try {
       const result = await runStoryOp<{ image: string }>(filePath, { force, operation: "render-beat", root }, async ({ context }) => {
+        const beat = context.studio.script.beats[beatIndex];
+        const withoutFfmpeg = beatRendersWithoutFfmpeg(beat, {
+          isPluginVideo: beat !== undefined && MulmoBeatMethods.isPluginVideo(beat),
+          styleMovieParams: context.presentationStyle.movieParams,
+          suppressSpeech: Boolean(context.studio.script.audioParams?.suppressSpeech),
+        });
+        if (!withoutFfmpeg) {
+          const ffmpeg = ffmpegGuard();
+          if (ffmpeg) return ffmpeg;
+        }
         await generateBeatImage({
           index: beatIndex,
           context,

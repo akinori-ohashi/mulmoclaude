@@ -64,6 +64,7 @@ All env vars are **optional unless flagged "required"**. The server reads them a
 | --------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GEMINI_API_KEY`            | `server/utils/gemini.ts`      | Enables Gemini image generation / editing. Without it, image plugins surface a UI warning. The `geminiAvailable` flag in `GET /api/health` mirrors this, and `geminiEnvFilePath` beside it names the `.env` this launch would read it from. Also settable from Settings → Gemini, which stores it in `~/.mulmoclaude/secrets/` and OVERRIDES this variable — see `server/system/secrets.ts` (#871). |
 | `X_BEARER_TOKEN`            | `server/agent/mcp-tools/x.ts` | **Required** to enable `readXPost` / `searchX` MCP tools. Tools are silently disabled if absent.                                                         |
+| `TYPESAFE_API_KEY`          | `kenteiscript` (`server/plugins/kentei-builtin.ts`) | **Required** by `manageKenteiScript` (Tutor role): TypeSafe JEV grades each quiz answer on the server. Without it the tool is not offered at all (`STATIC_PLUGIN_REQUIRED_ENV` in `server/agent/activeTools.ts`), so the Tutor quizzes with `putQuestions` instead; a View left from before still refuses to grade. Optional `JEV_MODEL` / `JEV_URL` override the model / endpoint (`JEV_URL` is for tests, e.g. kenteiscript's `scripts/mock-jev.mjs`). Key: https://typesafe.ai |
 | `TELEGRAM_BOT_TOKEN`        | `@mulmobridge/telegram`       | **Required** for the Telegram bridge. BotFather token. Treat like a password. See [`message_apps/telegram/`](message_apps/telegram/).                    |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | `@mulmobridge/telegram`       | CSV of integer Telegram chat IDs allowed to message the bot. Empty / unset → deny everyone. A non-integer entry halts startup.                           |
 | `TELEGRAM_POLL_TIMEOUT_SEC` | `@mulmobridge/telegram`       | Long-polling timeout in seconds. Defaults `25` (Telegram's recommended max).                                                                             |
@@ -386,8 +387,7 @@ namespace. Publishers are in-process:
   literally cannot publish under another's namespace.
 - **Most host code** calls `publishNotification()` in `server/events/notifications.ts`, the
   legacy wrapper below — `server/agent/mcp-tools/notify.ts`, `server/plugins/diagnostics.ts`,
-  `server/agent/mcpFailureMonitor.ts`, `server/system/shadowedEnv.ts` and
-  `server/workspace/billing-migration.ts` among them. Do not trust that list to stay complete —
+  `server/agent/mcpFailureMonitor.ts` and `server/system/shadowedEnv.ts` among them. Do not trust that list to stay complete —
   and do not expect a grep to give you a clean count either, because two of the callers
   (`mcp-tools/notify.ts`, `mcpFailureMonitor.ts`) take it as an injected `publish` dependency so
   tests can mock it, and at least one file names it only in a comment:

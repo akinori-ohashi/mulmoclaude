@@ -12,7 +12,15 @@
           ‹
         </button>
         <div class="flex flex-col items-center">
-          <img :src="lightbox.src" class="max-w-[80vw] max-h-[85vh] object-contain rounded shadow-2xl" />
+          <!-- Width capped by the canvas aspect so a portrait deck stays within 85vh, like the PNG's max-h. -->
+          <div
+            v-if="htmlDoc"
+            class="w-[80vw] max-w-[calc(85vh*var(--beat-ratio))] rounded shadow-2xl overflow-hidden"
+            :style="{ '--beat-ratio': String(previewCanvas.width / previewCanvas.height) }"
+          >
+            <BeatHtmlFrame :srcdoc="htmlDoc" :canvas="previewCanvas" :title="`Beat ${lightbox.index + 1}`" testid="mulmo-script-lightbox-html" interactive />
+          </div>
+          <img v-else :src="lightbox.src" class="max-w-[80vw] max-h-[85vh] object-contain rounded shadow-2xl" />
           <div v-if="!lightbox.isCharacter && beatCount > 1" class="relative w-full h-1">
             <div class="flex gap-1 h-full">
               <div
@@ -79,6 +87,8 @@
 // the template can read `.index` / `.src` without a guard.
 import { beatTooltip } from "../helpers";
 import type { LightboxState } from "../viewTypes";
+import type { CanvasSize } from "../beatHtml";
+import BeatHtmlFrame from "./BeatHtmlFrame.vue";
 import { useT } from "../../lang/index";
 
 const m = useT();
@@ -92,6 +102,9 @@ defineProps<{
   playingAudioIndex: number | null;
   audioProgress: number;
   hasCurrentAudio: boolean;
+  previewCanvas: CanvasSize;
+  /** The open beat drawn in the browser (#3472), shown instead of `lightbox.src`. */
+  htmlDoc: string | null;
 }>();
 
 const emit = defineEmits<{

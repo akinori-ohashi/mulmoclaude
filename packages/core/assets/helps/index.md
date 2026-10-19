@@ -96,11 +96,12 @@ See [Wiki](config/helps/wiki.md) for details on how it works.
 
 ```
 ~/mulmoclaude/
-  chat/          ← session tool results (.jsonl per session)
-  todos/         ← todo items
-  calendar/      ← calendar events
-  contacts/      ← address book
-  wiki/          ← personal knowledge wiki (long-term memory)
-  config/helps/  ← help pages (synced from app on every start)
-  memory.md      ← distilled facts loaded into every session
+  conversations/chat/          ← chat session history (.jsonl per session)
+  conversations/memory/        ← distilled facts as topic files (<type>/<topic>.md); an index line per file is in every session
+  conversations/summaries/     ← journal output (daily / topics / archive)
+  data/wiki/                   ← personal knowledge wiki (long-term memory)
+  artifacts/                   ← generated documents, images, html, charts, spreadsheets, stories
+  config/                      ← settings.json, mcp.json, roles/
+  config/helps/                ← help pages (synced from app on every start)
+  config/scheduler/tasks.json  ← scheduled tasks (Automations)
 ```

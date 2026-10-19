@@ -617,8 +617,9 @@ const frMessages = {
         "Surcharges horaires / d'intervalle par tâche appliquées au-dessus du planning système. L'agent édite ce fichier quand vous demandez à changer l'horaire d'une tâche récurrente.",
     },
     schedulerItems: {
-      title: "File d'éléments du planificateur",
-      summary: "Invocations planifiées prêtes à se déclencher. Géré par l'agent ; n'éditez pas à la main sans comprendre chaque champ.",
+      title: "Anciens éléments de calendrier",
+      summary:
+        "Éléments de la vue Calendrier supprimée. L'application ne les affiche plus et rien ne les exécute selon un planning ; seules les anciennes actions /api/scheduler lisent et écrivent encore ce fichier. Les tâches planifiées se trouvent dans config/scheduler/tasks.json.",
     },
     wikiIndex: {
       title: "Index du wiki",
@@ -638,9 +639,9 @@ const frMessages = {
         "Spécification de format que l'agent lit pour garder les pages du wiki cohérentes. Fragile — il attend une structure précise ; préférez les éditions via l'agent.",
     },
     memory: {
-      title: "Mémoire",
+      title: "Mémoire (ancien fichier)",
       summary:
-        "Faits distillés à votre sujet, toujours chargés comme contexte pour les nouvelles conversations. L'extracteur du journal y ajoute automatiquement ; vous pouvez aussi éditer à la main.",
+        "L'ancienne mémoire en un seul fichier. Seuls les espaces de travail encore à l'ancien format la lisent ; les espaces actuels stockent les faits dans des fichiers de sujet sous conversations/memory/<type>/<topic>.md et ignorent ce fichier, donc le modifier n'a pas d'effet pour eux.",
     },
     summariesIndex: {
       title: "Index des résumés",

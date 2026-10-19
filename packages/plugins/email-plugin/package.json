@@ -33,13 +33,13 @@
     "typescript": "^6.0.3",
     "vite": "^8.3.4",
     "vite-plugin-dts": "^5.1.2",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "license": "MIT",
   "dependencies": {
-    "imapflow": "^2.4.0",
-    "mailparser": "^3.9.38",
-    "nodemailer": "^10.0.16"
+    "imapflow": "^2.5.5",
+    "mailparser": "^3.9.46",
+    "nodemailer": "^10.1.7"
   },
   "homepage": "https://github.com/receptron/mulmoclaude/tree/main/packages/plugins/email-plugin#readme",
   "repository": {

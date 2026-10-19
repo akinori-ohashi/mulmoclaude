@@ -28,6 +28,10 @@
             {{ t.png }}
           </button>
         </div>
+        <div v-if="chart.source" class="px-3 py-1 text-xs text-gray-500 border-b border-gray-100" :data-testid="`chart-source-${idx}`">
+          {{ t.fromSpreadsheet(chart.source.range) }}
+          <span v-if="sourceProblems[idx]" class="text-red-600" :data-testid="`chart-source-problem-${idx}`">{{ sourceProblems[idx] }}</span>
+        </div>
         <div :ref="(el) => setChartRef(idx, el as HTMLDivElement | null)" class="w-full h-[400px]" :data-testid="`chart-canvas-${idx}`" />
       </div>
     </div>
@@ -35,10 +39,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as echarts from "echarts";
-import type { ToolResultComplete } from "gui-chat-protocol/vue";
-import type { ChartEntry, PresentChartData } from "../core/types";
+import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/vue";
+import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
+import { chartOption, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
 import { useT } from "../lang";
 
 const t = useT();
@@ -50,6 +55,14 @@ const props = defineProps<{
 const data = computed(() => props.selectedResult.data);
 const charts = computed<ChartEntry[]>(() => data.value?.document?.charts ?? []);
 const title = computed(() => data.value?.title ?? data.value?.document?.title);
+
+// Optional: a host without a runtime still draws every inline chart, and says
+// on a sourced one that it cannot follow the spreadsheet.
+const runtime = inject(PLUGIN_RUNTIME_KEY, undefined);
+
+// Index-aligned with `charts`, like `instances`.
+const sourceRows = ref<(ChartSourceRows | undefined)[]>([]);
+const sourceProblems = ref<(string | undefined)[]>([]);
 
 const containers = ref<(HTMLDivElement | null)[]>([]);
 // Kept as a plain array (not `ref`): ECharts instances are managed
@@ -67,7 +80,13 @@ function setChartRef(idx: number, element: HTMLDivElement | null): void {
   containers.value[idx] = element;
 }
 
+// A card's width changes without the window's (the Canvas is expanded, a pane is
+// dragged), and ECharts measures its container only on resize(). So each
+// container is watched, not just the window. Absent where there is no layout.
+const containerObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => handleResize());
+
 function disposeAll(): void {
+  containerObserver?.disconnect();
   for (const instance of instances) {
     instance?.dispose();
   }
@@ -94,7 +113,12 @@ function disableWheelZoom(option: Record<string, unknown>): Record<string, unkno
   return { ...option, dataZoom: next };
 }
 
+// renderAll is queued (queueMicrotask) and can run after the View is gone; a
+// chart created then would stay alive and observed with nothing to dispose it.
+const lifecycle = { unmounted: false };
+
 function renderAll(): void {
+  if (lifecycle.unmounted) return;
   disposeAll();
   for (let i = 0; i < charts.value.length; i += 1) {
     const element = containers.value[i];
@@ -107,12 +131,13 @@ function renderAll(): void {
     }
     const instance = echarts.init(element);
     try {
-      instance.setOption(disableWheelZoom(chart.option));
+      instance.setOption(disableWheelZoom(optionFor(chart, sourceRows.value[i])));
     } catch {
       // A malformed ECharts option for one chart shouldn't break the
       // others; skip it and leave its canvas blank.
     }
     instances[i] = instance;
+    containerObserver?.observe(element);
   }
 }
 
@@ -120,22 +145,87 @@ function handleResize(): void {
   for (const instance of instances) instance?.resize();
 }
 
-onMounted(() => {
+function optionFor(chart: ChartEntry, rows: ChartSourceRows | undefined): Record<string, unknown> {
+  return chartOption(chart, rows, runtime !== undefined);
+}
+
+// Long enough for a large workbook on a busy host; a read past it is reported
+// as a problem instead of leaving the chart silently blank.
+const SOURCE_READ_TIMEOUT_MS = 30_000;
+
+function readSource(source: ChartSource): Promise<ChartSourceRows> {
+  if (!runtime) return Promise.reject(new Error(t.value.notLinked));
+  const read = runtime.dispatch({ kind: "readSource", source }, (raw) => {
+    const rows = readSourceReply(raw);
+    if (!rows) throw new Error(t.value.unreadableSource);
+    return rows;
+  });
+  return settleWithin(read, SOURCE_READ_TIMEOUT_MS, t.value.sourceTimedOut);
+}
+
+// A newer load supersedes an older one still in flight, so a slow reply for an
+// earlier version of the sheet cannot overwrite the latest.
+let loadGeneration = 0;
+
+async function loadSources(): Promise<void> {
+  const generation = ++loadGeneration;
+  const results = await Promise.allSettled(charts.value.map((chart) => (chart.source ? readSource(chart.source) : Promise.resolve(undefined))));
+  if (generation !== loadGeneration) return;
+  sourceRows.value = results.map((result) => (result.status === "fulfilled" ? result.value : undefined));
+  sourceProblems.value = results.map((result) =>
+    result.status === "rejected" ? String(result.reason instanceof Error ? result.reason.message : result.reason) : undefined,
+  );
+  renderAll();
+}
+
+// The host announces a change to a watched file on `file:<path>`; each
+// workbook this document reads is watched while the View is open.
+let unsubscribers: (() => void)[] = [];
+
+function unsubscribeAll(): void {
+  unsubscribers.forEach((unsubscribe) => unsubscribe());
+  unsubscribers = [];
+}
+
+function followSources(): void {
+  unsubscribeAll();
+  if (!runtime) return;
+  unsubscribers = sourceSpreadsheets(charts.value.map((chart) => chart.source)).map((path) =>
+    runtime.pubsub.subscribe(`file:${path}`, () => void loadSources()),
+  );
+}
+
+function showDocument(): void {
+  // Any read still in flight belongs to the document being replaced, even when
+  // the new one has no source and starts no read of its own.
+  loadGeneration += 1;
+  sourceRows.value = [];
+  sourceProblems.value = [];
+  followSources();
   // Wait a tick so the refs are populated before we render.
   queueMicrotask(renderAll);
+  if (charts.value.some((chart) => chart.source)) void loadSources();
+}
+
+onMounted(() => {
+  showDocument();
   window.addEventListener("resize", handleResize);
 });
 
 onBeforeUnmount(() => {
+  lifecycle.unmounted = true;
   window.removeEventListener("resize", handleResize);
+  unsubscribeAll();
+  loadGeneration += 1;
   disposeAll();
 });
 
-// Re-render when the selected result switches to a different document
-// (e.g. user clicks another chart result in the sidebar).
+// Re-render when the selected result switches to a different document (another
+// chart result in the sidebar), or the host updates this one in place — new
+// options to draw, or other sources whose rows and subscriptions must replace the old.
 watch(
-  () => data.value?.filePath,
-  () => queueMicrotask(renderAll),
+  () => [data.value?.filePath, JSON.stringify(data.value?.document ?? null)],
+  () => showDocument(),
 );
 
 function exportPng(idx: number, chartTitle?: string): void {

@@ -612,8 +612,9 @@ const ptBRMessages = {
         "Sobrescritas por tarefa de horário / intervalo aplicadas sobre o agendamento do sistema. O agente edita quando você pede para mudar o horário de uma tarefa.",
     },
     schedulerItems: {
-      title: "Fila de itens do agendador",
-      summary: "Invocações agendadas prontas para disparar. Gerenciado pelo agente; não edite manualmente sem entender cada campo.",
+      title: "Itens de calendário antigos",
+      summary:
+        "Itens da visualização de Calendário removida. O app não os mostra mais e nada os executa por agendamento; só as ações antigas de /api/scheduler ainda leem e gravam este arquivo. As tarefas agendadas ficam em config/scheduler/tasks.json.",
     },
     wikiIndex: {
       title: "Índice da wiki",
@@ -633,9 +634,9 @@ const ptBRMessages = {
         "Especificação de formato que o agente lê para manter as páginas da wiki consistentes. Frágil — espera uma estrutura específica; prefira edições via agente.",
     },
     memory: {
-      title: "Memória",
+      title: "Memória (arquivo antigo)",
       summary:
-        "Fatos destilados sobre você, sempre carregados como contexto em novas conversas. O extrator do journal adiciona automaticamente; você também pode editar manualmente.",
+        "A memória antiga em um único arquivo. Só os espaços de trabalho no formato antigo a leem; os atuais guardam os fatos como arquivos de tópico em conversations/memory/<type>/<topic>.md e ignoram este arquivo, então editá-lo não tem efeito neles.",
     },
     summariesIndex: {
       title: "Índice de resumos",

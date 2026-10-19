@@ -1,21 +1,16 @@
 # MulmoClaude
 
-GUI front-end for Claude Code and OpenAI Codex — chat with rich visual output, schema-driven data apps, and long-term memory. AI-native application platform that runs locally on your machine.
+GUI front-end for Claude Code — chat with rich visual output, schema-driven data apps, and long-term memory. AI-native application platform that runs locally on your machine.
 
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js 22.22.2+ / 24.15+ / 26+, plus one authenticated agent CLI
-# Codex (default):
-npm install -g @openai/codex
-codex login
-# Claude Code alternative:
-# npm install -g @anthropic-ai/claude-code
-# claude              # one-time OAuth — completes the CLI setup
+# Prerequisites: Node.js 22.22.2+ / 24.15+ / 26+, Claude Code CLI
+npm install -g @anthropic-ai/claude-code
+claude              # one-time OAuth — completes the CLI setup
 
 # Launch MulmoClaude
 npx mulmoclaude@latest
-# To select Claude explicitly: npx mulmoclaude@latest --agent-backend claude-code
 ```
 
 Your browser opens to `http://localhost:3001`. That's it.
@@ -24,20 +19,22 @@ Your browser opens to `http://localhost:3001`. That's it.
 
 ## What can you do?
 
-| Ask the agent to…               | What you get                                          |
-| ------------------------------- | ----------------------------------------------------- |
-| "Write a project proposal"      | Rich markdown document in the canvas                  |
-| "Chart last quarter's revenue"  | Interactive ECharts visualization                     |
-| "Create a trip plan for Kyoto"  | Illustrated guide with images                         |
-| "Set up a todo list"            | Schema-driven collection with table / kanban / calendar |
-| "Ingest this article: URL"      | Wiki page with `[[links]]` for long-term memory       |
-| "Schedule a daily news digest"  | Recurring task that runs automatically                |
-| "Generate an image of a sunset" | AI-generated image (Gemini)                           |
-| "Make slides on …"              | Marp-rendered slide deck with PDF export              |
-| "Add this to my calendar"       | Event in your Google Calendar (sign in, no setup)     |
-| "Put that on my task list"      | Task in Google Tasks, with notes and a due date       |
-| "Subscribe to this RSS feed"    | Data feed on `/feeds`, fetched on a schedule          |
-| "Model a chess piece in 3D"     | Interactive ShapeScript scene, exportable to USDZ / GLB / STL |
+| Ask Claude to…                           | What you get                                                                              |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------- |
+| "Write a project proposal"               | Rich markdown document in the canvas                                                      |
+| "Chart last quarter's revenue"           | Interactive ECharts visualization                                                         |
+| "Create a trip plan for Kyoto"           | Illustrated guide with images                                                             |
+| "Set up a todo list"                     | Schema-driven collection with table / kanban / calendar                                   |
+| "Ingest this article: URL"               | Wiki page with `[[links]]` for long-term memory                                           |
+| "Schedule a daily news digest"           | Recurring task that runs automatically                                                    |
+| "Generate an image of a sunset"          | AI-generated image (Gemini)                                                               |
+| "Make slides on …"                       | Marp-rendered slide deck with PDF export                                                  |
+| "Make a narrated video about …"          | MulmoScript storyboard previewed in the browser; movie / PDF export (movies need ffmpeg)  |
+| "Add this to my calendar"                | Event in your Google Calendar (sign in, no setup)                                         |
+| "Put that on my task list"               | Task in Google Tasks, with notes and a due date                                           |
+| "Subscribe to this RSS feed"             | Data feed on `/feeds`, fetched on a schedule                                              |
+| "Model a chess piece in 3D"              | Interactive ShapeScript scene, exportable to USDZ / GLB / STL                             |
+| "Review my draft, ask me about each fix" | A form showing each passage with the phrase highlighted, the answer fields right under it |
 
 **Pages you can visit directly**: `/wiki` (browse + lint), `/feeds` (data feeds), `/collections` (data apps — Discover tab to import community collections, Contribute to share your own), `/automations` (recurring tasks), `/files` (drop files onto a folder row to save them straight into it), `/skills`, `/roles`. Each page has its own chat composer that spawns a fresh chat already aware of the page context.
 
@@ -151,21 +148,22 @@ Recommended: ≥ 32 characters of random data (shorter values trigger a startup 
 
 ## Roles, skills, and collections
 
-- **Roles** (sidebar selector): General, Office, Guide & Planner, Artist, Tutor, Storyteller, Settings. Each one biases Claude toward a workflow and surfaces its sample prompts.
-- **Skills** (`~/.claude/skills/<name>/SKILL.md`): personal skills shared across every project, plus project skills under `<workspace>/.claude/skills/`. Bundled "preset" skills (`mc-*`) re-seed on each boot.
+- **Roles** (sidebar selector): General, Simple (a much smaller prompt for light conversation), Office, Guide & Planner, Artist, Tutor, Storyteller, Settings. Each one biases Claude toward a workflow and surfaces its sample prompts. With `TYPESAFE_API_KEY` set, Tutor can quiz you with a [KenteiScript](https://www.npmjs.com/package/kenteiscript) test you answer in your own words, graded on the server.
+- **Skills** (`~/.claude/skills/<name>/SKILL.md`): personal skills shared across every project, plus project skills under `<workspace>/.claude/skills/`. Bundled "preset" skills (`mc-*`) re-seed on each boot. If installed Claude Code plugins carry so many skills that every request gets heavy, **Settings → Model** shows the count from the last turn and can stop loading `~/.claude` skills and plugins (the workspace's own keep working).
 - **Collections**: schema-driven data apps. Author your own (`data/skills/<slug>/schema.json` declares the model + UI), or use the Discover tab on `/collections` to import community collections from the official registry — or your own org / community registry by dropping `config/collections-registries.json` in the workspace. The Map tab draws the ontology graph across your collections, so you can see how their records reference each other, and the view header has a pulldown to jump straight to a related collection. A custom HTML view can put buttons on your records; give its `views[]` entry `"allowSendChat": true` and a press starts the work instead of leaving the prompt in the composer for you to send.
 
 ## Optional features
 
 - **Gemini API key** — enables AI image generation (`generateImage`), audio / video. Free tier suffices for everyday use; get one from [Google AI Studio](https://aistudio.google.com/). Paste it into **Settings → Gemini**: it takes effect immediately, with no restart and no file to find, and it wins over anything in the shell or a `.env`. The older routes still work — `GEMINI_API_KEY` exported in the shell, or in a `.env` — but which `.env` gets read depends on how you started the app (from the icon there is no launch directory, so it reads `~/.env`), which is why the Settings tab names the exact path this launch is reading.
 - **Attach any file to a chat** — paste, drop or pick it. Images, PDF, Office documents and text are read by the model; any other type (a `.mpp`, a CAD file, an archive) is saved to `data/attachments/` and handed to the agent by path, so a tool or skill you add can process it.
-- **Download any workspace file** — the Files view previews text and renders known media; anything else (and any file too large to preview) offers a direct download of the bytes. This replaces relying on "Open in OS", which spawns a handler on the *server's* desktop — under Docker, WSL2 or a remote host there is none, so those files used to be unreachable from the UI.
+- **Download any workspace file** — the Files view previews text and renders known media; anything else (and any file too large to preview) offers a direct download of the bytes. This replaces relying on "Open in OS", which spawns a handler on the _server's_ desktop — under Docker, WSL2 or a remote host there is none, so those files used to be unreachable from the UI.
 - **Local voice input** (macOS only, opt-in) — `whisper.cpp` for dictating chat messages without sending audio to a cloud API.
 - **Marp slides** — `marp: true` frontmatter on any markdown file renders a slide deck in the canvas with PDF export. Custom themes via `config/marp-themes/<name>.css`.
+- **Remotion scenes in MulmoScript stories** — with the optional remotion packages installed, ask for a Remotion animation on a story beat: the agent can write the scene component itself, so you can refine it in the conversation, or leave it to mulmocast to generate from a description.
 - **Auto memory** — the agent maintains a typed memory layout (`conversations/memory/<type>/<topic>.md`) and reads it ambient-style.
 - **Web Push on task finish** — enable in Settings → Notifications to get a push on your phone when the answer to a question you asked is ready, even with the browser closed. Requires the RemoteHost connection + a registered device (see [`docs/remote-host.md`](https://github.com/receptron/mulmoclaude/blob/main/docs/remote-host.md#web-push-on-task-finish-2086)).
 - **Google (Calendar / Tasks / Drive)** — link your Google account in Settings → Plugins → Google and consent in the browser; no Google Cloud setup needed. The agent then gets a `google` tool covering the full round trip — list, create, edit and delete calendar events and tasks (including putting a completed task back on the list), plus the Drive files it creates — and the phone remote can trigger the same commands. Events can be timed or **all-day**: ask for a whole day and you get one, rather than a midnight appointment.
-- **Google Calendar ↔ collection sync** — a collection can mirror one of your calendars and keep itself current: the first sync starts as soon as you ask for the collection, an hourly pass follows, and a Sync button forces one. It calls the Calendar API directly rather than routing the events through the agent, so keeping it fresh costs no tokens. A **Push to Google** button beside it sends the other way, creating events for records you added and updating ones you edited — it skips anything edited on both sides rather than picking a winner. It does not delete unless you ask it to: a collection can opt in so that removing a record removes the event, and even then it refuses any event with attendees rather than withdrawing it from their calendars. Ask for **two-way sync** and the collection pushes on the same schedule it pulls on, as one cycle, so there is no button to forget; a record the push could not send is then left alone by the pull instead of being overwritten. Without it the pull is automatic and the push is a button, so push before you sync — a pull overwrites a locally edited record as soon as Google reports a change to that event. A record you add can be an **all-day** event: tick **All day** in the record form, or write just the date (`2026-09-28`) in its start and end. Event **notes and location** travel in both directions alongside the title, times and colour, and the mirror can also carry read-only details — your own RSVP, the meeting link, and which recurring series an occurrence came from. **The refresh token stays on your machine** (`~/.config/mulmo/`) — the sign-in service applies the OAuth client secret Google requires and keeps nothing. Prefer your own OAuth client? Drop a *desktop-app* client JSON in `~/.secrets/` and the whole flow stays local (see [`docs/remote-host.md`](https://github.com/receptron/mulmoclaude/blob/main/docs/remote-host.md)).
+- **Google Calendar ↔ collection sync** — a collection can mirror one of your calendars and keep itself current: the first sync starts as soon as you ask for the collection, an hourly pass follows, and a Sync button forces one. It calls the Calendar API directly rather than routing the events through the agent, so keeping it fresh costs no tokens. A **Push to Google** button beside it sends the other way, creating events for records you added and updating ones you edited — it skips anything edited on both sides rather than picking a winner. It does not delete unless you ask it to: a collection can opt in so that removing a record removes the event, and even then it refuses any event with attendees rather than withdrawing it from their calendars. Ask for **two-way sync** and the collection pushes on the same schedule it pulls on, as one cycle, so there is no button to forget; a record the push could not send is then left alone by the pull instead of being overwritten. Without it the pull is automatic and the push is a button, so push before you sync — a pull overwrites a locally edited record as soon as Google reports a change to that event. A record you add can be an **all-day** event: tick **All day** in the record form, or write just the date (`2026-09-28`) in its start and end. Event **notes and location** travel in both directions alongside the title, times and colour, and the mirror can also carry read-only details — your own RSVP, the meeting link, and which recurring series an occurrence came from. **The refresh token stays on your machine** (`~/.config/mulmo/`) — the sign-in service applies the OAuth client secret Google requires and keeps nothing. Prefer your own OAuth client? Drop a _desktop-app_ client JSON in `~/.secrets/` and the whole flow stays local (see [`docs/remote-host.md`](https://github.com/receptron/mulmoclaude/blob/main/docs/remote-host.md)).
 
 ## Plugin authoring (`--dev-plugin`)
 

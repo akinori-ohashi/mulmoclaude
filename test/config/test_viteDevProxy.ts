@@ -94,6 +94,15 @@ describe("published-port following is opt-in per dev script", () => {
       assert.match(chain, new RegExp(`${FOLLOW}\\s+vite`), `${variant} must opt Vite into following the published port`);
     });
 
+    it(`the ${variant} chain rebuilds the MCP broker bundle before the server starts`, () => {
+      // The bundle wins over the broker's source whenever it exists, however old;
+      // a stale one silently hid a newly added tool from the agent.
+      const brokerAt = chain.indexOf("yarn build:mcp-broker");
+      assert.notEqual(brokerAt, -1, `${variant} must rebuild server/build/mcp-server.mjs`);
+      assert.ok(brokerAt < chain.indexOf("concurrently"), `${variant} must rebuild it BEFORE the server pane starts`);
+      assert.ok(brokerAt > chain.indexOf(steps[0] ?? ""), `${variant} must rebuild it AFTER the workspace packages it inlines`);
+    });
+
     it(`the ${variant} chain clears the stale port before either pane starts`, () => {
       const resetAt = chain.indexOf("wait:backend --reset");
       const panesAt = chain.indexOf("concurrently");

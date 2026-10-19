@@ -256,7 +256,10 @@ export function buildPluginPromptSections(role: Role): string[] {
 
 export interface SystemPromptParams {
   role: Role;
+  /** Agent-facing path, shown in the prompt — the container mount under Docker. */
   workspacePath: string;
+  /** Where this process reads wiki / legacy memory from. Differs from `workspacePath` under Docker. */
+  hostWorkspacePath: string;
   /** True when the agent runs inside the Dockerfile.sandbox container.
    *  Controls whether the "Sandbox Tools" hint is emitted — the host
    *  environment has no such guarantees, so without Docker we stay
@@ -347,17 +350,17 @@ interface NamedSection {
 const SYSTEM_PROMPT_WARN_THRESHOLD_CHARS = 20000;
 
 export function buildSystemPrompt(params: SystemPromptParams): string {
-  const { role, workspacePath, useDocker, userTimezone, memorySnapshot } = params;
+  const { role, workspacePath, hostWorkspacePath, useDocker, userTimezone, memorySnapshot } = params;
 
   const sections: NamedSection[] = [
     { name: "base", content: SYSTEM_PROMPT },
     { name: "role", content: role.prompt },
     { name: "workspace", content: `Workspace directory: ${workspacePath}` },
     { name: "time", content: buildTimeSection(new Date(), userTimezone) },
-    { name: "memory", content: buildMemoryContext(memorySnapshot, workspacePath) },
+    { name: "memory", content: buildMemoryContext(memorySnapshot, hostWorkspacePath) },
     { name: "memory-management", content: buildMemoryManagementSection(memorySnapshot) },
     { name: "sandbox", content: useDocker ? SANDBOX_TOOLS_HINT : null },
-    { name: "wiki", content: buildWikiContext(workspacePath) },
+    { name: "wiki", content: buildWikiContext(hostWorkspacePath) },
     { name: "custom-dirs", content: buildCustomDirsPrompt(getCachedCustomDirs()) },
     { name: "reference-dirs", content: buildReferenceDirsPrompt(getCachedReferenceDirs(), useDocker) },
     { name: "plugins", content: headingSection("Plugin Instructions", buildPluginPromptSections(role)) },

@@ -7,6 +7,7 @@ import { mcpBinding } from "../server-bindings-types";
 import accountingDef from "../accounting/definition";
 import canvasDef from "../canvas/definition";
 import chartDef from "../chart/definition";
+import manageKenteiScriptDef from "../manageKenteiScript/definition";
 import manageSkillsDef from "../manageSkills/definition";
 import markdownDef from "../markdown/definition";
 import photoLocationsDef from "../photoLocations/definition";
@@ -21,6 +22,7 @@ import spreadsheetDef from "../spreadsheet/definition";
 import { META as accountingMeta } from "../accounting/meta";
 import { META as canvasMeta } from "../canvas/meta";
 import { META as chartMeta } from "../chart/meta";
+import { META as manageKenteiScriptMeta } from "../manageKenteiScript/meta";
 import { META as manageSkillsMeta } from "../manageSkills/meta";
 import { META as markdownMeta } from "../markdown/meta";
 import { META as photoLocationsMeta } from "../photoLocations/meta";
@@ -40,6 +42,7 @@ export const GENERATED_SERVER_BINDINGS: readonly ServerPluginBinding[] = [
   mcpBinding(accountingDef, accountingMeta),
   mcpBinding(canvasDef, canvasMeta),
   mcpBinding(chartDef, chartMeta),
+  mcpBinding(manageKenteiScriptDef, manageKenteiScriptMeta),
   mcpBinding(manageSkillsDef, manageSkillsMeta),
   mcpBinding(markdownDef, markdownMeta),
   mcpBinding(photoLocationsDef, photoLocationsMeta),

@@ -56,6 +56,8 @@ h3.sub .sn{flex:none;width:1.75rem;height:1.75rem;border-radius:50%;background:v
 .note.warn strong{background:var(--tag-warn-bg);color:var(--tag-warn)}
 .note.ok strong{background:var(--tag-ok-bg);color:var(--tag-ok)}
 .note strong:empty{display:none}
+.note.pre{border:1px solid var(--line);border-radius:8px;padding:.7rem .9rem}
+.note ul{margin:.3rem 0 0;padding-left:1.2rem}
 /* こんなときは: 角の丸い薄い色の箱。開くと中身 */
 details{margin:1rem 0;border-radius:8px;background:var(--more-bg)}
 details>summary{cursor:pointer;padding:.65rem 1rem;font-weight:700;list-style:none;display:flex;align-items:center;gap:.6rem}
@@ -113,7 +115,7 @@ h2 .no:empty{display:none}
 /* ---------- 注記 ---------- */
 /* mk-tag（画面の中の黄色いラベル）は旧方式。新しい図では mk-hl ＋ mk-pin ＋ mk-pins を使う */
 .mk-tag  { display: inline-block; background: var(--mk-yellow); color: #1e1f24; font-family: var(--mk-sans); font-size: .72rem; font-weight: 700; padding: 0 .45em; border-radius: 3px; margin-left: .5em; white-space: nowrap; }
-.mk-mark { outline: 3px solid var(--mk-mark); outline-offset: 4px; border-radius: 6px; }  /* 「ここを押す」の赤枠 */
+.mk-mark { outline: 3px solid var(--mk-mark); outline-offset: 4px; border-radius: 6px; position: relative; z-index: 6; }  /* 「ここを押す」の赤枠。隣の要素や暗い幕より手前に出す */
 .mk-arrow { text-align: center; color: #6b7280; font-family: var(--mk-sans); font-size: .88rem; margin: .3rem 0; }
 
 /* ---------- ボタン（Mac の見た目） ---------- */
@@ -288,6 +290,7 @@ h2 .no:empty{display:none}
 .mk-mc-top > .mk-mi { color: #9ca3af; }
 .mk-mc-top > .mk-mi.mk-mc-warn { color: #fbbf24; }
 .mk-mc-launch { display: inline-flex; border: 1px solid #d1d5db; border-radius: 4px; overflow: hidden; margin-left: .2rem; }
+.mk-mc-launch:has(.mk-mark) { overflow: visible; }  /* 赤枠の付いたアイコンがあるときは切らない */
 .mk-mc-launch .mk-mi { color: #374151; padding: .2rem .25rem; border-left: 1px solid #e5e7eb; font-size: 1.15em; }
 .mk-mc-launch .mk-mi:first-child { border-left: 0; }
 .mk-mc-launch .mk-mi.mk-on { color: #2563eb; background: #eff6ff; }
@@ -331,7 +334,7 @@ h2 .no:empty{display:none}
 <body>
 <div class="wrap">
 <h1>面倒な仕事を MulmoClaude に任せる</h1>
-<div class="intro"><p>この手順書は、1本目の<a href="claude-install.html">Claude Code の準備</a>と2本目の<a href="mulmoclaude-install.html">MulmoClaude のインストール</a>を済ませた人向けです。</p>
+<div class="intro"><div class="note pre"><strong>前提</strong><span>この手順書は、次の章を済ませた人向けです。<ul><li><a href="claude-install.html">第1章「MulmoClaude はじめての準備」</a>（ターミナルで <code>claude</code> と打って返事が来れば済んでいます）</li><li><a href="mulmoclaude-install.html">第2章「MulmoClaude のインストール」</a>（MulmoClaude を起動して、ブラウザに画面が開けば済んでいます）</li></ul></span></div>
 <p>毎回同じ手順でしている仕事は、MulmoClaude に任せられます。ただ、いきなり頼むのではなく、先に自分の仕事を整理します。</p>
 <p>前半では、まず AI に仕事のやり方を覚えさせる「スキル」とは何かを説明し、次に仕事を「書き出す・分解する・小さく作る」の順で整理する方法を説明します。</p>
 <p>後半のステップでは、実際に MulmoClaude に頼みます。ステップ1では、請求書から支払い伝票の PDF を作る手順をスキルとして覚えさせます。ステップ2では、毎朝ニュースを集める作業を、決まった時刻に自動で動かします。</p></div>
@@ -500,7 +503,7 @@ h2 .no:empty{display:none}
   </div>
 </div>
 </figure>
-<div class="note ok"><strong>確認</strong>見本と同じ様式の PDF ができれば成功です。</div>
+<div class="note ok"><strong>確認</strong><span>見本と同じ様式の PDF ができれば成功です。</span></div>
 </div></div>
 <div class="substep"><h3 class="sub"><span class="sn">7</span>見本と比べて直す</h3><div class="sub-body">
 <p>できた PDF を見本と比べます。違うところがあれば、command＋shift＋4 で範囲を選んでデスクトップに保存した画面の写真を入力欄にドラッグし、「金額の『円』は要らない」のように直したい点を書いて送ります。</p>
@@ -582,8 +585,8 @@ h2 .no:empty{display:none}
   </div>
 </div>
 </figure>
-<div class="note warn"><strong>注意</strong>決まった時刻に動くのは、MulmoClaude が起動している間だけです。ターミナルの窓を閉じず、Mac をスリープさせないでください。</div>
-<div class="note ok"><strong>確認</strong>返事に登録した時刻が出れば完了です。</div>
+<div class="note warn"><strong>注意</strong><span>決まった時刻に動くのは、MulmoClaude が起動している間だけです。ターミナルの窓を閉じず、Mac をスリープさせないでください。</span></div>
+<div class="note ok"><strong>確認</strong><span>返事に登録した時刻が出れば完了です。</span></div>
 <details><summary>深掘りや週のまとめもしたいとき</summary>
 <p>一度に頼まず、別の作業として1つずつ足します。たとえば、集めたニュースから深掘りする記事を挙げる作業や、週末にその週の変化をまとめる作業です。1つずつなら、見本や結果と比べて、ずれた所をすぐ直せます。</p>
 </details>
@@ -592,7 +595,7 @@ h2 .no:empty{display:none}
 <p>会社のシステムへの入力やネットバンキングなど、パスワードを入れる操作は AI にさせないでください。パスワードを渡すのは合鍵を渡すのと同じで、そのシステムであなたができることを何でもできるようになります。</p>
 <ul><li>AI が指示を取り違えたり、読んだウェブページの文に引っぱられたりすると、送金・削除・誤入力など、取り消せない操作をしてしまうことがあります。</li><li>チャットに書いたパスワードは、MulmoClaude の作業用フォルダ（~/mulmoclaude/conversations）の会話の記録に残ります。会話の文は Claude の提供元（Anthropic）にも送られます。AI がうまくいかず別のやり方を探すうちに、見知らぬサイトへ入力してしまうこともあります。</li><li>会社のシステムなら、パスワードを人に渡してよいか、社内の規程も確かめてください。</li></ul>
 <p>そうした仕事を任せたいときは、先に仕事のやり方を作り直し、鍵を渡さなくて済む形にします。</p>
-<p>AI に別のやり方を探させるときは、2本目のステップ1で説明した Docker のサンドボックスの中で動かします。中の AI が読み書きできるのは、MulmoClaude の作業用フォルダ（~/mulmoclaude）と Claude Code の設定（~/.claude）だけです。Mac のほかのファイルは見えません。ただし、インターネットは使えます。サンドボックスの中でも、AI にパスワードは渡さないでください。</p></section>
+<p>AI に別のやり方を探させるときは、第2章「MulmoClaude のインストール」のステップ1で説明した Docker のサンドボックスの中で動かします。中の AI が読み書きできるのは、MulmoClaude の作業用フォルダ（~/mulmoclaude）と Claude Code の設定（~/.claude）だけです。Mac のほかのファイルは見えません。ただし、インターネットは使えます。サンドボックスの中でも、AI にパスワードは渡さないでください。</p></section>
 <section class="step" id="trouble"><h2><span class="no"></span>うまくいかないとき</h2>
 <div class="tbl"><table><thead><tr><th>困ったこと</th><th>どうするか</th></tr></thead><tbody><tr><td>動いているか分からない</td><td>「今どこまで進んだ？」と聞きます。</td></tr><tr><td>思っていた物と違う</td><td>見本と違うところを具体的に伝えます。画面の写真を貼ると伝わりやすくなります。</td></tr><tr><td>決まった時刻に動かなかった</td><td>その時刻に MulmoClaude が起動していたか確かめます。</td></tr><tr><td>画像を作れない</td><td>画像の生成には、Gemini の API キーが別に要ります。</td></tr></tbody></table></div></section>
 <footer><p>画面の図はイメージです。実際の表示とは少し違うことがあります。</p></footer>

@@ -59,6 +59,10 @@ import "./plugins/html-builtin.js";
 // presentShapeScript View's useRuntime().dispatch({ kind }) resolves — the
 // source editor's load / save against artifacts/shapes/.
 import "./plugins/shapescript-builtin.js";
+// Side-effect: registers the built-in "kentei" dispatch handler so the
+// manageKenteiScript View's useRuntime().dispatch({ kind: "grade" }) resolves
+// (JEV grading with the server's TYPESAFE_API_KEY).
+import "./plugins/kentei-builtin.js";
 import { enableShapeScriptManifold } from "./plugins/shapescript-csg.js";
 import { loadRuntimePlugins } from "./plugins/runtime-loader.js";
 import { evaluateDevPluginGate, loadDevPlugins, parseDevPluginsEnv } from "./plugins/dev-loader.js";
@@ -84,7 +88,6 @@ import { announceShadowedEnv, SHADOWED_ENV_KEYS_VAR } from "./system/shadowedEnv
 import { announceOptionalDeps } from "./system/announceOptionalDeps.js";
 import { announceGeminiKey } from "./system/announceGeminiKey.js";
 import { currentLaunchRouteFacts } from "./system/geminiKeyGuidance.js";
-import { migrateLegacyBillingPresets } from "./workspace/billing-migration.js";
 import { APP_VERSION } from "./system/appVersion.js";
 import { createChatService } from "@mulmobridge/chat-service";
 import { readSessionJsonl, readSessionMeta } from "./utils/files/session-io.js";
@@ -109,8 +112,7 @@ import { preflightUserServers, logPreflightResult } from "./agent/mcpPreflight.j
 import { loadMcpConfig, loadSettings } from "./system/config.js";
 import { getVoiceInputStatus, stopWhisperSidecar, warmupVoiceInput } from "./system/whisper/index.js";
 import { initWorkspace, workspacePath } from "./workspace/workspace.js";
-import { runMemoryMigrationOnce } from "./workspace/memory/run.js";
-import { runTopicMigrationOnce } from "./workspace/memory/topic-run.js";
+import { startMemoryMigrations } from "./workspace/memory/startup.js";
 import { migrateCookingRecipesFromPlugin } from "./workspace/cooking-recipes/migrate.js";
 import { env, isAblated, isGeminiAvailable } from "./system/env.js";
 import { buildSandboxStatus } from "./api/sandboxStatus.js";
@@ -242,27 +244,21 @@ warnIfCspExtended();
 //
 // Both runners are idempotent: legacy no-ops when the source file
 // is gone, topic no-ops when the workspace already uses the topic
-// format or staging is already pending review. The agent can serve
-// traffic while the chain runs.
-//
-// `.then(noop, noop)` keeps the floating-promises rule happy
-// without smuggling in a `void` (banned by sonarjs/void-use). Each
-// runner logs its own failures; the chain's outer rejection
-// handler is therefore a hard backstop only.
+// format, and retries the swap when staging is left from a crash. The agent can serve
+// traffic while the chain runs, but the journal waits for it
+// (`memoryMigrationsSettled`) so its extractor can't append to a
+// `memory.md` that is mid-migration.
 //
 // CLEANUP 2026-07-01: this whole chain is one-shot migration code
 // for #1029 + #1070. After every active workspace has flipped to
 // the topic format, delete the chain plus the runners under
-// `server/workspace/memory/` (run.ts / migrate.ts /
+// `server/workspace/memory/` (startup.ts + the journal's wait on it / run.ts / migrate.ts /
 // llm-classifier.ts / topic-run.ts / topic-migrate.ts /
 // topic-cluster.ts / topic-swap.ts) and the
 // `scripts/memory-swap-topic-staging.ts` helper. Topic-format
 // reading / writing (`topic-types.ts`, `topic-io.ts`,
 // `topic-detect.ts`) plus the topic branch in `prompt.ts` stays.
-const noop = (): void => {};
-runMemoryMigrationOnce(workspacePath)
-  .then(() => runTopicMigrationOnce(workspacePath))
-  .then(noop, noop);
+startMemoryMigrations(workspacePath);
 
 // Recipe-book plugin → `mc-cooking-coach` skill migration (#1286).
 // Boot-time idempotent copy from the plugin's `files.data` scope
@@ -1085,13 +1081,6 @@ async function initBootDiagnostics(): Promise<void> {
   // the user's first dictation doesn't pay the ~10s+ model-load cost
   // inside the request. No-op when voice input is off / not ready.
   warmupVoiceInput(bootSettings);
-
-  // --- Billing-suite migration ---
-  // The invoicing collections moved from bundled `mc-*` presets to
-  // help-file recipes. Remove any lingering starred `mc-*` billing
-  // skill from `.claude/skills/` (records preserved) and fire a
-  // one-time bell. No-op once the dirs are gone. Never throws.
-  migrateLegacyBillingPresets();
 
   // --- Collection completion watchers ---
   // Mount `fs.watch` over every discovered collection's dataDir so

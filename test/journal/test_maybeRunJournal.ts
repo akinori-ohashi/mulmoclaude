@@ -19,6 +19,7 @@ import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { __resetForTests, maybeRunJournal } from "../../server/workspace/journal/index.js";
 import { ClaudeCliNotFoundError, type Summarize } from "../../server/workspace/journal/archivist-cli.js";
+import { startMemoryMigrations } from "../../server/workspace/memory/startup.js";
 import { makeTempDir } from "../helpers/tempDir.js";
 
 async function makeFreshWorkspace(): Promise<string> {
@@ -129,5 +130,52 @@ describe("maybeRunJournal — mode kill switch", () => {
     await maybeRunJournal({ workspaceRoot, mode: "sonnet", summarize, force: true });
     assert.ok(received.length >= 1, "summarize must have been called at least once");
     assert.deepEqual(new Set(received), new Set(["sonnet"]), "every summarize call must receive the selected model");
+  });
+});
+
+// Long enough for an unblocked pass over the one-event fixture to finish and reach summarize.
+const UNBLOCKED_PASS_WINDOW_MS = 300;
+
+describe("maybeRunJournal — waits for the boot-time memory migrations (#3454)", () => {
+  let workspaceRoot: string;
+
+  beforeEach(async () => {
+    __resetForTests();
+    workspaceRoot = await makeFreshWorkspace();
+  });
+
+  it("does not reach summarize until the migrations settle, and a trigger arriving meanwhile returns without a second pass", async () => {
+    let migrationsReleased = false;
+    let releaseMigrations: () => void = () => {};
+    const migrations = new Promise<void>((resolve) => {
+      releaseMigrations = resolve;
+    });
+    let summarizeCalls = 0;
+    let summarizeCallsBeforeRelease = 0;
+    const summarize: Summarize = async () => {
+      summarizeCalls++;
+      if (!migrationsReleased) summarizeCallsBeforeRelease++;
+      return '{"dailySummaryMarkdown":"# x","topicUpdates":[]}';
+    };
+    startMemoryMigrations(workspaceRoot, [() => migrations]);
+    const opts = { workspaceRoot, mode: "haiku" as const, summarize, force: true };
+
+    const waitingRun = maybeRunJournal(opts);
+    await maybeRunJournal(opts);
+    await Promise.race([waitingRun, new Promise<void>((resolve) => setTimeout(resolve, UNBLOCKED_PASS_WINDOW_MS))]);
+    migrationsReleased = true;
+    releaseMigrations();
+    await waitingRun;
+    assert.equal(summarizeCallsBeforeRelease, 0, "nothing may run while the migrations are in flight");
+
+    __resetForTests();
+    let singlePassCalls = 0;
+    const countingSummarize: Summarize = async () => {
+      singlePassCalls++;
+      return '{"dailySummaryMarkdown":"# x","topicUpdates":[]}';
+    };
+    await maybeRunJournal({ workspaceRoot: await makeFreshWorkspace(), mode: "haiku", summarize: countingSummarize, force: true });
+    assert.ok(singlePassCalls >= 1, "baseline: one pass over the same input reaches summarize");
+    assert.equal(summarizeCalls, singlePassCalls, "exactly one pass ran after release: the waiting run, not the concurrent trigger");
   });
 });

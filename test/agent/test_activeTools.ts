@@ -13,7 +13,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type { Role } from "../../src/config/roles.ts";
 import type { ToolDefinition } from "gui-chat-protocol";
-import { getActiveToolDescriptors, isMcpToolOfferedTo, MCP_SERVER_ID } from "../../server/agent/activeTools.ts";
+import { getActiveToolDescriptors, isMcpToolOfferedTo, isStaticPluginEnabled, MCP_SERVER_ID } from "../../server/agent/activeTools.ts";
 import { registerRuntimePlugins, _resetRuntimeRegistryForTest } from "../../server/plugins/runtime-registry.ts";
 import type { RuntimePlugin } from "../../server/plugins/runtime-loader.ts";
 
@@ -196,5 +196,34 @@ describe("isMcpToolOfferedTo", () => {
         assert.equal(isMcpToolOfferedTo(role, "tool", alwaysActive), alwaysActive === true || listed);
       }),
     );
+  });
+});
+
+describe("a static plugin that needs a key", () => {
+  let saved: string | undefined;
+  beforeEach(() => {
+    saved = process.env.TYPESAFE_API_KEY;
+  });
+  afterEach(() => {
+    if (saved === undefined) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = saved;
+  });
+  const names = () => getActiveToolDescriptors(fakeRole(["manageKenteiScript", "putQuestions"])).map((descriptor) => descriptor.name);
+
+  it("manageKenteiScript is offered only with TYPESAFE_API_KEY set; putQuestions either way", () => {
+    process.env.TYPESAFE_API_KEY = "k";
+    assert.ok(names().includes("manageKenteiScript"));
+    for (const missing of [undefined, "", "   "]) {
+      if (missing === undefined) delete process.env.TYPESAFE_API_KEY;
+      else process.env.TYPESAFE_API_KEY = missing;
+      assert.ok(!names().includes("manageKenteiScript"), JSON.stringify(missing));
+      assert.ok(names().includes("putQuestions"));
+    }
+  });
+
+  it("other static plugins need no key", () => {
+    delete process.env.TYPESAFE_API_KEY;
+    assert.equal(isStaticPluginEnabled("putQuestions"), true);
+    assert.equal(isStaticPluginEnabled("manageKenteiScript"), false);
   });
 });

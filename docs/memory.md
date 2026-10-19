@@ -53,9 +53,9 @@ The four types and their meanings (also shown to the agent in the Memory Managem
 
 ## How the agent reads it
 
-`buildMemoryContext()` in [`server/agent/prompt.ts`](../server/agent/prompt.ts) injects the current memory directly into the system prompt under a `## Memory` section, wrapped in a `<reference type="memory">` envelope so a poisoned entry can't impersonate instructions. The full body of every topic file lands inline; the agent doesn't have to round-trip a tool call to read memory.
+`buildMemoryContext()` in [`server/agent/prompt.ts`](../server/agent/prompt.ts) injects the current memory directly into the system prompt under a `## Memory` section, wrapped in a `<reference type="memory">` envelope so a poisoned entry can't impersonate instructions. Since #1432 only an index line per topic file lands in the prompt (`[type] <type>/<topic>.md — sections`), not the file's body; when a line looks relevant, the agent `Read`s that file before answering.
 
-`MEMORY.md` is the index, not the source of truth — its line per topic file is `- [name](slug.md) — description` and the H2 headings the file contains. The agent reads the index for shape, then reads bullet bodies inline.
+`MEMORY.md` is the on-disk index, not the source of truth — its line per topic file is `- <type>/<topic>.md — <H2 sections>`, grouped under a `## <type>` heading.
 
 Detection between the legacy "atomic" layout and the current "topic" layout is done at request time in [`topic-detect.ts`](../server/workspace/memory/topic-detect.ts): if any of the canonical type subdirectories (`preference/` / `interest/` / `fact/` / `reference/`) exists under `memory/`, topic format wins. No module-level cache — a manual swap takes effect on the next request.
 
@@ -70,7 +70,7 @@ When the conversation produces something durable enough to remember, the agent w
 
 What NOT to write: ephemeral task state, sensitive material (credentials, SSH keys), duplicates, or anything the user asked the agent to forget.
 
-The journal daily pass also runs a fact extractor ([`memoryExtractor.ts`](../server/workspace/journal/memoryExtractor.ts)), but it only knows the legacy `memory.md`. In a topic-format workspace nothing reads that file, so the extractor is skipped — and the `memory.md` → atomic migration ([`run.ts`](../server/workspace/memory/run.ts)) never runs either, so a leftover `memory.md` cannot drop atomic files into the topic tree.
+The journal daily pass also runs a fact extractor ([`memoryExtractor.ts`](../server/workspace/journal/memoryExtractor.ts)), but it only knows the legacy `memory.md`. In a topic-format workspace nothing reads that file, so the extractor is skipped — and the `memory.md` → atomic migration ([`run.ts`](../server/workspace/memory/run.ts)) never runs either, so a leftover `memory.md` cannot drop atomic files into the topic tree. The journal also waits for the boot-time migrations to finish ([`startup.ts`](../server/workspace/memory/startup.ts)), so the extractor never appends to a `memory.md` that is being migrated.
 
 ## The atomic → topic migration
 
@@ -86,7 +86,7 @@ The migration is one-shot, idempotent, and runs in the background on server star
 1. **Pre-conditions** ([`topic-run.ts`](../server/workspace/memory/topic-run.ts)) — workspace has atomic entries; legacy `memory.md` migration has already run; topic format isn't already active. Anything else, return early.
 2. **Cluster** ([`topic-cluster.ts`](../server/workspace/memory/topic-cluster.ts)) — call out to an LLM with the full atomic entry list. The LLM returns `{ type → topic → bullets[] }`. The clusterer is injectable so tests use a stub.
 3. **Stage** ([`topic-migrate.ts`](../server/workspace/memory/topic-migrate.ts)) — write the clustered files to `conversations/memory.next/<type>/<topic>.md` plus a regenerated `MEMORY.md`. The original `memory/` directory is untouched.
-4. **Inspect** — the user diffs `memory/` vs `memory.next/` manually. Auto-swap is opt-in (see below) precisely so the user gets a chance to look first.
+4. **Check** — if the cluster accounts for fewer bullets than there were atomic entries (`bulletsLost > 0`), nothing is staged, the workspace stays atomic, and the next start clusters again. Otherwise the swap runs right away; there is no manual review step.
 5. **Swap** ([`topic-swap.ts`](../server/workspace/memory/topic-swap.ts)) — atomic rename: `memory/` → `memory/.atomic-backup-<ts>/`, then `memory.next/` → `memory/`. The backup name carries a timestamp so re-runs from a richer workspace don't clobber prior backups.
 
 After step 5, the next request reads topic format. The atomic backup stays under `.atomic-backup-<ts>/` indefinitely — it's tiny, and keeping it there means the user can always grep their old layout without restoring anything.

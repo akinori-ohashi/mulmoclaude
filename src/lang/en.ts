@@ -643,8 +643,9 @@ const enMessages = {
         "Per-task time / interval overrides applied on top of the system schedule. The agent edits this when you ask to change a recurring task's timing.",
     },
     schedulerItems: {
-      title: "Scheduler items queue",
-      summary: "Active scheduled invocations ready to fire. Agent-managed; do not hand-edit unless you know exactly what each field means.",
+      title: "Legacy calendar items",
+      summary:
+        "Calendar items from the removed Calendar view. The app no longer shows them and nothing runs them on a schedule; only the legacy /api/scheduler actions still read and write this file. Scheduled tasks live in config/scheduler/tasks.json.",
     },
     wikiIndex: {
       title: "Wiki index",
@@ -663,9 +664,9 @@ const enMessages = {
       summary: "The format spec the agent reads to keep wiki pages consistent. Fragile — the agent expects a specific structure, so prefer agent-driven edits.",
     },
     memory: {
-      title: "Memory",
+      title: "Memory (legacy file)",
       summary:
-        "Distilled facts about you, always loaded as context for new conversations. The journal extractor appends here automatically; you can also hand-edit.",
+        "The older single-file memory. Only workspaces still on the older memory format read it; current workspaces keep facts as topic files under conversations/memory/<type>/<topic>.md and ignore this file, so editing it has no effect there.",
     },
     summariesIndex: {
       title: "Summaries index",

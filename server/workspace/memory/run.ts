@@ -52,6 +52,7 @@ export async function runMemoryMigrationOnce(workspaceRoot: string, deps: RunMig
       written: result.written,
       skippedByClassifier: result.skippedByClassifier,
       writeErrors: result.writeErrors,
+      classifierFailures: result.classifierFailures,
     });
   } catch (err) {
     if (err instanceof ClaudeCliNotFoundError) {

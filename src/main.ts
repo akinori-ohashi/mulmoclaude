@@ -60,6 +60,7 @@ const pluginEndpointRegistry: EndpointRegistry = {
   html: API_ROUTES.html,
   svg: API_ROUTES.svg,
   shapescript: API_ROUTES.shapescript,
+  kentei: API_ROUTES.kentei,
   chart: API_ROUTES.chart,
   accounting: API_ROUTES.accounting,
   canvas: API_ROUTES.canvas,

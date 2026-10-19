@@ -6,7 +6,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -139,13 +139,20 @@ describe("memory/topic-run — idempotency guards", () => {
         body: "yarn",
         slug: "preference_yarn",
       });
-      await runTopicMigrationOnce(fresh, { summarize: stubSummarize });
+      // The leftover memory.md bullets are folded into the cluster input (#3460), so the cluster must place them.
+      const summarize: Summarize = async () =>
+        JSON.stringify({
+          preference: [{ topic: "dev", unsectionedBullets: ["yarn", "yarn を使う（npm 不可）", "Emacs を愛用"] }],
+          interest: [],
+          fact: [],
+          reference: [],
+        });
+      await runTopicMigrationOnce(fresh, { summarize });
       // Auto-swap leaves the workspace on the topic format —
       // staging is gone, `<type>/` subdirs exist under memory/.
       const stagingExists = await stat(topicStagingPath(fresh)).catch(() => null);
       assert.equal(stagingExists, null, "auto-swap must remove staging");
-      const subdir = await stat(path.join(fresh, "conversations", "memory", "preference"));
-      assert.ok(subdir.isDirectory(), "topic format must be active in memory/");
+      assert.match(await readFile(path.join(fresh, "conversations", "memory", "preference", "dev.md"), "utf-8"), /Emacs を愛用/);
     } finally {
       await rm(fresh, { recursive: true, force: true });
     }
@@ -171,6 +178,92 @@ describe("memory/topic-run — idempotency guards", () => {
       // Atomic backup parked in `.atomic-backup/`.
       const atomicBackup = await stat(path.join(fresh, "conversations", "memory", ".atomic-backup"));
       assert.ok(atomicBackup.isDirectory(), "expected atomic files preserved under .atomic-backup/");
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the atomic layout and stages nothing when the cluster dropped bullets (#3458)", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-topic-run-lossy-"));
+    try {
+      await writeMemoryEntry(fresh, { name: "yarn", description: "npm 不可", type: "preference", body: "yarn", slug: "preference_yarn" });
+      await writeMemoryEntry(fresh, { name: "emacs", description: "editor", type: "preference", body: "emacs", slug: "preference_emacs" });
+      // The stub places one bullet for two entries.
+      await runTopicMigrationOnce(fresh, { summarize: stubSummarize });
+      assert.equal(await stat(topicStagingPath(fresh)).catch(() => null), null, "a lossy cluster must not leave staging for the retry-swap path");
+      assert.equal(await stat(path.join(fresh, "conversations", "memory", "preference")).catch(() => null), null, "must stay atomic");
+      assert.ok((await stat(path.join(fresh, "conversations", "memory", "preference_emacs.md"))).isFile());
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("discards an incomplete staging left by an interrupted run and clusters again (#3458)", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-topic-run-partial-staging-"));
+    try {
+      await writeMemoryEntry(fresh, { name: "yarn", description: "npm 不可", type: "preference", body: "yarn", slug: "preference_yarn" });
+      // A crash during the cluster call leaves the empty dir resetStaging created; one mid-write leaves no index.
+      const stagingPath = topicStagingPath(fresh);
+      await mkdir(path.join(stagingPath, "preference"), { recursive: true });
+      let summarizeCalled = false;
+      const summarize: Summarize = async () => {
+        summarizeCalled = true;
+        return JSON.stringify({ preference: [{ topic: "dev", unsectionedBullets: ["yarn"] }], interest: [], fact: [], reference: [] });
+      };
+      await runTopicMigrationOnce(fresh, { summarize });
+      assert.equal(summarizeCalled, true, "an incomplete staging must not be swapped; the cluster runs again");
+      assert.ok((await stat(path.join(fresh, "conversations", "memory", "preference", "dev.md"))).isFile());
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("discards an indexed but lossy staging left by an older build instead of swapping it (#3458)", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-topic-run-old-lossy-"));
+    try {
+      await writeMemoryEntry(fresh, { name: "yarn", description: "npm 不可", type: "preference", body: "yarn", slug: "preference_yarn" });
+      await writeMemoryEntry(fresh, { name: "emacs", description: "editor", type: "preference", body: "emacs", slug: "preference_emacs" });
+      // Builds before this fix indexed a staging even when the cluster had dropped a bullet.
+      const stagingPath = topicStagingPath(fresh);
+      await mkdir(path.join(stagingPath, "preference"), { recursive: true });
+      await writeFile(path.join(stagingPath, "preference", "dev.md"), "# Dev\n\n- yarn\n", "utf-8");
+      await writeFile(path.join(stagingPath, "MEMORY.md"), "# Memory Index\n", "utf-8");
+      let summarizeCalled = false;
+      const summarize: Summarize = async () => {
+        summarizeCalled = true;
+        return JSON.stringify({ preference: [{ topic: "dev", unsectionedBullets: ["yarn", "emacs"] }], interest: [], fact: [], reference: [] });
+      };
+      await runTopicMigrationOnce(fresh, { summarize });
+      assert.equal(summarizeCalled, true, "a lossy leftover staging must be re-clustered, not swapped");
+      assert.match(await readFile(path.join(fresh, "conversations", "memory", "preference", "dev.md"), "utf-8"), /emacs/);
+    } finally {
+      await rm(fresh, { recursive: true, force: true });
+    }
+  });
+
+  it("re-clusters a leftover staging that lacks the leftover memory.md bullets (#3460)", async () => {
+    const fresh = await mkdtemp(path.join(tmpdir(), "mulmoclaude-topic-run-fold-retry-"));
+    try {
+      await writeMemoryEntry(fresh, { name: "yarn", description: "npm 不可", type: "preference", body: "yarn", slug: "preference_yarn" });
+      await writeFile(path.join(fresh, "conversations", "memory.md"), "# Memory\n\n- keeps a sourdough starter\n", "utf-8");
+      // Staged by a build that did not fold memory.md: complete for the atomic entry, missing the leftover bullet.
+      const stagingPath = topicStagingPath(fresh);
+      await mkdir(path.join(stagingPath, "preference"), { recursive: true });
+      await writeFile(path.join(stagingPath, "preference", "dev.md"), "# Dev\n\n- yarn\n", "utf-8");
+      await writeFile(path.join(stagingPath, "MEMORY.md"), "# Memory Index\n", "utf-8");
+      let summarizeCalled = false;
+      const summarize: Summarize = async () => {
+        summarizeCalled = true;
+        return JSON.stringify({
+          preference: [{ topic: "dev", unsectionedBullets: ["yarn"] }],
+          interest: [],
+          fact: [{ topic: "kitchen", unsectionedBullets: ["keeps a sourdough starter"] }],
+          reference: [],
+        });
+      };
+      await runTopicMigrationOnce(fresh, { summarize });
+      assert.equal(summarizeCalled, true, "a staging missing the folded bullet must be re-clustered, not swapped");
+      assert.match(await readFile(path.join(fresh, "conversations", "memory", "fact", "kitchen.md"), "utf-8"), /sourdough/);
     } finally {
       await rm(fresh, { recursive: true, force: true });
     }

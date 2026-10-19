@@ -56,6 +56,8 @@ h3.sub .sn{flex:none;width:1.75rem;height:1.75rem;border-radius:50%;background:v
 .note.warn strong{background:var(--tag-warn-bg);color:var(--tag-warn)}
 .note.ok strong{background:var(--tag-ok-bg);color:var(--tag-ok)}
 .note strong:empty{display:none}
+.note.pre{border:1px solid var(--line);border-radius:8px;padding:.7rem .9rem}
+.note ul{margin:.3rem 0 0;padding-left:1.2rem}
 /* こんなときは: 角の丸い薄い色の箱。開くと中身 */
 details{margin:1rem 0;border-radius:8px;background:var(--more-bg)}
 details>summary{cursor:pointer;padding:.65rem 1rem;font-weight:700;list-style:none;display:flex;align-items:center;gap:.6rem}
@@ -113,7 +115,7 @@ h2 .no:empty{display:none}
 /* ---------- 注記 ---------- */
 /* mk-tag（画面の中の黄色いラベル）は旧方式。新しい図では mk-hl ＋ mk-pin ＋ mk-pins を使う */
 .mk-tag  { display: inline-block; background: var(--mk-yellow); color: #1e1f24; font-family: var(--mk-sans); font-size: .72rem; font-weight: 700; padding: 0 .45em; border-radius: 3px; margin-left: .5em; white-space: nowrap; }
-.mk-mark { outline: 3px solid var(--mk-mark); outline-offset: 4px; border-radius: 6px; }  /* 「ここを押す」の赤枠 */
+.mk-mark { outline: 3px solid var(--mk-mark); outline-offset: 4px; border-radius: 6px; position: relative; z-index: 6; }  /* 「ここを押す」の赤枠。隣の要素や暗い幕より手前に出す */
 .mk-arrow { text-align: center; color: #6b7280; font-family: var(--mk-sans); font-size: .88rem; margin: .3rem 0; }
 
 /* ---------- ボタン（Mac の見た目） ---------- */
@@ -242,7 +244,7 @@ h2 .no:empty{display:none}
 <div class="wrap">
 <h1>MulmoClaude はじめての準備</h1>
 <div class="intro"><p>この手順書では、MulmoClaude を使う前に、Mac に Node.js と Claude Code を入れる手順を説明します。Claude Code にメッセージを送るところまで、上から順に進めてください。目安は15〜20分です。</p>
-<p>MulmoClaude 自体のインストールは、<a href="mulmoclaude-install.html">別の手順書</a>で説明します。</p>
+<p>MulmoClaude 自体のインストールは、<a href="mulmoclaude-install.html">第2章「MulmoClaude のインストール」</a>で説明します。</p>
 <p>用意するものは、インターネットにつながった Mac、Claude の有料プラン（Pro・Max・Team・Enterprise）のアカウント、Mac のログインパスワードです。無料プランでは Claude Code を使えません。パスワードは途中で1回聞かれます。</p>
 <p>画面の図はすべてイメージです。実際の表示とは少し違うことがあります。</p></div>
 <ul class="toc"><li><a href="#step1">ステップ 1　ターミナルを開く</a></li><li><a href="#step2">ステップ 2　Node.js を入れる</a></li><li><a href="#step3">ステップ 3　Claude Code を入れる</a></li><li><a href="#step4">ステップ 4　ログインして話しかける</a></li><li><a href="#trouble">うまくいかないとき</a></li></ul>
@@ -322,7 +324,7 @@ h2 .no:empty{display:none}
 <ol class="mk-pins"><li><span class="mk-pin">1</span>貼り付けた文字</li></ol>
 </div>
 </figure>
-<div class="note "><strong>メモ</strong>return を押したあと、何も表示されずに次の行に「%」が出るだけのこともあります。それで正常です。</div>
+<div class="note "><strong>メモ</strong><span>return を押したあと、何も表示されずに次の行に「%」が出るだけのこともあります。それで正常です。</span></div>
 </div></div></section>
 <section class="step" id="step2"><h2><span class="no">ステップ 2</span>Node.js を入れる</h2>
 <p>MulmoClaude を動かすために、Node.js を入れます。</p>
@@ -399,7 +401,7 @@ h2 .no:empty{display:none}
 <span class="mk-prompt">yourname@MacBook-Air ~ %</span> <span class="mk-cursor"></span></div>
 </div>
 </figure>
-<div class="note ok"><strong>確認</strong>v で始まる数字が出れば成功です。数字は入れた時期によって変わります。</div>
+<div class="note ok"><strong>確認</strong><span>v で始まる数字が出れば成功です。数字は入れた時期によって変わります。</span></div>
 </div></div></section>
 <section class="step" id="step3"><h2><span class="no">ステップ 3</span>Claude Code を入れる</h2>
 <div class="substep"><h3 class="sub"><span class="sn">1</span>Claude Code をインストールする</h3><div class="sub-body">
@@ -422,7 +424,7 @@ Setting up Claude Code...
 <span class="mk-prompt">yourname@MacBook-Air ~ %</span> <span class="mk-cursor"></span></div>
 </div>
 </figure>
-<div class="note ok"><strong>確認</strong>「Claude Code successfully installed!」と出れば成功です。</div>
+<div class="note ok"><strong>確認</strong><span>「Claude Code successfully installed!」と出れば成功です。</span></div>
 <details><summary>黄色い Setup notes が出たとき</summary>
 <p>画面に出た行と同じコマンドを、下の枠の「コピー」でコピーします。</p>
 <div class="cmd"><pre>echo &#x27;export PATH=&quot;$HOME/.local/bin:$PATH&quot;&#x27; &gt;&gt; ~/.zshrc &amp;&amp; source ~/.zshrc</pre><button type="button">コピー</button></div>
@@ -442,7 +444,7 @@ Setting up Claude Code...
 <p>インストールのコマンドを実行したのと同じターミナルで、一番下の「%」の後ろをクリックします。command+V で貼り付け、return を押します。</p>
 <p>何も表示されず、次の行に「%」が出れば終わりです。</p>
 </details>
-<div class="note warn"><strong>注意</strong>「curl: (28)」と出て止まったら、この手順書の最後にある「curl: (28) と出てインストールが止まったとき」へ進んでください。</div>
+<div class="note warn"><strong>注意</strong><span>「curl: (28)」と出て止まったら、この手順書の最後にある「curl: (28) と出てインストールが止まったとき」へ進んでください。</span></div>
 </div></div>
 <div class="substep"><h3 class="sub"><span class="sn">2</span>Claude Code が入ったか確かめる</h3><div class="sub-body">
 <p>ターミナルを開き直し、次を貼り付けて return を押します。</p>
@@ -454,7 +456,7 @@ Setting up Claude Code...
 <span class="mk-prompt">yourname@MacBook-Air ~ %</span> <span class="mk-cursor"></span></div>
 </div>
 </figure>
-<div class="note ok"><strong>確認</strong>数字が出れば成功です。</div>
+<div class="note ok"><strong>確認</strong><span>数字が出れば成功です。</span></div>
 </div></div></section>
 <section class="step" id="step4"><h2><span class="no">ステップ 4</span>ログインして話しかける</h2>
 <div class="substep"><h3 class="sub"><span class="sn">1</span>Claude Code を起動する</h3><div class="sub-body">
@@ -553,7 +555,7 @@ Setting up Claude Code...
   何から始めましょうか？</div>
 </div>
 </figure>
-<div class="note ok"><strong>確認</strong>返事が表示されれば完了です。</div>
+<div class="note ok"><strong>確認</strong><span>返事が表示されれば完了です。</span></div>
 <p>終わるときは <code>/exit</code> と打って return を押します。次からは <code>claude</code> と打つだけで始まります。</p>
 </div></div></section>
 <section class="step" id="trouble"><h2><span class="no"></span>うまくいかないとき</h2>
@@ -603,7 +605,7 @@ Setting up Claude Code...
 </div>
 <figcaption>Mac のプロキシ設定をターミナルで確認した画面です。</figcaption></figure>
 <ul><li>「HTTPSEnable : 1」と「HTTPSProxy」「HTTPSPort」が出たら、プロキシを使う設定です。この画面を撮り、管理者への連絡に添えてください。</li><li>「ProxyAutoConfigEnable : 1」が出たら、自動設定ファイル（PAC）を使う方式です。これも画面を撮って添えてください。</li><li>どちらも出なければ、プロキシ以外の理由も考えられます。そのまま管理者に相談してください。</li></ul>
-<div class="note warn"><strong>注意</strong>Mac の「システム設定」でプロキシの設定を外したり、書き換えたりしないでください。スマホのテザリングで会社のネットワークを迂回する場合も、先に会社の規程を確認してください。</div>
+<div class="note warn"><strong>注意</strong><span>Mac の「システム設定」でプロキシの設定を外したり、書き換えたりしないでください。スマホのテザリングで会社のネットワークを迂回する場合も、先に会社の規程を確認してください。</span></div>
 </div></div>
 <h4 class="minor">管理者に伝えること</h4>
 <p>撮った画面を添えて、管理者（情報システム担当）に次のことを伝えてください。</p>

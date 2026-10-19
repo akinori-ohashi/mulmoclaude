@@ -3,8 +3,8 @@
 // Reads the existing #1029-style atomic entries from
 // `conversations/memory/`, runs a clusterer, and writes the
 // proposed topic layout to a STAGING dir
-// `conversations/memory.next/`. Does NOT swap. The user runs
-// `topic-swap.ts` after reviewing.
+// `conversations/memory.next/`. Does NOT swap — `runTopicMigrationOnce`
+// does that right after. A cluster that dropped bullets is never staged.
 //
 // Library only — `runTopicMigrationOnce` (in PR-B) decides when
 // to call this from server startup.
@@ -13,13 +13,16 @@
 // the one-shot atomic → topic migration chain and goes when the
 // chain goes.
 
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { writeFileAtomic } from "../../utils/files/atomic.js";
+import { readTextSafe } from "../../utils/files/safe.js";
 import { log } from "../../system/logger/index.js";
 import { errorMessage } from "../../utils/errors.js";
-import { WORKSPACE_DIRS } from "../paths.js";
+import { WORKSPACE_DIRS, WORKSPACE_FILES } from "../paths.js";
+import { parseCandidates } from "./migrate.js";
+import { legacyFoldEntries } from "./legacy-fold.js";
 import { loadAllMemoryEntries } from "./io.js";
 import { MEMORY_TYPES, type MemoryEntry, type MemoryType } from "./types.js";
 import type { ClusterMap, ClusterTopic, MemoryClusterer } from "./topic-cluster.js";
@@ -42,6 +45,38 @@ export function topicStagingPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, WORKSPACE_DIRS.memoryStaging);
 }
 
+// Written last, so its presence means every topic file was staged.
+const STAGING_INDEX_FILE = "MEMORY.md";
+
+export function stagingIndexPath(stagingPath: string): string {
+  return path.join(stagingPath, STAGING_INDEX_FILE);
+}
+
+async function countBulletLines(file: string): Promise<number> {
+  const text = await readTextSafe(file);
+  return text === null ? 0 : text.split("\n").filter((line) => line.startsWith("- ")).length;
+}
+
+async function countStagedBullets(stagingPath: string): Promise<number> {
+  const perType = await Promise.all(
+    MEMORY_TYPES.map(async (type) => {
+      const dir = path.join(stagingPath, type);
+      const names = await readdir(dir).catch(() => []);
+      const counts = await Promise.all(names.filter((name) => name.endsWith(".md")).map((name) => countBulletLines(path.join(dir, name))));
+      return counts.reduce((total, count) => total + count, 0);
+    }),
+  );
+  return perType.reduce((total, count) => total + count, 0);
+}
+
+/** A leftover staging may be swapped only if it was fully written (index present) and holds a bullet for every
+ *  input the cluster would take (`countClusterInput`) — the index alone is not enough, because builds before #3458
+ *  indexed lossy stagings too, and builds before #3460 did not stage leftover `memory.md` bullets. */
+export async function isStagingSwappable(stagingPath: string, requiredBulletCount: number): Promise<boolean> {
+  if ((await readTextSafe(stagingIndexPath(stagingPath))) === null) return false;
+  return (await countStagedBullets(stagingPath)) >= requiredBulletCount;
+}
+
 interface WrittenTopic {
   type: MemoryType;
   topic: ClusterTopic;
@@ -51,27 +86,61 @@ interface WrittenTopic {
 }
 
 export async function clusterAtomicIntoStaging(workspaceRoot: string, clusterer: MemoryClusterer): Promise<TopicMigrationResult> {
-  const entries = await loadAllMemoryEntries(workspaceRoot);
+  const { atomicEntries, foldedEntries } = await loadClusterInput(workspaceRoot);
   const stagingPath = topicStagingPath(workspaceRoot);
-  if (entries.length === 0) return emptyResult(stagingPath);
-  log.info("memory", "topic-migrate: clustering", { entryCount: entries.length });
+  if (atomicEntries.length === 0) return emptyResult(stagingPath);
+  const entries = [...atomicEntries, ...foldedEntries];
+  log.info("memory", "topic-migrate: clustering", { entryCount: entries.length, foldedFromMemoryMd: foldedEntries.length });
 
   const map = await runClustererOrCleanup(entries, stagingPath, clusterer);
   if (!map) return { ...emptyResult(stagingPath), inputCount: entries.length };
+  // Checked before anything is written: a lossy staging left by a crash would be promoted by the retry-swap path.
+  const bulletsLost = countBulletsLost(entries, map);
+  if (bulletsLost > 0) {
+    log.warn("memory", "topic-migrate: cluster dropped bullets, not staging it; the atomic layout stays", { bulletsLost });
+    await rm(stagingPath, { recursive: true, force: true });
+    return { ...emptyResult(stagingPath), inputCount: entries.length, bulletsLost };
+  }
 
   const topicCounts: Record<MemoryType, number> = { preference: 0, interest: 0, fact: 0, reference: 0 };
   const written = await writeTopicsToStaging(stagingPath, map, topicCounts);
+  const topicsInCluster = MEMORY_TYPES.reduce((total, type) => total + map[type].length, 0);
+  if (written.length < topicsInCluster) {
+    // The index marks a staging complete for the retry-swap path, so a partial tree must not get one.
+    log.warn("memory", "topic-migrate: some topic files failed to stage, discarding the staging", { written: written.length, topicsInCluster });
+    await rm(stagingPath, { recursive: true, force: true });
+    return { ...emptyResult(stagingPath), inputCount: entries.length };
+  }
   await writeStagingIndex(stagingPath, written);
 
   const result: TopicMigrationResult = {
     noop: false,
     inputCount: entries.length,
     topicCounts,
-    bulletsLost: countBulletsLost(entries, map),
+    bulletsLost,
     stagingPath,
   };
   log.info("memory", "topic-migrate: staging ready", { stagingPath, topicCounts, bulletsLost: result.bulletsLost });
   return result;
+}
+
+interface ClusterInput {
+  atomicEntries: MemoryEntry[];
+  /** Bullets from a leftover `memory.md` that the cluster must also place (#3460). */
+  foldedEntries: MemoryEntry[];
+}
+
+async function loadClusterInput(workspaceRoot: string): Promise<ClusterInput> {
+  const atomicEntries = await loadAllMemoryEntries(workspaceRoot);
+  const legacyText = await readTextSafe(path.join(workspaceRoot, WORKSPACE_FILES.memory));
+  const foldedEntries = legacyText === null ? [] : legacyFoldEntries(parseCandidates(legacyText), atomicEntries);
+  return { atomicEntries, foldedEntries };
+}
+
+/** How many bullets a staging must hold to cover this workspace's memory — the same input the cluster takes. */
+export async function countClusterInput(workspaceRoot: string): Promise<number> {
+  const { atomicEntries, foldedEntries } = await loadClusterInput(workspaceRoot);
+  return atomicEntries.length + foldedEntries.length;
 }
 
 // Wipe stale staging BEFORE the cluster call. If the clusterer
@@ -233,7 +302,7 @@ async function writeStagingIndex(stagingPath: string, written: WrittenTopic[]): 
   if (written.length === 0) {
     lines.push("_(no entries yet)_", "");
   }
-  await writeFileAtomic(path.join(stagingPath, "MEMORY.md"), lines.join("\n"), { uniqueTmp: true });
+  await writeFileAtomic(stagingIndexPath(stagingPath), lines.join("\n"), { uniqueTmp: true });
 }
 
 function formatStagingIndexLine(entry: WrittenTopic): string {

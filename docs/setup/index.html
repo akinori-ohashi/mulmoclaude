@@ -34,8 +34,6 @@
   .goal { margin:4px 0 12px; font-weight:600; }
   .meta { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; font-size:13px; }
   .meta span { background:var(--soft); border-radius:999px; padding:2px 10px; color:var(--muted); }
-  .check { background:var(--ok-bg); border-radius:10px; padding:10px 14px; font-size:14px; margin-bottom:14px; }
-  .check b { color:var(--ok); }
   .open { display:inline-block; background:var(--accent); color:var(--bg); text-decoration:none;
     font-weight:700; padding:8px 18px; border-radius:8px; }
   code { font-family:ui-monospace,Menlo,monospace; background:var(--soft); padding:1px 6px; border-radius:4px; }
@@ -61,10 +59,9 @@
     <div class="step">
       <div class="num">1</div>
       <div class="card">
-        <h3>MulmoClaude を使う前の準備</h3>
+        <h3>MulmoClaude はじめての準備</h3>
         <p class="goal">Claude Code にメッセージを送れるようになります。</p>
         <div class="meta"><span>ターミナル・Node.js・Claude Code</span></div>
-        <div class="check"><b>済んでいるか確かめる</b>　ターミナルで <code>claude</code> と打って話しかけ、返事が来れば済んでいます。2へ進んでください。</div>
         <a class="open" href="claude-install.html">この手順書を開く</a>
       </div>
     </div>
@@ -75,7 +72,6 @@
         <h3>MulmoClaude のインストール</h3>
         <p class="goal">ブラウザで MulmoClaude と話せるようになります。</p>
         <div class="meta"><span>Docker Desktop・MulmoClaude</span></div>
-        <div class="check"><b>済んでいるか確かめる</b>　MulmoClaude を起動して、ブラウザに画面が開けば済んでいます。3へ進んでください。</div>
         <a class="open" href="mulmoclaude-install.html">この手順書を開く</a>
       </div>
     </div>
@@ -87,6 +83,16 @@
         <p class="goal">毎回同じ手順でしている仕事を、MulmoClaude に任せられるようになります。</p>
         <div class="meta"><span>スキル・毎朝の自動実行</span></div>
         <a class="open" href="mulmoclaude-skill.html">この手順書を開く</a>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">4</div>
+      <div class="card">
+        <h3>自分専用のアプリを作る</h3>
+        <p class="goal">話しかけるだけで、自分専用のカレンダーアプリを作れるようになります。</p>
+        <div class="meta"><span>コレクション・カスタムビュー・Google カレンダー</span></div>
+        <a class="open" href="mulmoclaude-collection.html">この手順書を開く</a>
       </div>
     </div>
   </div>

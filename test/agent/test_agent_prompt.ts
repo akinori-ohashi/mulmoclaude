@@ -14,6 +14,7 @@ import {
   formatPluginSection,
 } from "../../server/agent/prompt.js";
 import { WORKSPACE_FILES } from "../../server/workspace/paths.js";
+import { CONTAINER_WORKSPACE_PATH } from "../../server/agent/containerPaths.js";
 import { helpsAssetDir } from "@mulmoclaude/core/workspace-setup";
 import type { Role } from "../../src/config/roles.js";
 import type { MemorySnapshot } from "../../server/workspace/memory/snapshot.js";
@@ -199,6 +200,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -210,6 +212,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -221,6 +224,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -232,6 +236,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -254,7 +259,13 @@ describe("buildSystemPrompt", () => {
   });
 
   it("routes collection custom views to the right help (#3402)", () => {
-    const result = buildSystemPrompt({ role: makeRole(), workspacePath: workspace, useDocker: false, memorySnapshot: EMPTY_ATOMIC_SNAPSHOT });
+    const result = buildSystemPrompt({
+      role: makeRole(),
+      workspacePath: workspace,
+      hostWorkspacePath: workspace,
+      useDocker: false,
+      memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
+    });
     // The choice between the two contracts is made before any help is read,
     // so both pointers and the phone-request rule stay in the prompt itself.
     assert.ok(result.includes("config/helps/custom-view.md"));
@@ -287,6 +298,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -307,6 +319,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -324,6 +337,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -336,6 +350,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -347,6 +362,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -364,6 +380,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -379,6 +396,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: true,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -394,6 +412,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -409,6 +428,7 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       role,
       workspacePath: workspace,
+      hostWorkspacePath: workspace,
       useDocker: false,
       memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
     });
@@ -556,5 +576,25 @@ describe("formatPluginSection", () => {
   it("flattens intra-paragraph line breaks in the compact form", () => {
     const out = formatPluginSection("doThing", "Line one\n  indented continuation");
     assert.equal(out, "- **doThing**: Line one indented continuation");
+  });
+});
+
+describe("buildSystemPrompt — sandbox paths (#3459)", () => {
+  it("reads the wiki and legacy memory from the host path while showing the agent the container path", () => {
+    writeFileAt(workspace, WORKSPACE_FILES.wikiIndex, "# Index");
+    writeFileAt(workspace, WORKSPACE_FILES.wikiSummary, "Key topics: sandbox regression");
+    writeFileAt(workspace, WORKSPACE_FILES.memory, "# Memory\n\n- prefers yarn over npm for every project\n");
+    const result = buildSystemPrompt({
+      role: makeRole(),
+      workspacePath: CONTAINER_WORKSPACE_PATH,
+      hostWorkspacePath: workspace,
+      useDocker: true,
+      memorySnapshot: EMPTY_ATOMIC_SNAPSHOT,
+    });
+    assert.ok(result.includes(`Workspace directory: ${CONTAINER_WORKSPACE_PATH}`));
+    assert.ok(!result.includes(`Workspace directory: ${workspace}`));
+    assert.ok(result.includes("Key topics: sandbox regression"));
+    assert.ok(!result.includes("No wiki exists yet"));
+    assert.ok(result.includes("prefers yarn over npm for every project"));
   });
 });

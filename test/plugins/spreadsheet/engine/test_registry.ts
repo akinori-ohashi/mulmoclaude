@@ -7,7 +7,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseCriteria, toNumber, toString } from "../../../../src/plugins/spreadsheet/engine/registry.ts";
+import { isCallableName, parseCriteria, toNumber, toString } from "../../../../src/plugins/spreadsheet/engine/registry.ts";
+import "../../../../src/plugins/spreadsheet/engine/functions/index.ts";
 import type { CellValue } from "../../../../src/plugins/spreadsheet/engine/types.ts";
 
 const num = (value: CellValue) => toNumber(value);
@@ -216,5 +217,20 @@ describe("parseCriteria — exact match", () => {
   it("matches an empty criteria against an empty string", () => {
     assert.equal(parseCriteria("")(""), true);
     assert.equal(parseCriteria("")("x"), false);
+  });
+});
+
+describe("isCallableName", () => {
+  it("accepts any letters-only name, so an unknown one can report #NAME?", () => {
+    assert.equal(isCallableName("SUM"), true);
+    assert.equal(isCallableName("sum"), true);
+    assert.equal(isCallableName("NOSUCHFUNCTION"), true);
+  });
+
+  it("accepts a name with digits only when it is registered", () => {
+    assert.equal(isCallableName("LOG10"), true);
+    assert.equal(isCallableName("log10"), true);
+    assert.equal(isCallableName("A1"), false);
+    assert.equal(isCallableName("LOG11"), false);
   });
 });

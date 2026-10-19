@@ -8,6 +8,141 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Under the hood
+
+#### Remote host: a host can tell its machines apart (PR #3506)
+
+`@mulmoclaude/core/remote-host` lets a host write a `machineId` and a `label` into every presence beat (`HostRunnerOptions.machine`), and decide its channel id once signed in (`RemoteHostDeps.resolveHostId`, bounded by a timeout). MulmoTerminal uses this to connect several machines under one account (receptron/mulmoterminal#3092). MulmoClaude passes neither, so its presence and channel are unchanged.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.1.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.6.0] - 2026-10-18
+
+**The Tutor role can quiz you with a KenteiScript test you answer in your own words, and the spreadsheet help lists every built-in function.**
+
+### Highlights
+
+#### Tutor quizzes with KenteiScript (PR #3494, PR #3495)
+
+The Tutor role gains `manageKenteiScript`, the plugin from the [`kenteiscript`](https://www.npmjs.com/package/kenteiscript)
+package: Claude writes a quiz as a small JSON script, you take it in the chat and answer in your own words, and each
+answer is graded on the server by TypeSafe JEV, with the results coming back to Claude as your next message. The tool is
+offered only when `TYPESAFE_API_KEY` is set; without the key, Tutor quizzes with its existing question flow instead.
+
+### Fixes
+
+#### Spreadsheet: every built-in function is listed in the help, and `LOG10` calculates (#3500, PR #3501)
+
+The spreadsheet help listed only some of the functions the engine provides, so the agent did not know about `SUMIF`, `COUNTIF`, `IFERROR`, `XLOOKUP` and the rest. It now lists all of them by category, and a test fails if the list and the engine drift apart. `LOG10` was listed but evaluated to `#ERROR!` because function names with digits were not recognised; it now calculates. Text inside a string literal that looks like a call (`="x"&"SUM(1,2)"`) is no longer evaluated.
+
+#### Sandbox help no longer names credential flags that do not exist (#3499, PR #3502)
+
+The error-recovery and sandbox help pages told the agent to use sandbox credential CLI flags that the launcher does not
+have. Those instructions are gone.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.4`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.5.0] - 2026-10-15
+
+**MulmoScript beats preview in the browser instead of waiting for a rendered PNG, and still beat images render without ffmpeg.**
+
+### Highlights
+
+#### MulmoScript beats preview in the browser (#3472, #3477, PR #3476, #3478, #3479, #3486, #3488)
+
+The MulmoScript view now draws generated beats (`textSlide`, `markdown`, `chart`, `mermaid`, `slide` and plain
+`html_tailwind`) in the browser with mulmocast's `beatToHtml`, so a preview no longer waits for a rendered PNG.
+Chart and mermaid beats draw as `@mulmocast/deck` figure slides, and slide, chart and mermaid beats load Tailwind.
+`html_tailwind` beats with `script` / `elements` / `animation`, and background images and slide branding given as a
+URL or base64, also draw in the browser. Beats the browser cannot reproduce (images given as a local `path`, `http:`
+URLs, chart / mermaid with a named style, `image` / `movie`) still show the PNG. `@mulmoclaude/mulmoscript-plugin`
+5.5.0 needs `mulmocast` 2.22.1+ and `@mulmocast/deck` 2.1+ from the host.
+
+#### Beat images render without ffmpeg (#3475, PR #3490)
+
+Rendering a still beat image (the "generate" button, ↺, and the PDF path's per-beat images) no longer requires ffmpeg.
+mulmocast 2.22.1 stopped probing still PNGs with ffprobe, and the plugin now refuses only beats that make or use a
+movie (movie images, animated beats, `moviePrompt`, lip sync with `suppressSpeech`, named first/last frame images) when
+ffmpeg is missing.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.3`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.4.1] - 2026-10-12
+
+**Memory no longer leaks out of the prompt during or after the format migration, sandbox users see their wiki again, and new workspaces start in the topic memory layout.**
+
+### Highlights
+
+#### Sandbox (Docker) users get their wiki and legacy memory in the prompt again (#3459, PR #3464)
+
+Under the Docker sandbox the system prompt was assembled with the container path (`/home/node/mulmoclaude`) but
+read on the host, so `data/wiki/index.md` never "existed": every turn said "No wiki exists yet" and left out the wiki
+summary, and atomic-format workspaces lost their legacy `memory.md`. The prompt now reads those files from the host
+workspace path and only shows the agent the container path.
+
+#### New workspaces start in the topic memory layout (#3456, PR #3470)
+
+A fresh workspace used to begin in the older atomic layout, so the agent got the atomic write rules while the base
+prompt described topic files, and only reached the topic layout after writing entries, restarting and a successful
+clustering call. A workspace with no memory to lose now starts directly in `conversations/memory/<type>/`; one that
+has any (atomic entries, a real `memory.md`, a staged migration, or anything unreadable) goes through the migration
+as before.
+
+### Fixes
+
+#### The daily pass stops writing a `memory.md` nobody reads (#3452, PR #3453)
+
+In topic-format workspaces the journal's fact extractor kept appending to `conversations/memory.md`, which the
+prompt no longer reads — and a grown file could re-trigger the old `memory.md` → atomic migration on the next start,
+dropping stray `<type>_<slug>.md` files into the topic tree. Both are skipped in topic format now.
+
+#### The journal waits for the start-up memory migrations (#3454, PR #3455)
+
+A journal run (turn end or the hourly task) during the minutes-long start-up memory migrations could append to
+`memory.md` mid-migration, so those facts landed in `.backup` or in a file the topic layout never reads. The journal
+now waits for the migrations to finish.
+
+#### A failed classification no longer archives `memory.md` (#3457, PR #3465)
+
+The legacy `memory.md` → atomic migration moved the file to `memory.md.backup` even when every classifier call had
+failed (usage limit, auth, timeout), so the facts left the prompt and the `.backup` marker blocked every retry. Any
+classifier failure now leaves `memory.md` in place for the next start, and the batch stops at the first failure
+instead of spending the remaining calls.
+
+#### The atomic → topic switch never drops bullets (#3458, PR #3471)
+
+The switch ran even when the clustered result had lost bullets, and a crash during the migration could leave an empty
+or partial staging directory that the next start would swap in — emptying the live memory. A lossy or partially
+written cluster is now never staged, and a leftover staging is swapped only when it is complete and accounts for
+every entry. The docs and comments that described a manual review step now describe the automatic switch.
+
+#### Leftover `memory.md` bullets move into the topic layout (#3460, PR #3473)
+
+Bullets in a `memory.md` that the old migration will never handle (a short file, or one re-created next to
+`memory.md.backup`) were read in the atomic layout but not carried into the topic layout, so they disappeared at the
+switch. They are now folded into the topic migration (filed as `fact`).
+
+#### Prompt and help pages describe the current workspace layout (#3461)
+
+The system prompt no longer lists an unused `data/contacts/` address book or calls `data/scheduler/` the home of
+scheduled tasks (they live in `config/scheduler/tasks.json`). The `config/helps/index.md` layout map replaces the
+pre-#284 root `chat/` / `todos/` / `memory.md` tree, and `config/helps/wiki.md` points wiki distillation at a memory
+topic file instead of the legacy `memory.md`. The file explorer now labels `conversations/memory.md` and
+`data/scheduler/items.json` (calendar items the app no longer shows or runs, still reachable through `/api/scheduler`) as legacy files (`@mulmoclaude/core` 5.11.3).
+
+#### Billing help pages no longer ask you to Unstar the retired `mc-*` skills (#3463)
+
+Startup already removes copied `mc-*` billing preset skills through the generic retired-preset prune, so the separate
+billing-migration step that was meant to remove them and show a one-time "Invoicing moved" notice found nothing to do
+and has been deleted. `config/helps/billing-clients-worklog.md` and `config/helps/billing-invoice.md` now say the old
+skills are removed at startup (`@mulmoclaude/core` 5.11.3).
+
+### Docs
+
+- The setup guide names its steps 「第N章「題名」」, shows prerequisites in a box (PR #3466), and adds chapter 4, building your own app (PR #3468).
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.3`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.3.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ## [2.4.0] - 2026-10-11
 
 **Every socket now checks the bearer token, an open page survives a server restart, and Node.js 22.22.2+ / 24.15+ / 26+ is the new minimum.**
