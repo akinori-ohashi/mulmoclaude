@@ -1,7 +1,8 @@
 import type { FileOps, ToolPluginCore, ToolResult } from "gui-chat-protocol";
 import { TOOL_NAME, TOOL_DEFINITION } from "./definition";
 import { chartArtifactPath } from "./paths";
-import { isChartSource, isReadSourceArgs } from "./source";
+import { trialDrawProblem } from "./drawProblem";
+import { chartOption, isChartSource, isReadSourceArgs } from "./source";
 import type { ChartArgs, ChartDocument, ChartEntry, ChartSource, ChartSourceRows, PresentChartData, ReadSourceArgs, ReadSourceData } from "./types";
 
 /** Reads a chart's source as calculated rows. The HOST supplies it, because
@@ -75,11 +76,18 @@ export const executeChart = async (context: ChartExecuteContext, args: ChartArgs
     };
   }
 
-  const sourceProblem = await checkSources(context, document);
-  if (sourceProblem) {
+  const sourceRead = await readSources(context, document);
+  if ("problem" in sourceRead) {
     return {
-      message: sourceProblem,
+      message: sourceRead.problem,
       instructions: "Acknowledge that the chart could not be created. Fix the spreadsheet path or range, or pass the data inline in option instead of source.",
+    };
+  }
+  const drawProblem = documentDrawProblem(document, sourceRead.rows);
+  if (drawProblem) {
+    return {
+      message: drawProblem,
+      instructions: "Acknowledge that the chart could not be drawn, fix that chart's option, and call presentChart again.",
     };
   }
 
@@ -95,20 +103,37 @@ export const executeChart = async (context: ChartExecuteContext, args: ChartArgs
   };
 };
 
+type SourceRead = { rows: (ChartSourceRows | undefined)[] } | { problem: string };
+
 /** Read every source once, so a wrong path or range reaches the agent now
- *  rather than as a blank chart later. Null when all of them read. */
-async function checkSources(context: ChartExecuteContext, document: ChartDocument): Promise<string | null> {
-  const sources = document.charts.flatMap((chart) => (chart.source ? [chart.source] : []));
-  if (sources.length === 0) return null;
-  if (!context.sources) return "This host cannot read a spreadsheet source; pass the chart's data inline in option.";
-  for (const source of sources) {
+ *  rather than as a blank chart later. Index-aligned with `document.charts`. */
+async function readSources(context: ChartExecuteContext, document: ChartDocument): Promise<SourceRead> {
+  if (!document.charts.some((chart) => chart.source)) return { rows: [] };
+  const { sources } = context;
+  if (!sources) return { problem: "This host cannot read a spreadsheet source; pass the chart's data inline in option." };
+  const rows: (ChartSourceRows | undefined)[] = [];
+  for (const { source } of document.charts) {
+    if (!source) {
+      rows.push(undefined);
+      continue;
+    }
     try {
-      await context.sources.read(source);
+      rows.push(await sources.read(source));
     } catch (error) {
-      return `Cannot read ${source.range} of ${source.spreadsheet}: ${error instanceof Error ? error.message : String(error)}`;
+      return { problem: `Cannot read ${source.range} of ${source.spreadsheet}: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
-  return null;
+  return { rows };
+}
+
+/** Draw each chart once off screen, with the rows the View will give it, so an option ECharts
+ *  cannot draw reaches the agent now rather than as a blank card. Null when every chart draws. */
+function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows | undefined)[]): string | null {
+  const problems = document.charts.flatMap((chart, index) => {
+    const problem = trialDrawProblem(chartOption(chart, rows[index], true));
+    return problem ? [`Chart ${index + 1}${chart.title ? ` (${chart.title})` : ""} could not be drawn: ${problem}`] : [];
+  });
+  return problems.length > 0 ? problems.join("\n") : null;
 }
 
 /** The View's `dispatch({ kind: "readSource", source })`: the source's current rows. */

@@ -35,6 +35,17 @@ recomputed whenever the sheet changes. `ecStat:clustering` is not registered: it
 from random centroids without retrying, so it splits well-separated groups wrongly now and then and
 differently on each redraw.
 
+## When a chart cannot be drawn
+
+`presentChart` draws every chart once off screen (ECharts' server-side SVG renderer) with the
+rows its source will give it, before saving anything. A chart ECharts cannot draw is not saved:
+the agent gets each failing chart's number, title and reason, and is told to fix the option and
+call again. Besides what ECharts throws, it names series types ECharts does not know (which it
+drops silently), cartesian series with no `xAxis` or `yAxis`, and maps that are not registered.
+
+A document saved before this, or one that breaks in the browser only, shows the reason on the
+chart's card instead of a blank canvas.
+
 ## Dev loop
 
 ```bash

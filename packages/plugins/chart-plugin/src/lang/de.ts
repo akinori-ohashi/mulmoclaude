@@ -9,6 +9,7 @@ const de: Messages = {
   notLinked: "Nicht verknüpft: Dieser Host kann die Tabelle nicht lesen.",
   unreadableSource: "Der Tabellenbereich konnte nicht gelesen werden.",
   sourceTimedOut: "Die Tabelle hat nicht rechtzeitig geantwortet.",
+  cannotDraw: (reason) => `Dieses Diagramm konnte nicht gezeichnet werden: ${reason}`,
 };
 
 export default de;

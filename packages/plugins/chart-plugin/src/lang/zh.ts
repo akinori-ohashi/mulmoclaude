@@ -9,6 +9,7 @@ const zh: Messages = {
   notLinked: "未关联：此宿主无法读取表格。",
   unreadableSource: "无法读取表格范围。",
   sourceTimedOut: "表格未能及时响应。",
+  cannotDraw: (reason) => `无法绘制此图表：${reason}`,
 };
 
 export default zh;

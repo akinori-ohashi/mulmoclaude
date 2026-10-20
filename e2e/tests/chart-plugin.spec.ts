@@ -2,9 +2,10 @@ import { test, expect, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
 
 // Serves a fake session whose only tool_result is a `presentChart`
-// document with two charts (line + bar). The View renders them via
-// ECharts; we verify both cards and their canvases are in the DOM
-// and that each has a PNG download button.
+// document with two charts (line + bar) and one ECharts cannot draw. The
+// View renders them via ECharts; we verify the cards and their canvases
+// are in the DOM, that each has a PNG download button, and that only the
+// broken one says why it is blank.
 
 async function setupChartSession(page: Page) {
   await mockAllApis(page, {
@@ -65,6 +66,11 @@ async function setupChartSession(page: Page) {
                         series: [{ type: "bar", data: [30, 45, 20] }],
                       },
                     },
+                    {
+                      // Saved before presentChart drew each chart first: a bar with no axes.
+                      title: "No axes",
+                      option: { series: [{ type: "bar", data: [1, 2] }] },
+                    },
                   ],
                 },
               },
@@ -76,6 +82,15 @@ async function setupChartSession(page: Page) {
 }
 
 test.describe("chart plugin rendering", () => {
+  test("says why a chart could not be drawn, on that card only", async ({ page }) => {
+    await setupChartSession(page);
+    await page.goto("/chat/chart-session");
+    await page.getByText("Sales Overview").first().click();
+    await expect(page.getByTestId("chart-draw-problem-2")).toContainText("xAxis and yAxis");
+    await expect(page.getByTestId("chart-draw-problem-0")).toHaveCount(0);
+    await expect(page.getByTestId("chart-draw-problem-1")).toHaveCount(0);
+  });
+
   test.beforeEach(async ({ page }) => {
     await setupChartSession(page);
   });

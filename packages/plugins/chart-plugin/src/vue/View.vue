@@ -32,6 +32,9 @@
           {{ t.fromSpreadsheet(chart.source.range) }}
           <span v-if="sourceProblems[idx]" class="text-red-600" :data-testid="`chart-source-problem-${idx}`">{{ sourceProblems[idx] }}</span>
         </div>
+        <div v-if="drawProblems[idx]" class="px-3 py-1 text-xs text-red-600 border-b border-gray-100" :data-testid="`chart-draw-problem-${idx}`">
+          {{ t.cannotDraw(drawProblems[idx] ?? "") }}
+        </div>
         <div :ref="(el) => setChartRef(idx, el as HTMLDivElement | null)" class="w-full h-[400px]" :data-testid="`chart-canvas-${idx}`" />
       </div>
     </div>
@@ -40,9 +43,10 @@
 
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { echarts } from "./charting";
+import { echarts } from "../core/charting";
 import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/vue";
 import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
+import { setOptionProblem } from "../core/drawProblem";
 import { chartOption, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
 import { useT } from "../lang";
 
@@ -63,6 +67,8 @@ const runtime = inject(PLUGIN_RUNTIME_KEY, undefined);
 // Index-aligned with `charts`, like `instances`.
 const sourceRows = ref<(ChartSourceRows | undefined)[]>([]);
 const sourceProblems = ref<(string | undefined)[]>([]);
+// Why ECharts could not draw a chart, so its card says so instead of staying blank.
+const drawProblems = ref<(string | null)[]>([]);
 
 const containers = ref<(HTMLDivElement | null)[]>([]);
 // Kept as a plain array (not `ref`): ECharts instances are managed
@@ -120,6 +126,7 @@ const lifecycle = { unmounted: false };
 function renderAll(): void {
   if (lifecycle.unmounted) return;
   disposeAll();
+  const problems: (string | null)[] = [];
   for (let i = 0; i < charts.value.length; i += 1) {
     const element = containers.value[i];
     const chart = charts.value[i];
@@ -127,22 +134,27 @@ function renderAll(): void {
       // Keep the array dense: record the skipped slot so a later
       // container ref resolving doesn't leave a hole behind it.
       instances[i] = undefined;
+      problems[i] = null;
       continue;
     }
     const instance = echarts.init(element);
-    try {
-      instance.setOption(disableWheelZoom(optionFor(chart, sourceRows.value[i])));
-    } catch {
-      // A malformed ECharts option for one chart shouldn't break the
-      // others; skip it and leave its canvas blank.
-    }
+    // A malformed option for one chart doesn't stop the others.
+    const problem = setOptionProblem(instance, disableWheelZoom(optionFor(chart, sourceRows.value[i])));
+    // Until its rows arrive a sourced chart is drawn empty, which a transform cannot read; the
+    // source line already says when they will not come.
+    problems[i] = awaitingRows(chart, sourceRows.value[i]) ? null : problem;
     instances[i] = instance;
     containerObserver?.observe(element);
   }
+  drawProblems.value = problems;
 }
 
 function handleResize(): void {
   for (const instance of instances) instance?.resize();
+}
+
+function awaitingRows(chart: ChartEntry, rows: ChartSourceRows | undefined): boolean {
+  return chart.source !== undefined && runtime !== undefined && rows === undefined;
 }
 
 function optionFor(chart: ChartEntry, rows: ChartSourceRows | undefined): Record<string, unknown> {

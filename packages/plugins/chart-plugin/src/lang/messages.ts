@@ -7,4 +7,5 @@ export interface Messages {
   notLinked: string;
   unreadableSource: string;
   sourceTimedOut: string;
+  cannotDraw(reason: string): string;
 }

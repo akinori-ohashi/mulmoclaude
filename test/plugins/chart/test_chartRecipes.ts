@@ -8,7 +8,8 @@ import { CHART_RECIPES, type ChartRecipe } from "../../../packages/plugins/chart
 import { TOOL_DEFINITION } from "../../../packages/plugins/chart-plugin/src/core/definition";
 import { withSourceRows } from "../../../packages/plugins/chart-plugin/src/core/source";
 import type { ChartSourceRows } from "../../../packages/plugins/chart-plugin/src/core/types";
-import { echarts } from "../../../packages/plugins/chart-plugin/src/vue/charting";
+import { echarts } from "../../../packages/plugins/chart-plugin/src/core/charting";
+import { trialDrawProblem } from "../../../packages/plugins/chart-plugin/src/core/drawProblem";
 
 // Claude Code cuts an MCP tool's top-level description here (CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH)
 // and passes property descriptions whole, which is why the recipes sit on `option`.
@@ -276,6 +277,8 @@ describe("presentChart recipes", () => {
     it(`draws: ${recipe.use}`, () => {
       const drawn = drawRecipe(recipe);
       assert.deepEqual(drawn.warnings, []);
+      const rows = sampleRows(recipe);
+      assert.equal(trialDrawProblem(rows ? withSourceRows(recipe.option, rows) : recipe.option), null, "presentChart would refuse it");
       assert.ok(drawn.series.length > 0, "no series");
       drawn.series.forEach(({ count }, index) => assert.ok(count > 0, `series ${index} is empty`));
       assert.deepEqual(
