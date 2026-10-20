@@ -83,6 +83,19 @@ document may set `columns` (1 to 4) to lay the cards out side by side — small 
 region or year, or a dashboard. Both are in `src/core/layout.ts`; the server's trial draw uses the
 chart's height too.
 
+## Dark appearance and exports
+
+The View follows the host page's appearance: when `<html>` carries `data-appearance="dark"`
+(MulmoTerminal's themes set it), cards are drawn dark and ECharts uses its `dark` theme on a
+transparent background, and a switch redraws the charts. A host that never sets the attribute is
+light; the OS's dark preference is not followed, so a light app does not get dark charts.
+
+Each card exports PNG (on the card's colour), SVG (drawn again off screen with ECharts' SVG renderer
+at the card's size), and CSV of the data it was drawn from — the first table dataset (a sheet's
+rows included), or the category axis against each series' values — when that data has a table
+shape (`src/core/exportData.ts`). Text a spreadsheet would run as a formula is written with a
+leading quote.
+
 ## When a chart cannot be drawn
 
 `presentChart` draws every chart once off screen (ECharts' server-side SVG renderer) with the
