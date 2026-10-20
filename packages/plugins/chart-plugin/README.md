@@ -76,6 +76,13 @@ percent). It works on an axis label or axis-pointer label, the tooltip's or a se
 or a malformed one, is refused with its place named. Numbers are written in the host's locale.
 Colour or size by value needs no function: use `visualMap`.
 
+## Height and columns
+
+A chart entry may set `height` in pixels (kept between 160 and 1200; 400 when left out), and the
+document may set `columns` (1 to 4) to lay the cards out side by side — small multiples per
+region or year, or a dashboard. Both are in `src/core/layout.ts`; the server's trial draw uses the
+chart's height too.
+
 ## When a chart cannot be drawn
 
 `presentChart` draws every chart once off screen (ECharts' server-side SVG renderer) with the

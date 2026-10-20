@@ -4,12 +4,12 @@
 // once per type. So that case is found by comparing what was asked for with what was kept.
 
 import { echarts } from "./charting";
+import { DEFAULT_CHART_HEIGHT_PX } from "./layout";
 
 type DrawTarget = Pick<echarts.ECharts, "setOption" | "getOption">;
 
 // The size the View draws at; a trial needs some size, and a layout problem shows at this one.
 const TRIAL_WIDTH_PX = 640;
-const TRIAL_HEIGHT_PX = 400;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -93,8 +93,8 @@ export function trialSample(option: Record<string, unknown>): Record<string, unk
 }
 
 /** Draws `option` once off screen, as the View would, and returns why it failed, or null. */
-export function trialDrawProblem(option: Record<string, unknown>): string | null {
-  const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: TRIAL_WIDTH_PX, height: TRIAL_HEIGHT_PX });
+export function trialDrawProblem(option: Record<string, unknown>, heightPx = DEFAULT_CHART_HEIGHT_PX): string | null {
+  const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: TRIAL_WIDTH_PX, height: heightPx });
   try {
     return setOptionProblem(chart, trialSample(option));
   } finally {

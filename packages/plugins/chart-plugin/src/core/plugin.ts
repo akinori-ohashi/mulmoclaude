@@ -3,6 +3,7 @@ import { TOOL_NAME, TOOL_DEFINITION } from "./definition";
 import { chartArtifactPath } from "./paths";
 import { trialDrawProblem } from "./drawProblem";
 import { formatProblem, withFormatters } from "./formats";
+import { chartHeightPx } from "./layout";
 import { chartOption, chartSources, isChartSource, isReadSourceArgs } from "./source";
 import type { ChartArgs, ChartDocument, ChartEntry, ChartSource, ChartSourceRows, PresentChartData, ReadSourceArgs, ReadSourceData } from "./types";
 
@@ -31,6 +32,10 @@ function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === "string";
 }
 
+function isOptionalNumber(value: unknown): boolean {
+  return value === undefined || (typeof value === "number" && Number.isFinite(value));
+}
+
 /** `sources`: one or more ranges, and not alongside `source`. */
 const isSourceList = (sources: unknown, source: unknown): boolean =>
   source === undefined && Array.isArray(sources) && sources.length > 0 && sources.every(isChartSource);
@@ -39,6 +44,7 @@ function isValidChartEntry(value: unknown): value is ChartEntry {
   if (!isRecord(value)) return false;
   if (!isOptionalString(value.title)) return false;
   if (!isOptionalString(value.type)) return false;
+  if (!isOptionalNumber(value.height)) return false;
   if (value.source !== undefined && !isChartSource(value.source)) return false;
   if (value.sources !== undefined && !isSourceList(value.sources, value.source)) return false;
   return isRecord(value.option);
@@ -47,6 +53,7 @@ function isValidChartEntry(value: unknown): value is ChartEntry {
 export function isValidChartDocument(value: unknown): value is ChartDocument {
   if (!isRecord(value)) return false;
   if (!isOptionalString(value.title)) return false;
+  if (!isOptionalNumber(value.columns)) return false;
   if (!Array.isArray(value.charts)) return false;
   if (value.charts.length === 0) return false;
   return value.charts.every((entry) => isValidChartEntry(entry));
@@ -72,7 +79,7 @@ export const executeChart = async (context: ChartExecuteContext, args: ChartArgs
   if (!isValidChartDocument(document)) {
     return {
       message:
-        "document must be { charts: [{ option: {...}, title?, type?, source? | sources? }, ...] } with at least one entry, where source is { spreadsheet, range, layout?: 'table' | 'matrix', groupBy?: { column, x?, value? } } (not both layout matrix and groupBy) and sources a non-empty list of them",
+        "document must be { charts: [{ option: {...}, title?, type?, height?: number, source? | sources? }, ...], columns?: number } with at least one entry, where source is { spreadsheet, range, layout?: 'table' | 'matrix', groupBy?: { column, x?, value? } } (not both layout matrix and groupBy) and sources a non-empty list of them",
       instructions: "Acknowledge that the chart could not be created and retry with a valid ECharts document shape.",
     };
   }
@@ -153,7 +160,7 @@ function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows[] |
 
 function chartDrawProblem(chart: ChartEntry, rows: ChartSourceRows[] | undefined): string | null {
   try {
-    return trialDrawProblem(withFormatters(chartOption(chart, rows, true)));
+    return trialDrawProblem(withFormatters(chartOption(chart, rows, true)), chartHeightPx(chart));
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }

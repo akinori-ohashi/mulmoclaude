@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
 
 // Serves a fake session whose only tool_result is a `presentChart`
-// document with two charts (line + bar) and one ECharts cannot draw. The
+// document in two columns with two charts (line + a shorter bar) and one ECharts cannot draw. The
 // View renders them via ECharts; we verify the cards and their canvases
 // are in the DOM, that each has a PNG download button, and that only the
 // broken one says why it is blank.
@@ -44,6 +44,7 @@ async function setupChartSession(page: Page) {
                 filePath: "charts/sales-overview-123.chart.json",
                 document: {
                   title: "Sales Overview",
+                  columns: 2,
                   charts: [
                     {
                       title: "Monthly revenue",
@@ -60,6 +61,7 @@ async function setupChartSession(page: Page) {
                     {
                       title: "Units sold",
                       type: "bar",
+                      height: 250,
                       option: {
                         xAxis: { type: "category", data: ["A", "B", "C"] },
                         yAxis: { type: "value" },
@@ -93,6 +95,22 @@ test.describe("chart plugin rendering", () => {
 
   test.beforeEach(async ({ page }) => {
     await setupChartSession(page);
+  });
+
+  test("lays the cards out in the document's columns, each chart at its height", async ({ page }) => {
+    await page.goto("/chat/chart-session");
+    await page.getByText("Sales Overview").first().click();
+    const box = async (testId: string) => {
+      const bounds = await page.getByTestId(testId).boundingBox();
+      expect(bounds).not.toBeNull();
+      return bounds ?? { x: 0, y: 0, width: 0, height: 0 };
+    };
+    const [first, second, third] = [await box("chart-card-0"), await box("chart-card-1"), await box("chart-card-2")];
+    expect(second.y).toBe(first.y);
+    expect(second.x).toBeGreaterThan(first.x);
+    expect(third.y).toBeGreaterThan(first.y);
+    expect((await box("chart-canvas-0")).height).toBe(400);
+    expect((await box("chart-canvas-1")).height).toBe(250);
   });
 
   test("renders both charts in the canvas", async ({ page }) => {

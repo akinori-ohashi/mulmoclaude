@@ -38,11 +38,15 @@ export interface ChartEntry {
   source?: ChartSource;
   /** Several ranges instead of `source`: the i-th fills `dataset[i]`. */
   sources?: ChartSource[];
+  /** Pixels; kept between 160 and 1200, 400 when left out. */
+  height?: number;
 }
 
 export interface ChartDocument {
   title?: string;
   charts: ChartEntry[];
+  /** Cards side by side, 1 to 4; 1 when left out. */
+  columns?: number;
 }
 
 /** Tool-call args for presentChart. */
