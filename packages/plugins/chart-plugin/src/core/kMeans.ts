@@ -3,22 +3,13 @@
 // groups differently and renumber them. Here the seeds come from a fixed-seed generator, the
 // best of several starts is kept, and clusters are numbered in the order the rows first meet them.
 
+import { seededRandom } from "./random";
+
 export type Point = readonly number[];
 
 const SEED = 0x9e3779b9;
 const RESTARTS = 10;
 const MAX_ITERATIONS = 100;
-
-/** mulberry32: a small generator, so the same seed gives the same starts on every host. */
-function seededRandom(seed: number): () => number {
-  const state = { value: seed >>> 0 };
-  return () => {
-    state.value = (state.value + 0x6d2b79f5) >>> 0;
-    const mixed = Math.imul(state.value ^ (state.value >>> 15), 1 | state.value);
-    const scrambled = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
-    return ((scrambled ^ (scrambled >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const squaredDistance = (a: Point, b: Point): number => a.reduce((sum, value, index) => sum + (value - (b[index] ?? 0)) ** 2, 0);
 

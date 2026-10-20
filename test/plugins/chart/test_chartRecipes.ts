@@ -11,6 +11,7 @@ import type { ChartSourceRows } from "../../../packages/plugins/chart-plugin/src
 import { echarts } from "../../../packages/plugins/chart-plugin/src/core/charting";
 import { trialDrawProblem } from "../../../packages/plugins/chart-plugin/src/core/drawProblem";
 import { formatProblem, withFormatters } from "../../../packages/plugins/chart-plugin/src/core/formats";
+import { withWordClouds } from "../../../packages/plugins/chart-plugin/src/core/wordCloud";
 import { BUNDLED_MAPS, loadMaps } from "../../../packages/plugins/chart-plugin/src/core/extensions";
 
 // Claude Code cuts an MCP tool's top-level description here (CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH)
@@ -28,6 +29,12 @@ const CHART_HEIGHT_PX = 400;
 
 /** Sample rows under each sourced recipe's header, keyed by the header itself. */
 const SAMPLE_ROWS: Record<string, ChartSourceRows> = {
+  "Word|Count": [
+    ["Word", "Count"],
+    ["sales", 40],
+    ["売上", 25],
+    ["cost", 10],
+  ],
   "Temp|Sales": [
     ["Temp", "Sales"],
     [18, 120],
@@ -288,8 +295,12 @@ function itemCount(data: unknown): number {
   return count;
 }
 
+/** The option as the View draws it: the sheet's rows, then formats, then word clouds. */
+const drawnOption = (recipe: ChartRecipe, rows: ChartSourceRows | null): Record<string, unknown> =>
+  withWordClouds(withFormatters(rows ? withSourceRows(recipe.option, rows) : recipe.option));
+
 function drawRecipe(recipe: ChartRecipe, rows: ChartSourceRows | null = sampleRows(recipe)): Drawn {
-  const option = withFormatters(rows ? withSourceRows(recipe.option, rows) : recipe.option);
+  const option = drawnOption(recipe, rows);
   const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: CHART_WIDTH_PX, height: CHART_HEIGHT_PX });
   try {
     const { result, warnings } = captureWarnings(() => {
@@ -313,12 +324,12 @@ describe("presentChart recipes", () => {
       assert.deepEqual(drawn.warnings, []);
       const rows = sampleRows(recipe);
       assert.equal(formatProblem(recipe.option), null, "presentChart would refuse its formats");
-      assert.equal(trialDrawProblem(withFormatters(rows ? withSourceRows(recipe.option, rows) : recipe.option)), null, "presentChart would refuse it");
+      assert.equal(trialDrawProblem(drawnOption(recipe, rows)), null, "presentChart would refuse it");
       assert.ok(drawn.series.length > 0, "no series");
       drawn.series.forEach(({ count }, index) => assert.ok(count > 0, `series ${index} is empty`));
       assert.deepEqual(
         drawn.series.map(({ shape }) => shape.type),
-        recipeSeries(recipe).map((series) => series.type),
+        recipeSeries({ ...recipe, option: withWordClouds(recipe.option) }).map((series) => series.type),
       );
     });
   }
@@ -344,6 +355,21 @@ describe("presentChart recipes", () => {
       ["Tokyo", 90],
       ["Osaka", 60],
     ]);
+  });
+
+  it("word cloud draws each word of the rows, the largest count at the largest size", () => {
+    const recipe = recipeNamed("word cloud");
+    const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: CHART_WIDTH_PX, height: CHART_HEIGHT_PX });
+    try {
+      chart.setOption(drawnOption(recipe, sampleRows(recipe)));
+      const sizes = Object.fromEntries(
+        [...chart.renderToSVGString().matchAll(/font-size:([\d.]+)px[^>]*>([^<]+)<\/text>/g)].map((match) => [match[2], Number(match[1])]),
+      );
+      assert.deepEqual(Object.keys(sizes).sort(), ["cost", "sales", "売上"]);
+      assert.ok((sizes.sales ?? 0) > (sizes["売上"] ?? 0) && (sizes["売上"] ?? 0) > (sizes.cost ?? 0));
+    } finally {
+      chart.dispose();
+    }
   });
 
   it("candlestick reads open, close, low, high", () => {
@@ -376,7 +402,8 @@ describe("presentChart recipes", () => {
 
   // A series drawing the wrong column, or left out of a stack, still draws; this pins what each
   // sourced recipe means.
-  for (const recipe of CHART_RECIPES.filter((candidate) => candidate.header)) {
+  // A word cloud's custom series reads no column itself: its words are read in our own code.
+  for (const recipe of CHART_RECIPES.filter((candidate) => candidate.header && !candidate.use.startsWith("word cloud"))) {
     it(`draws each series from the intended column: ${recipe.use}`, () => {
       const header = recipe.header?.join("|") ?? "";
       assert.deepEqual(
@@ -478,9 +505,11 @@ describe("presentChart recipes", () => {
 
   // A column encoded where it does not belong still draws, so compare what each coordinate
   // received with the sample's numbers.
-  // A map's items are its regions, not the rows, so it is checked by region below.
+  // A map's items are its regions, not the rows, so it is checked by region below; a word cloud
+  // reads its columns in our own code, checked below and in test_chartWordCloud.ts.
   for (const recipe of CHART_RECIPES.filter(
-    (candidate) => candidate.header && encodedSeries(candidate.option).length > 0 && !candidate.use.startsWith("map"),
+    (candidate) =>
+      candidate.header && encodedSeries(candidate.option).length > 0 && !candidate.use.startsWith("map") && !candidate.use.startsWith("word cloud"),
   )) {
     it(`draws the encoded columns on their coordinates: ${recipe.use}`, () => {
       const rows = sampleRows(recipe);

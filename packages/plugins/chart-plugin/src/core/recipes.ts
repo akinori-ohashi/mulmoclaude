@@ -194,6 +194,11 @@ export const CHART_RECIPES: readonly ChartRecipe[] = [
     },
   },
   {
+    use: "word cloud (wordCloud: the largest count at the largest size; sizeRange, rotationRange, rotationStep, gridSize)",
+    header: ["Word", "Count"],
+    option: { tooltip: {}, series: [{ type: "wordCloud", encode: { itemName: "Word", value: "Count" } }] },
+  },
+  {
     use: "candlestick (the order is open, close, low, high)",
     header: ["Date", "Open", "Close", "Low", "High"],
     option: {

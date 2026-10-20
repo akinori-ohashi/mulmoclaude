@@ -3,6 +3,7 @@ import { TOOL_NAME, TOOL_DEFINITION } from "./definition";
 import { chartArtifactPath } from "./paths";
 import { trialDrawProblem } from "./drawProblem";
 import { formatProblem, withFormatters } from "./formats";
+import { withWordClouds } from "./wordCloud";
 import { chartHeightPx } from "./layout";
 import { loadMaps, needsBrowser, neededExtensions } from "./extensions";
 import { chartOption, chartSources, isChartSource, isReadSourceArgs } from "./source";
@@ -165,7 +166,7 @@ async function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRo
 
 function chartDrawProblem(chart: ChartEntry, rows: ChartSourceRows[] | undefined): string | null {
   try {
-    return trialDrawProblem(withFormatters(chartOption(chart, rows, true)), chartHeightPx(chart));
+    return trialDrawProblem(withWordClouds(withFormatters(chartOption(chart, rows, true))), chartHeightPx(chart));
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
