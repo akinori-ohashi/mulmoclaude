@@ -139,11 +139,38 @@ interface FormatterParams {
 // The dimensions a label's number may sit in, most likely first. A dataset row arrives whole, so
 // the value is picked out of it by the series' encode.
 const VALUE_DIMENSIONS = ["value", "y", "x", "radius", "angle"] as const;
+type ValueDimension = (typeof VALUE_DIMENSIONS)[number];
 
-function labelValue(params: FormatterParams): unknown {
+// The axis a dimension is drawn on, and the series key choosing which one.
+const DIMENSION_AXES: Partial<Record<ValueDimension, { axis: string; index: string }>> = {
+  x: { axis: "xAxis", index: "xAxisIndex" },
+  y: { axis: "yAxis", index: "yAxisIndex" },
+  radius: { axis: "radiusAxis", index: "polarIndex" },
+  angle: { axis: "angleAxis", index: "polarIndex" },
+};
+
+// ECharts' own rule for an axis without a type: category when it lists data, value otherwise.
+const isCategoryAxis = (axis: unknown): boolean => isRecord(axis) && (axis.type === "category" || (axis.type === undefined && "data" in axis));
+
+function onCategoryAxis(option: Record<string, unknown>, series: Record<string, unknown>, dimension: ValueDimension): boolean {
+  const place = DIMENSION_AXES[dimension];
+  if (!place) return false;
+  const axes = option[place.axis];
+  const index = typeof series[place.index] === "number" ? Number(series[place.index]) : 0;
+  return isCategoryAxis(Array.isArray(axes) ? axes[index] : axes);
+}
+
+/** VALUE_DIMENSIONS with the series' category dimensions last, so a horizontal bar whose
+ *  categories are numbers (years) labels its measure on x, not its category on y. */
+function labelDimensions(option: Record<string, unknown>, series: Record<string, unknown>): ValueDimension[] {
+  const categories = VALUE_DIMENSIONS.filter((dimension) => onCategoryAxis(option, series, dimension));
+  return [...VALUE_DIMENSIONS.filter((dimension) => !categories.includes(dimension)), ...categories];
+}
+
+function labelValue(params: FormatterParams, dimensions: readonly ValueDimension[]): unknown {
   const { value, encode } = params;
   if (!Array.isArray(value)) return isRecord(value) && "value" in value ? value.value : value;
-  const indexes = VALUE_DIMENSIONS.flatMap((dimension) => encode?.[dimension] ?? []);
+  const indexes = dimensions.flatMap((dimension) => encode?.[dimension] ?? []);
   const numeric = indexes.map((index) => value[index]).find((cell) => cellNumber(cell) !== null);
   return numeric ?? value[value.length - 1];
 }
@@ -163,28 +190,39 @@ function applyTemplate(template: string | undefined, formatted: string, params: 
 
 type FormatterArgument = "value" | "params";
 
-function formatterFunction(format: ChartFormat, takes: FormatterArgument, locale: string | undefined): (input: unknown) => string {
+function formatterFunction(
+  format: ChartFormat,
+  takes: FormatterArgument,
+  locale: string | undefined,
+  dimensions: readonly ValueDimension[] = VALUE_DIMENSIONS,
+): (input: unknown) => string {
   const write = valueFormatter(format, locale);
   if (takes === "value") return (value) => applyTemplate(format.template, write(value), null);
   return (input) => {
     const params: FormatterParams = isRecord(input) ? input : { value: input };
-    return applyTemplate(format.template, write(labelValue(params)), params);
+    return applyTemplate(format.template, write(labelValue(params, dimensions)), params);
   };
 }
 
+type FormatPlace = { path: string[]; takes: FormatterArgument };
+
 /** Where a format may stand in for a function, with what ECharts calls it with. `[]` is an
  *  option key that holds one object or an array of them. */
-const FORMAT_PLACES: { path: string[]; takes: FormatterArgument }[] = [
+const CHART_PLACES: FormatPlace[] = [
   ...["xAxis[]", "yAxis[]", "radiusAxis[]", "angleAxis[]", "singleAxis[]", "parallelAxis[]"].flatMap((axis) => [
     { path: [axis, "axisLabel", "formatter"], takes: "value" as const },
     { path: [axis, "axisPointer", "label", "formatter"], takes: "params" as const },
   ]),
   { path: ["tooltip[]", "valueFormatter"], takes: "value" },
-  { path: ["series[]", "tooltip", "valueFormatter"], takes: "value" },
-  { path: ["series[]", "label", "formatter"], takes: "params" },
-  { path: ["series[]", "endLabel", "formatter"], takes: "params" },
-  { path: ["series[]", "emphasis", "label", "formatter"], takes: "params" },
 ];
+/** The same, inside one series. */
+const SERIES_PLACES: FormatPlace[] = [
+  { path: ["tooltip", "valueFormatter"], takes: "value" },
+  { path: ["label", "formatter"], takes: "params" },
+  { path: ["endLabel", "formatter"], takes: "params" },
+  { path: ["emphasis", "label", "formatter"], takes: "params" },
+];
+const FORMAT_PLACES: FormatPlace[] = [...CHART_PLACES, ...SERIES_PLACES.map(({ path, takes }) => ({ path: ["series[]", ...path], takes }))];
 
 const keyOf = (step: string): string => step.replace(/\[\]$/, "");
 const listStep = (step: string): boolean => step.endsWith("[]");
@@ -201,10 +239,23 @@ function replaceAt(holder: unknown, path: string[], replace: (value: unknown) =>
 
 /** `option` with every format at FORMAT_PLACES replaced by a function. Anything else is kept. */
 export function withFormatters(option: Record<string, unknown>, locale?: string): Record<string, unknown> {
-  return FORMAT_PLACES.reduce<Record<string, unknown>>((current, { path, takes }) => {
-    const replaced = replaceAt(current, path, (value) => (isChartFormat(value) ? formatterFunction(value, takes, locale) : value));
+  const formatSeries = (series: unknown): unknown =>
+    isRecord(series) ? replaceFormats(series, SERIES_PLACES, locale, labelDimensions(option, series)) : series;
+  const charted = replaceFormats(option, CHART_PLACES, locale, VALUE_DIMENSIONS);
+  const replaced = replaceAt(charted, ["series[]"], formatSeries);
+  return isRecord(replaced) ? replaced : charted;
+}
+
+function replaceFormats(
+  holder: Record<string, unknown>,
+  places: FormatPlace[],
+  locale: string | undefined,
+  dimensions: readonly ValueDimension[],
+): Record<string, unknown> {
+  return places.reduce<Record<string, unknown>>((current, { path, takes }) => {
+    const replaced = replaceAt(current, path, (value) => (isChartFormat(value) ? formatterFunction(value, takes, locale, dimensions) : value));
     return isRecord(replaced) ? replaced : current;
-  }, option);
+  }, holder);
 }
 
 const FORMATTER_KEYS = new Set(["formatter", "valueFormatter"]);
