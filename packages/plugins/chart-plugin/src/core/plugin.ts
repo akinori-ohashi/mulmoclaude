@@ -4,6 +4,7 @@ import { chartArtifactPath } from "./paths";
 import { trialDrawProblem } from "./drawProblem";
 import { formatProblem, withFormatters } from "./formats";
 import { chartHeightPx } from "./layout";
+import { loadMaps, needsBrowser, neededExtensions } from "./extensions";
 import { chartOption, chartSources, isChartSource, isReadSourceArgs } from "./source";
 import type { ChartArgs, ChartDocument, ChartEntry, ChartSource, ChartSourceRows, PresentChartData, ReadSourceArgs, ReadSourceData } from "./types";
 
@@ -97,7 +98,7 @@ export const executeChart = async (context: ChartExecuteContext, args: ChartArgs
       instructions: "Acknowledge that the chart could not be created. Fix the spreadsheet path or range, or pass the data inline in option instead of source.",
     };
   }
-  const drawProblem = documentDrawProblem(document, sourceRead.rows);
+  const drawProblem = await documentDrawProblem(document, sourceRead.rows);
   if (drawProblem) {
     return {
       message: drawProblem,
@@ -149,10 +150,14 @@ async function readChartRanges(reader: ChartSourceReader, ranges: ChartSource[])
 }
 
 /** Draw each chart once off screen, with the rows the View will give it, so an option ECharts
- *  cannot draw reaches the agent now rather than as a blank card. Null when every chart draws. */
-function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows[] | undefined)[]): string | null {
+ *  cannot draw reaches the agent now rather than as a blank card. Null when every chart draws.
+ *  A 3D chart needs a browser (WebGL), so only its formats are checked. */
+async function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows[] | undefined)[]): Promise<string | null> {
+  const extensions = document.charts.map((chart) => neededExtensions(chart.option));
+  await loadMaps(extensions.flatMap(({ maps }) => maps));
   const problems = document.charts.flatMap((chart, index) => {
-    const problem = formatProblem(chart.option) ?? chartDrawProblem(chart, rows[index]);
+    const browserOnly = needsBrowser(extensions[index] ?? neededExtensions(chart.option));
+    const problem = formatProblem(chart.option) ?? (browserOnly ? null : chartDrawProblem(chart, rows[index]));
     return problem ? [`Chart ${index + 1}${chart.title ? ` (${chart.title})` : ""} could not be drawn: ${problem}`] : [];
   });
   return problems.length > 0 ? problems.join("\n") : null;
