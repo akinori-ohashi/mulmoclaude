@@ -408,16 +408,14 @@ describe("presentChart recipes", () => {
   it("histogram straight from a column counts each value once, in its bin", () => {
     const recipe = recipeNamed("histogram straight");
     const rows: ChartSourceRows = [...(sampleRows(recipe) ?? []), [null], ["n/a"]];
-    const scores = rows.flat().filter((cell): cell is number => typeof cell === "number");
-    const bins = histogramBins(recipe, rows);
-    assert.equal(
-      bins.reduce((total, bin) => total + bin.count, 0),
-      scores.length,
-    );
-    bins.forEach(({ low, high, count }, index) => {
-      const last = index === bins.length - 1;
-      assert.equal(count, scores.filter((score) => score >= low && (score < high || (last && score === high))).length, `bin ${low}-${high}`);
-    });
+    // The sample's scores 3 7 | 12 18 19 | 25 26 27 | - | 41, counted by hand.
+    assert.deepEqual(histogramBins(recipe, rows), [
+      { low: 0, high: 10, count: 2 },
+      { low: 10, high: 20, count: 3 },
+      { low: 20, high: 30, count: 3 },
+      { low: 30, high: 40, count: 0 },
+      { low: 40, high: 50, count: 1 },
+    ]);
   });
 
   it("waterfall draws its base transparent", () => {
