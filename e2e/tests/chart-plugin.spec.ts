@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Download, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
 
 // Serves a fake session whose only tool_result is a `presentChart`
@@ -147,4 +147,39 @@ test.describe("chart plugin rendering", () => {
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/\.png$/);
   });
+
+  test("SVG and CSV exports download the chart and its data", async ({ page }) => {
+    await page.goto("/chat/chart-session");
+    await page.getByText("Sales Overview").first().click();
+
+    const svgDownload = page.waitForEvent("download");
+    await page.getByTestId("chart-export-svg-0").click();
+    const svg = await svgDownload;
+    expect(svg.suggestedFilename()).toBe("monthly-revenue-1.svg");
+    expect((await readDownload(svg)).startsWith("<svg")).toBe(true);
+
+    const csvDownload = page.waitForEvent("download");
+    await page.getByTestId("chart-export-csv-0").click();
+    const csv = await csvDownload;
+    expect(csv.suggestedFilename()).toBe("monthly-revenue-1.csv");
+    expect(await readDownload(csv)).toBe("\uFEFF,Series 1\r\nJan,100\r\nFeb,120\r\nMar,150\r\n");
+  });
+
+  test("follows the host's dark appearance", async ({ page }) => {
+    await page.goto("/chat/chart-session");
+    await page.getByText("Sales Overview").first().click();
+    const card = page.getByTestId("chart-card-0");
+    await expect(card).toHaveClass(/bg-white/);
+    await page.evaluate(() => document.documentElement.setAttribute("data-appearance", "dark"));
+    await expect(card).toHaveClass(/bg-gray-900/);
+    await page.evaluate(() => document.documentElement.setAttribute("data-appearance", "light"));
+    await expect(card).toHaveClass(/bg-white/);
+  });
 });
+
+async function readDownload(download: Download): Promise<string> {
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8");
+}
