@@ -75,13 +75,14 @@ export const CHART_RECIPES: readonly ChartRecipe[] = [
     },
   },
   {
-    use: "waterfall (Base = running total before the step, drawn transparent)",
-    header: ["Step", "Base", "Change"],
+    use: "waterfall (on the sheet: Base = MIN(total before, total after), Up = MAX(change, 0), Down = MAX(-change, 0); keep every value non-negative, since ECharts stacks negatives apart)",
+    header: ["Step", "Base", "Up", "Down"],
     option: {
       xAxis: { type: "category" },
       yAxis: {},
       series: [
         { type: "bar", stack: "w", itemStyle: { color: "transparent" } },
+        { type: "bar", stack: "w" },
         { type: "bar", stack: "w" },
       ],
     },

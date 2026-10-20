@@ -62,11 +62,12 @@ const SAMPLE_ROWS: Record<string, ChartSourceRows> = {
     ["Jan", 3, 4],
     ["Feb", 5, 2],
   ],
-  "Step|Base|Change": [
-    ["Step", "Base", "Change"],
-    ["Start", 0, 100],
-    ["Sales", 100, 40],
-    ["Costs", 110, 30],
+  "Step|Base|Up|Down": [
+    ["Step", "Base", "Up", "Down"],
+    ["Start", 0, 100, 0],
+    ["Sales", 100, 40, 0],
+    ["Costs", 110, 0, 30],
+    ["End", 0, 110, 0],
   ],
   "Date|Visits": [
     ["Date", "Visits"],
@@ -110,11 +111,21 @@ function sampleRows(recipe: ChartRecipe): ChartSourceRows | null {
   return rows;
 }
 
+type Coordinate = "x" | "y" | "value";
+const COORDINATES: readonly Coordinate[] = ["x", "y", "value"];
+
+interface DrawnSeries {
+  count: number;
+  /** Each item's values on the dimensions mapped to a coordinate, in encode's order. */
+  values: Record<Coordinate, unknown[][]>;
+  /** Each item's top after stacking, when the series is stacked. */
+  stackTops: unknown[] | null;
+  yAxisIndex: unknown;
+}
+
 interface Drawn {
   warnings: string[];
-  seriesCounts: number[];
-  /** Each item's values on the dimensions mapped to y, in encode's order. */
-  seriesYValues: (index: number) => unknown[][];
+  series: DrawnSeries[];
 }
 
 function captureWarnings<T>(draw: () => T): { result: T; warnings: string[] } {
@@ -139,10 +150,41 @@ function callMethod(target: unknown, method: string, ...args: unknown[]): unknow
   return Reflect.apply(methodFunction, target, args);
 }
 
-function drawnSeriesData(chart: echarts.ECharts): unknown[] {
+function itemsOn(data: unknown, dimensions: unknown[], count: number): unknown[][] {
+  return Array.from({ length: count }, (_unused, item) => dimensions.map((dimension) => callMethod(data, "get", dimension, item)));
+}
+
+function valuesOn(data: unknown, coordinate: Coordinate, count: number): unknown[][] {
+  const dimensions = callMethod(data, "mapDimensionsAll", coordinate);
+  assert.ok(Array.isArray(dimensions));
+  return itemsOn(data, dimensions, count);
+}
+
+function stackTops(data: unknown, count: number): unknown[] | null {
+  const dimension = callMethod(data, "getCalculationInfo", "stackResultDimension");
+  if (typeof dimension !== "string") return null;
+  return itemsOn(data, [dimension], count).map(([top]) => top);
+}
+
+function yAxisIndexOf(series: unknown): unknown {
+  const referring = callMethod(series, "getReferringComponents", "yAxis", { useDefault: true });
+  assert.ok(typeof referring === "object" && referring !== null);
+  const models: unknown = Reflect.get(referring, "models");
+  if (!Array.isArray(models) || models.length === 0) return null;
+  const [axis]: unknown[] = models;
+  assert.ok(typeof axis === "object" && axis !== null);
+  return Reflect.get(axis, "componentIndex");
+}
+
+function drawnSeries(chart: echarts.ECharts): DrawnSeries[] {
   const seriesModels = callMethod(callMethod(chart, "getModel"), "getSeries");
   assert.ok(Array.isArray(seriesModels));
-  return seriesModels.map((series: unknown) => callMethod(series, "getData"));
+  return seriesModels.map((series: unknown) => {
+    const data = callMethod(series, "getData");
+    const count = itemCount(data);
+    const values = { x: valuesOn(data, "x", count), y: valuesOn(data, "y", count), value: valuesOn(data, "value", count) };
+    return { count, values, stackTops: stackTops(data, count), yAxisIndex: yAxisIndexOf(series) };
+  });
 }
 
 function itemCount(data: unknown): number {
@@ -161,13 +203,7 @@ function drawRecipe(recipe: ChartRecipe): Drawn {
       return chart.renderToSVGString();
     });
     assert.ok(result.length > 0);
-    const seriesData = drawnSeriesData(chart);
-    const yValuesByIndex = seriesData.map((data) => {
-      const yDimensions = callMethod(data, "mapDimensionsAll", "y");
-      assert.ok(Array.isArray(yDimensions));
-      return Array.from({ length: itemCount(data) }, (_unused, item) => yDimensions.map((dimension) => callMethod(data, "get", dimension, item)));
-    });
-    return { warnings, seriesCounts: seriesData.map(itemCount), seriesYValues: (index) => yValuesByIndex[index] ?? [] };
+    return { warnings, series: drawnSeries(chart) };
   } finally {
     chart.dispose();
   }
@@ -178,15 +214,15 @@ describe("presentChart recipes", () => {
     it(`draws: ${recipe.use}`, () => {
       const drawn = drawRecipe(recipe);
       assert.deepEqual(drawn.warnings, []);
-      assert.ok(drawn.seriesCounts.length > 0, "no series");
-      drawn.seriesCounts.forEach((count, index) => assert.ok(count > 0, `series ${index} is empty`));
+      assert.ok(drawn.series.length > 0, "no series");
+      drawn.series.forEach(({ count }, index) => assert.ok(count > 0, `series ${index} is empty`));
     });
   }
 
   it("boxplot reads one box per row, in the order min, Q1, median, Q3, max", () => {
     const recipe = CHART_RECIPES.find((candidate) => candidate.use.startsWith("boxplot"));
     assert.ok(recipe);
-    const boxes = drawRecipe(recipe).seriesYValues(0);
+    const boxes = drawRecipe(recipe).series[0]?.values.y ?? [];
     assert.equal(boxes.length, 2);
     assert.deepEqual(boxes[0], [1, 2, 3, 4, 10]);
   });
@@ -194,9 +230,80 @@ describe("presentChart recipes", () => {
   it("candlestick reads open, close, low, high", () => {
     const recipe = CHART_RECIPES.find((candidate) => candidate.use.startsWith("candlestick"));
     assert.ok(recipe);
-    assert.deepEqual(drawRecipe(recipe).seriesYValues(0)[0], [10, 12, 9, 13]);
+    assert.deepEqual(drawRecipe(recipe).series[0]?.values.y[0], [10, 12, 9, 13]);
   });
+
+  it("waterfall stacks each step on the total before it, decreases included", () => {
+    const recipe = CHART_RECIPES.find((candidate) => candidate.use.startsWith("waterfall"));
+    assert.ok(recipe);
+    const lastSeries = drawRecipe(recipe).series.at(-1);
+    assert.deepEqual(lastSeries?.stackTops, [100, 140, 140, 110]);
+  });
+
+  it("heatmap colours each cell by the Value column", () => {
+    const recipe = CHART_RECIPES.find((candidate) => candidate.use.startsWith("heatmap"));
+    assert.ok(recipe);
+    assert.deepEqual(drawRecipe(recipe).series[0]?.values.value, [[0.8], [0.8], [1]]);
+  });
+
+  it("two value axes and Pareto put the line on the second axis", () => {
+    const recipes = CHART_RECIPES.filter((candidate) => candidate.use.startsWith("two value axes") || candidate.use.startsWith("Pareto"));
+    assert.equal(recipes.length, 2);
+    recipes.forEach((recipe) => {
+      assert.deepEqual(
+        drawRecipe(recipe).series.map(({ yAxisIndex }) => yAxisIndex),
+        [0, 1],
+        recipe.use,
+      );
+    });
+  });
+
+  // A column encoded where it does not belong still draws, so compare what each coordinate
+  // received with the sample's numbers.
+  for (const recipe of CHART_RECIPES.filter((candidate) => candidate.header && encodedSeries(candidate.option).length > 0)) {
+    it(`draws the encoded columns on their coordinates: ${recipe.use}`, () => {
+      const rows = sampleRows(recipe);
+      assert.ok(rows);
+      const [header, ...body] = rows;
+      const drawn = drawRecipe(recipe);
+      encodedSeries(recipe.option).forEach(({ index, encode }) => {
+        COORDINATES.forEach((coordinate) => {
+          const names = encode[coordinate];
+          if (names === undefined) return;
+          const columns = (Array.isArray(names) ? names : [names]).map((name) => header?.indexOf(name) ?? -1);
+          const expected = body.map((row) => columns.map((column) => row[column]));
+          const actual = drawn.series[index]?.values[coordinate] ?? [];
+          actual.flat().forEach((value) => assert.ok(typeof value === "number" && !Number.isNaN(value), `${coordinate} received ${String(value)}`));
+          expected.forEach((cells, item) =>
+            cells.forEach((cell, position) => {
+              if (typeof cell === "number") assert.equal(actual[item]?.[position], cell, `${coordinate} of item ${item}`);
+            }),
+          );
+        });
+      });
+    });
+  }
 });
+
+interface EncodedSeries {
+  index: number;
+  encode: Partial<Record<Coordinate, unknown>>;
+}
+
+function isEncodeRecord(value: unknown): value is Partial<Record<Coordinate, unknown>> {
+  return typeof value === "object" && value !== null;
+}
+
+/** The series of a recipe that carry an encode, with their position. */
+function encodedSeries(option: Record<string, unknown>): EncodedSeries[] {
+  const { series } = option;
+  if (!Array.isArray(series)) return [];
+  return series.flatMap((entry: unknown, index) => {
+    if (typeof entry !== "object" || entry === null || !("encode" in entry)) return [];
+    const { encode } = entry;
+    return isEncodeRecord(encode) ? [{ index, encode }] : [];
+  });
+}
 
 /** Every column name a recipe's encode names, from any series. */
 function encodedNames(option: Record<string, unknown>): string[] {
