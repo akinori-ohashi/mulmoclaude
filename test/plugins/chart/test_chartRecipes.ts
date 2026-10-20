@@ -360,7 +360,7 @@ describe("presentChart recipes", () => {
     const area = series && isRecordValue(series.markArea) && Array.isArray(series.markArea.data) ? series.markArea.data : [];
     const months = (sampleRows(recipe) ?? []).slice(1).map(([month]) => month);
     const ends = area.flat().map((end) => (isRecordValue(end) ? end.xAxis : undefined));
-    assert.ok(ends.length === 2 && ends.every((end) => months.includes(end)), JSON.stringify(ends));
+    assert.ok(ends.length === 2 && ends.every((end) => months.some((month) => month === end)), JSON.stringify(ends));
   });
 
   it("waterfall draws its base transparent", () => {
