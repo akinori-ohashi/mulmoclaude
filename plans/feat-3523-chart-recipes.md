@@ -27,6 +27,10 @@ renderer (`ssr: true`):
 
 - no exception, and no `[ECharts]` warning (an unknown series type or component warns);
 - every series holds data;
+- each sourced series is pinned to its type, the sheet columns it measures and its stack, read
+  back from ECharts, since a series on the wrong column or out of its stack still draws;
+- the dual-axis and Pareto lines sit on the second axis, and the waterfall's stack tops are the
+  running totals;
 - a sourced recipe is rendered through `withSourceRows` with sample rows under its header, as the
   View does;
 - the boxplot and candlestick orders are checked by value, because a wrong column order still
@@ -37,6 +41,8 @@ renderer (`ssr: true`):
 - ECharts' `boxplot` transform reads each ROW as one group, and a header row breaks it, so it
   cannot box a sheet's columns. The recipe computes the five numbers on the sheet
   (`MIN` / `QUARTILE` / `MEDIAN` / `MAX`) and draws them with `encode`.
+- ECharts stacks negative values apart from positive ones, so a waterfall with a negative change
+  floats away from its base. The recipe keeps every column non-negative: Base, Up, Down.
 - Candlestick values are `[open, close, low, high]`, not OHLC.
 - A straight fitted line drawn from a `TREND` column needs no sorting, since its points are
   collinear.

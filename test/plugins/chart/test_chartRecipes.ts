@@ -103,6 +103,27 @@ const SAMPLE_ROWS: Record<string, ChartSourceRows> = {
   ],
 };
 
+const expectedShape = (type: string, columns: string[], stack?: string): SeriesShape => ({ type, columns, stack });
+
+/** For each sourced recipe, keyed by its header: every series' type, value columns and stack. */
+const EXPECTED_SHAPES: Record<string, SeriesShape[]> = {
+  "Temp|Sales": [expectedShape("scatter", ["Sales"])],
+  "Temp|Sales|Fit": [expectedShape("scatter", ["Sales"]), expectedShape("line", ["Fit"])],
+  "Category|Sales": [expectedShape("pie", ["Sales"])],
+  "Group|Min|Q1|Median|Q3|Max": [expectedShape("boxplot", ["Min", "Q1", "Median", "Q3", "Max"])],
+  "Bin|Count": [expectedShape("bar", ["Count"])],
+  "Month|Sales|Growth %": [expectedShape("bar", ["Sales"]), expectedShape("line", ["Growth %"])],
+  "Cause|Count|Cum %": [expectedShape("bar", ["Count"]), expectedShape("line", ["Cum %"])],
+  "Month|A|B": [expectedShape("bar", ["A"], "total"), expectedShape("bar", ["B"], "total")],
+  "Step|Base|Up|Down": [expectedShape("bar", ["Base"], "w"), expectedShape("bar", ["Up"], "w"), expectedShape("bar", ["Down"], "w")],
+  "Date|Visits": [expectedShape("line", ["Visits"])],
+  "Month|Sales": [expectedShape("line", ["Sales"])],
+  "Year|Users": [expectedShape("line", ["Users"])],
+  "X|Y|Value": [expectedShape("heatmap", ["Value"])],
+  "Date|Open|Close|Low|High": [expectedShape("candlestick", ["Open", "Close", "Low", "High"])],
+  "Time|Value": [expectedShape("line", ["Value"])],
+};
+
 function sampleRows(recipe: ChartRecipe): ChartSourceRows | null {
   if (!recipe.header) return null;
   const rows = SAMPLE_ROWS[recipe.header.join("|")];
@@ -121,6 +142,14 @@ interface DrawnSeries {
   /** Each item's top after stacking, when the series is stacked. */
   stackTops: unknown[] | null;
   yAxisIndex: unknown;
+  /** What the series is, read back from ECharts: its type, the columns its values come from, its stack. */
+  shape: SeriesShape;
+}
+
+interface SeriesShape {
+  type: unknown;
+  columns: unknown;
+  stack: unknown;
 }
 
 interface Drawn {
@@ -176,6 +205,15 @@ function yAxisIndexOf(series: unknown): unknown {
   return Reflect.get(axis, "componentIndex");
 }
 
+/** The sheet columns a series measures: y on a cartesian chart, value on a pie or heatmap (whose
+ *  y is a category). Stacking adds dimensions of ECharts' own, which name no column. */
+function valueColumns(data: unknown, type: unknown): unknown[] {
+  const coordinate = type === "pie" || type === "heatmap" ? "value" : "y";
+  const dimensions = callMethod(data, "mapDimensionsAll", coordinate);
+  assert.ok(Array.isArray(dimensions));
+  return dimensions.filter((dimension) => typeof dimension !== "string" || !dimension.startsWith("__"));
+}
+
 function drawnSeries(chart: echarts.ECharts): DrawnSeries[] {
   const seriesModels = callMethod(callMethod(chart, "getModel"), "getSeries");
   assert.ok(Array.isArray(seriesModels));
@@ -183,7 +221,9 @@ function drawnSeries(chart: echarts.ECharts): DrawnSeries[] {
     const data = callMethod(series, "getData");
     const count = itemCount(data);
     const values = { x: valuesOn(data, "x", count), y: valuesOn(data, "y", count), value: valuesOn(data, "value", count) };
-    return { count, values, stackTops: stackTops(data, count), yAxisIndex: yAxisIndexOf(series) };
+    const type = Reflect.get(Object(series), "subType");
+    const shape = { type, columns: valueColumns(data, type), stack: callMethod(series, "get", "stack") };
+    return { count, values, stackTops: stackTops(data, count), yAxisIndex: yAxisIndexOf(series), shape };
   });
 }
 
@@ -256,6 +296,25 @@ describe("presentChart recipes", () => {
         recipe.use,
       );
     });
+  });
+
+  // A series drawing the wrong column, or left out of a stack, still draws; this pins what each
+  // sourced recipe means.
+  for (const recipe of CHART_RECIPES.filter((candidate) => candidate.header)) {
+    it(`draws each series from the intended column: ${recipe.use}`, () => {
+      const header = recipe.header?.join("|") ?? "";
+      assert.deepEqual(
+        drawRecipe(recipe).series.map(({ shape }) => shape),
+        EXPECTED_SHAPES[header],
+      );
+    });
+  }
+
+  it("waterfall draws its base transparent", () => {
+    const recipe = CHART_RECIPES.find((candidate) => candidate.use.startsWith("waterfall"));
+    assert.ok(recipe);
+    const [base] = Array.isArray(recipe.option.series) ? recipe.option.series : [];
+    assert.deepEqual(base, { type: "bar", stack: "w", itemStyle: { color: "transparent" } });
   });
 
   // A column encoded where it does not belong still draws, so compare what each coordinate
