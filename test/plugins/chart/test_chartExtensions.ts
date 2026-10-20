@@ -140,7 +140,12 @@ describe("executeChart with extensions", () => {
 describe("settleAll", () => {
   it("waits for a slow load before failing with a fast one's error", async () => {
     const finished: string[] = [];
-    const slow = new Promise<void>((resolve) => setTimeout(() => resolve(finished.push("map") && undefined)));
+    const slow = new Promise<void>((resolve) =>
+      setTimeout(() => {
+        finished.push("map");
+        resolve();
+      }),
+    );
     const fast = Promise.reject(new Error("gl failed"));
     await assert.rejects(settleAll([slow, fast]), /gl failed/);
     assert.deepEqual(finished, ["map"]);
