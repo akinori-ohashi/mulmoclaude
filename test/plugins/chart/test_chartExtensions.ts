@@ -154,6 +154,6 @@ describe("settleAll", () => {
   it("resolves when every load does, and wraps a non-Error failure", async () => {
     await settleAll([Promise.resolve(1), Promise.resolve()]);
     const nonErrorReason: unknown = "offline";
-    await assert.rejects(settleAll([Promise.reject(nonErrorReason)]), /offline/);
+    await assert.rejects(settleAll([Promise.reject(nonErrorReason)]), (error: unknown) => error instanceof Error && error.message === "offline");
   });
 });
