@@ -4,6 +4,10 @@
 
 Discord bridge for [MulmoClaude](https://github.com/receptron/mulmoclaude). The bot responds to messages in channels it has access to.
 
+## Typing indicator
+
+From the moment a message arrives until the reply is posted, the bot shows "typing…" in the channel, refreshed before Discord lets it lapse, so a long agent turn reads as "working" rather than "bridge is down". It needs no extra permission or setting. A failed refresh is only logged.
+
 ## Attachments
 
 Files posted with a message are downloaded from Discord's CDN and forwarded to MulmoClaude, so you can paste a screenshot and ask about it. A post with **only** files and no text is forwarded too, with `Describe / analyze this file.` as the body.
