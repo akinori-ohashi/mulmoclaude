@@ -35,6 +35,23 @@ recomputed whenever the sheet changes. `ecStat:clustering` is not registered: it
 from random centroids without retrying, so it splits well-separated groups wrongly now and then and
 differently on each redraw.
 
+## Number and date formats
+
+The option is JSON, so a `formatter` cannot be a function. Instead, a `formatter` or
+`valueFormatter` may be a format object, which the plugin turns into a function before ECharts
+sees it (`src/core/formats.ts`; nothing is evaluated):
+
+- `{ "kind": "number", "digits"?, "grouping"?, "compact"?, "prefix"?, "suffix"? }`
+- `{ "kind": "percent", "digits"? }` — a ratio, `0.12` → `12%`
+- `{ "kind": "currency", "currency": "JPY", "digits"? }`
+- `{ "kind": "date", "pattern": "{yyyy}-{MM}-{dd}" }` — ECharts' time template
+
+Each takes `"template"`, e.g. `"{b}: {value}"` (`{a}` series name, `{b}` item name, `{d}` pie
+percent). It works on an axis label or axis-pointer label, the tooltip's or a series'
+`valueFormatter`, and a series' `label`, `endLabel` and `emphasis.label`. A format anywhere else,
+or a malformed one, is refused with its place named. Numbers are written in the host's locale.
+Colour or size by value needs no function: use `visualMap`.
+
 ## When a chart cannot be drawn
 
 `presentChart` draws every chart once off screen (ECharts' server-side SVG renderer) with the
