@@ -3,7 +3,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { BUNDLED_MAPS, loadMaps, neededExtensions, needsBrowser } from "../../../packages/plugins/chart-plugin/src/core/extensions";
+import { BUNDLED_MAPS, loadMaps, neededExtensions, needsBrowser, settleAll } from "../../../packages/plugins/chart-plugin/src/core/extensions";
 import { echarts } from "../../../packages/plugins/chart-plugin/src/core/charting";
 import { executeChart } from "../../../packages/plugins/chart-plugin/src/core/plugin";
 import world from "../../../packages/plugins/chart-plugin/src/maps/world.json";
@@ -134,5 +134,20 @@ describe("executeChart with extensions", () => {
     const option = { series: [{ type: "map", map: "atlantis" }] };
     const result = await executeChart({ files: { artifacts: memoryArtifacts() } }, { document: { charts: [{ option }] } });
     assert.match(result.message ?? "", /No map named "atlantis"/);
+  });
+});
+
+describe("settleAll", () => {
+  it("waits for a slow load before failing with a fast one's error", async () => {
+    const finished: string[] = [];
+    const slow = new Promise<void>((resolve) => setTimeout(() => resolve(finished.push("map") && undefined)));
+    const fast = Promise.reject(new Error("gl failed"));
+    await assert.rejects(settleAll([slow, fast]), /gl failed/);
+    assert.deepEqual(finished, ["map"]);
+  });
+
+  it("resolves when every load does, and wraps a non-Error failure", async () => {
+    await settleAll([Promise.resolve(1), Promise.resolve()]);
+    await assert.rejects(settleAll([Promise.reject("offline")]), /offline/);
   });
 });

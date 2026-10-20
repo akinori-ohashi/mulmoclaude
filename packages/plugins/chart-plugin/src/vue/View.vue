@@ -279,15 +279,21 @@ function showDocument(): void {
   sourceRows.value = [];
   sourceProblems.value = [];
   followSources();
+  const shown = ++documentsShown.count;
   extensions.ready = loadExtensions();
-  // Waits at least a tick, so the refs are populated before we render.
-  void extensions.ready.then(renderAll);
+  // Waits at least a tick, so the refs are populated before we render. A newer document may still
+  // be loading its own extensions when this load ends, so only the latest one draws.
+  void extensions.ready.then(() => {
+    if (shown === documentsShown.count) renderAll();
+  });
   if (charts.value.some((chart) => chartSources(chart).length > 0)) void loadSources();
 }
 
 // Maps and 3D load before the charts that use them are drawn. A load that fails
 // leaves the chart to say why it could not be drawn.
 const extensions: { ready: Promise<void> } = { ready: Promise.resolve() };
+// Counts showDocument calls only; loadGeneration also moves with every source read.
+const documentsShown = { count: 0 };
 
 async function loadExtensions(): Promise<void> {
   try {

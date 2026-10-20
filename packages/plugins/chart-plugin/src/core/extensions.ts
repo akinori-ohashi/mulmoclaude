@@ -88,9 +88,18 @@ export async function loadMaps(maps: BundledMap[]): Promise<void> {
   loaded.forEach(([map, geo]) => echarts.registerMap(map, geo));
 }
 
+/** Waits for every load, then fails with the first failure: a fast failure must not let the
+ *  charts draw while a map another chart needs is still being registered. */
+export async function settleAll(loads: Promise<unknown>[]): Promise<void> {
+  const results = await Promise.allSettled(loads);
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (!failed) return;
+  throw failed.reason instanceof Error ? failed.reason : new Error(String(failed.reason));
+}
+
 /** Loads what the charts need, in a browser: maps and echarts-gl. */
 export async function loadBrowserExtensions(extensions: ChartExtensions[]): Promise<void> {
   const loads: Promise<unknown>[] = [loadMaps([...new Set(extensions.flatMap(({ maps }) => maps))])];
   if (extensions.some(({ gl }) => gl)) loads.push(import("echarts-gl"));
-  await Promise.all(loads);
+  await settleAll(loads);
 }
