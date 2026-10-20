@@ -8,8 +8,8 @@
         {{ t.chartCount(charts.length) }}
       </span>
     </div>
-    <div class="flex-1 overflow-y-auto p-4 space-y-4">
-      <div v-for="(chart, idx) in charts" :key="idx" class="border border-gray-200 rounded-lg bg-white" :data-testid="`chart-card-${idx}`">
+    <div :class="['flex-1 overflow-y-auto p-4 grid gap-4 content-start', gridColumnsClass(columns)]" data-testid="chart-grid">
+      <div v-for="(chart, idx) in charts" :key="idx" class="border border-gray-200 rounded-lg bg-white min-w-0" :data-testid="`chart-card-${idx}`">
         <div class="px-3 py-2 border-b border-gray-100 flex items-center justify-between gap-2">
           <div class="flex items-center gap-2 min-w-0">
             <span class="text-sm font-medium text-gray-800 truncate">
@@ -41,7 +41,12 @@
         <div v-if="drawProblems[idx]" class="px-3 py-1 text-xs text-red-600 border-b border-gray-100" :data-testid="`chart-draw-problem-${idx}`">
           {{ t.cannotDraw(drawProblems[idx] ?? "") }}
         </div>
-        <div :ref="(el) => setChartRef(idx, el as HTMLDivElement | null)" class="w-full h-[400px]" :data-testid="`chart-canvas-${idx}`" />
+        <div
+          :ref="(el) => setChartRef(idx, el as HTMLDivElement | null)"
+          class="w-full h-[var(--chart-height)]"
+          :style="{ '--chart-height': `${chartHeightPx(chart)}px` }"
+          :data-testid="`chart-canvas-${idx}`"
+        />
       </div>
     </div>
   </div>
@@ -54,6 +59,7 @@ import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/v
 import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
 import { setOptionProblem } from "../core/drawProblem";
 import { withFormatters } from "../core/formats";
+import { chartHeightPx, documentColumns, gridColumnsClass } from "../core/layout";
 import { chartOption, chartSources, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
 import { useT } from "../lang";
 
@@ -66,6 +72,7 @@ const props = defineProps<{
 const data = computed(() => props.selectedResult.data);
 const charts = computed<ChartEntry[]>(() => data.value?.document?.charts ?? []);
 const title = computed(() => data.value?.title ?? data.value?.document?.title);
+const columns = computed(() => documentColumns(data.value?.document));
 
 // Optional: a host without a runtime still draws every inline chart, and says
 // on a sourced one that it cannot follow the spreadsheet.

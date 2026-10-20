@@ -20,6 +20,10 @@ export const TOOL_DEFINITION: ToolDefinition = {
             type: "string",
             description: "Optional human-friendly title for the whole document. Used to derive the file slug and as the preview label.",
           },
+          columns: {
+            type: "number",
+            description: "Optional. Cards side by side, 1–4 (default 1): small multiples per region or year, or a dashboard of several charts.",
+          },
           charts: {
             type: "array",
             description: "List of charts to render, in order. Each charts[i].option is passed as-is to ECharts' setOption().",
@@ -29,6 +33,11 @@ export const TOOL_DEFINITION: ToolDefinition = {
                 title: {
                   type: "string",
                   description: "Optional short label for this specific chart (shown above it in the UI).",
+                },
+                height: {
+                  type: "number",
+                  description:
+                    "Optional height in pixels (160–1200, default 400). Taller for a scatter matrix or many grids in one option, shorter for small multiples.",
                 },
                 type: {
                   type: "string",
