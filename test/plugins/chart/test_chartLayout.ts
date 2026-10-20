@@ -46,9 +46,14 @@ describe("documentColumns and gridColumnsClass", () => {
   });
 
   it("names a whole Tailwind class for each count", () => {
-    assert.deepEqual([1, 2, 3, 4].map(gridColumnsClass), ["grid-cols-1", "grid-cols-2", "grid-cols-3", "grid-cols-4"]);
+    const classes = [1, 2, 3, 4].map(gridColumnsClass);
+    assert.equal(classes[0], "grid-cols-1");
+    classes.slice(1).forEach((name, index) => {
+      const columns = index + 2;
+      assert.equal(name, `grid-cols-[repeat(auto-fill,minmax(min(100%,max(20rem,calc((100%_-_${columns - 1}rem)/${columns}))),1fr))]`);
+    });
     assert.equal(gridColumnsClass(0), "grid-cols-1");
-    assert.equal(gridColumnsClass(7), "grid-cols-4");
+    assert.equal(gridColumnsClass(7), classes[3]);
   });
 });
 
