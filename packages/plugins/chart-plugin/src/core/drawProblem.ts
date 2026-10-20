@@ -4,29 +4,15 @@
 // once per type. So that case is found by comparing what was asked for with what was kept.
 
 import { echarts } from "./charting";
+import { DEFAULT_CHART_HEIGHT_PX } from "./layout";
+import { asList, isRecord, optionParts, partsList } from "./optionParts";
 
 type DrawTarget = Pick<echarts.ECharts, "setOption" | "getOption">;
 
 // The size the View draws at; a trial needs some size, and a layout problem shows at this one.
 const TRIAL_WIDTH_PX = 640;
-const TRIAL_HEIGHT_PX = 400;
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-
-function asList(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
-  return value === undefined ? [] : [value];
-}
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-
-/** The option and, for a timeline, its `baseOption` and each of its `options`: the parts a
- *  chart's series and components may sit in. */
-function optionParts(option: Record<string, unknown>): Record<string, unknown>[] {
-  return [option, ...asList(option.baseOption), ...asList(option.options)].filter(isRecord);
-}
-
-const partsList = (parts: Record<string, unknown>[], key: string): unknown[] => parts.flatMap((part) => asList(part[key]));
 
 /** Map names the option draws on (a `map` series or a `geo` component) that ECharts has not
  *  been given; drawing one throws a TypeError that does not name the map. */
@@ -93,8 +79,8 @@ export function trialSample(option: Record<string, unknown>): Record<string, unk
 }
 
 /** Draws `option` once off screen, as the View would, and returns why it failed, or null. */
-export function trialDrawProblem(option: Record<string, unknown>): string | null {
-  const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: TRIAL_WIDTH_PX, height: TRIAL_HEIGHT_PX });
+export function trialDrawProblem(option: Record<string, unknown>, heightPx = DEFAULT_CHART_HEIGHT_PX): string | null {
+  const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: TRIAL_WIDTH_PX, height: heightPx });
   try {
     return setOptionProblem(chart, trialSample(option));
   } finally {
