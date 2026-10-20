@@ -76,6 +76,41 @@ percent). It works on an axis label or axis-pointer label, the tooltip's or a se
 or a malformed one, is refused with its place named. Numbers are written in the host's locale.
 Colour or size by value needs no function: use `visualMap`.
 
+## Maps and 3D
+
+Loaded only when a chart uses them (`src/core/extensions.ts`), because they are large:
+
+- **Maps** — `world` and `japan` (prefectures) ship with the plugin, from Natural Earth (public
+  domain; see `src/maps/README.md`). `world-ja` / `japan-ja` are the same shapes named in
+  Japanese (東京都, アメリカ合衆国), so a sheet's Japanese names find their regions. Use them as
+  `series[].map` or `geo.map`.
+- **3D** — echarts-gl (`scatter3D`, `bar3D`, `surface`, `line3D`, `grid3D`, `globe`, …).
+
+echarts-gl is a dependency but external to the build, like `echarts`, so the host bundles one
+ECharts it registers with. The server's trial draw loads the maps
+first; a 3D chart needs WebGL, so on the server only its formats are
+checked, and its card has no SVG export.
+
+## Height and columns
+
+A chart entry may set `height` in pixels (kept between 160 and 1200; 400 when left out), and the
+document may set `columns` (1 to 4) to lay the cards out side by side — small multiples per
+region or year, or a dashboard. Both are in `src/core/layout.ts`; the server's trial draw uses the
+chart's height too.
+
+## Dark appearance and exports
+
+The View follows the host page's appearance: when `<html>` carries `data-appearance="dark"`
+(MulmoTerminal's themes set it), cards are drawn dark and ECharts uses its `dark` theme on a
+transparent background, and a switch redraws the charts. A host that never sets the attribute is
+light; the OS's dark preference is not followed, so a light app does not get dark charts.
+
+Each card exports PNG (on the card's colour), SVG (drawn again off screen with ECharts' SVG renderer
+at the card's size), and CSV of the data it was drawn from — the first table dataset (a sheet's
+rows included), or the category axis against each series' values — when that data has a table
+shape (`src/core/exportData.ts`). Text a spreadsheet would run as a formula is written with a
+leading quote.
+
 ## When a chart cannot be drawn
 
 `presentChart` draws every chart once off screen (ECharts' server-side SVG renderer) with the

@@ -3,6 +3,8 @@ import { TOOL_NAME, TOOL_DEFINITION } from "./definition";
 import { chartArtifactPath } from "./paths";
 import { trialDrawProblem } from "./drawProblem";
 import { formatProblem, withFormatters } from "./formats";
+import { chartHeightPx } from "./layout";
+import { loadMaps, needsBrowser, neededExtensions } from "./extensions";
 import { chartOption, chartSources, isChartSource, isReadSourceArgs } from "./source";
 import type { ChartArgs, ChartDocument, ChartEntry, ChartSource, ChartSourceRows, PresentChartData, ReadSourceArgs, ReadSourceData } from "./types";
 
@@ -31,6 +33,10 @@ function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === "string";
 }
 
+function isOptionalNumber(value: unknown): boolean {
+  return value === undefined || (typeof value === "number" && Number.isFinite(value));
+}
+
 /** `sources`: one or more ranges, and not alongside `source`. */
 const isSourceList = (sources: unknown, source: unknown): boolean =>
   source === undefined && Array.isArray(sources) && sources.length > 0 && sources.every(isChartSource);
@@ -39,6 +45,7 @@ function isValidChartEntry(value: unknown): value is ChartEntry {
   if (!isRecord(value)) return false;
   if (!isOptionalString(value.title)) return false;
   if (!isOptionalString(value.type)) return false;
+  if (!isOptionalNumber(value.height)) return false;
   if (value.source !== undefined && !isChartSource(value.source)) return false;
   if (value.sources !== undefined && !isSourceList(value.sources, value.source)) return false;
   return isRecord(value.option);
@@ -47,6 +54,7 @@ function isValidChartEntry(value: unknown): value is ChartEntry {
 export function isValidChartDocument(value: unknown): value is ChartDocument {
   if (!isRecord(value)) return false;
   if (!isOptionalString(value.title)) return false;
+  if (!isOptionalNumber(value.columns)) return false;
   if (!Array.isArray(value.charts)) return false;
   if (value.charts.length === 0) return false;
   return value.charts.every((entry) => isValidChartEntry(entry));
@@ -72,7 +80,7 @@ export const executeChart = async (context: ChartExecuteContext, args: ChartArgs
   if (!isValidChartDocument(document)) {
     return {
       message:
-        "document must be { charts: [{ option: {...}, title?, type?, source? | sources? }, ...] } with at least one entry, where source is { spreadsheet, range, layout?: 'table' | 'matrix', groupBy?: { column, x?, value? } } (not both layout matrix and groupBy) and sources a non-empty list of them",
+        "document must be { charts: [{ option: {...}, title?, type?, height?: number, source? | sources? }, ...], columns?: number } with at least one entry, where source is { spreadsheet, range, layout?: 'table' | 'matrix', groupBy?: { column, x?, value? } } (not both layout matrix and groupBy) and sources a non-empty list of them",
       instructions: "Acknowledge that the chart could not be created and retry with a valid ECharts document shape.",
     };
   }
@@ -90,7 +98,7 @@ export const executeChart = async (context: ChartExecuteContext, args: ChartArgs
       instructions: "Acknowledge that the chart could not be created. Fix the spreadsheet path or range, or pass the data inline in option instead of source.",
     };
   }
-  const drawProblem = documentDrawProblem(document, sourceRead.rows);
+  const drawProblem = await documentDrawProblem(document, sourceRead.rows);
   if (drawProblem) {
     return {
       message: drawProblem,
@@ -142,10 +150,14 @@ async function readChartRanges(reader: ChartSourceReader, ranges: ChartSource[])
 }
 
 /** Draw each chart once off screen, with the rows the View will give it, so an option ECharts
- *  cannot draw reaches the agent now rather than as a blank card. Null when every chart draws. */
-function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows[] | undefined)[]): string | null {
+ *  cannot draw reaches the agent now rather than as a blank card. Null when every chart draws.
+ *  A 3D chart needs a browser (WebGL), so only its formats are checked. */
+async function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows[] | undefined)[]): Promise<string | null> {
+  const extensions = document.charts.map((chart) => neededExtensions(chart.option));
+  await loadMaps(extensions.flatMap(({ maps }) => maps));
   const problems = document.charts.flatMap((chart, index) => {
-    const problem = formatProblem(chart.option) ?? chartDrawProblem(chart, rows[index]);
+    const browserOnly = needsBrowser(extensions[index] ?? neededExtensions(chart.option));
+    const problem = formatProblem(chart.option) ?? (browserOnly ? null : chartDrawProblem(chart, rows[index]));
     return problem ? [`Chart ${index + 1}${chart.title ? ` (${chart.title})` : ""} could not be drawn: ${problem}`] : [];
   });
   return problems.length > 0 ? problems.join("\n") : null;
@@ -153,7 +165,7 @@ function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows[] |
 
 function chartDrawProblem(chart: ChartEntry, rows: ChartSourceRows[] | undefined): string | null {
   try {
-    return trialDrawProblem(withFormatters(chartOption(chart, rows, true)));
+    return trialDrawProblem(withFormatters(chartOption(chart, rows, true)), chartHeightPx(chart));
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }

@@ -51,7 +51,7 @@ describe("kMeans", () => {
     const sizes = [40, 3, 40, 3, 40];
     const order = sizes.flatMap((size, group) => Array.from({ length: size }, () => group));
     Array.from({ length: GENERATED_CASES }).forEach((_, attempt) => {
-      const centres: Point[] = sizes.map((_, group) => [group * 30 + random() * 5, random() * 5]);
+      const centres: Point[] = sizes.map((_size, group) => [group * 30 + random() * 5, random() * 5]);
       const points = order.map((group) => (centres[group] ?? [0, 0]).map((value) => value + (random() - 0.5) * 8));
       assert.deepEqual(partition(kMeans(points, sizes.length)), partition(order), `attempt ${attempt}`);
     });

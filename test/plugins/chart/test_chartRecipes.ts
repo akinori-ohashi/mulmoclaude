@@ -2,7 +2,7 @@
 // drawn here the way the View draws it: through `withSourceRows` when it reads a range, then by
 // ECharts itself. A recipe that throws, warns, or leaves a series empty fails.
 
-import { describe, it } from "node:test";
+import { before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { CHART_RECIPES, type ChartRecipe } from "../../../packages/plugins/chart-plugin/src/core/recipes";
 import { TOOL_DEFINITION } from "../../../packages/plugins/chart-plugin/src/core/definition";
@@ -11,6 +11,7 @@ import type { ChartSourceRows } from "../../../packages/plugins/chart-plugin/src
 import { echarts } from "../../../packages/plugins/chart-plugin/src/core/charting";
 import { trialDrawProblem } from "../../../packages/plugins/chart-plugin/src/core/drawProblem";
 import { formatProblem, withFormatters } from "../../../packages/plugins/chart-plugin/src/core/formats";
+import { BUNDLED_MAPS, loadMaps } from "../../../packages/plugins/chart-plugin/src/core/extensions";
 
 // Claude Code cuts an MCP tool's top-level description here (CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH)
 // and passes property descriptions whole, which is why the recipes sit on `option`.
@@ -127,6 +128,11 @@ const SAMPLE_ROWS: Record<string, ChartSourceRows> = {
     ["c", 12, 9],
     ["d", 91, 92],
   ],
+  "Prefecture|Sales": [
+    ["Prefecture", "Sales"],
+    ["Tokyo", 90],
+    ["Osaka", 60],
+  ],
   "Date|Revenue": [
     ["Date", "Revenue"],
     ["2026-01-01", 1234567],
@@ -160,6 +166,7 @@ const EXPECTED_SHAPES: Record<string, SeriesShape[]> = {
   "X|Y|Value": [expectedShape("heatmap", ["Value"])],
   "Date|Open|Close|Low|High": [expectedShape("candlestick", ["Open", "Close", "Low", "High"])],
   "Date|Revenue": [expectedShape("bar", ["Revenue"])],
+  "Prefecture|Sales": [expectedShape("map", ["Sales"])],
   "Week|Store A|Store B": [expectedShape("boxplot", ["Low", "Q1", "Median", "Q3", "High"]), expectedShape("scatter", ["y"])],
   "Name|Income|Spend": [expectedShape("scatter", ["Spend"])],
   "Time|Value": [expectedShape("line", ["Value"])],
@@ -255,7 +262,7 @@ function yAxisIndexOf(series: unknown): unknown {
 /** The sheet columns a series measures: y on a cartesian chart, value on a pie or heatmap (whose
  *  y is a category). Stacking adds dimensions of ECharts' own, which name no column. */
 function valueColumns(data: unknown, type: unknown): unknown[] {
-  const coordinate = type === "pie" || type === "heatmap" ? "value" : "y";
+  const coordinate = type === "pie" || type === "heatmap" || type === "map" ? "value" : "y";
   const dimensions = callMethod(data, "mapDimensionsAll", coordinate);
   assert.ok(Array.isArray(dimensions));
   return dimensions.filter((dimension) => typeof dimension !== "string" || !dimension.startsWith("__"));
@@ -297,6 +304,9 @@ function drawRecipe(recipe: ChartRecipe, rows: ChartSourceRows | null = sampleRo
 }
 
 describe("presentChart recipes", () => {
+  // The View and executeChart load a bundled map before drawing a chart on it.
+  before(() => loadMaps([...BUNDLED_MAPS]));
+
   for (const recipe of CHART_RECIPES) {
     it(`draws: ${recipe.use}`, () => {
       const drawn = drawRecipe(recipe);
@@ -318,6 +328,22 @@ describe("presentChart recipes", () => {
     const boxes = drawRecipe(recipe).series[0]?.values.y ?? [];
     assert.equal(boxes.length, 2);
     assert.deepEqual(boxes[0], [1, 2, 3, 4, 10]);
+  });
+
+  it("map gives each region named in the rows its value, and the others none", () => {
+    const values = withDrawnModel(recipeNamed("map"), sampleRows(recipeNamed("map")) ?? [], (model) => {
+      const seriesModels = callMethod(model, "getSeries");
+      assert.ok(Array.isArray(seriesModels));
+      const data = callMethod(seriesModels[0], "getData");
+      const dimension = callMethod(data, "mapDimension", "value");
+      return Array.from({ length: itemCount(data) }, (_, index) => [callMethod(data, "getName", index), callMethod(data, "get", dimension, index)]).filter(
+        ([, value]) => typeof value === "number" && !Number.isNaN(value),
+      );
+    });
+    assert.deepEqual(values, [
+      ["Tokyo", 90],
+      ["Osaka", 60],
+    ]);
   });
 
   it("candlestick reads open, close, low, high", () => {
@@ -452,7 +478,10 @@ describe("presentChart recipes", () => {
 
   // A column encoded where it does not belong still draws, so compare what each coordinate
   // received with the sample's numbers.
-  for (const recipe of CHART_RECIPES.filter((candidate) => candidate.header && encodedSeries(candidate.option).length > 0)) {
+  // A map's items are its regions, not the rows, so it is checked by region below.
+  for (const recipe of CHART_RECIPES.filter(
+    (candidate) => candidate.header && encodedSeries(candidate.option).length > 0 && !candidate.use.startsWith("map"),
+  )) {
     it(`draws the encoded columns on their coordinates: ${recipe.use}`, () => {
       const rows = sampleRows(recipe);
       assert.ok(rows);
