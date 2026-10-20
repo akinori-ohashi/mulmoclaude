@@ -45,6 +45,10 @@ import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/v
 import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
 import { chartOption, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
 import { useT } from "../lang";
+import { registerStatTransforms } from "./statTransforms";
+
+// Once per module: ECharts keeps transforms in a global registry.
+registerStatTransforms(echarts.registerTransform);
 
 const t = useT();
 
