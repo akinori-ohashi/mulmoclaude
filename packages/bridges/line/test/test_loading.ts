@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { LINE_LOADING_REFRESH_MS, LINE_LOADING_SECONDS, LINE_LOADING_URL, startLineLoading, type FetchFn } from "../src/loading.ts";
+import { LINE_LOADING_REFRESH_MS, LINE_LOADING_SECONDS, LINE_LOADING_URL, isOneOnOneSource, startLineLoading, type FetchFn } from "../src/loading.ts";
 
 const SECOND_MS = 1_000;
 const LOADING_SECONDS_STEP = 5;
@@ -68,5 +68,19 @@ describe("LINE loading timing", () => {
 
   it("refreshes before the animation lapses", () => {
     assert.ok(LINE_LOADING_REFRESH_MS < LINE_LOADING_SECONDS * SECOND_MS);
+  });
+});
+
+describe("isOneOnOneSource", () => {
+  it("accepts a one-on-one chat", () => {
+    assert.equal(isOneOnOneSource({ type: "user" }), true);
+  });
+
+  it("rejects groups, rooms, an unknown type and a missing source", () => {
+    assert.equal(isOneOnOneSource({ type: "group" }), false);
+    assert.equal(isOneOnOneSource({ type: "room" }), false);
+    assert.equal(isOneOnOneSource({ type: "USER" }), false);
+    assert.equal(isOneOnOneSource({}), false);
+    assert.equal(isOneOnOneSource(undefined), false);
   });
 });

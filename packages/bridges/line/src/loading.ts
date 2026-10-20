@@ -24,3 +24,8 @@ export async function startLineLoading(fetchFn: FetchFn, channelAccessToken: str
     throw new Error(`loading/start ${res.status} ${body.slice(0, 200)}`);
   }
 }
+
+/** LINE refuses the loading request outside a one-on-one chat, so the bridge does not send it there. */
+export function isOneOnOneSource(source: { type?: string } | undefined): boolean {
+  return source?.type === "user";
+}
