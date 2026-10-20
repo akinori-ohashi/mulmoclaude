@@ -26,7 +26,8 @@ describe("chartHeightPx", () => {
   });
 
   it("falls back to the default without a finite height", () => {
-    [undefined, Number.NaN, Number.POSITIVE_INFINITY].forEach((height) => assert.equal(chartHeightPx({ height }), DEFAULT_CHART_HEIGHT_PX));
+    assert.equal(chartHeightPx({}), DEFAULT_CHART_HEIGHT_PX);
+    [Number.NaN, Number.POSITIVE_INFINITY].forEach((height) => assert.equal(chartHeightPx({ height }), DEFAULT_CHART_HEIGHT_PX));
   });
 });
 
