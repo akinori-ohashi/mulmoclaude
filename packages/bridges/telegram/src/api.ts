@@ -166,6 +166,10 @@ export function createTelegramApi(opts: TelegramApiOptions): TelegramApi {
       if (!res.ok) {
         throw new Error(`sendChatAction failed: ${res.status} ${await safeText(res)}`);
       }
+      const failure = apiFailureDescription(await res.json().catch(() => null));
+      if (failure !== null) {
+        throw new Error(`sendChatAction API error: ${failure}`);
+      }
     },
 
     async downloadFile(fileId, fallbackMime = "application/octet-stream") {
@@ -196,6 +200,12 @@ export function createTelegramApi(opts: TelegramApiOptions): TelegramApi {
       return buildDataUrl(mediaType, b64);
     },
   };
+}
+
+/** The description of a `{ ok: false }` Bot API body, or null when the body does not report a failure. */
+export function apiFailureDescription(body: unknown): string | null {
+  if (typeof body !== "object" || body === null || !("ok" in body) || body.ok !== false) return null;
+  return "description" in body && typeof body.description === "string" ? body.description : "unknown";
 }
 
 async function safeText(res: Response): Promise<string> {

@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { createTelegramApi } from "../src/api.ts";
+import { apiFailureDescription, createTelegramApi } from "../src/api.ts";
 
 /** `items[index]` is `T | undefined` under `noUncheckedIndexedAccess`. Asserting
  *  states the precondition each case already relies on — the length was just
@@ -148,5 +148,38 @@ describe("TelegramApi.sendChatAction", () => {
     const fetchImpl: typeof fetch = async () => new Response('{"ok":false,"description":"Forbidden: bot was blocked by the user"}', { status: 403 });
     const api = createTelegramApi({ botToken: "TKN", fetchImpl });
     await assert.rejects(api.sendChatAction(1, "typing"), /sendChatAction failed: 403 .*blocked/);
+  });
+});
+
+describe("TelegramApi.sendChatAction — 200 with ok:false", () => {
+  it("throws with the API description", async () => {
+    const fetchImpl: typeof fetch = async () => jsonResponse({ ok: false, description: "Bad Request: chat not found" });
+    const api = createTelegramApi({ botToken: "TKN", fetchImpl });
+    await assert.rejects(api.sendChatAction(1, "typing"), /sendChatAction API error: Bad Request: chat not found/);
+  });
+
+  it("does not throw on a body it cannot parse", async () => {
+    const fetchImpl: typeof fetch = async () => new Response("not json", { status: 200 });
+    const api = createTelegramApi({ botToken: "TKN", fetchImpl });
+    await assert.doesNotReject(api.sendChatAction(1, "typing"));
+  });
+});
+
+describe("apiFailureDescription", () => {
+  it("returns the description of an ok:false body", () => {
+    assert.equal(apiFailureDescription({ ok: false, description: "Forbidden" }), "Forbidden");
+  });
+
+  it("falls back to 'unknown' when ok:false carries no string description", () => {
+    assert.equal(apiFailureDescription({ ok: false }), "unknown");
+    assert.equal(apiFailureDescription({ ok: false, description: 42 }), "unknown");
+  });
+
+  it("returns null for a success or a non-object body", () => {
+    assert.equal(apiFailureDescription({ ok: true, result: true }), null);
+    assert.equal(apiFailureDescription({}), null);
+    assert.equal(apiFailureDescription(null), null);
+    assert.equal(apiFailureDescription("ok"), null);
+    assert.equal(apiFailureDescription({ ok: "false" }), null);
   });
 });
