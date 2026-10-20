@@ -17,6 +17,20 @@ does not import the spreadsheet plugin), and routes the View's `dispatch({ kind:
 to the same `execute`. A host without `sources` still draws inline charts, and refuses a sourced
 one with a message telling the agent to pass the data inline.
 
+### Shapes of a range, and several ranges
+
+A source may ask for its rows reshaped before they become the dataset (`src/core/sourceShapes.ts`):
+
+- `layout: "matrix"` — the range is a cross table (categories along the top row and down the first
+  column, such as a correlation matrix). It is drawn as one `[X, Y, Value]` row per cell, which is
+  what a heatmap reads.
+- `groupBy: { column, x?, value? }` — the range is a long table (Date, Region, Sales). It is drawn
+  with one column per value of `column` (Date, East, West), so each group becomes a series. Rows
+  meeting in one cell are added up. A column that is not in the header is refused, naming it.
+
+`sources: [...]` instead of `source` reads several ranges, the i-th into `dataset[i]` (a lower and
+an upper bound kept on different sheets, say); transform datasets go after them.
+
 ## Recipes for the agent
 
 The `option` parameter's description carries recipes (`src/core/recipes.ts`): the ECharts option

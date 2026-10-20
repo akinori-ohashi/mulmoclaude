@@ -137,7 +137,7 @@ describe("chartOption", () => {
   });
 
   it("draws a sourced chart from its rows, or an empty dataset while they are missing", () => {
-    assert.deepEqual(chartOption(sourced, ROWS, true), { series: [{ type: "bar" }], dataset: { source: ROWS, sourceHeader: true } });
+    assert.deepEqual(chartOption(sourced, [ROWS], true), { series: [{ type: "bar" }], dataset: { source: ROWS, sourceHeader: true } });
     assert.deepEqual(chartOption(sourced, undefined, true), { series: [{ type: "bar" }], dataset: { source: [], sourceHeader: true } });
   });
 });

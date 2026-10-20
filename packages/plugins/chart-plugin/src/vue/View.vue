@@ -28,8 +28,14 @@
             {{ t.png }}
           </button>
         </div>
-        <div v-if="chart.source" class="px-3 py-1 text-xs text-gray-500 border-b border-gray-100" :data-testid="`chart-source-${idx}`">
-          {{ t.fromSpreadsheet(chart.source.range) }}
+        <div v-if="chartSources(chart).length > 0" class="px-3 py-1 text-xs text-gray-500 border-b border-gray-100" :data-testid="`chart-source-${idx}`">
+          {{
+            t.fromSpreadsheet(
+              chartSources(chart)
+                .map((source) => source.range)
+                .join(", "),
+            )
+          }}
           <span v-if="sourceProblems[idx]" class="text-red-600" :data-testid="`chart-source-problem-${idx}`">{{ sourceProblems[idx] }}</span>
         </div>
         <div v-if="drawProblems[idx]" class="px-3 py-1 text-xs text-red-600 border-b border-gray-100" :data-testid="`chart-draw-problem-${idx}`">
@@ -48,7 +54,7 @@ import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/v
 import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
 import { setOptionProblem } from "../core/drawProblem";
 import { withFormatters } from "../core/formats";
-import { chartOption, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
+import { chartOption, chartSources, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
 import { useT } from "../lang";
 
 const t = useT();
@@ -66,7 +72,8 @@ const title = computed(() => data.value?.title ?? data.value?.document?.title);
 const runtime = inject(PLUGIN_RUNTIME_KEY, undefined);
 
 // Index-aligned with `charts`, like `instances`.
-const sourceRows = ref<(ChartSourceRows | undefined)[]>([]);
+// Each chart's ranges, in the order of its sources.
+const sourceRows = ref<(ChartSourceRows[] | undefined)[]>([]);
 const sourceProblems = ref<(string | undefined)[]>([]);
 // Why ECharts could not draw a chart, so its card says so instead of staying blank.
 const drawProblems = ref<(string | null)[]>([]);
@@ -140,7 +147,7 @@ function renderAll(): void {
     }
     const instance = echarts.init(element);
     // A malformed option for one chart doesn't stop the others.
-    const problem = setOptionProblem(instance, disableWheelZoom(optionFor(chart, sourceRows.value[i])));
+    const problem = drawProblem(instance, chart, sourceRows.value[i]);
     // Until its rows arrive a sourced chart is drawn empty, which a transform cannot read; the
     // source line already says when they will not come.
     problems[i] = awaitingRows(chart, sourceRows.value[i]) ? null : problem;
@@ -154,11 +161,20 @@ function handleResize(): void {
   for (const instance of instances) instance?.resize();
 }
 
-function awaitingRows(chart: ChartEntry, rows: ChartSourceRows | undefined): boolean {
-  return chart.source !== undefined && runtime !== undefined && rows === undefined;
+function awaitingRows(chart: ChartEntry, rows: ChartSourceRows[] | undefined): boolean {
+  return chartSources(chart).length > 0 && runtime !== undefined && rows === undefined;
 }
 
-function optionFor(chart: ChartEntry, rows: ChartSourceRows | undefined): Record<string, unknown> {
+// Reshaping a source (groupBy) throws when its column is missing; that is this chart's problem.
+function drawProblem(instance: echarts.ECharts, chart: ChartEntry, rows: ChartSourceRows[] | undefined): string | null {
+  try {
+    return setOptionProblem(instance, disableWheelZoom(optionFor(chart, rows)));
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+function optionFor(chart: ChartEntry, rows: ChartSourceRows[] | undefined): Record<string, unknown> {
   return withFormatters(chartOption(chart, rows, runtime !== undefined), runtime?.locale.value);
 }
 
@@ -176,13 +192,17 @@ function readSource(source: ChartSource): Promise<ChartSourceRows> {
   return settleWithin(read, SOURCE_READ_TIMEOUT_MS, t.value.sourceTimedOut);
 }
 
+function readChartRanges(ranges: ChartSource[]): Promise<ChartSourceRows[] | undefined> {
+  return ranges.length === 0 ? Promise.resolve(undefined) : Promise.all(ranges.map(readSource));
+}
+
 // A newer load supersedes an older one still in flight, so a slow reply for an
 // earlier version of the sheet cannot overwrite the latest.
 let loadGeneration = 0;
 
 async function loadSources(): Promise<void> {
   const generation = ++loadGeneration;
-  const results = await Promise.allSettled(charts.value.map((chart) => (chart.source ? readSource(chart.source) : Promise.resolve(undefined))));
+  const results = await Promise.allSettled(charts.value.map((chart) => readChartRanges(chartSources(chart))));
   if (generation !== loadGeneration) return;
   sourceRows.value = results.map((result) => (result.status === "fulfilled" ? result.value : undefined));
   sourceProblems.value = results.map((result) =>
@@ -203,9 +223,7 @@ function unsubscribeAll(): void {
 function followSources(): void {
   unsubscribeAll();
   if (!runtime) return;
-  unsubscribers = sourceSpreadsheets(charts.value.map((chart) => chart.source)).map((path) =>
-    runtime.pubsub.subscribe(`file:${path}`, () => void loadSources()),
-  );
+  unsubscribers = sourceSpreadsheets(charts.value.flatMap(chartSources)).map((path) => runtime.pubsub.subscribe(`file:${path}`, () => void loadSources()));
 }
 
 function showDocument(): void {
@@ -217,7 +235,7 @@ function showDocument(): void {
   followSources();
   // Wait a tick so the refs are populated before we render.
   queueMicrotask(renderAll);
-  if (charts.value.some((chart) => chart.source)) void loadSources();
+  if (charts.value.some((chart) => chartSources(chart).length > 0)) void loadSources();
 }
 
 onMounted(() => {
