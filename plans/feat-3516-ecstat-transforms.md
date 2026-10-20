@@ -9,7 +9,8 @@ no longer followed the sheet. A non-linear fit had no sheet function at all.
 ## Approach
 
 - Depend on `echarts-stat` and register its `ecStat:regression` and `ecStat:histogram` transforms
-  with the ECharts the View draws with (`src/vue/statTransforms.ts`, called once from `View.vue`).
+  with the ECharts the View draws with: `src/vue/charting.ts` registers them and hands the View its
+  `echarts`, so the View cannot draw without them; the recipe tests draw through the same module.
   Its published types predate the transforms, so they are read off the module and checked.
 - `echarts-stat` is external in the build and a dependency, like `echarts`, so the host bundles one copy.
 - Recipes: a fitted curve straight from the raw columns, and a histogram straight from a column.

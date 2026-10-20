@@ -4,14 +4,11 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import * as echarts from "echarts";
 import { CHART_RECIPES, type ChartRecipe } from "../../../packages/plugins/chart-plugin/src/core/recipes";
 import { TOOL_DEFINITION } from "../../../packages/plugins/chart-plugin/src/core/definition";
 import { withSourceRows } from "../../../packages/plugins/chart-plugin/src/core/source";
 import type { ChartSourceRows } from "../../../packages/plugins/chart-plugin/src/core/types";
-import { registerStatTransforms } from "../../../packages/plugins/chart-plugin/src/vue/statTransforms";
-
-registerStatTransforms(echarts.registerTransform);
+import { echarts } from "../../../packages/plugins/chart-plugin/src/vue/charting";
 
 // Claude Code cuts an MCP tool's top-level description here (CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH)
 // and passes property descriptions whole, which is why the recipes sit on `option`.
@@ -416,6 +413,7 @@ describe("presentChart recipes", () => {
       { low: 30, high: 40, count: 0 },
       { low: 40, high: 50, count: 1 },
     ]);
+    assert.deepEqual(xAxisCategories(recipe, rows), ["0 - 10", "10 - 20", "20 - 30", "30 - 40", "40 - 50"]);
   });
 
   it("waterfall draws its base transparent", () => {
@@ -467,13 +465,24 @@ function histogramBins(recipe: ChartRecipe, rows: ChartSourceRows): HistogramBin
 
 /** The first series' values on `dimensions`, as ECharts computed them. */
 function readTransformed(recipe: ChartRecipe, rows: ChartSourceRows, dimensions: string[]): unknown[][] {
-  const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: CHART_WIDTH_PX, height: CHART_HEIGHT_PX });
-  try {
-    chart.setOption(withSourceRows(recipe.option, rows));
-    const seriesModels = callMethod(callMethod(chart, "getModel"), "getSeries");
+  return withDrawnModel(recipe, rows, (model) => {
+    const seriesModels = callMethod(model, "getSeries");
     assert.ok(Array.isArray(seriesModels));
     const data = callMethod(seriesModels[0], "getData");
     return itemsOn(data, dimensions, itemCount(data));
+  });
+}
+
+/** The labels the x axis shows. */
+function xAxisCategories(recipe: ChartRecipe, rows: ChartSourceRows): unknown {
+  return withDrawnModel(recipe, rows, (model) => callMethod(callMethod(model, "getComponent", "xAxis"), "getCategories"));
+}
+
+function withDrawnModel<T>(recipe: ChartRecipe, rows: ChartSourceRows, read: (model: unknown) => T): T {
+  const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: CHART_WIDTH_PX, height: CHART_HEIGHT_PX });
+  try {
+    chart.setOption(withSourceRows(recipe.option, rows));
+    return read(callMethod(chart, "getModel"));
   } finally {
     chart.dispose();
   }
