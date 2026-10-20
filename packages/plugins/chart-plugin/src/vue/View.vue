@@ -297,6 +297,12 @@ watch(
   () => showDocument(),
 );
 
+// Format functions hold an Intl formatter built for one locale, so a new locale needs new ones.
+watch(
+  () => runtime?.locale.value,
+  () => renderAll(),
+);
+
 function download(href: string, filename: string): void {
   const anchor = document.createElement("a");
   anchor.href = href;
