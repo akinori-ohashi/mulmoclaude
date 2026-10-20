@@ -25,6 +25,16 @@ there rather than in the top-level description because Claude Code cuts that one
 characters and passes parameter descriptions whole. Every recipe is drawn by ECharts in
 `test/plugins/chart/test_chartRecipes.ts`, so an option that stops rendering fails the suite.
 
+## Statistical transforms
+
+The View registers two of [echarts-stat](https://github.com/ecomfe/echarts-stat)'s dataset
+transforms, `ecStat:regression` (linear, exponential, logarithmic, polynomial) and
+`ecStat:histogram`. Put one in a second dataset after the source and point a series at it with
+`datasetIndex: 1`; with `source`, the rows fill the first dataset, so the fit and the bins are
+recomputed whenever the sheet changes. `ecStat:clustering` is not registered: its k-means starts
+from random centroids without retrying, so it splits well-separated groups wrongly now and then and
+differently on each redraw.
+
 ## Dev loop
 
 ```bash

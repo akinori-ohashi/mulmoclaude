@@ -26,6 +26,19 @@ export const CHART_RECIPES: readonly ChartRecipe[] = [
     },
   },
   {
+    use: "fitted curve straight from the raw columns (ecStat:regression; method linear, exponential, logarithmic, or polynomial with order; rows with a blank or text cell are skipped)",
+    header: ["Spend", "Sales"],
+    option: {
+      dataset: [{}, { transform: { type: "ecStat:regression", config: { method: "exponential", dimensions: ["Spend", "Sales"], formulaOn: "none" } } }],
+      xAxis: { type: "value" },
+      yAxis: {},
+      series: [
+        { type: "scatter", encode: { x: "Spend", y: "Sales" } },
+        { type: "line", datasetIndex: 1, showSymbol: false, encode: { x: "Spend", y: "Sales" } },
+      ],
+    },
+  },
+  {
     use: "pie",
     header: ["Category", "Sales"],
     option: { series: [{ type: "pie", encode: { itemName: "Category", value: "Sales" }, label: { formatter: "{b} {d}%" } }] },
@@ -43,6 +56,16 @@ export const CHART_RECIPES: readonly ChartRecipe[] = [
     use: "histogram (count each bin on the sheet with COUNTIFS)",
     header: ["Bin", "Count"],
     option: { xAxis: { type: "category" }, yAxis: {}, series: [{ type: "bar", barCategoryGap: "0%" }] },
+  },
+  {
+    use: "histogram straight from a column (ecStat:histogram; config.method squareRoot, scott, freedmanDiaconis or sturges picks the bins)",
+    header: ["Score"],
+    option: {
+      dataset: [{}, { transform: { type: "ecStat:histogram", config: { dimensions: ["Score"] } } }],
+      xAxis: { type: "category" },
+      yAxis: {},
+      series: [{ type: "bar", datasetIndex: 1, barCategoryGap: "0%", encode: { x: "DisplayableName", y: "VCount" } }],
+    },
   },
   {
     use: "two value axes",

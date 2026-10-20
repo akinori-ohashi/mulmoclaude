@@ -4,15 +4,21 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import * as echarts from "echarts";
 import { CHART_RECIPES, type ChartRecipe } from "../../../packages/plugins/chart-plugin/src/core/recipes";
 import { TOOL_DEFINITION } from "../../../packages/plugins/chart-plugin/src/core/definition";
 import { withSourceRows } from "../../../packages/plugins/chart-plugin/src/core/source";
 import type { ChartSourceRows } from "../../../packages/plugins/chart-plugin/src/core/types";
+import { echarts } from "../../../packages/plugins/chart-plugin/src/vue/charting";
 
 // Claude Code cuts an MCP tool's top-level description here (CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH)
 // and passes property descriptions whole, which is why the recipes sit on `option`.
 const CLAUDE_CODE_DESCRIPTION_LIMIT = 2048;
+
+// Points lying exactly on y = a·e^(bx), so any exponential fit must pass through them.
+const EXPONENTIAL_SCALE = 50;
+const EXPONENTIAL_RATE = 0.05;
+const onExponential = (spend: number): number => EXPONENTIAL_SCALE * Math.exp(EXPONENTIAL_RATE * spend);
+const FIT_TOLERANCE = 1e-6;
 
 const CHART_WIDTH_PX = 640;
 const CHART_HEIGHT_PX = 400;
@@ -31,6 +37,14 @@ const SAMPLE_ROWS: Record<string, ChartSourceRows> = {
     [18, 120, 115],
     [25, 210, 198],
   ],
+  "Spend|Sales": [
+    ["Spend", "Sales"],
+    [30, onExponential(30)],
+    [10, onExponential(10)],
+    [40, onExponential(40)],
+    [20, onExponential(20)],
+  ],
+  Score: [["Score"], [3], [7], [12], [18], [19], [25], [26], [27], [41]],
   "Category|Sales": [
     ["Category", "Sales"],
     ["Coffee", 300],
@@ -109,6 +123,8 @@ const expectedShape = (type: string, columns: string[], stack?: string): SeriesS
 const EXPECTED_SHAPES: Record<string, SeriesShape[]> = {
   "Temp|Sales": [expectedShape("scatter", ["Sales"])],
   "Temp|Sales|Fit": [expectedShape("scatter", ["Sales"]), expectedShape("line", ["Fit"])],
+  "Spend|Sales": [expectedShape("scatter", ["Sales"]), expectedShape("line", ["Sales"])],
+  Score: [expectedShape("bar", ["VCount"])],
   "Category|Sales": [expectedShape("pie", ["Sales"])],
   "Group|Min|Q1|Median|Q3|Max": [expectedShape("boxplot", ["Min", "Q1", "Median", "Q3", "Max"])],
   "Bin|Count": [expectedShape("bar", ["Count"])],
@@ -240,8 +256,7 @@ function itemCount(data: unknown): number {
   return count;
 }
 
-function drawRecipe(recipe: ChartRecipe): Drawn {
-  const rows = sampleRows(recipe);
+function drawRecipe(recipe: ChartRecipe, rows: ChartSourceRows | null = sampleRows(recipe)): Drawn {
   const option = rows ? withSourceRows(recipe.option, rows) : recipe.option;
   const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: CHART_WIDTH_PX, height: CHART_HEIGHT_PX });
   try {
@@ -363,6 +378,44 @@ describe("presentChart recipes", () => {
     assert.ok(ends.length === 2 && ends.every((end) => months.some((month) => month === end)), JSON.stringify(ends));
   });
 
+  it("fitted curve passes through points that lie on it, sorted along x", () => {
+    const [, line] = drawRecipe(recipeNamed("fitted curve")).series;
+    const spends = [10, 20, 30, 40];
+    assert.deepEqual(
+      line?.values.x,
+      spends.map((spend) => [spend]),
+    );
+    line?.values.y.forEach(([sales], item) => {
+      const spend = spends[item] ?? Number.NaN;
+      assert.ok(typeof sales === "number" && Math.abs(sales - onExponential(spend)) < FIT_TOLERANCE, `${spend}: ${String(sales)}`);
+    });
+  });
+
+  it("fitted curve skips a row whose cell is blank or text", () => {
+    const rows: ChartSourceRows = [
+      ["Spend", "Sales"],
+      [10, onExponential(10)],
+      [null, 5],
+      [20, "n/a"],
+      [30, onExponential(30)],
+    ];
+    assert.equal(drawRecipe(recipeNamed("fitted curve"), rows).series[1]?.count, 2);
+  });
+
+  it("histogram straight from a column counts each value once, in its bin", () => {
+    const recipe = recipeNamed("histogram straight");
+    const rows: ChartSourceRows = [...(sampleRows(recipe) ?? []), [null], ["n/a"]];
+    // The sample's scores 3 7 | 12 18 19 | 25 26 27 | - | 41, counted by hand.
+    assert.deepEqual(histogramBins(recipe, rows), [
+      { low: 0, high: 10, count: 2 },
+      { low: 10, high: 20, count: 3 },
+      { low: 20, high: 30, count: 3 },
+      { low: 30, high: 40, count: 0 },
+      { low: 40, high: 50, count: 1 },
+    ]);
+    assert.deepEqual(xAxisCategories(recipe, rows), ["0 - 10", "10 - 20", "20 - 30", "30 - 40", "40 - 50"]);
+  });
+
   it("waterfall draws its base transparent", () => {
     const recipe = recipeNamed("waterfall");
     const [base] = recipeSeries(recipe);
@@ -396,6 +449,45 @@ describe("presentChart recipes", () => {
   }
 });
 
+interface HistogramBin {
+  low: number;
+  high: number;
+  count: number;
+}
+
+/** The transform's output read back from ECharts: each bin's edges (V0, V1) and count. */
+function histogramBins(recipe: ChartRecipe, rows: ChartSourceRows): HistogramBin[] {
+  return readTransformed(recipe, rows, ["V0", "V1", "VCount"]).map(([low, high, count]) => {
+    assert.ok(typeof low === "number" && typeof high === "number" && typeof count === "number");
+    return { low, high, count };
+  });
+}
+
+/** The first series' values on `dimensions`, as ECharts computed them. */
+function readTransformed(recipe: ChartRecipe, rows: ChartSourceRows, dimensions: string[]): unknown[][] {
+  return withDrawnModel(recipe, rows, (model) => {
+    const seriesModels = callMethod(model, "getSeries");
+    assert.ok(Array.isArray(seriesModels));
+    const data = callMethod(seriesModels[0], "getData");
+    return itemsOn(data, dimensions, itemCount(data));
+  });
+}
+
+/** The labels the x axis shows. */
+function xAxisCategories(recipe: ChartRecipe, rows: ChartSourceRows): unknown {
+  return withDrawnModel(recipe, rows, (model) => callMethod(callMethod(model, "getComponent", "xAxis"), "getCategories"));
+}
+
+function withDrawnModel<T>(recipe: ChartRecipe, rows: ChartSourceRows, read: (model: unknown) => T): T {
+  const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: CHART_WIDTH_PX, height: CHART_HEIGHT_PX });
+  try {
+    chart.setOption(withSourceRows(recipe.option, rows));
+    return read(callMethod(chart, "getModel"));
+  } finally {
+    chart.dispose();
+  }
+}
+
 function isRecordValue(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -426,23 +518,29 @@ function isEncodeRecord(value: unknown): value is Partial<Record<Coordinate, unk
   return typeof value === "object" && value !== null;
 }
 
-/** The series of a recipe that carry an encode, with their position. */
+/** A series reading a transform's output (`datasetIndex` past the source) names that output's
+ *  columns, not the sheet's. */
+function readsSource(entry: object): boolean {
+  return !("datasetIndex" in entry) || entry.datasetIndex === 0;
+}
+
+/** The series of a recipe that read the source and carry an encode, with their position. */
 function encodedSeries(option: Record<string, unknown>): EncodedSeries[] {
   const { series } = option;
   if (!Array.isArray(series)) return [];
   return series.flatMap((entry: unknown, index) => {
-    if (typeof entry !== "object" || entry === null || !("encode" in entry)) return [];
+    if (typeof entry !== "object" || entry === null || !("encode" in entry) || !readsSource(entry)) return [];
     const { encode } = entry;
     return isEncodeRecord(encode) ? [{ index, encode }] : [];
   });
 }
 
-/** Every column name a recipe's encode names, from any series. */
+/** Every column name a recipe's encode names, from any series reading the source. */
 function encodedNames(option: Record<string, unknown>): string[] {
   const { series } = option;
   if (!Array.isArray(series)) return [];
   return series.flatMap((entry: unknown) => {
-    if (typeof entry !== "object" || entry === null || !("encode" in entry)) return [];
+    if (typeof entry !== "object" || entry === null || !("encode" in entry) || !readsSource(entry)) return [];
     const { encode } = entry;
     if (typeof encode !== "object" || encode === null) return [];
     return Object.values(encode)

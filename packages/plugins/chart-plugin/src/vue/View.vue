@@ -40,7 +40,7 @@
 
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import * as echarts from "echarts";
+import { echarts } from "./charting";
 import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/vue";
 import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
 import { chartOption, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
