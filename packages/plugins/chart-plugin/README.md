@@ -119,6 +119,9 @@ rows its source will give it, before saving anything. A chart ECharts cannot dra
 the agent gets each failing chart's number, title and reason, and is told to fix the option and
 call again. Besides what ECharts throws, it names series types ECharts does not know (which it
 drops silently), cartesian series with no `xAxis` or `yAxis`, and maps that are not registered.
+The trial draws only the first 1000 rows of each series' `data` and dataset `source`, since
+drawing is synchronous on the server; a problem that shows only in later rows is not caught
+there, and the card reports it instead.
 
 A document saved before this, or one that breaks in the browser only, shows the reason on the
 chart's card instead of a blank canvas.
