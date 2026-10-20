@@ -3,7 +3,7 @@ import { TOOL_NAME, TOOL_DEFINITION } from "./definition";
 import { chartArtifactPath } from "./paths";
 import { trialDrawProblem } from "./drawProblem";
 import { formatProblem, withFormatters } from "./formats";
-import { chartOption, isChartSource, isReadSourceArgs } from "./source";
+import { chartOption, chartSources, isChartSource, isReadSourceArgs } from "./source";
 import type { ChartArgs, ChartDocument, ChartEntry, ChartSource, ChartSourceRows, PresentChartData, ReadSourceArgs, ReadSourceData } from "./types";
 
 /** Reads a chart's source as calculated rows. The HOST supplies it, because
@@ -31,11 +31,16 @@ function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === "string";
 }
 
+/** `sources`: one or more ranges, and not alongside `source`. */
+const isSourceList = (sources: unknown, source: unknown): boolean =>
+  source === undefined && Array.isArray(sources) && sources.length > 0 && sources.every(isChartSource);
+
 function isValidChartEntry(value: unknown): value is ChartEntry {
   if (!isRecord(value)) return false;
   if (!isOptionalString(value.title)) return false;
   if (!isOptionalString(value.type)) return false;
   if (value.source !== undefined && !isChartSource(value.source)) return false;
+  if (value.sources !== undefined && !isSourceList(value.sources, value.source)) return false;
   return isRecord(value.option);
 }
 
@@ -66,7 +71,8 @@ export const executeChart = async (context: ChartExecuteContext, args: ChartArgs
   const { document, title } = args;
   if (!isValidChartDocument(document)) {
     return {
-      message: "document must be { charts: [{ option: {...}, title?, type?, source? }, ...] } with at least one entry, where source is { spreadsheet, range }",
+      message:
+        "document must be { charts: [{ option: {...}, title?, type?, source? | sources? }, ...] } with at least one entry, where source is { spreadsheet, range, layout?: 'table' | 'matrix', groupBy?: { column, x?, value? } } (not both layout matrix and groupBy) and sources a non-empty list of them",
       instructions: "Acknowledge that the chart could not be created and retry with a valid ECharts document shape.",
     };
   }
@@ -104,37 +110,53 @@ export const executeChart = async (context: ChartExecuteContext, args: ChartArgs
   };
 };
 
-type SourceRead = { rows: (ChartSourceRows | undefined)[] } | { problem: string };
+type SourceRead = { rows: (ChartSourceRows[] | undefined)[] } | { problem: string };
 
 /** Read every source once, so a wrong path or range reaches the agent now
  *  rather than as a blank chart later. Index-aligned with `document.charts`. */
 async function readSources(context: ChartExecuteContext, document: ChartDocument): Promise<SourceRead> {
-  if (!document.charts.some((chart) => chart.source)) return { rows: [] };
+  if (!document.charts.some((chart) => chartSources(chart).length > 0)) return { rows: [] };
   const { sources } = context;
   if (!sources) return { problem: "This host cannot read a spreadsheet source; pass the chart's data inline in option." };
-  const rows: (ChartSourceRows | undefined)[] = [];
-  for (const { source } of document.charts) {
-    if (!source) {
-      rows.push(undefined);
-      continue;
-    }
-    try {
-      rows.push(await sources.read(source));
-    } catch (error) {
-      return { problem: `Cannot read ${source.range} of ${source.spreadsheet}: ${error instanceof Error ? error.message : String(error)}` };
-    }
+  const rows: (ChartSourceRows[] | undefined)[] = [];
+  for (const chart of document.charts) {
+    const read = await readChartRanges(sources, chartSources(chart));
+    if (typeof read === "string") return { problem: read };
+    rows.push(read);
   }
   return { rows };
 }
 
+/** Each range's rows, in order; undefined for a chart with none; or why one could not be read. */
+async function readChartRanges(reader: ChartSourceReader, ranges: ChartSource[]): Promise<ChartSourceRows[] | undefined | string> {
+  if (ranges.length === 0) return undefined;
+  const rows: ChartSourceRows[] = [];
+  for (const source of ranges) {
+    try {
+      rows.push(await reader.read(source));
+    } catch (error) {
+      return `Cannot read ${source.range} of ${source.spreadsheet}: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+  return rows;
+}
+
 /** Draw each chart once off screen, with the rows the View will give it, so an option ECharts
  *  cannot draw reaches the agent now rather than as a blank card. Null when every chart draws. */
-function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows | undefined)[]): string | null {
+function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows[] | undefined)[]): string | null {
   const problems = document.charts.flatMap((chart, index) => {
-    const problem = formatProblem(chart.option) ?? trialDrawProblem(withFormatters(chartOption(chart, rows[index], true)));
+    const problem = formatProblem(chart.option) ?? chartDrawProblem(chart, rows[index]);
     return problem ? [`Chart ${index + 1}${chart.title ? ` (${chart.title})` : ""} could not be drawn: ${problem}`] : [];
   });
   return problems.length > 0 ? problems.join("\n") : null;
+}
+
+function chartDrawProblem(chart: ChartEntry, rows: ChartSourceRows[] | undefined): string | null {
+  try {
+    return trialDrawProblem(withFormatters(chartOption(chart, rows, true)));
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }
 
 /** The View's `dispatch({ kind: "readSource", source })`: the source's current rows. */

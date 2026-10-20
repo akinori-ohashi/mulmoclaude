@@ -59,8 +59,31 @@ export const TOOL_DEFINITION: ToolDefinition = {
                       type: "string",
                       description: "Sheet and range, e.g. Summary!A1:C13. Without a sheet name, the first sheet.",
                     },
+                    layout: {
+                      type: "string",
+                      enum: ["table", "matrix"],
+                      description:
+                        "matrix: the range is a cross table (categories along the top row and down the first column, e.g. a correlation matrix); it is drawn as one row per cell with the header X, Y, Value, as the heatmap recipe reads.",
+                    },
+                    groupBy: {
+                      type: "object",
+                      description:
+                        "The range is a long table (e.g. Date, Region, Sales); it is drawn with one column per value of `column` (Date, East, West), so each group becomes a series. Rows meeting in one cell are added up.",
+                      properties: {
+                        column: { type: "string", description: "Header of the column whose values become the series." },
+                        x: { type: "string", description: "Header of the x column. Default: the first other column." },
+                        value: { type: "string", description: "Header of the plotted column. Default: the first column that is neither." },
+                      },
+                      required: ["column"],
+                    },
                   },
                   required: ["spreadsheet", "range"],
+                },
+                sources: {
+                  type: "array",
+                  description:
+                    "Optional, instead of `source`: several ranges, the i-th drawn as dataset[i] (each shaped like `source`), e.g. a lower and an upper bound kept apart; a series picks one with datasetIndex. Transform datasets go after them.",
+                  items: { type: "object" },
                 },
               },
               required: ["option"],
