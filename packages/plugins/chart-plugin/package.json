@@ -81,6 +81,7 @@
     "url": "https://github.com/receptron/mulmoclaude/issues"
   },
   "dependencies": {
+    "echarts-gl": "^2.1.0",
     "echarts-stat": "^1.2.0"
   }
 }
