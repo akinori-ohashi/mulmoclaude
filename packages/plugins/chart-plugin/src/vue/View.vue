@@ -285,7 +285,7 @@ function showDocument(): void {
   if (charts.value.some((chart) => chartSources(chart).length > 0)) void loadSources();
 }
 
-// Maps, 3D and word clouds load before the charts that use them are drawn. A load that fails
+// Maps and 3D load before the charts that use them are drawn. A load that fails
 // leaves the chart to say why it could not be drawn.
 const extensions: { ready: Promise<void> } = { ready: Promise.resolve() };
 
@@ -350,7 +350,7 @@ function exportPng(idx: number, chartTitle?: string): void {
   download(dataUrl, exportName(idx, chartTitle, "png"));
 }
 
-// 3D needs WebGL and the word cloud a canvas, neither of which the SVG renderer has.
+// 3D needs WebGL, which the SVG renderer does not have.
 const svgExportable = (chart: ChartEntry): boolean => !needsBrowser(neededExtensions(chart.option));
 
 /** Drawn again off screen with the SVG renderer at the card's size: the card draws on a canvas. */

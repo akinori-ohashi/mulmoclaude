@@ -82,7 +82,6 @@
   },
   "dependencies": {
     "echarts-gl": "^2.1.0",
-    "echarts-stat": "^1.2.0",
-    "echarts-wordcloud": "^2.1.0"
+    "echarts-stat": "^1.2.0"
   }
 }

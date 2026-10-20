@@ -151,7 +151,7 @@ async function readChartRanges(reader: ChartSourceReader, ranges: ChartSource[])
 
 /** Draw each chart once off screen, with the rows the View will give it, so an option ECharts
  *  cannot draw reaches the agent now rather than as a blank card. Null when every chart draws.
- *  A 3D or word-cloud chart needs a browser (WebGL, a canvas), so only its formats are checked. */
+ *  A 3D chart needs a browser (WebGL), so only its formats are checked. */
 async function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows[] | undefined)[]): Promise<string | null> {
   const extensions = document.charts.map((chart) => neededExtensions(chart.option));
   await loadMaps(extensions.flatMap(({ maps }) => maps));

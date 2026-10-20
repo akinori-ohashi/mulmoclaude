@@ -2,8 +2,8 @@ import { test, expect, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
 
 // A presentChart document whose charts need what ECharts does not carry: a bundled map with
-// Japanese names, an echarts-gl 3D scatter, and a word cloud. Each is loaded only because a chart
-// uses it; the View must draw all three without a problem on any card.
+// Japanese names and an echarts-gl 3D scatter. Each is loaded only because a chart uses it; the
+// View must draw both without a problem on either card.
 
 const CHARTS = [
   {
@@ -40,21 +40,6 @@ const CHARTS = [
       ],
     },
   },
-  {
-    title: "Words",
-    option: {
-      series: [
-        {
-          type: "wordCloud",
-          data: [
-            { name: "chart", value: 30 },
-            { name: "map", value: 20 },
-            { name: "sheet", value: 10 },
-          ],
-        },
-      ],
-    },
-  },
 ];
 
 async function setupSession(page: Page) {
@@ -76,7 +61,7 @@ async function setupSession(page: Page) {
               toolName: "presentChart",
               message: "Chart ready",
               title: "Extensions",
-              data: { title: "Extensions", filePath: "charts/extensions.chart.json", document: { title: "Extensions", columns: 3, charts: CHARTS } },
+              data: { title: "Extensions", filePath: "charts/extensions.chart.json", document: { title: "Extensions", columns: 2, charts: CHARTS } },
             },
           },
         ],
@@ -84,18 +69,17 @@ async function setupSession(page: Page) {
   );
 }
 
-test("draws a bundled map, a 3D scatter and a word cloud, loading each on demand", async ({ page }) => {
+test("draws a bundled map and a 3D scatter, loading each on demand", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await setupSession(page);
   await page.goto("/chat/ext-session");
   await page.getByText("Extensions").first().click();
-  for (const index of [0, 1, 2]) {
+  for (const index of [0, 1]) {
     await expect(page.getByTestId(`chart-canvas-${index}`).locator("canvas").first()).toBeVisible();
     await expect(page.getByTestId(`chart-draw-problem-${index}`)).toHaveCount(0);
   }
   expect(errors).toEqual([]);
   await expect(page.getByTestId("chart-export-svg-0")).toBeVisible();
   await expect(page.getByTestId("chart-export-svg-1")).toHaveCount(0);
-  await expect(page.getByTestId("chart-export-svg-2")).toHaveCount(0);
 });
