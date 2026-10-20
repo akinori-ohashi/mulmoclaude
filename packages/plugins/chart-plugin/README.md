@@ -17,6 +17,14 @@ does not import the spreadsheet plugin), and routes the View's `dispatch({ kind:
 to the same `execute`. A host without `sources` still draws inline charts, and refuses a sourced
 one with a message telling the agent to pass the data inline.
 
+## Recipes for the agent
+
+The `option` parameter's description carries recipes (`src/core/recipes.ts`): the ECharts option
+for a boxplot, a Pareto chart, two value axes, a scatter drawn from a range, and so on. They sit
+there rather than in the top-level description because Claude Code cuts that one at 2048
+characters and passes parameter descriptions whole. Every recipe is drawn by ECharts in
+`test/plugins/chart/test_chartRecipes.ts`, so an option that stops rendering fails the suite.
+
 ## Dev loop
 
 ```bash
