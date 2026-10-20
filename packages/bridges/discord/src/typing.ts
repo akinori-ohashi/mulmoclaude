@@ -69,6 +69,16 @@ export async function runWhileTyping<T>(sendTyping: SendTyping, work: () => Prom
   }
 }
 
+/** Posts only once the indicator is fully down: a typing request that crosses the post lands after it and leaves "typing…" up on an answered message. */
+export async function replyAfterTyping<T>(
+  sendTyping: SendTyping,
+  steps: { produce: () => Promise<T>; post: (reply: T) => Promise<unknown> },
+  options: TypingIndicatorOptions,
+): Promise<void> {
+  const reply = await runWhileTyping(sendTyping, steps.produce, options);
+  await steps.post(reply);
+}
+
 async function sendTypingSafely(sendTyping: SendTyping, log: TypingIndicatorOptions["log"]): Promise<void> {
   try {
     await sendTyping();

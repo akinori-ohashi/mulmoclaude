@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { runWhileTyping, startTypingIndicator, STOP_WAIT_MS, TYPING_REFRESH_MS, type TypingTimers } from "../src/typing.ts";
+import { replyAfterTyping, runWhileTyping, startTypingIndicator, STOP_WAIT_MS, TYPING_REFRESH_MS, type TypingTimers } from "../src/typing.ts";
 
 interface FakeTimer {
   callback: () => void;
@@ -225,5 +225,56 @@ describe("runWhileTyping", () => {
     assert.equal(nth(timers.repeating, 0).cancelled, true);
     nth(timers.repeating, 0).callback();
     assert.equal(sender.calls.length, 1);
+  });
+});
+
+describe("replyAfterTyping", () => {
+  it("posts the produced reply only after the in-flight typing send settles", async () => {
+    const timers = fakeTimers();
+    const sender = controlledSender();
+    const posted: string[] = [];
+    const replying = replyAfterTyping(
+      sender.send,
+      { produce: async () => "answer", post: async (reply) => posted.push(reply) },
+      { log: recordingLog(), timers },
+    );
+
+    await flush();
+    assert.deepEqual(posted, [], "must not post while a typing request is in flight");
+
+    nth(sender.calls, 0).resolve();
+    await replying;
+    assert.deepEqual(posted, ["answer"]);
+    assert.equal(nth(timers.repeating, 0).cancelled, true);
+  });
+
+  it("posts once the wait cap passes even if the typing send hangs", async () => {
+    const timers = fakeTimers();
+    const sender = controlledSender();
+    const posted: string[] = [];
+    const replying = replyAfterTyping(
+      sender.send,
+      { produce: async () => "answer", post: async (reply) => posted.push(reply) },
+      { log: recordingLog(), timers },
+    );
+
+    await flush();
+    nth(timers.oneShots, 0).callback();
+    await replying;
+    assert.deepEqual(posted, ["answer"]);
+  });
+
+  it("does not post when producing the reply throws", async () => {
+    const timers = fakeTimers();
+    const sender = controlledSender();
+    const posted: string[] = [];
+    const replying = replyAfterTyping(
+      sender.send,
+      { produce: () => Promise.reject(new Error("relay failed")), post: async (reply: string) => posted.push(reply) },
+      { log: recordingLog(), timers },
+    );
+    nth(sender.calls, 0).resolve();
+    await assert.rejects(replying, /relay failed/);
+    assert.deepEqual(posted, []);
   });
 });

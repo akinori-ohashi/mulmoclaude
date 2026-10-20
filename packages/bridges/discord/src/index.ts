@@ -20,7 +20,7 @@ import { createBridgeClient, installProcessGuards } from "@mulmobridge/client";
 import { parseCsvSet } from "@mulmoclaude/common";
 import { collectAttachments, resolveMessageText, type DiscordAttachmentLike } from "./attachments.js";
 import { buildExternalChatId, isChannelAllowed, parseGranularity, readChannelRef } from "./sessionId.js";
-import { runWhileTyping } from "./typing.js";
+import { replyAfterTyping } from "./typing.js";
 
 const TRANSPORT_ID = "discord";
 
@@ -108,14 +108,14 @@ interface PendingReply {
 }
 
 async function relayMessage(msg: Message, externalChatId: string, text: string, files: DiscordAttachmentLike[]): Promise<void> {
-  // The indicator is down before posting: a typing request that crosses the
-  // post lands after it and leaves "typing…" up on an answered message.
-  const reply = await runWhileTyping(
+  await replyAfterTyping(
     () => sendTypingTo(msg),
-    () => produceReply(externalChatId, text, files),
+    {
+      produce: () => produceReply(externalChatId, text, files),
+      post: (reply) => (reply.chunked ? sendChunked(msg, reply.text) : msg.reply(reply.text)),
+    },
     { log: console },
   );
-  await (reply.chunked ? sendChunked(msg, reply.text) : msg.reply(reply.text));
 }
 
 async function sendTypingTo(msg: Message): Promise<void> {
