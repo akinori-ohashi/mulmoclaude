@@ -1,6 +1,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { replyAfterTyping, runWhileTyping, startTypingIndicator, STOP_WAIT_MS, TYPING_REFRESH_MS, type TypingTimers } from "../src/typing.ts";
+import {
+  replyAfterProcessingIndicator,
+  runWithProcessingIndicator,
+  startProcessingIndicator,
+  INDICATOR_STOP_WAIT_MS,
+  type IndicatorTimers,
+} from "../src/processingIndicator.ts";
+
+const REFRESH_MS = 8_000;
+const BASE_OPTIONS = { refreshMs: REFRESH_MS, label: "test" };
 
 interface FakeTimer {
   callback: () => void;
@@ -8,7 +17,7 @@ interface FakeTimer {
   cancelled: boolean;
 }
 
-function fakeTimers(): TypingTimers & { repeating: FakeTimer[]; oneShots: FakeTimer[]; fireRepeating: () => void } {
+function fakeTimers(): IndicatorTimers & { repeating: FakeTimer[]; oneShots: FakeTimer[]; fireRepeating: () => void } {
   const repeating: FakeTimer[] = [];
   const oneShots: FakeTimer[] = [];
   const register = (list: FakeTimer[]) => (callback: () => void, delay_ms: number) => {
@@ -64,13 +73,13 @@ function recordingLog(): { warn: (message: string) => void; warnings: string[] }
   return { warn: (message) => warnings.push(message), warnings };
 }
 
-describe("startTypingIndicator", () => {
-  it("sends once immediately and refreshes on the default cadence", async () => {
+describe("startProcessingIndicator", () => {
+  it("sends once immediately and refreshes on the given cadence", async () => {
     const timers = fakeTimers();
     const sender = controlledSender();
-    const typing = startTypingIndicator(sender.send, { log: recordingLog(), timers });
+    const typing = startProcessingIndicator(sender.send, { ...BASE_OPTIONS, log: recordingLog(), timers });
     assert.equal(sender.calls.length, 1);
-    assert.equal(nth(timers.repeating, 0).delay_ms, TYPING_REFRESH_MS);
+    assert.equal(nth(timers.repeating, 0).delay_ms, REFRESH_MS);
 
     nth(sender.calls, 0).resolve();
     await flush();
@@ -84,7 +93,7 @@ describe("startTypingIndicator", () => {
   it("skips a refresh while the previous send is still in flight", async () => {
     const timers = fakeTimers();
     const sender = controlledSender();
-    const typing = startTypingIndicator(sender.send, { log: recordingLog(), timers });
+    const typing = startProcessingIndicator(sender.send, { ...BASE_OPTIONS, log: recordingLog(), timers });
     timers.fireRepeating();
     timers.fireRepeating();
     assert.equal(sender.calls.length, 1);
@@ -101,7 +110,7 @@ describe("startTypingIndicator", () => {
   it("never sends after stop()", async () => {
     const timers = fakeTimers();
     const sender = controlledSender();
-    const typing = startTypingIndicator(sender.send, { log: recordingLog(), timers });
+    const typing = startProcessingIndicator(sender.send, { ...BASE_OPTIONS, log: recordingLog(), timers });
     nth(sender.calls, 0).resolve();
     await typing.stop();
 
@@ -113,7 +122,7 @@ describe("startTypingIndicator", () => {
   it("stop() waits for the in-flight send before resolving", async () => {
     const timers = fakeTimers();
     const sender = controlledSender();
-    const typing = startTypingIndicator(sender.send, { log: recordingLog(), timers });
+    const typing = startProcessingIndicator(sender.send, { ...BASE_OPTIONS, log: recordingLog(), timers });
 
     const state = { stopped: false };
     const stopping = typing.stop().then(() => {
@@ -131,18 +140,18 @@ describe("startTypingIndicator", () => {
   it("stop() gives up on a hung send after the wait cap", async () => {
     const timers = fakeTimers();
     const sender = controlledSender();
-    const typing = startTypingIndicator(sender.send, { log: recordingLog(), timers });
+    const typing = startProcessingIndicator(sender.send, { ...BASE_OPTIONS, log: recordingLog(), timers });
 
     const stopping = typing.stop();
     await flush();
-    assert.equal(nth(timers.oneShots, 0).delay_ms, STOP_WAIT_MS);
+    assert.equal(nth(timers.oneShots, 0).delay_ms, INDICATOR_STOP_WAIT_MS);
     nth(timers.oneShots, 0).callback();
     await stopping;
   });
 
   it("stop() resolves at once when nothing is in flight", async () => {
     const timers = fakeTimers();
-    const typing = startTypingIndicator(async () => {}, { log: recordingLog(), timers });
+    const typing = startProcessingIndicator(async () => {}, { ...BASE_OPTIONS, log: recordingLog(), timers });
     await flush();
     await typing.stop();
     assert.equal(timers.oneShots.length, 0);
@@ -152,12 +161,12 @@ describe("startTypingIndicator", () => {
     const timers = fakeTimers();
     const sender = controlledSender();
     const log = recordingLog();
-    const typing = startTypingIndicator(sender.send, { log, timers });
+    const typing = startProcessingIndicator(sender.send, { ...BASE_OPTIONS, log, timers });
 
     nth(sender.calls, 0).reject(new Error("Missing Permissions"));
     await flush();
     assert.equal(log.warnings.length, 1);
-    assert.match(nth(log.warnings, 0), /Missing Permissions/);
+    assert.match(nth(log.warnings, 0), /^\[test\] .*Missing Permissions/);
 
     timers.fireRepeating();
     assert.equal(sender.calls.length, 2);
@@ -167,7 +176,7 @@ describe("startTypingIndicator", () => {
 
   it("stop() twice is harmless", async () => {
     const timers = fakeTimers();
-    const typing = startTypingIndicator(async () => {}, { log: recordingLog(), timers });
+    const typing = startProcessingIndicator(async () => {}, { ...BASE_OPTIONS, log: recordingLog(), timers });
     await typing.stop();
     await typing.stop();
     timers.fireRepeating();
@@ -177,7 +186,7 @@ describe("startTypingIndicator", () => {
   it("honours custom refresh and wait values", async () => {
     const timers = fakeTimers();
     const sender = controlledSender();
-    const typing = startTypingIndicator(sender.send, { log: recordingLog(), timers, refreshMs: 50, stopWaitMs: 7 });
+    const typing = startProcessingIndicator(sender.send, { ...BASE_OPTIONS, log: recordingLog(), timers, refreshMs: 50, stopWaitMs: 7 });
     assert.equal(nth(timers.repeating, 0).delay_ms, 50);
     const stopping = typing.stop();
     await flush();
@@ -187,18 +196,18 @@ describe("startTypingIndicator", () => {
   });
 });
 
-describe("runWhileTyping", () => {
+describe("runWithProcessingIndicator", () => {
   it("returns the work's result with the indicator already down", async () => {
     const timers = fakeTimers();
     const sender = controlledSender();
     const work = deferred();
-    const running = runWhileTyping(
+    const running = runWithProcessingIndicator(
       sender.send,
       async () => {
         await work.promise;
         return "reply";
       },
-      { log: recordingLog(), timers },
+      { ...BASE_OPTIONS, log: recordingLog(), timers },
     );
 
     work.resolve();
@@ -219,7 +228,7 @@ describe("runWhileTyping", () => {
   it("stops the indicator when the work throws", async () => {
     const timers = fakeTimers();
     const sender = controlledSender();
-    const running = runWhileTyping(sender.send, () => Promise.reject(new Error("relay failed")), { log: recordingLog(), timers });
+    const running = runWithProcessingIndicator(sender.send, () => Promise.reject(new Error("relay failed")), { ...BASE_OPTIONS, log: recordingLog(), timers });
     nth(sender.calls, 0).resolve();
     await assert.rejects(running, /relay failed/);
     assert.equal(nth(timers.repeating, 0).cancelled, true);
@@ -228,15 +237,15 @@ describe("runWhileTyping", () => {
   });
 });
 
-describe("replyAfterTyping", () => {
+describe("replyAfterProcessingIndicator", () => {
   it("posts the produced reply only after the in-flight typing send settles", async () => {
     const timers = fakeTimers();
     const sender = controlledSender();
     const posted: string[] = [];
-    const replying = replyAfterTyping(
+    const replying = replyAfterProcessingIndicator(
       sender.send,
       { produce: async () => "answer", post: async (reply) => posted.push(reply) },
-      { log: recordingLog(), timers },
+      { ...BASE_OPTIONS, log: recordingLog(), timers },
     );
 
     await flush();
@@ -252,10 +261,10 @@ describe("replyAfterTyping", () => {
     const timers = fakeTimers();
     const sender = controlledSender();
     const posted: string[] = [];
-    const replying = replyAfterTyping(
+    const replying = replyAfterProcessingIndicator(
       sender.send,
       { produce: async () => "answer", post: async (reply) => posted.push(reply) },
-      { log: recordingLog(), timers },
+      { ...BASE_OPTIONS, log: recordingLog(), timers },
     );
 
     await flush();
@@ -268,10 +277,10 @@ describe("replyAfterTyping", () => {
     const timers = fakeTimers();
     const sender = controlledSender();
     const posted: string[] = [];
-    const replying = replyAfterTyping(
+    const replying = replyAfterProcessingIndicator(
       sender.send,
       { produce: () => Promise.reject(new Error("relay failed")), post: async (reply: string) => posted.push(reply) },
-      { log: recordingLog(), timers },
+      { ...BASE_OPTIONS, log: recordingLog(), timers },
     );
     nth(sender.calls, 0).resolve();
     await assert.rejects(replying, /relay failed/);

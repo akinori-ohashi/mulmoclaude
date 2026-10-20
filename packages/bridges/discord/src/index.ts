@@ -16,16 +16,17 @@
 
 import "dotenv/config";
 import { Client, GatewayIntentBits, Partials, type Message } from "discord.js";
-import { createBridgeClient, installProcessGuards } from "@mulmobridge/client";
+import { createBridgeClient, installProcessGuards, replyAfterProcessingIndicator } from "@mulmobridge/client";
 import { parseCsvSet } from "@mulmoclaude/common";
 import { collectAttachments, resolveMessageText, type DiscordAttachmentLike } from "./attachments.js";
 import { buildExternalChatId, isChannelAllowed, parseGranularity, readChannelRef } from "./sessionId.js";
-import { replyAfterTyping } from "./typing.js";
 
 const TRANSPORT_ID = "discord";
 
 installProcessGuards({ name: TRANSPORT_ID });
 const MAX_DISCORD_LENGTH = 2000;
+// Discord drops "typing…" about 10 s after each request.
+const TYPING_REFRESH_MS = 8_000;
 
 const token = process.env.DISCORD_BOT_TOKEN;
 if (!token) {
@@ -108,13 +109,13 @@ interface PendingReply {
 }
 
 async function relayMessage(msg: Message, externalChatId: string, text: string, files: DiscordAttachmentLike[]): Promise<void> {
-  await replyAfterTyping(
+  await replyAfterProcessingIndicator(
     () => sendTypingTo(msg),
     {
       produce: () => produceReply(externalChatId, text, files),
       post: (reply) => (reply.chunked ? sendChunked(msg, reply.text) : msg.reply(reply.text)),
     },
-    { log: console },
+    { refreshMs: TYPING_REFRESH_MS, label: TRANSPORT_ID, log: console },
   );
 }
 

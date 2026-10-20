@@ -27,6 +27,17 @@ export {
   type ParsedDataUrl,
 } from "./mime.js";
 
+export {
+  startProcessingIndicator,
+  runWithProcessingIndicator,
+  replyAfterProcessingIndicator,
+  INDICATOR_STOP_WAIT_MS,
+  type SendIndicator,
+  type IndicatorTimers,
+  type ProcessingIndicatorOptions,
+  type ProcessingIndicator,
+} from "./processingIndicator.js";
+
 export { installProcessGuards, SHUTDOWN_GRACE_MS, type ProcessGuardOptions, type ShutdownTask } from "./processGuards.js";
 
 export {
