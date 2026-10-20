@@ -19,7 +19,7 @@ import type { Request, Response } from "express";
 import { createBridgeClient, chunkText, formatAckReply, installProcessGuards, replyAfterProcessingIndicator } from "@mulmobridge/client";
 import { createWebhookApp, createWebhookRateLimit, verifyHmacSignature, listenWebhook } from "@mulmobridge/webhook-runtime";
 import { extractIncomingLineMessage, parseLineWebhookBody, type IncomingLineMessage } from "./parse.js";
-import { LINE_LOADING_REFRESH_MS, isOneOnOneSource, startLineLoading } from "./loading.js";
+import { LINE_LOADING_REFRESH_MS, loadingSenderFor, startLineLoading } from "./loading.js";
 
 const TRANSPORT_ID = "line";
 
@@ -102,8 +102,6 @@ async function pushMessage(userId: string, text: string): Promise<void> {
   }
 }
 
-const skipLoading = async (): Promise<void> => {};
-
 // ── Webhook server ──────────────────────────────────────────────
 
 const app = createWebhookApp();
@@ -129,7 +127,7 @@ app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
   for (const event of body.events) {
     const incoming = extractIncomingLineMessage(event);
     if (!incoming) continue;
-    const sendLoading = isOneOnOneSource(event.source) ? () => startLineLoading(fetch, channelAccessToken, incoming.userId) : skipLoading;
+    const sendLoading = loadingSenderFor(event.source, () => startLineLoading(fetch, channelAccessToken, incoming.userId));
 
     try {
       await replyAfterProcessingIndicator(

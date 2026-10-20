@@ -1,6 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { LINE_LOADING_REFRESH_MS, LINE_LOADING_SECONDS, LINE_LOADING_URL, isOneOnOneSource, startLineLoading, type FetchFn } from "../src/loading.ts";
+import {
+  LINE_LOADING_REFRESH_MS,
+  LINE_LOADING_SECONDS,
+  LINE_LOADING_URL,
+  isOneOnOneSource,
+  loadingSenderFor,
+  startLineLoading,
+  type FetchFn,
+} from "../src/loading.ts";
 
 const SECOND_MS = 1_000;
 const LOADING_SECONDS_STEP = 5;
@@ -82,5 +90,26 @@ describe("isOneOnOneSource", () => {
     assert.equal(isOneOnOneSource({ type: "USER" }), false);
     assert.equal(isOneOnOneSource({}), false);
     assert.equal(isOneOnOneSource(undefined), false);
+  });
+});
+
+describe("loadingSenderFor", () => {
+  it("sends the loading request in a one-on-one chat", async () => {
+    const started: string[] = [];
+    await loadingSenderFor({ type: "user" }, async () => {
+      started.push("loading");
+    })();
+    assert.deepEqual(started, ["loading"]);
+  });
+
+  it("sends nothing in a group, a room, or without a source", async () => {
+    const started: string[] = [];
+    const startLoading = async (): Promise<void> => {
+      started.push("loading");
+    };
+    await loadingSenderFor({ type: "group" }, startLoading)();
+    await loadingSenderFor({ type: "room" }, startLoading)();
+    await loadingSenderFor(undefined, startLoading)();
+    assert.deepEqual(started, []);
   });
 });

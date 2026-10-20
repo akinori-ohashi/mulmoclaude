@@ -25,7 +25,13 @@ export async function startLineLoading(fetchFn: FetchFn, channelAccessToken: str
   }
 }
 
-/** LINE refuses the loading request outside a one-on-one chat, so the bridge does not send it there. */
+const skipLoading = async (): Promise<void> => {};
+
 export function isOneOnOneSource(source: { type?: string } | undefined): boolean {
   return source?.type === "user";
+}
+
+/** LINE refuses the loading request outside a one-on-one chat, so there the bridge sends nothing. */
+export function loadingSenderFor(source: { type?: string } | undefined, startLoading: () => Promise<void>): () => Promise<void> {
+  return isOneOnOneSource(source) ? startLoading : skipLoading;
 }
