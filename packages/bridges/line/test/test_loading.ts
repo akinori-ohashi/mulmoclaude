@@ -1,14 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
-  LINE_LOADING_REFRESH_MS,
-  LINE_LOADING_SECONDS,
-  LINE_LOADING_URL,
-  isOneOnOneSource,
-  loadingSenderFor,
-  startLineLoading,
-  type FetchFn,
-} from "../src/loading.ts";
+import { LINE_LOADING_REFRESH_MS, LINE_LOADING_SECONDS, isOneOnOneSource, loadingSenderFor, startLineLoading, type FetchFn } from "../src/loading.ts";
 
 const SECOND_MS = 1_000;
 const LOADING_SECONDS_STEP = 5;
@@ -47,7 +39,7 @@ describe("startLineLoading", () => {
     await startLineLoading(fetchFn, "token-abc", "U123");
 
     const call = onlyCall(calls);
-    assert.equal(call.url, LINE_LOADING_URL);
+    assert.equal(call.url, "https://api.line.me/v2/bot/chat/loading/start");
     assert.equal(call.init.method, "POST");
     assert.equal(headerOf(call.init, "Authorization"), "Bearer token-abc");
     assert.equal(headerOf(call.init, "Content-Type"), "application/json");
