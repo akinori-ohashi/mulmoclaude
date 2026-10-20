@@ -53,6 +53,34 @@ export const CHART_RECIPES: readonly ChartRecipe[] = [
     },
   },
   {
+    use: "boxplot of each column straight from the raw values (mulmo:boxplotColumns; config.dimensions names the columns, else every column holding numbers; config.boundIQR 1.5 by default, or 'none' for min/max whiskers; outliers are its result 1, read in column order since ECharts drops a second result's column names)",
+    header: ["Week", "Store A", "Store B"],
+    option: {
+      dataset: [
+        {},
+        { transform: { type: "mulmo:boxplotColumns", config: { dimensions: ["Store A", "Store B"] } } },
+        { fromDatasetIndex: 1, fromTransformResult: 1 },
+      ],
+      xAxis: { type: "category" },
+      yAxis: {},
+      series: [
+        { type: "boxplot", datasetIndex: 1, encode: { x: "Column", y: ["Low", "Q1", "Median", "Q3", "High"] } },
+        { type: "scatter", datasetIndex: 2 },
+      ],
+    },
+  },
+  {
+    use: "clusters of points (mulmo:clustering; k-means with config.clusterCount over config.dimensions, the same groups on every redraw; adds a Cluster column, numbered in row order; rows with a blank or text cell are skipped)",
+    header: ["Name", "Income", "Spend"],
+    option: {
+      dataset: [{}, { transform: { type: "mulmo:clustering", config: { clusterCount: 2, dimensions: ["Income", "Spend"] } } }],
+      xAxis: { type: "value" },
+      yAxis: {},
+      visualMap: { type: "piecewise", dimension: "Cluster", categories: [0, 1], inRange: { color: ["#5470c6", "#ee6666"] }, show: false },
+      series: [{ type: "scatter", datasetIndex: 1, encode: { x: "Income", y: "Spend", tooltip: ["Name", "Cluster"] } }],
+    },
+  },
+  {
     use: "histogram (count each bin on the sheet with COUNTIFS)",
     header: ["Bin", "Count"],
     option: { xAxis: { type: "category" }, yAxis: {}, series: [{ type: "bar", barCategoryGap: "0%" }] },
