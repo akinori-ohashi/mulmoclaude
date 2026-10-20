@@ -2,6 +2,7 @@ import type { FileOps, ToolPluginCore, ToolResult } from "gui-chat-protocol";
 import { TOOL_NAME, TOOL_DEFINITION } from "./definition";
 import { chartArtifactPath } from "./paths";
 import { trialDrawProblem } from "./drawProblem";
+import { formatProblem, withFormatters } from "./formats";
 import { chartOption, isChartSource, isReadSourceArgs } from "./source";
 import type { ChartArgs, ChartDocument, ChartEntry, ChartSource, ChartSourceRows, PresentChartData, ReadSourceArgs, ReadSourceData } from "./types";
 
@@ -130,7 +131,7 @@ async function readSources(context: ChartExecuteContext, document: ChartDocument
  *  cannot draw reaches the agent now rather than as a blank card. Null when every chart draws. */
 function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows | undefined)[]): string | null {
   const problems = document.charts.flatMap((chart, index) => {
-    const problem = trialDrawProblem(chartOption(chart, rows[index], true));
+    const problem = formatProblem(chart.option) ?? trialDrawProblem(withFormatters(chartOption(chart, rows[index], true)));
     return problem ? [`Chart ${index + 1}${chart.title ? ` (${chart.title})` : ""} could not be drawn: ${problem}`] : [];
   });
   return problems.length > 0 ? problems.join("\n") : null;

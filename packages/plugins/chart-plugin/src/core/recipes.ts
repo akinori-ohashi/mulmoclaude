@@ -68,6 +68,16 @@ export const CHART_RECIPES: readonly ChartRecipe[] = [
     },
   },
   {
+    use: "numbers and dates in a format (formatter / valueFormatter as an object, see above)",
+    header: ["Date", "Revenue"],
+    option: {
+      xAxis: { type: "category", axisLabel: { formatter: { kind: "date", pattern: "{MMM} {yyyy}" } } },
+      yAxis: { axisLabel: { formatter: { kind: "currency", currency: "JPY" } } },
+      tooltip: { trigger: "axis", valueFormatter: { kind: "number", digits: 0 } },
+      series: [{ type: "bar", label: { show: true, position: "top", formatter: { kind: "number", compact: true, template: "{value}" } } }],
+    },
+  },
+  {
     use: "two value axes",
     header: ["Month", "Sales", "Growth %"],
     option: {

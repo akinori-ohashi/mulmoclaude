@@ -10,6 +10,7 @@ import { withSourceRows } from "../../../packages/plugins/chart-plugin/src/core/
 import type { ChartSourceRows } from "../../../packages/plugins/chart-plugin/src/core/types";
 import { echarts } from "../../../packages/plugins/chart-plugin/src/core/charting";
 import { trialDrawProblem } from "../../../packages/plugins/chart-plugin/src/core/drawProblem";
+import { formatProblem, withFormatters } from "../../../packages/plugins/chart-plugin/src/core/formats";
 
 // Claude Code cuts an MCP tool's top-level description here (CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH)
 // and passes property descriptions whole, which is why the recipes sit on `option`.
@@ -111,6 +112,11 @@ const SAMPLE_ROWS: Record<string, ChartSourceRows> = {
     ["2026-01-05", 10, 12, 9, 13],
     ["2026-01-06", 12, 11, 10, 14],
   ],
+  "Date|Revenue": [
+    ["Date", "Revenue"],
+    ["2026-01-01", 1234567],
+    ["2026-02-01", 2345678],
+  ],
   "Time|Value": [
     ["Time", "Value"],
     ["t1", 1],
@@ -138,6 +144,7 @@ const EXPECTED_SHAPES: Record<string, SeriesShape[]> = {
   "Year|Users": [expectedShape("line", ["Users"])],
   "X|Y|Value": [expectedShape("heatmap", ["Value"])],
   "Date|Open|Close|Low|High": [expectedShape("candlestick", ["Open", "Close", "Low", "High"])],
+  "Date|Revenue": [expectedShape("bar", ["Revenue"])],
   "Time|Value": [expectedShape("line", ["Value"])],
 };
 
@@ -258,7 +265,7 @@ function itemCount(data: unknown): number {
 }
 
 function drawRecipe(recipe: ChartRecipe, rows: ChartSourceRows | null = sampleRows(recipe)): Drawn {
-  const option = rows ? withSourceRows(recipe.option, rows) : recipe.option;
+  const option = withFormatters(rows ? withSourceRows(recipe.option, rows) : recipe.option);
   const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: CHART_WIDTH_PX, height: CHART_HEIGHT_PX });
   try {
     const { result, warnings } = captureWarnings(() => {
@@ -278,7 +285,8 @@ describe("presentChart recipes", () => {
       const drawn = drawRecipe(recipe);
       assert.deepEqual(drawn.warnings, []);
       const rows = sampleRows(recipe);
-      assert.equal(trialDrawProblem(rows ? withSourceRows(recipe.option, rows) : recipe.option), null, "presentChart would refuse it");
+      assert.equal(formatProblem(recipe.option), null, "presentChart would refuse its formats");
+      assert.equal(trialDrawProblem(withFormatters(rows ? withSourceRows(recipe.option, rows) : recipe.option)), null, "presentChart would refuse it");
       assert.ok(drawn.series.length > 0, "no series");
       drawn.series.forEach(({ count }, index) => assert.ok(count > 0, `series ${index} is empty`));
       assert.deepEqual(

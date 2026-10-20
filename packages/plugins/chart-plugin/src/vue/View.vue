@@ -47,6 +47,7 @@ import { echarts } from "../core/charting";
 import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/vue";
 import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
 import { setOptionProblem } from "../core/drawProblem";
+import { withFormatters } from "../core/formats";
 import { chartOption, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
 import { useT } from "../lang";
 
@@ -158,7 +159,7 @@ function awaitingRows(chart: ChartEntry, rows: ChartSourceRows | undefined): boo
 }
 
 function optionFor(chart: ChartEntry, rows: ChartSourceRows | undefined): Record<string, unknown> {
-  return chartOption(chart, rows, runtime !== undefined);
+  return withFormatters(chartOption(chart, rows, runtime !== undefined), runtime?.locale.value);
 }
 
 // Long enough for a large workbook on a busy host; a read past it is reported
@@ -238,6 +239,12 @@ onBeforeUnmount(() => {
 watch(
   () => [data.value?.filePath, JSON.stringify(data.value?.document ?? null)],
   () => showDocument(),
+);
+
+// Format functions hold an Intl formatter built for one locale, so a new locale needs new ones.
+watch(
+  () => runtime?.locale.value,
+  () => renderAll(),
 );
 
 function exportPng(idx: number, chartTitle?: string): void {
