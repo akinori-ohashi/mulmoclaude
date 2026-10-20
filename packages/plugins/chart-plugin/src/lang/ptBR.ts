@@ -9,6 +9,7 @@ const ptBR: Messages = {
   notLinked: "Não vinculado: este host não consegue ler a planilha.",
   unreadableSource: "Não foi possível ler o intervalo da planilha.",
   sourceTimedOut: "A planilha não respondeu a tempo.",
+  cannotDraw: (reason) => `Não foi possível desenhar este gráfico: ${reason}`,
 };
 
 export default ptBR;

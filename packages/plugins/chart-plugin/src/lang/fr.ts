@@ -9,6 +9,7 @@ const fr: Messages = {
   notLinked: "Non lié : cet hôte ne peut pas lire la feuille de calcul.",
   unreadableSource: "La plage de la feuille de calcul n’a pas pu être lue.",
   sourceTimedOut: "Le tableur n’a pas répondu à temps.",
+  cannotDraw: (reason) => `Impossible de dessiner ce graphique : ${reason}`,
 };
 
 export default fr;

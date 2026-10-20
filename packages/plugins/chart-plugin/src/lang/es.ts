@@ -9,6 +9,7 @@ const es: Messages = {
   notLinked: "Sin vincular: este host no puede leer la hoja de cálculo.",
   unreadableSource: "No se pudo leer el rango de la hoja de cálculo.",
   sourceTimedOut: "La hoja de cálculo no respondió a tiempo.",
+  cannotDraw: (reason) => `No se pudo dibujar este gráfico: ${reason}`,
 };
 
 export default es;

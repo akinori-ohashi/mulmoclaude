@@ -9,6 +9,7 @@ const en: Messages = {
   notLinked: "Not linked: this host cannot read the spreadsheet.",
   unreadableSource: "The spreadsheet range could not be read.",
   sourceTimedOut: "The spreadsheet did not answer in time.",
+  cannotDraw: (reason) => `Could not draw this chart: ${reason}`,
 };
 
 export default en;
