@@ -20,10 +20,18 @@ function asList(value: unknown): unknown[] {
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+/** The option and, for a timeline, its `baseOption` and each of its `options`: the parts a
+ *  chart's series and components may sit in. */
+function optionParts(option: Record<string, unknown>): Record<string, unknown>[] {
+  return [option, ...asList(option.baseOption), ...asList(option.options)].filter(isRecord);
+}
+
+const partsList = (parts: Record<string, unknown>[], key: string): unknown[] => parts.flatMap((part) => asList(part[key]));
+
 /** Map names the option draws on (a `map` series or a `geo` component) that ECharts has not
  *  been given; drawing one throws a TypeError that does not name the map. */
-function missingMaps(option: Record<string, unknown>): string[] {
-  const holders = [...asList(option.series).filter((series) => isRecord(series) && series.type === "map"), ...asList(option.geo)];
+function missingMaps(parts: Record<string, unknown>[]): string[] {
+  const holders = [...partsList(parts, "series").filter((series) => isRecord(series) && series.type === "map"), ...partsList(parts, "geo")];
   const names = holders.flatMap((holder) => (isRecord(holder) && typeof holder.map === "string" ? [holder.map] : []));
   return [...new Set(names)].filter((name) => !echarts.getMap(name));
 }
@@ -33,26 +41,27 @@ function missingMaps(option: Record<string, unknown>): string[] {
 const CARTESIAN_BY_DEFAULT = new Set(["line", "bar", "scatter", "effectScatter", "pictorialBar", "candlestick", "boxplot", "heatmap"]);
 
 /** The axes (`xAxis`, `yAxis`) the option's series need but it does not have. */
-function missingAxes(option: Record<string, unknown>): string[] {
-  const needsAxes = asList(option.series).some(
+function missingAxes(parts: Record<string, unknown>[]): string[] {
+  const needsAxes = partsList(parts, "series").some(
     (series) => isRecord(series) && CARTESIAN_BY_DEFAULT.has(String(series.type)) && (series.coordinateSystem ?? "cartesian2d") === "cartesian2d",
   );
   if (!needsAxes) return [];
-  return ["xAxis", "yAxis"].filter((axis) => asList(option[axis]).length === 0);
+  return ["xAxis", "yAxis"].filter((axis) => partsList(parts, axis).length === 0);
 }
 
 /** Series types ECharts dropped because it does not know them. */
 function droppedSeriesTypes(chart: DrawTarget, option: Record<string, unknown>): string[] {
-  const asked = asList(option.series).filter(isRecord);
+  const asked = partsList(optionParts(option), "series").filter(isRecord);
   const kept = new Set(asList(chart.getOption().series).flatMap((series) => (isRecord(series) && typeof series.type === "string" ? [series.type] : [])));
   return [...new Set(asked.map((series) => (typeof series.type === "string" ? series.type : "(none)")))].filter((type) => !kept.has(type));
 }
 
 /** Sets `option` on `chart`, and returns why it was not drawn, or null when it was. */
 export function setOptionProblem(chart: DrawTarget, option: Record<string, unknown>): string | null {
-  const axes = missingAxes(option);
+  const parts = optionParts(option);
+  const axes = missingAxes(parts);
   if (axes.length > 0) return `The series need ${axes.join(" and ")}, which the option does not have`;
-  const maps = missingMaps(option);
+  const maps = missingMaps(parts);
   if (maps.length > 0) return `No map named ${maps.map((name) => `"${name}"`).join(", ")} is registered`;
   try {
     chart.setOption(option);
@@ -63,11 +72,31 @@ export function setOptionProblem(chart: DrawTarget, option: Record<string, unkno
   return dropped.length > 0 ? `Unknown series type ${dropped.map((type) => `"${type}"`).join(", ")}` : null;
 }
 
+// What makes an option undrawable is its shape, not its length, and drawing is synchronous:
+// a hundred thousand points hold the server for about half a second. So a trial draws only the
+// first rows of each data list (a dataset's header row is its first).
+const TRIAL_ROWS = 1000;
+
+const firstRows = (holder: unknown, key: string): unknown => {
+  if (!isRecord(holder) || !Array.isArray(holder[key])) return holder;
+  return { ...holder, [key]: holder[key].slice(0, TRIAL_ROWS) };
+};
+
+const mapList = (value: unknown, map: (item: unknown) => unknown): unknown => (Array.isArray(value) ? value.map(map) : map(value));
+
+/** `option` with every series' `data` and every dataset's `source` cut to TRIAL_ROWS. */
+export function trialSample(option: Record<string, unknown>): Record<string, unknown> {
+  const sampled = { ...option };
+  if ("series" in option) sampled.series = mapList(option.series, (series) => firstRows(series, "data"));
+  if ("dataset" in option) sampled.dataset = mapList(option.dataset, (dataset) => firstRows(dataset, "source"));
+  return sampled;
+}
+
 /** Draws `option` once off screen, as the View would, and returns why it failed, or null. */
 export function trialDrawProblem(option: Record<string, unknown>): string | null {
   const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: TRIAL_WIDTH_PX, height: TRIAL_HEIGHT_PX });
   try {
-    return setOptionProblem(chart, option);
+    return setOptionProblem(chart, trialSample(option));
   } finally {
     chart.dispose();
   }

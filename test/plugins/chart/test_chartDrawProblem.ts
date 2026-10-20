@@ -4,7 +4,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { setOptionProblem, trialDrawProblem } from "../../../packages/plugins/chart-plugin/src/core/drawProblem";
+import { setOptionProblem, trialDrawProblem, trialSample } from "../../../packages/plugins/chart-plugin/src/core/drawProblem";
 import { executeChart } from "../../../packages/plugins/chart-plugin/src/core/plugin";
 import type { ChartSourceRows } from "../../../packages/plugins/chart-plugin/src/core/types";
 import { memoryArtifacts } from "./memoryArtifacts";
@@ -70,6 +70,55 @@ describe("trialDrawProblem does not ask for axes a series does not use", () => {
   for (const [name, option] of drawable) {
     it(name, () => assert.equal(trialDrawProblem(option), null));
   }
+});
+
+describe("trialDrawProblem on a timeline", () => {
+  const base = { timeline: { data: ["2025", "2026"] }, xAxis: { type: "category", data: ["a"] }, yAxis: {} };
+
+  it("finds the axes in baseOption for series in options", () => {
+    const option = { baseOption: base, options: [{ series: [{ type: "bar", data: [1] }] }, { series: [{ type: "bar", data: [2] }] }] };
+    assert.equal(trialDrawProblem(option), null);
+  });
+
+  it("names axes missing for series in baseOption", () => {
+    const option = { baseOption: { timeline: base.timeline, series: [{ type: "line" }] }, options: [{ series: [{ data: [1] }] }] };
+    assert.match(trialDrawProblem(option) ?? "", /need xAxis and yAxis/);
+  });
+
+  it("names a map missing in an options entry", () => {
+    const option = { baseOption: { timeline: base.timeline }, options: [{ series: [{ type: "map", map: "atlantis" }] }] };
+    assert.match(trialDrawProblem(option) ?? "", /No map named "atlantis"/);
+  });
+});
+
+describe("trialSample", () => {
+  const rows = (count: number) => Array.from({ length: count }, (_, index) => [index, index * 2]);
+
+  it("keeps only the first rows of each series' data and each dataset's source, header first", () => {
+    const sampled = trialSample({
+      dataset: [{ source: [["x", "y"], ...rows(5000)] }, { transform: { type: "filter" } }],
+      series: [{ type: "line", data: rows(5000) }, { type: "bar" }],
+      title: { text: "kept" },
+    });
+    const [source] = Array.isArray(sampled.dataset) ? sampled.dataset : [];
+    const [line, bar] = Array.isArray(sampled.series) ? sampled.series : [];
+    assert.ok(Array.isArray(source?.source) && source.source.length === 1000);
+    assert.deepEqual(source.source[0], ["x", "y"]);
+    assert.ok(Array.isArray(line?.data) && line.data.length === 1000);
+    assert.deepEqual(bar, { type: "bar" });
+    assert.deepEqual(sampled.title, { text: "kept" });
+  });
+
+  it("takes a single series or dataset object as well as a list, and leaves short data alone", () => {
+    const option = { dataset: { source: rows(3) }, series: { type: "line", data: rows(2) } };
+    assert.deepEqual(trialSample(option), option);
+  });
+
+  it("finds a problem in the rows it keeps", () => {
+    const data = rows(200000);
+    assert.equal(trialDrawProblem({ xAxis: { type: "value" }, yAxis: {}, series: [{ type: "scatter", data }] }), null);
+    assert.match(trialDrawProblem({ series: [{ type: "scatter", data }] }) ?? "", /xAxis/);
+  });
 });
 
 describe("setOptionProblem", () => {
@@ -154,5 +203,22 @@ describe("executeChart draws each chart before saving", () => {
     const artifacts = memoryArtifacts();
     const result = await executeChart({ files: { artifacts }, sources: { read: async () => rows } }, { document: { charts: [{ source, option }] } });
     assert.ok(result.data, result.message);
+  });
+
+  it("refuses a sourced chart its rows cannot draw, naming the reason", async () => {
+    // A regression reads numbers; a column of text gives it none, and ECharts throws.
+    const rows: ChartSourceRows = [["Group"], ["a"], ["b"]];
+    const option = {
+      dataset: [{}, { transform: { type: "ecStat:regression" } }],
+      xAxis: { type: "value" },
+      yAxis: {},
+      series: [{ type: "line", datasetIndex: 1 }],
+    };
+    const source = { spreadsheet: "artifacts/spreadsheets/a.json", range: "A1:A3" };
+    const artifacts = memoryArtifacts();
+    const result = await executeChart({ files: { artifacts }, sources: { read: async () => rows } }, { document: { charts: [{ source, option }] } });
+    assert.equal(result.data, undefined);
+    assert.match(result.message ?? "", /^Chart 1 could not be drawn: /);
+    assert.equal(artifacts.written.length, 0);
   });
 });
