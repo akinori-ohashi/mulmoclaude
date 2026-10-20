@@ -12,8 +12,10 @@ Option C of #3549 was chosen: lay the words out ourselves and draw them with a s
     marking a grid of `gridSize` cells as taken; a word that does not fit anywhere is left out (as
     echarts-wordcloud does). Font size is linear in the value between `sizeRange`. Rotation is
     picked from `rotationRange` / `rotationStep` by a fixed-seed generator, so a redraw gives the
-    same cloud. Text width is estimated (full-width characters 1em, others narrower) so the server
-    and the browser lay out alike without measuring a font.
+    same cloud; a word with CJK, kana or hangul stays level. Widths come from an injected measure:
+    the browser's canvas `measureText` in the words' font, else (the server's trial draw) an
+    estimate that errs wide. An estimate alone overlapped `WWWWWW` / `MMMM` in Chromium, which the
+    e2e test caught.
   - `withWordClouds(option)`: each top-level `wordCloud` series becomes a `custom` series whose
     `renderItem` lays the words out for the chart's current size (kept per size), with
     `colorBy: "data"` so each word takes the next palette colour (the dark theme's too).
