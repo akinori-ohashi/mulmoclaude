@@ -4,7 +4,8 @@ import type * as echarts from "echarts";
 type ExternalTransform = Parameters<typeof echarts.registerTransform>[0];
 
 // Not clustering: its k-means starts from Math.random and does not retry, so it splits even
-// well-separated groups wrongly now and then, and differently on each redraw.
+// well-separated groups wrongly now and then, and differently on each redraw. mulmo:clustering
+// (ownTransforms.ts) takes its place.
 const STAT_TRANSFORM_NAMES = ["regression", "histogram"] as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);

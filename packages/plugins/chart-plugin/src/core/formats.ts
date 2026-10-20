@@ -3,6 +3,7 @@
 // with a function before ECharts sees it. Nothing is evaluated: a format is data, read here.
 
 import { echarts } from "./charting";
+import { cellNumber } from "./columnBoxes";
 
 interface FormatCommon {
   /** Wraps the formatted value: `{value}`, plus `{a}` series name, `{b}` item name, `{d}` pie percent where ECharts gives them. */
@@ -106,13 +107,6 @@ function numberFormatter(format: ChartFormat, locale: string | undefined): Intl.
   }
 }
 
-const toNumber = (value: unknown): number | null => {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (typeof value !== "string" || value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
 function formatDate(value: unknown, pattern: string): string {
   if (typeof value !== "number" && typeof value !== "string" && !(value instanceof Date)) return String(value);
   const formatted = echarts.time.format(value, pattern, false);
@@ -128,7 +122,7 @@ export function valueFormatter(format: ChartFormat, locale?: string): FormatValu
   const suffix = format.kind === "number" ? (format.suffix ?? "") : "";
   return (value) => {
     if (value === null || value === undefined) return MISSING_VALUE;
-    const number = toNumber(value);
+    const number = cellNumber(value);
     return number === null || !numbers ? String(value) : `${prefix}${numbers.format(number)}${suffix}`;
   };
 }
@@ -150,7 +144,7 @@ function labelValue(params: FormatterParams): unknown {
   const { value, encode } = params;
   if (!Array.isArray(value)) return isRecord(value) && "value" in value ? value.value : value;
   const indexes = VALUE_DIMENSIONS.flatMap((dimension) => encode?.[dimension] ?? []);
-  const numeric = indexes.map((index) => value[index]).find((cell) => toNumber(cell) !== null);
+  const numeric = indexes.map((index) => value[index]).find((cell) => cellNumber(cell) !== null);
   return numeric ?? value[value.length - 1];
 }
 

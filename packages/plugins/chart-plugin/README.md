@@ -31,9 +31,19 @@ The View registers two of [echarts-stat](https://github.com/ecomfe/echarts-stat)
 transforms, `ecStat:regression` (linear, exponential, logarithmic, polynomial) and
 `ecStat:histogram`. Put one in a second dataset after the source and point a series at it with
 `datasetIndex: 1`; with `source`, the rows fill the first dataset, so the fit and the bins are
-recomputed whenever the sheet changes. `ecStat:clustering` is not registered: its k-means starts
-from random centroids without retrying, so it splits well-separated groups wrongly now and then and
-differently on each redraw.
+recomputed whenever the sheet changes.
+
+Two transforms are the plugin's own (`src/core/ownTransforms.ts`):
+
+- `mulmo:clustering` — k-means over `config.dimensions` with `config.clusterCount`, adding a
+  `Cluster` column. ecStat's clustering is not registered: its k-means starts from random centroids
+  without retrying, so it split well-separated groups wrongly now and then and differently on each
+  redraw. This one seeds k-means++ from a fixed seed, keeps the best of several starts, and numbers
+  clusters in row order, so the same sheet gives the same groups every time.
+- `mulmo:boxplotColumns` — one box per column (ECharts' `boxplot` transform takes each row as a
+  group), with ECharts' quantiles and whiskers (`config.boundIQR`, 1.5 by default, or `"none"`).
+  Its second result holds the outliers; ECharts drops that result's column names, so a series reads
+  it in column order.
 
 ## Number and date formats
 

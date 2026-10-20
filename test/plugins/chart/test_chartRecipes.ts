@@ -112,6 +112,21 @@ const SAMPLE_ROWS: Record<string, ChartSourceRows> = {
     ["2026-01-05", 10, 12, 9, 13],
     ["2026-01-06", 12, 11, 10, 14],
   ],
+  "Week|Store A|Store B": [
+    ["Week", "Store A", "Store B"],
+    ["W1", 10, 30],
+    ["W2", 12, 31],
+    ["W3", 11, 29],
+    ["W4", 13, 90],
+    ["W5", null, 32],
+  ],
+  "Name|Income|Spend": [
+    ["Name", "Income", "Spend"],
+    ["a", 10, 11],
+    ["b", 90, 88],
+    ["c", 12, 9],
+    ["d", 91, 92],
+  ],
   "Date|Revenue": [
     ["Date", "Revenue"],
     ["2026-01-01", 1234567],
@@ -145,6 +160,8 @@ const EXPECTED_SHAPES: Record<string, SeriesShape[]> = {
   "X|Y|Value": [expectedShape("heatmap", ["Value"])],
   "Date|Open|Close|Low|High": [expectedShape("candlestick", ["Open", "Close", "Low", "High"])],
   "Date|Revenue": [expectedShape("bar", ["Revenue"])],
+  "Week|Store A|Store B": [expectedShape("boxplot", ["Low", "Q1", "Median", "Q3", "High"]), expectedShape("scatter", ["y"])],
+  "Name|Income|Spend": [expectedShape("scatter", ["Spend"])],
   "Time|Value": [expectedShape("line", ["Value"])],
 };
 
