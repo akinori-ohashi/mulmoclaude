@@ -26,12 +26,12 @@ export function documentColumns(document: Pick<ChartDocument, "columns"> | undef
 // `columns` is the most cards in a row, not a fixed count: a card narrower than 20rem loses its title
 // under its buttons and its axis labels run together, so a narrow host gets fewer per row, down to
 // one. Each track is the larger of 20rem and 1/N of the row after the gap-4 gaps, never wider than
-// the row. Whole class names, so Tailwind finds them in the source.
+// the row; with fewer charts than N, `auto-fit` lets them share the whole row. Whole class names, so Tailwind finds them in the source.
 const GRID_COLUMN_CLASSES = [
   "grid-cols-1",
-  "grid-cols-[repeat(auto-fill,minmax(min(100%,max(20rem,calc((100%_-_1rem)/2))),1fr))]",
-  "grid-cols-[repeat(auto-fill,minmax(min(100%,max(20rem,calc((100%_-_2rem)/3))),1fr))]",
-  "grid-cols-[repeat(auto-fill,minmax(min(100%,max(20rem,calc((100%_-_3rem)/4))),1fr))]",
+  "grid-cols-[repeat(auto-fit,minmax(min(100%,max(20rem,calc((100%_-_1rem)/2))),1fr))]",
+  "grid-cols-[repeat(auto-fit,minmax(min(100%,max(20rem,calc((100%_-_2rem)/3))),1fr))]",
+  "grid-cols-[repeat(auto-fit,minmax(min(100%,max(20rem,calc((100%_-_3rem)/4))),1fr))]",
 ] as const;
 
 export const gridColumnsClass = (columns: number): string => GRID_COLUMN_CLASSES[Math.min(MAX_COLUMNS, Math.max(1, columns)) - 1] ?? "grid-cols-1";

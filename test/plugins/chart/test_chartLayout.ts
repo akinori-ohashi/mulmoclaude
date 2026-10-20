@@ -50,7 +50,7 @@ describe("documentColumns and gridColumnsClass", () => {
     assert.equal(classes[0], "grid-cols-1");
     classes.slice(1).forEach((name, index) => {
       const columns = index + 2;
-      assert.equal(name, `grid-cols-[repeat(auto-fill,minmax(min(100%,max(20rem,calc((100%_-_${columns - 1}rem)/${columns}))),1fr))]`);
+      assert.equal(name, `grid-cols-[repeat(auto-fit,minmax(min(100%,max(20rem,calc((100%_-_${columns - 1}rem)/${columns}))),1fr))]`);
     });
     assert.equal(gridColumnsClass(0), "grid-cols-1");
     assert.equal(gridColumnsClass(7), classes[3]);
