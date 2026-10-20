@@ -73,12 +73,16 @@ export interface GetUpdatesOptions {
   signal?: AbortSignal | undefined;
 }
 
+export type TelegramChatAction = "typing";
+
 export interface TelegramApi {
   getUpdates(opts?: GetUpdatesOptions): Promise<TelegramUpdate[]>;
   /** Send a message and return its message_id (needed for editMessageText). */
   sendMessage(chatId: number, text: string): Promise<number>;
   /** Edit an existing message in place. Used for streaming text updates. */
   editMessageText(chatId: number, messageId: number, text: string): Promise<void>;
+  /** Show a chat action such as "typing…" until the next message or about 5 s. */
+  sendChatAction(chatId: number, action: TelegramChatAction): Promise<void>;
   /** Download any file by file_id via the Telegram getFile API.
    *  Returns a data URL (`data:<mime>;base64,...`).
    *  Works for photos, documents, audio, etc. */
@@ -150,6 +154,17 @@ export function createTelegramApi(opts: TelegramApiOptions): TelegramApi {
         // editMessageText fails if the text is unchanged (Telegram
         // returns 400 "message is not modified"). Swallow silently.
         return;
+      }
+    },
+
+    async sendChatAction(chatId, action) {
+      const res = await fetchImpl(`${base}/sendChatAction`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, action }),
+      });
+      if (!res.ok) {
+        throw new Error(`sendChatAction failed: ${res.status} ${await safeText(res)}`);
       }
     },
 

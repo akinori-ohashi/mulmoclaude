@@ -129,3 +129,24 @@ describe("TelegramApi.sendMessage", () => {
     await assert.rejects(api.sendMessage(1, "x"), /chat not found/);
   });
 });
+
+describe("TelegramApi.sendChatAction", () => {
+  it("POSTs chat_id and the action", async () => {
+    const captured: { url: string; body: string } = { url: "", body: "" };
+    const fetchImpl: typeof fetch = async (input, init) => {
+      captured.url = String(input);
+      captured.body = String(init?.body);
+      return jsonResponse({ ok: true, result: true });
+    };
+    const api = createTelegramApi({ botToken: "TKN", fetchImpl });
+    await api.sendChatAction(123, "typing");
+    assert.ok(captured.url.endsWith("/botTKN/sendChatAction"));
+    assert.deepEqual(JSON.parse(captured.body), { chat_id: 123, action: "typing" });
+  });
+
+  it("throws with the status and body on a non-2xx answer", async () => {
+    const fetchImpl: typeof fetch = async () => new Response('{"ok":false,"description":"Forbidden: bot was blocked by the user"}', { status: 403 });
+    const api = createTelegramApi({ botToken: "TKN", fetchImpl });
+    await assert.rejects(api.sendChatAction(1, "typing"), /sendChatAction failed: 403 .*blocked/);
+  });
+});
