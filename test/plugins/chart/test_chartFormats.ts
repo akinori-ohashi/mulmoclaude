@@ -143,6 +143,17 @@ describe("withFormatters", () => {
     assert.equal(call(formatter, { value: { value: 9000, name: "a" } }), "9,000");
   });
 
+  it("labels a horizontal bar's measure, not its category, when the categories are numbers", () => {
+    const label = { formatter: { kind: "number" } };
+    const encode = { x: [1], y: [0] };
+    const horizontal = withFormatters({ xAxis: { type: "value" }, yAxis: { type: "category" }, series: [{ type: "bar", label }] }, LOCALE);
+    assert.equal(call(formatterAt(horizontal, "series", 0, "label", "formatter"), { value: [2020, 1234], encode }), "1,234");
+    const byData = withFormatters({ xAxis: {}, yAxis: [{}, { data: [2020] }], series: { type: "bar", yAxisIndex: 1, label } }, LOCALE);
+    assert.equal(call(formatterAt(byData, "series", "label", "formatter"), { value: [2020, 1234], encode }), "1,234", "an axis with data is a category axis");
+    const vertical = withFormatters({ xAxis: { type: "category" }, yAxis: { type: "value" }, series: [{ type: "bar", label }] }, LOCALE);
+    assert.equal(call(formatterAt(vertical, "series", 0, "label", "formatter"), { value: [2020, 1234], encode: { x: [0], y: [1] } }), "1,234");
+  });
+
   it("fills a label template with the series name, item name and pie percent", () => {
     const format = { kind: "number", template: "{a} / {b}: {value} ({d}%)" };
     const option = withFormatters({ series: [{ type: "pie", label: { formatter: format } }] }, LOCALE);

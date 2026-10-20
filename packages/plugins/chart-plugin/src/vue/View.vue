@@ -241,6 +241,12 @@ watch(
   () => showDocument(),
 );
 
+// Format functions hold an Intl formatter built for one locale, so a new locale needs new ones.
+watch(
+  () => runtime?.locale.value,
+  () => renderAll(),
+);
+
 function exportPng(idx: number, chartTitle?: string): void {
   const instance = instances[idx];
   if (!instance) return;
