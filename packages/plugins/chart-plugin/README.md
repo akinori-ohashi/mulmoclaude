@@ -76,6 +76,22 @@ percent). It works on an axis label or axis-pointer label, the tooltip's or a se
 or a malformed one, is refused with its place named. Numbers are written in the host's locale.
 Colour or size by value needs no function: use `visualMap`.
 
+## Maps, 3D and word clouds
+
+Loaded only when a chart uses them (`src/core/extensions.ts`), because they are large:
+
+- **Maps** — `world` and `japan` (prefectures) ship with the plugin, from Natural Earth (public
+  domain; see `src/maps/README.md`). `world-ja` / `japan-ja` are the same shapes named in
+  Japanese (東京都, アメリカ合衆国), so a sheet's Japanese names find their regions. Use them as
+  `series[].map` or `geo.map`.
+- **3D** — echarts-gl (`scatter3D`, `bar3D`, `surface`, `line3D`, `grid3D`, `globe`, …).
+- **Word clouds** — echarts-wordcloud (`type: "wordCloud"`).
+
+echarts-gl and echarts-wordcloud are dependencies but external to the build, like `echarts`, so
+the host bundles one ECharts they both register with. The server's trial draw loads the maps
+first; a 3D or word-cloud chart needs WebGL or a canvas, so on the server only its formats are
+checked, and its card has no SVG export.
+
 ## Height and columns
 
 A chart entry may set `height` in pixels (kept between 160 and 1200; 400 when left out), and the

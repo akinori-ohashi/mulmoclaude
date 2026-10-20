@@ -185,6 +185,15 @@ export const CHART_RECIPES: readonly ChartRecipe[] = [
     },
   },
   {
+    use: "map of regions (bundled maps: world and japan with English names, world-ja and japan-ja with Japanese names such as 東京都; others are not available)",
+    header: ["Prefecture", "Sales"],
+    option: {
+      tooltip: { trigger: "item" },
+      visualMap: { min: 0, max: 100, left: "right", calculable: true },
+      series: [{ type: "map", map: "japan", encode: { itemName: "Prefecture", value: "Sales" } }],
+    },
+  },
+  {
     use: "candlestick (the order is open, close, low, high)",
     header: ["Date", "Open", "Close", "Low", "High"],
     option: {

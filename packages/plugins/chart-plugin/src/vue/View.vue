@@ -23,7 +23,12 @@
             <button :class="[EXPORT_BUTTON_CLASS, palette.button]" :data-testid="`chart-export-png-${idx}`" @click="exportPng(idx, chart.title)">
               {{ t.png }}
             </button>
-            <button :class="[EXPORT_BUTTON_CLASS, palette.button]" :data-testid="`chart-export-svg-${idx}`" @click="exportSvg(idx, chart.title)">
+            <button
+              v-if="svgExportable(chart)"
+              :class="[EXPORT_BUTTON_CLASS, palette.button]"
+              :data-testid="`chart-export-svg-${idx}`"
+              @click="exportSvg(idx, chart.title)"
+            >
               {{ t.svg }}
             </button>
             <button
@@ -72,6 +77,7 @@ import { chartOption, chartSources, readSourceReply, settleWithin, sourceSpreads
 import { useT } from "../lang";
 import { chartCsvRows, fileSlug, toCsv } from "../core/exportData";
 import { CARD_CLASSES, EXPORT_BACKGROUND, useHostAppearance } from "./appearance";
+import { loadBrowserExtensions, neededExtensions, needsBrowser } from "../core/extensions";
 
 const t = useT();
 
@@ -152,7 +158,7 @@ function disableWheelZoom(option: Record<string, unknown>): Record<string, unkno
   return { ...option, dataZoom: next };
 }
 
-// renderAll is queued (queueMicrotask) and can run after the View is gone; a
+// renderAll is queued (after the extensions load) and can run after the View is gone; a
 // chart created then would stay alive and observed with nothing to dispose it.
 const lifecycle = { unmounted: false };
 
@@ -246,6 +252,8 @@ async function loadSources(): Promise<void> {
   sourceProblems.value = results.map((result) =>
     result.status === "rejected" ? String(result.reason instanceof Error ? result.reason.message : result.reason) : undefined,
   );
+  await extensions.ready;
+  if (generation !== loadGeneration) return;
   renderAll();
 }
 
@@ -271,9 +279,22 @@ function showDocument(): void {
   sourceRows.value = [];
   sourceProblems.value = [];
   followSources();
-  // Wait a tick so the refs are populated before we render.
-  queueMicrotask(renderAll);
+  extensions.ready = loadExtensions();
+  // Waits at least a tick, so the refs are populated before we render.
+  void extensions.ready.then(renderAll);
   if (charts.value.some((chart) => chartSources(chart).length > 0)) void loadSources();
+}
+
+// Maps, 3D and word clouds load before the charts that use them are drawn. A load that fails
+// leaves the chart to say why it could not be drawn.
+const extensions: { ready: Promise<void> } = { ready: Promise.resolve() };
+
+async function loadExtensions(): Promise<void> {
+  try {
+    await loadBrowserExtensions(charts.value.map((chart) => neededExtensions(chart.option)));
+  } catch {
+    // Reported per chart by the draw that follows.
+  }
 }
 
 onMounted(() => {
@@ -321,6 +342,9 @@ function exportPng(idx: number, chartTitle?: string): void {
   const dataUrl = instance.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: EXPORT_BACKGROUND[appearance.value] });
   download(dataUrl, exportName(idx, chartTitle, "png"));
 }
+
+// 3D needs WebGL and the word cloud a canvas, neither of which the SVG renderer has.
+const svgExportable = (chart: ChartEntry): boolean => !needsBrowser(neededExtensions(chart.option));
 
 /** Drawn again off screen with the SVG renderer at the card's size: the card draws on a canvas. */
 function exportSvg(idx: number, chartTitle?: string): void {
