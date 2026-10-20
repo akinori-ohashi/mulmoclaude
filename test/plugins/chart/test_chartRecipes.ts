@@ -142,6 +142,7 @@ interface DrawnSeries {
   /** Each item's top after stacking, when the series is stacked. */
   stackTops: unknown[] | null;
   yAxisIndex: unknown;
+  calendars: number;
   /** What the series is, read back from ECharts: its type, the columns its values come from, its stack. */
   shape: SeriesShape;
 }
@@ -195,10 +196,15 @@ function stackTops(data: unknown, count: number): unknown[] | null {
   return itemsOn(data, [dimension], count).map(([top]) => top);
 }
 
-function yAxisIndexOf(series: unknown): unknown {
-  const referring = callMethod(series, "getReferringComponents", "yAxis", { useDefault: true });
+function referredModels(series: unknown, mainType: string): unknown[] {
+  const referring = callMethod(series, "getReferringComponents", mainType, { useDefault: true });
   assert.ok(typeof referring === "object" && referring !== null);
   const models: unknown = Reflect.get(referring, "models");
+  return Array.isArray(models) ? models : [];
+}
+
+function yAxisIndexOf(series: unknown): unknown {
+  const models = referredModels(series, "yAxis");
   if (!Array.isArray(models) || models.length === 0) return null;
   const [axis]: unknown[] = models;
   assert.ok(typeof axis === "object" && axis !== null);
@@ -223,7 +229,8 @@ function drawnSeries(chart: echarts.ECharts): DrawnSeries[] {
     const values = { x: valuesOn(data, "x", count), y: valuesOn(data, "y", count), value: valuesOn(data, "value", count) };
     const type = Reflect.get(Object(series), "subType");
     const shape = { type, columns: valueColumns(data, type), stack: callMethod(series, "get", "stack") };
-    return { count, values, stackTops: stackTops(data, count), yAxisIndex: yAxisIndexOf(series), shape };
+    const calendars = referredModels(series, "calendar").length;
+    return { count, values, stackTops: stackTops(data, count), yAxisIndex: yAxisIndexOf(series), calendars, shape };
   });
 }
 
@@ -256,33 +263,33 @@ describe("presentChart recipes", () => {
       assert.deepEqual(drawn.warnings, []);
       assert.ok(drawn.series.length > 0, "no series");
       drawn.series.forEach(({ count }, index) => assert.ok(count > 0, `series ${index} is empty`));
+      assert.deepEqual(
+        drawn.series.map(({ shape }) => shape.type),
+        recipeSeries(recipe).map((series) => series.type),
+      );
     });
   }
 
   it("boxplot reads one box per row, in the order min, Q1, median, Q3, max", () => {
-    const recipe = CHART_RECIPES.find((candidate) => candidate.use.startsWith("boxplot"));
-    assert.ok(recipe);
+    const recipe = recipeNamed("boxplot");
     const boxes = drawRecipe(recipe).series[0]?.values.y ?? [];
     assert.equal(boxes.length, 2);
     assert.deepEqual(boxes[0], [1, 2, 3, 4, 10]);
   });
 
   it("candlestick reads open, close, low, high", () => {
-    const recipe = CHART_RECIPES.find((candidate) => candidate.use.startsWith("candlestick"));
-    assert.ok(recipe);
+    const recipe = recipeNamed("candlestick");
     assert.deepEqual(drawRecipe(recipe).series[0]?.values.y[0], [10, 12, 9, 13]);
   });
 
   it("waterfall stacks each step on the total before it, decreases included", () => {
-    const recipe = CHART_RECIPES.find((candidate) => candidate.use.startsWith("waterfall"));
-    assert.ok(recipe);
+    const recipe = recipeNamed("waterfall");
     const lastSeries = drawRecipe(recipe).series.at(-1);
     assert.deepEqual(lastSeries?.stackTops, [100, 140, 140, 110]);
   });
 
   it("heatmap colours each cell by the Value column", () => {
-    const recipe = CHART_RECIPES.find((candidate) => candidate.use.startsWith("heatmap"));
-    assert.ok(recipe);
+    const recipe = recipeNamed("heatmap");
     assert.deepEqual(drawRecipe(recipe).series[0]?.values.value, [[0.8], [0.8], [1]]);
   });
 
@@ -310,10 +317,55 @@ describe("presentChart recipes", () => {
     });
   }
 
+  // An inline recipe's numbers are an example the agent replaces; what must hold whatever the
+  // numbers are is checked here.
+  for (const recipe of CHART_RECIPES.filter((candidate) => !candidate.header)) {
+    it(`names its series type in its use: ${recipe.use}`, () => {
+      recipeSeries(recipe).forEach((series) => assert.ok(typeof series.type === "string" && recipe.use.includes(series.type), String(series.type)));
+    });
+  }
+
+  it("calendar heatmap is drawn on the calendar", () => {
+    const drawn = drawRecipe(recipeNamed("calendar heatmap"));
+    assert.equal(drawn.series[0]?.calendars, 1);
+  });
+
+  it("radar gives each entry one value per indicator", () => {
+    const { radar } = recipeNamed("radar").option;
+    const indicators = isRecordValue(radar) && Array.isArray(radar.indicator) ? radar.indicator.length : 0;
+    assert.ok(indicators > 0);
+    recipeData(recipeNamed("radar")).forEach((entry) => assert.equal(isRecordValue(entry) && Array.isArray(entry.value) ? entry.value.length : -1, indicators));
+  });
+
+  it("parallel gives each row one value per axis", () => {
+    const { parallelAxis } = recipeNamed("parallel coordinates").option;
+    assert.ok(Array.isArray(parallelAxis));
+    recipeData(recipeNamed("parallel coordinates")).forEach((row) => assert.equal(Array.isArray(row) ? row.length : -1, parallelAxis.length));
+  });
+
+  it("sankey links only nodes it declares", () => {
+    const [sankey] = recipeSeries(recipeNamed("sankey"));
+    const names = recipeData(recipeNamed("sankey")).map((node) => (isRecordValue(node) ? node.name : undefined));
+    const links = sankey && Array.isArray(sankey.links) ? sankey.links : [];
+    assert.ok(links.length > 0);
+    links.forEach((link) => {
+      assert.ok(isRecordValue(link));
+      assert.ok(names.includes(link.source) && names.includes(link.target), JSON.stringify(link));
+    });
+  });
+
+  it("the shaded span starts and ends on categories of the sample", () => {
+    const recipe = recipeNamed("average line");
+    const [series] = recipeSeries(recipe);
+    const area = series && isRecordValue(series.markArea) && Array.isArray(series.markArea.data) ? series.markArea.data : [];
+    const months = (sampleRows(recipe) ?? []).slice(1).map(([month]) => month);
+    const ends = area.flat().map((end) => (isRecordValue(end) ? end.xAxis : undefined));
+    assert.ok(ends.length === 2 && ends.every((end) => months.includes(end)), JSON.stringify(ends));
+  });
+
   it("waterfall draws its base transparent", () => {
-    const recipe = CHART_RECIPES.find((candidate) => candidate.use.startsWith("waterfall"));
-    assert.ok(recipe);
-    const [base] = Array.isArray(recipe.option.series) ? recipe.option.series : [];
+    const recipe = recipeNamed("waterfall");
+    const [base] = recipeSeries(recipe);
     assert.deepEqual(base, { type: "bar", stack: "w", itemStyle: { color: "transparent" } });
   });
 
@@ -343,6 +395,27 @@ describe("presentChart recipes", () => {
     });
   }
 });
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function recipeNamed(prefix: string): ChartRecipe {
+  const recipe = CHART_RECIPES.find((candidate) => candidate.use.startsWith(prefix));
+  assert.ok(recipe, prefix);
+  return recipe;
+}
+
+function recipeSeries(recipe: ChartRecipe): Record<string, unknown>[] {
+  const { series } = recipe.option;
+  return Array.isArray(series) ? series.filter(isRecordValue) : [];
+}
+
+/** The first series' inline data. */
+function recipeData(recipe: ChartRecipe): unknown[] {
+  const [first] = recipeSeries(recipe);
+  return first && Array.isArray(first.data) ? first.data : [];
+}
 
 interface EncodedSeries {
   index: number;
