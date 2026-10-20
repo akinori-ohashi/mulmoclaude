@@ -336,7 +336,8 @@ function download(href: string, filename: string): void {
 function downloadText(text: string, type: string, filename: string): void {
   const url = URL.createObjectURL(new Blob([text], { type }));
   download(url, filename);
-  URL.revokeObjectURL(url);
+  // The download reads the URL after click() returns; revoking it at once can leave the file empty.
+  setTimeout(() => URL.revokeObjectURL(url));
 }
 
 const exportName = (idx: number, chartTitle: string | undefined, extension: string): string =>
