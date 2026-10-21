@@ -8,6 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [2.8.1] - 2026-10-22
+
+**Plugin file access can no longer follow a symlink out of its folder, and LINE groups and rooms become one
+conversation.**
+
 ### Added
 
 #### LINE: groups and rooms are one conversation, answered when the bot is mentioned (#3567, PR #3569)
@@ -28,6 +33,8 @@ spreadsheets, runtime plugins' `files.artifacts`) and each runtime plugin's own 
 against `..` only, so a symlink placed inside could read or write outside. Every one of them now checks the real
 location: a read through such a link reads as a missing file, a write is refused, and deleting a link removes the link
 rather than its target. A symlinked workspace folder itself keeps working.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.8.0] - 2026-10-22
 
