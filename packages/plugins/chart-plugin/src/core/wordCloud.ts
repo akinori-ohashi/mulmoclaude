@@ -38,10 +38,16 @@ export function cloudStyle(series: Record<string, unknown>): CloudStyle {
   };
 }
 
+/** A word's value: a finite number, or a string holding one; otherwise null. */
+function wordAmount(value: unknown): number | null {
+  const amount = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof amount === "number" && Number.isFinite(amount) ? amount : null;
+}
+
 function cloudWord(name: unknown, value: unknown): CloudWord | null {
   const text = typeof name === "string" || typeof name === "number" ? String(name).trim() : "";
-  const amount = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
-  return text !== "" && typeof amount === "number" && Number.isFinite(amount) ? { name: text, value: amount } : null;
+  const amount = wordAmount(value);
+  return text !== "" && amount !== null ? { name: text, value: amount } : null;
 }
 
 /** A data item as `{ name, value }` or `[name, value]`. */
@@ -60,13 +66,13 @@ function columnOf(dimension: unknown, header: unknown[] | null, fallback: number
   return fallback;
 }
 
-/** The rows of the series' dataset and whether the first is a header (said so, or not a number where the value goes). */
+/** The rows of the series' dataset, and whether the first is a header: said so, or no number where the value goes. */
 function datasetTable(option: Record<string, unknown>, series: Record<string, unknown>): { header: unknown[] | null; body: unknown[][] } {
   const dataset = asList(option.dataset)[typeof series.datasetIndex === "number" ? series.datasetIndex : 0];
   if (!isRecord(dataset) || !Array.isArray(dataset.source)) return { header: null, body: [] };
   const rows = dataset.source.filter((row): row is unknown[] => Array.isArray(row));
   const [first, ...rest] = rows;
-  const firstIsHeader = dataset.sourceHeader === true || (dataset.sourceHeader === undefined && first !== undefined && typeof first[1] !== "number");
+  const firstIsHeader = dataset.sourceHeader === true || (dataset.sourceHeader === undefined && first !== undefined && wordAmount(first[1]) === null);
   return firstIsHeader ? { header: first ?? null, body: rest } : { header: null, body: rows };
 }
 
@@ -120,27 +126,23 @@ const textStyleOf = (series: Record<string, unknown>): Record<string, unknown> =
   return Object.fromEntries(["fontFamily", "fontWeight"].flatMap((key) => (typeof textStyle[key] === "string" ? [[key, textStyle[key]]] : [])));
 };
 
+/** One placed word as an ECharts text element. */
+function wordText(word: PlacedWord, text: string, fonts: Record<string, unknown>, color: unknown): CustomSeriesRenderItemReturn {
+  return {
+    type: "text",
+    x: word.x,
+    y: word.y,
+    rotation: word.rotationDeg * DEGREES_TO_RAD,
+    style: { ...fonts, text, fontSize: word.fontSize, ...(typeof color === "string" ? { fill: color } : {}), align: "center", verticalAlign: "middle" },
+  };
+}
+
 function renderWords(words: CloudWord[], style: CloudStyle, series: Record<string, unknown>): CustomSeriesRenderItem {
   const fonts = textStyleOf(series);
   const layoutFor = layoutsBySize(words, style, textMeasure(fonts));
   return (params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI): CustomSeriesRenderItemReturn => {
     const word = layoutFor(api.getWidth(), api.getHeight()).get(params.dataIndex);
-    if (!word) return null;
-    const color = api.visual("color");
-    return {
-      type: "text",
-      x: word.x,
-      y: word.y,
-      rotation: word.rotationDeg * DEGREES_TO_RAD,
-      style: {
-        ...fonts,
-        text: words[params.dataIndex]?.name ?? "",
-        fontSize: word.fontSize,
-        ...(typeof color === "string" ? { fill: color } : {}),
-        align: "center",
-        verticalAlign: "middle",
-      },
-    };
+    return word ? wordText(word, words[params.dataIndex]?.name ?? "", fonts, api.visual("color")) : null;
   };
 }
 
@@ -167,4 +169,12 @@ export function withWordClouds(option: Record<string, unknown>): Record<string, 
   if (!asList(series).some(isWordCloud)) return option;
   const drawn = (entry: unknown): unknown => (isWordCloud(entry) ? cloudSeries(option, entry) : entry);
   return { ...option, series: Array.isArray(series) ? series.map(drawn) : drawn(series) };
+}
+
+/** Why the option's word clouds cannot be drawn, or null. A timeline writes a series' type in
+ *  `baseOption` and its data in each of `options`, which this rewrite does not merge. */
+export function wordCloudProblem(option: Record<string, unknown>): string | null {
+  const timelineParts = [...asList(option.baseOption), ...asList(option.options)].filter(isRecord);
+  const nested = timelineParts.some((part) => asList(part.series).some(isWordCloud));
+  return nested ? "A wordCloud series works only in the option's own series, not inside a timeline's baseOption or options" : null;
 }

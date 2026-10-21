@@ -13,7 +13,7 @@ import {
   type CloudWord,
   type PlacedWord,
 } from "../../../packages/plugins/chart-plugin/src/core/wordCloudLayout";
-import { cloudStyle, cloudWords, withWordClouds } from "../../../packages/plugins/chart-plugin/src/core/wordCloud";
+import { cloudStyle, cloudWords, withWordClouds, wordCloudProblem } from "../../../packages/plugins/chart-plugin/src/core/wordCloud";
 import { echarts } from "../../../packages/plugins/chart-plugin/src/core/charting";
 import { executeChart } from "../../../packages/plugins/chart-plugin/src/core/plugin";
 import { seededRandom } from "../../../packages/plugins/chart-plugin/src/core/random";
@@ -226,6 +226,16 @@ describe("cloudWords", () => {
     ]);
     assert.deepEqual(cloudWords({ dataset: bare }, { data: [{ name: "own", value: 1 }] }), [{ name: "own", value: 1 }]);
     assert.deepEqual(cloudWords({ dataset: "nope" }, {}), []);
+    const textNumbers = {
+      source: [
+        ["sales", "2"],
+        ["cost", "1"],
+      ],
+    };
+    assert.deepEqual(cloudWords({ dataset: textNumbers }, {}), [
+      { name: "sales", value: 2 },
+      { name: "cost", value: 1 },
+    ]);
   });
 
   it("keeps the largest words, in their order, past the limit", () => {
@@ -271,10 +281,31 @@ describe("withWordClouds", () => {
   });
 });
 
+describe("wordCloudProblem", () => {
+  it("is null for a word cloud in the option's own series, or none at all", () => {
+    assert.equal(wordCloudProblem({ series: [{ type: "wordCloud" }] }), null);
+    assert.equal(wordCloudProblem({ baseOption: { series: [{ type: "bar" }] }, options: [{ series: [{ data: [1] }] }] }), null);
+  });
+
+  it("names a word cloud inside a timeline", () => {
+    assert.match(wordCloudProblem({ baseOption: { series: [{ type: "wordCloud" }] }, options: [{ series: [{ data: [] }] }] }) ?? "", /timeline/);
+    assert.match(wordCloudProblem({ options: [{ series: { type: "wordCloud" } }] }) ?? "", /timeline/);
+  });
+});
+
 describe("executeChart with a word cloud", () => {
   it("saves a word cloud after drawing it on the server", async () => {
     const wordCloud = { option: { series: [{ type: "wordCloud", data: [{ name: "a", value: 3 }] }] } };
     const result = await executeChart({ files: { artifacts: memoryArtifacts() } }, { document: { charts: [wordCloud] } });
     assert.ok(result.data, result.message);
+  });
+
+  it("refuses a word cloud inside a timeline, saying why", async () => {
+    const timeline = {
+      option: { baseOption: { timeline: {}, series: [{ type: "wordCloud" }] }, options: [{ series: [{ data: [{ name: "a", value: 1 }] }] }] },
+    };
+    const refused = await executeChart({ files: { artifacts: memoryArtifacts() } }, { document: { charts: [timeline] } });
+    assert.equal(refused.data, undefined);
+    assert.match(refused.message ?? "", /timeline/);
   });
 });

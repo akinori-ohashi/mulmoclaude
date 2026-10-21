@@ -104,7 +104,8 @@ first on a spiral from the centre; one that fits nowhere is left out. A word wit
 hangul stays level whatever its angle. In the browser each word is measured in its font; the
 server's trial draw, which has no fonts, estimates widths on the wide side. Each word takes the
 next palette colour. A word cloud is an ordinary chart otherwise: drawn on the server's trial
-draw, exported as SVG.
+draw, exported as SVG. A word cloud inside a timeline (`baseOption` / `options`) is refused with that
+reason.
 
 ## Height and columns
 

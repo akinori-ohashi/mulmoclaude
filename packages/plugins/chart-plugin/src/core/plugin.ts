@@ -3,7 +3,7 @@ import { TOOL_NAME, TOOL_DEFINITION } from "./definition";
 import { chartArtifactPath } from "./paths";
 import { trialDrawProblem } from "./drawProblem";
 import { formatProblem, withFormatters } from "./formats";
-import { withWordClouds } from "./wordCloud";
+import { withWordClouds, wordCloudProblem } from "./wordCloud";
 import { chartHeightPx } from "./layout";
 import { loadMaps, needsBrowser, neededExtensions } from "./extensions";
 import { chartOption, chartSources, isChartSource, isReadSourceArgs } from "./source";
@@ -158,7 +158,7 @@ async function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRo
   await loadMaps(extensions.flatMap(({ maps }) => maps));
   const problems = document.charts.flatMap((chart, index) => {
     const browserOnly = needsBrowser(extensions[index] ?? neededExtensions(chart.option));
-    const problem = formatProblem(chart.option) ?? (browserOnly ? null : chartDrawProblem(chart, rows[index]));
+    const problem = formatProblem(chart.option) ?? wordCloudProblem(chart.option) ?? (browserOnly ? null : chartDrawProblem(chart, rows[index]));
     return problem ? [`Chart ${index + 1}${chart.title ? ` (${chart.title})` : ""} could not be drawn: ${problem}`] : [];
   });
   return problems.length > 0 ? problems.join("\n") : null;
