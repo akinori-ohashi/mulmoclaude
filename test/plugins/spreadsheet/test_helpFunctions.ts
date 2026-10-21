@@ -16,7 +16,7 @@ const HELP_PATH = path.join(repoRoot, "packages/core/assets/helps/spreadsheet.md
 // whole text is scanned rather than just the formulas in it, so a prose word
 // written directly before "(" fails the check too — deliberately, as a false
 // alarm is cheaper than a missed call.
-const FUNCTION_CALL = /\b([A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z0-9]+)*)\(/g;
+const FUNCTION_CALL = /\b([A-Za-z][A-Za-z0-9.]*)\(/g;
 
 // A Windows checkout gives the help CRLF line endings.
 const readHelp = (): string => readFileSync(HELP_PATH, "utf8").replaceAll("\r\n", "\n");
