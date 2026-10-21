@@ -1,6 +1,6 @@
 // Pure parsing helpers for the LINE bridge webhook.
 
-import { mentionsBot, stripSelfMentions } from "./mention.js";
+import { selfMentionRanges, stripMentionRanges } from "./mention.js";
 
 export interface LineMessage {
   type: string;
@@ -60,6 +60,15 @@ export function resolveLineChat(source: LineEventSource | undefined): LineChat |
   return nonEmpty(source?.userId) ? { chatId: source.userId, chatType: "user" } : null;
 }
 
+/** Text to relay and whether the bot was mentioned. Mentions are read only in groups /
+ *  rooms: a one-on-one message is passed on verbatim, whatever it carries. */
+function readText(chat: LineChat, message: LineMessage): { text: string; mentionsBot: boolean } {
+  const raw = message.text ?? "";
+  if (chat.chatType === "user") return { text: raw, mentionsBot: false };
+  const ranges = selfMentionRanges(raw, message.mention);
+  return ranges.length > 0 ? { text: stripMentionRanges(raw, ranges), mentionsBot: true } : { text: raw, mentionsBot: false };
+}
+
 /**
  * Reduce a LINE webhook event to the actionable shape. Returns null
  * for non-actionable events (non-message types, missing fields,
@@ -71,14 +80,13 @@ export function extractIncomingLineMessage(event: LineEvent): IncomingLineMessag
   if (!chat) return null;
   const { message } = event;
   if (!message) return null;
-  const mentioned = { ...chat, mentionsBot: mentionsBot(message.mention) };
   if (message.type === "text") {
-    const text = stripSelfMentions(message.text ?? "", message.mention);
+    const { text, mentionsBot } = readText(chat, message);
     if (!text.trim()) return null;
-    return { ...mentioned, kind: "text", text };
+    return { ...chat, mentionsBot, kind: "text", text };
   }
   if (message.type === "image" && typeof message.id === "string" && message.id.length > 0) {
-    return { ...mentioned, kind: "image", imageMessageId: message.id };
+    return { ...chat, mentionsBot: false, kind: "image", imageMessageId: message.id };
   }
   return null;
 }
@@ -87,8 +95,13 @@ const isOptionalString = (value: unknown): boolean => value === undefined || typ
 
 function isLineEventSource(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
-  const fields: (keyof LineEventSource)[] = ["type", "userId", "groupId", "roomId"];
-  return fields.every((field) => !(field in value) || isOptionalString(Reflect.get(value, field)));
+  if ("userId" in value && !isOptionalString(value.userId)) return false;
+  if (!("type" in value)) return true;
+  if (!isOptionalString(value.type)) return false;
+  // Only the id the source type uses is checked: an unrelated extra field must not drop an event.
+  if (value.type === "group") return !("groupId" in value) || isOptionalString(value.groupId);
+  if (value.type === "room") return !("roomId" in value) || isOptionalString(value.roomId);
+  return true;
 }
 
 function isLineMessage(value: unknown): boolean {

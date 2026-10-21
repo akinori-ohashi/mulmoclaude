@@ -18,11 +18,12 @@
 
 import "dotenv/config";
 import type { Request, Response } from "express";
-import { createBridgeClient, chunkText, formatAckReply, installProcessGuards, replyAfterProcessingIndicator } from "@mulmobridge/client";
+import { createBridgeClient, chunkText, installProcessGuards } from "@mulmobridge/client";
 import { createWebhookApp, createWebhookRateLimit, verifyHmacSignature, listenWebhook } from "@mulmobridge/webhook-runtime";
-import { extractIncomingLineMessage, parseLineWebhookBody, type IncomingLineMessage } from "./parse.js";
-import { LINE_LOADING_REFRESH_MS, loadingSenderFor, startLineLoading } from "./loading.js";
-import { parseRequireMention, shouldRespond } from "./groupGate.js";
+import { parseLineWebhookBody } from "./parse.js";
+import { LINE_LOADING_REFRESH_MS, startLineLoading } from "./loading.js";
+import { parseRequireMention } from "./groupGate.js";
+import { deliverLineEvent, type LineDeliveryDeps, type LineImage } from "./deliver.js";
 
 const TRANSPORT_ID = "line";
 
@@ -64,7 +65,7 @@ client.onPush((pushEvent) => {
  *  the bytes + Content-Type so the caller can build an Attachment
  *  envelope for the chat-service socket. Returns null when the
  *  fetch fails (network error, 4xx, …) — caller logs and skips. */
-async function downloadLineImage(messageId: string): Promise<{ bytes: Buffer; mimeType: string } | null> {
+async function downloadLineImage(messageId: string): Promise<LineImage | null> {
   try {
     const res = await fetch(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`, {
       headers: { Authorization: `Bearer ${channelAccessToken}` },
@@ -119,6 +120,16 @@ async function pushMessage(chatId: string, text: string): Promise<void> {
   }
 }
 
+const deliveryDeps: LineDeliveryDeps = {
+  requireMention,
+  send: (chatId, text, attachments) => client.send(chatId, text, attachments),
+  push: pushMessage,
+  startLoading: (chatId) => startLineLoading(fetch, channelAccessToken, chatId),
+  downloadImage: downloadLineImage,
+  indicator: { refreshMs: LINE_LOADING_REFRESH_MS, label: TRANSPORT_ID, log: console },
+  log: console,
+};
+
 // ── Webhook server ──────────────────────────────────────────────
 
 const app = createWebhookApp();
@@ -142,42 +153,9 @@ app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
   }
 
   for (const event of body.events) {
-    const incoming = extractIncomingLineMessage(event);
-    if (!incoming || !shouldRespond(incoming, requireMention)) continue;
-    const sendLoading = loadingSenderFor(event.source, () => startLineLoading(fetch, channelAccessToken, incoming.chatId));
-
-    try {
-      await replyAfterProcessingIndicator(
-        sendLoading,
-        { produce: () => produceReply(incoming), post: (replyText) => pushMessage(incoming.chatId, replyText) },
-        { refreshMs: LINE_LOADING_REFRESH_MS, label: TRANSPORT_ID, log: console },
-      );
-    } catch (err) {
-      console.error(`[line] message handling failed: ${err}`);
-    }
+    await deliverLineEvent(event, deliveryDeps);
   }
 });
-
-async function produceReply(incoming: IncomingLineMessage): Promise<string> {
-  if (incoming.kind === "text") {
-    console.log(`[line] message ${incoming.chatType}=${incoming.chatId} len=${incoming.text.length}`);
-    return formatAckReply(await client.send(incoming.chatId, incoming.text));
-  }
-  console.log(`[line] image ${incoming.chatType}=${incoming.chatId} messageId=${incoming.imageMessageId}`);
-  const image = await downloadLineImage(incoming.imageMessageId);
-  if (!image) return "Sorry, I couldn't fetch that image.";
-  // chat-service's `parseMessagePayload` rejects empty `text`
-  // (`text is required`) so attachment-only messages need a
-  // placeholder body. Mirror the Telegram convention (see
-  // `packages/bridges/telegram/src/router.ts`) — an instructive
-  // prompt rather than a caption, so the agent treats the
-  // attachment as the subject and produces a useful response.
-  // The post-save EXIF hook (#1222 PR-A) writes a sidecar if
-  // GPS data is present. (Codex review on PR #1255 / #1263.)
-  const attachments = [{ mimeType: image.mimeType, data: image.bytes.toString("base64") }];
-  const placeholderText = "Describe / analyze this file.";
-  return formatAckReply(await client.send(incoming.chatId, placeholderText, attachments));
-}
 
 listenWebhook(app, { envVar: "LINE_BRIDGE_PORT", fallback: 3002 }, (port) => {
   console.log("MulmoClaude LINE bridge");

@@ -1,69 +1,60 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsBot, selfMentionees, stripSelfMentions } from "../src/mention.js";
+import { selfMentionRanges, stripMentionRanges } from "../src/mention.js";
 
 const self = (index: number, length: number) => ({ index, length, type: "user", isSelf: true });
 const other = (index: number, length: number) => ({ index, length, type: "user", userId: "U9", isSelf: false });
+const strip = (text: string, mention: unknown): string => stripMentionRanges(text, selfMentionRanges(text, mention));
 
-describe("mentionsBot", () => {
-  it("is true when any mentionee is the bot", () => {
-    assert.equal(mentionsBot({ mentionees: [other(0, 3), self(4, 4)] }), true);
+describe("selfMentionRanges", () => {
+  it("returns only the bot's own mentions", () => {
+    assert.deepEqual(selfMentionRanges("@bob @bot hi", { mentionees: [other(0, 4), self(5, 4)] }), [{ index: 5, length: 4 }]);
   });
 
-  it("is false for other users, @All, and a missing isSelf", () => {
-    assert.equal(mentionsBot({ mentionees: [other(0, 3)] }), false);
-    assert.equal(mentionsBot({ mentionees: [{ index: 0, length: 4, type: "all" }] }), false);
-    assert.equal(mentionsBot({ mentionees: [{ index: 0, length: 4, isSelf: "true" }] }), false);
+  it("ignores other users, @All, and an isSelf that is not literally true", () => {
+    assert.deepEqual(selfMentionRanges("@bob hi", { mentionees: [other(0, 4)] }), []);
+    assert.deepEqual(selfMentionRanges("@All hi", { mentionees: [{ index: 0, length: 4, type: "all" }] }), []);
+    assert.deepEqual(selfMentionRanges("@bot hi", { mentionees: [{ index: 0, length: 4, isSelf: "true" }] }), []);
   });
 
-  it("is false for absent or malformed mention data", () => {
+  it("returns none for absent or malformed mention data", () => {
     [undefined, null, 42, "x", {}, { mentionees: null }, { mentionees: "x" }, { mentionees: [null, 1, "a"] }].forEach((mention) =>
-      assert.equal(mentionsBot(mention), false),
+      assert.deepEqual(selfMentionRanges("@bot hi", mention), []),
     );
   });
 
-  it("ignores a self mentionee with a non-integer index / length", () => {
-    assert.deepEqual(
-      selfMentionees({
-        mentionees: [
-          { index: "0", length: 4, isSelf: true },
-          { index: 0, length: 1.5, isSelf: true },
-        ],
-      }),
-      [],
-    );
+  it("rejects non-integer, negative, empty and out-of-range self mentions", () => {
+    const mention = {
+      mentionees: [{ index: "0", length: 4, isSelf: true }, { index: 0, length: 1.5, isSelf: true }, self(-1, 4), self(1, 0), self(5, 3), self(0, 8)],
+    };
+    assert.deepEqual(selfMentionRanges("@bot hi", mention), []);
+  });
+
+  it("accepts a range ending exactly at the end of the text", () => {
+    assert.deepEqual(selfMentionRanges("hi @bot", { mentionees: [self(3, 4)] }), [{ index: 3, length: 4 }]);
   });
 });
 
-describe("stripSelfMentions", () => {
+describe("stripMentionRanges", () => {
   it("removes the bot's mention and trims", () => {
-    assert.equal(stripSelfMentions("@bot 天気は？", { mentionees: [self(0, 4)] }), "天気は？");
-    assert.equal(stripSelfMentions("教えて @bot", { mentionees: [self(4, 4)] }), "教えて");
+    assert.equal(strip("@bot 天気は？", { mentionees: [self(0, 4)] }), "天気は？");
+    assert.equal(strip("教えて @bot", { mentionees: [self(4, 4)] }), "教えて");
   });
 
   it("keeps other users' mentions", () => {
-    assert.equal(stripSelfMentions("@bob @bot hi", { mentionees: [other(0, 4), self(5, 4)] }), "@bob  hi");
+    assert.equal(strip("@bob @bot hi", { mentionees: [other(0, 4), self(5, 4)] }), "@bob  hi");
   });
 
-  it("removes several and overlapping self mentions", () => {
-    assert.equal(stripSelfMentions("@bot a @bot b", { mentionees: [self(0, 4), self(7, 4)] }), "a  b");
-    assert.equal(stripSelfMentions("@bot x", { mentionees: [self(0, 4), self(1, 2)] }), "x");
+  it("removes several and overlapping ranges", () => {
+    assert.equal(strip("@bot a @bot b", { mentionees: [self(0, 4), self(7, 4)] }), "a  b");
+    assert.equal(strip("@bot x", { mentionees: [self(0, 4), self(1, 2)] }), "x");
   });
 
   it("counts UTF-16 code units like LINE does", () => {
-    assert.equal(stripSelfMentions("😀@bot hi", { mentionees: [self(2, 4)] }), "😀 hi");
-  });
-
-  it("returns text verbatim (no trim) when nothing is removed", () => {
-    assert.equal(stripSelfMentions("  hi  ", undefined), "  hi  ");
-    assert.equal(stripSelfMentions("  hi  ", { mentionees: [other(2, 2)] }), "  hi  ");
-  });
-
-  it("ignores out-of-range and empty ranges", () => {
-    assert.equal(stripSelfMentions(" hi ", { mentionees: [self(-1, 2), self(2, 10), self(1, 0)] }), " hi ");
+    assert.equal(strip("😀@bot hi", { mentionees: [self(2, 4)] }), "😀 hi");
   });
 
   it("returns empty for a mention-only message", () => {
-    assert.equal(stripSelfMentions("@bot", { mentionees: [self(0, 4)] }), "");
+    assert.equal(strip("@bot", { mentionees: [self(0, 4)] }), "");
   });
 });
