@@ -141,6 +141,11 @@ node packages/bridges/line/dist/index.js
 Scan the QR code in the LINE Developers Console (Messaging API tab)
 to add the bot. Send a message — MulmoClaude replies.
 
+**In a group:** turn on "Allow bot to join group chats" in the LINE Official
+Account Manager and invite the bot. The group shares one conversation, and by
+default the bot answers only when mentioned (`@<bot name> …`). See
+[Groups and rooms](../../../packages/bridges/line/README.md#groups-and-rooms).
+
 ---
 
 ## Troubleshooting
