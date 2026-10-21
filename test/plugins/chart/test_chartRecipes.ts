@@ -12,7 +12,7 @@ import { echarts } from "../../../packages/plugins/chart-plugin/src/core/chartin
 import { trialDrawProblem } from "../../../packages/plugins/chart-plugin/src/core/drawProblem";
 import { formatProblem, withFormatters } from "../../../packages/plugins/chart-plugin/src/core/formats";
 import { withWordClouds } from "../../../packages/plugins/chart-plugin/src/core/wordCloud";
-import { BUNDLED_MAPS, loadMaps } from "../../../packages/plugins/chart-plugin/src/core/extensions";
+import { BUNDLED_MAPS, loadMaps, neededExtensions, needsBrowser } from "../../../packages/plugins/chart-plugin/src/core/extensions";
 
 // Claude Code cuts an MCP tool's top-level description here (CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH)
 // and passes property descriptions whole, which is why the recipes sit on `option`.
@@ -318,7 +318,17 @@ describe("presentChart recipes", () => {
   // The View and executeChart load a bundled map before drawing a chart on it.
   before(() => loadMaps([...BUNDLED_MAPS]));
 
-  for (const recipe of CHART_RECIPES) {
+  // A word cloud is laid out by its extension on a DOM canvas: checked below, not drawn here.
+  const serverDrawn = CHART_RECIPES.filter((recipe) => !needsBrowser(neededExtensions(recipe.option)));
+
+  it("leaves only the word cloud to the browser", () => {
+    assert.deepEqual(
+      CHART_RECIPES.filter((recipe) => !serverDrawn.includes(recipe)).map((recipe) => recipe.use.split(" (")[0]),
+      ["word cloud"],
+    );
+  });
+
+  for (const recipe of serverDrawn) {
     it(`draws: ${recipe.use}`, () => {
       const drawn = drawRecipe(recipe);
       assert.deepEqual(drawn.warnings, []);
@@ -357,19 +367,15 @@ describe("presentChart recipes", () => {
     ]);
   });
 
-  it("word cloud draws each word of the rows, the largest count at the largest size", () => {
+  it("word cloud gets each word of the rows as data, with formats presentChart accepts", () => {
     const recipe = recipeNamed("word cloud");
-    const chart = echarts.init(null, null, { renderer: "svg", ssr: true, width: CHART_WIDTH_PX, height: CHART_HEIGHT_PX });
-    try {
-      chart.setOption(drawnOption(recipe, sampleRows(recipe)));
-      const sizes = Object.fromEntries(
-        [...chart.renderToSVGString().matchAll(/font-size:([\d.]+)px[^>]*>([^<]+)<\/text>/g)].map((match) => [match[2], Number(match[1])]),
-      );
-      assert.deepEqual(Object.keys(sizes).sort(), ["cost", "sales", "売上"]);
-      assert.ok((sizes.sales ?? 0) > (sizes["売上"] ?? 0) && (sizes["売上"] ?? 0) > (sizes.cost ?? 0));
-    } finally {
-      chart.dispose();
-    }
+    assert.equal(formatProblem(recipe.option), null);
+    const { series } = drawnOption(recipe, sampleRows(recipe));
+    assert.ok(Array.isArray(series));
+    const [cloud] = series;
+    assert.ok(isRecordValue(cloud) && Array.isArray(cloud.data));
+    assert.equal(cloud.type, "wordCloud");
+    assert.deepEqual(cloud.data.map((word) => (isRecordValue(word) ? word.name : null)).sort(), ["cost", "sales", "売上"]);
   });
 
   it("candlestick reads open, close, low, high", () => {

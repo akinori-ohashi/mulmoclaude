@@ -1,11 +1,23 @@
-// `type: "wordCloud"` drawn without echarts-wordcloud (which declares ECharts 5): each such series
-// becomes a `custom` series that lays its words out for the chart's size (wordCloudLayout.ts) and
-// draws each as text. So a word cloud is drawn on the server's trial draw and exported as SVG
-// like any other chart.
+// `type: "wordCloud"` is drawn by @modernized/echarts-wordcloud, loaded in the browser when a chart
+// has one (extensions.ts). The extension reads only `series.data`, so a series reading a sheet range
+// gets its words written into `data` here.
 
-import type { CustomSeriesRenderItem, CustomSeriesRenderItemAPI, CustomSeriesRenderItemParams, CustomSeriesRenderItemReturn } from "echarts";
 import { asList, isRecord } from "./optionParts";
-import { estimateTextWidth, layoutWords, type CloudStyle, type CloudWord, type MeasureText, type PlacedWord } from "./wordCloudLayout";
+
+export interface CloudWord {
+  name: string;
+  value: number;
+}
+
+export interface CloudStyle {
+  /** Font sizes in px for the smallest and the largest value. */
+  sizeRange: readonly [number, number];
+  /** Degrees; each word takes one angle from this range, `rotationStep` apart. */
+  rotationRange: readonly [number, number];
+  rotationStep: number;
+  /** Cell size in px of the grid that marks taken space; larger leaves more room between words. */
+  gridSize: number;
+}
 
 const WORD_CLOUD = "wordCloud";
 
@@ -17,7 +29,6 @@ const MIN_ROTATION_STEP_DEG = 1;
 const GRID_RANGE_PX: readonly [number, number] = [4, 64];
 // The largest values are kept; more words than this do not fit a card anyway.
 const MAX_WORDS = 300;
-const DEGREES_TO_RAD = Math.PI / 180;
 
 const isNumberPair = (value: unknown, [min, max]: readonly [number, number]): value is [number, number] =>
   Array.isArray(value) &&
@@ -93,77 +104,17 @@ export function cloudWords(option: Record<string, unknown>, series: Record<strin
   return words.filter((word) => kept.has(word));
 }
 
-const DEFAULT_FONT_FAMILY = "sans-serif";
-
-/** The browser's own text width for the font the words are drawn in; the estimate without a canvas. */
-function textMeasure(fonts: Record<string, unknown>): MeasureText {
-  const context = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
-  if (!context) return estimateTextWidth;
-  const weight = typeof fonts.fontWeight === "string" ? fonts.fontWeight : "normal";
-  const family = typeof fonts.fontFamily === "string" ? fonts.fontFamily : DEFAULT_FONT_FAMILY;
-  return (text, fontSize) => {
-    context.font = `${weight} ${fontSize}px ${family}`;
-    return context.measureText(text).width;
-  };
-}
-
-/** Layouts kept per chart size, so a redraw at the same size does not lay the words out again. */
-function layoutsBySize(words: CloudWord[], style: CloudStyle, measure: MeasureText): (width: number, height: number) => Map<number, PlacedWord> {
-  const layouts = new Map<string, Map<number, PlacedWord>>();
-  return (width, height) => {
-    const key = `${width}x${height}`;
-    const known = layouts.get(key);
-    if (known) return known;
-    const placed = new Map(layoutWords(words, style, { width, height }, measure).map((word) => [word.index, word]));
-    layouts.set(key, placed);
-    return placed;
-  };
-}
-
-const textStyleOf = (series: Record<string, unknown>): Record<string, unknown> => {
-  const { textStyle } = series;
-  if (!isRecord(textStyle)) return {};
-  return Object.fromEntries(["fontFamily", "fontWeight"].flatMap((key) => (typeof textStyle[key] === "string" ? [[key, textStyle[key]]] : [])));
-};
-
-/** One placed word as an ECharts text element. */
-function wordText(word: PlacedWord, text: string, fonts: Record<string, unknown>, color: unknown): CustomSeriesRenderItemReturn {
-  return {
-    type: "text",
-    x: word.x,
-    y: word.y,
-    rotation: word.rotationDeg * DEGREES_TO_RAD,
-    style: { ...fonts, text, fontSize: word.fontSize, ...(typeof color === "string" ? { fill: color } : {}), align: "center", verticalAlign: "middle" },
-  };
-}
-
-function renderWords(words: CloudWord[], style: CloudStyle, series: Record<string, unknown>): CustomSeriesRenderItem {
-  const fonts = textStyleOf(series);
-  const layoutFor = layoutsBySize(words, style, textMeasure(fonts));
-  return (params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI): CustomSeriesRenderItemReturn => {
-    const word = layoutFor(api.getWidth(), api.getHeight()).get(params.dataIndex);
-    return word ? wordText(word, words[params.dataIndex]?.name ?? "", fonts, api.visual("color")) : null;
-  };
-}
-
-const SETTINGS = ["type", "data", "datasetIndex", "encode", "sizeRange", "rotationRange", "rotationStep", "gridSize", "textStyle"];
+// Rewritten here; anything else on the series (`shape`, `textStyle`, …) goes to the extension as is.
+const REWRITTEN = ["data", "datasetIndex", "encode", "sizeRange", "rotationRange", "rotationStep", "gridSize"];
 
 function cloudSeries(option: Record<string, unknown>, series: Record<string, unknown>): Record<string, unknown> {
-  const words = cloudWords(option, series);
-  const rest = Object.fromEntries(Object.entries(series).filter(([key]) => !SETTINGS.includes(key)));
-  return {
-    colorBy: "data",
-    ...rest,
-    type: "custom",
-    coordinateSystem: "none",
-    data: words.map(({ name, value }) => ({ name, value })),
-    renderItem: renderWords(words, cloudStyle(series), series),
-  };
+  const rest = Object.fromEntries(Object.entries(series).filter(([key]) => !REWRITTEN.includes(key)));
+  return { ...rest, ...cloudStyle(series), data: cloudWords(option, series) };
 }
 
 const isWordCloud = (series: unknown): series is Record<string, unknown> => isRecord(series) && series.type === WORD_CLOUD;
 
-/** `option` with each top-level `wordCloud` series drawn as a `custom` series. Anything else is kept. */
+/** `option` with each top-level `wordCloud` series given its words and settings. Anything else is kept. */
 export function withWordClouds(option: Record<string, unknown>): Record<string, unknown> {
   const { series } = option;
   if (!asList(series).some(isWordCloud)) return option;

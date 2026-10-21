@@ -357,7 +357,7 @@ function exportPng(idx: number, chartTitle?: string): void {
   download(dataUrl, exportName(idx, chartTitle, "png"));
 }
 
-// 3D needs WebGL, which the SVG renderer does not have.
+// 3D needs WebGL, which the SVG renderer does not have; a word cloud places its words after setOption returns.
 const svgExportable = (chart: ChartEntry): boolean => !needsBrowser(neededExtensions(chart.option));
 
 /** Drawn again off screen with the SVG renderer at the card's size: the card draws on a canvas. */

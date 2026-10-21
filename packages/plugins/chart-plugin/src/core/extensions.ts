@@ -1,5 +1,5 @@
-// Map and 3D support that ECharts does not carry, loaded only for a chart that uses
-// it: the maps' GeoJSON and echarts-gl are large, and most charts need neither.
+// Map, 3D and word cloud support that ECharts does not carry, loaded only for a chart that
+// uses it: the maps' GeoJSON and echarts-gl are large, and most charts need none of them.
 
 import { echarts } from "./charting";
 import { isRecord, optionParts, partsList } from "./optionParts";
@@ -7,6 +7,8 @@ import { isRecord, optionParts, partsList } from "./optionParts";
 /** What a chart needs beyond ECharts itself. */
 export interface ChartExtensions {
   gl: boolean;
+  /** A top-level `wordCloud` series, drawn by @modernized/echarts-wordcloud. */
+  wordCloud: boolean;
   /** Bundled maps it draws on. */
   maps: BundledMap[];
 }
@@ -14,6 +16,7 @@ export interface ChartExtensions {
 // Series and components that only exist once echarts-gl is loaded.
 const GL_SERIES = new Set(["scatter3D", "bar3D", "line3D", "lines3D", "map3D", "surface", "polygons3D", "scatterGL", "graphGL", "flowGL", "linesGL"]);
 const GL_COMPONENTS = ["grid3D", "geo3D", "globe", "mapbox3D", "xAxis3D", "yAxis3D", "zAxis3D"];
+const WORD_CLOUD = "wordCloud";
 
 /** Maps shipped with the plugin (Natural Earth, public domain): English names, or Japanese with `-ja`. */
 export const BUNDLED_MAPS = ["world", "world-ja", "japan", "japan-ja"] as const;
@@ -33,12 +36,14 @@ export function neededExtensions(option: Record<string, unknown>): ChartExtensio
   const types = seriesTypes(parts);
   return {
     gl: types.some((type) => GL_SERIES.has(type)) || GL_COMPONENTS.some((component) => partsList(parts, component).length > 0),
+    wordCloud: types.includes(WORD_CLOUD),
     maps: [...new Set(mapNames(parts).filter(isBundledMap))],
   };
 }
 
-/** Whether a chart can only be drawn in a browser: echarts-gl needs WebGL. */
-export const needsBrowser = (extensions: ChartExtensions): boolean => extensions.gl;
+/** Whether a chart can only be drawn in a browser: echarts-gl needs WebGL, and the word cloud
+ *  extension lays its words out on a DOM canvas, after `setOption` returns. */
+export const needsBrowser = (extensions: ChartExtensions): boolean => extensions.gl || extensions.wordCloud;
 
 type Ring = number[][];
 type Geometry = { type: "Polygon"; coordinates: Ring[] } | { type: "MultiPolygon"; coordinates: Ring[][] };
@@ -97,9 +102,10 @@ export async function settleAll(loads: Promise<unknown>[]): Promise<void> {
   throw failed.reason instanceof Error ? failed.reason : new Error(String(failed.reason));
 }
 
-/** Loads what the charts need, in a browser: maps and echarts-gl. */
+/** Loads what the charts need, in a browser: maps, echarts-gl and the word cloud extension. */
 export async function loadBrowserExtensions(extensions: ChartExtensions[]): Promise<void> {
   const loads: Promise<unknown>[] = [loadMaps([...new Set(extensions.flatMap(({ maps }) => maps))])];
   if (extensions.some(({ gl }) => gl)) loads.push(import("echarts-gl"));
+  if (extensions.some(({ wordCloud }) => wordCloud)) loads.push(import("@modernized/echarts-wordcloud"));
   await settleAll(loads);
 }

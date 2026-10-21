@@ -14,7 +14,7 @@ const JAPAN_PREFECTURES = 47;
 
 describe("neededExtensions", () => {
   it("needs nothing for a plain chart", () => {
-    assert.deepEqual(neededExtensions({ xAxis: {}, yAxis: {}, series: [{ type: "bar" }] }), { gl: false, maps: [] });
+    assert.deepEqual(neededExtensions({ xAxis: {}, yAxis: {}, series: [{ type: "bar" }] }), { gl: false, wordCloud: false, maps: [] });
   });
 
   it("finds echarts-gl by its series and by its components", () => {
@@ -23,6 +23,13 @@ describe("neededExtensions", () => {
     assert.equal(neededExtensions({ grid3D: {}, series: [] }).gl, true);
     assert.equal(neededExtensions({ globe: {} }).gl, true);
     assert.equal(neededExtensions({ series: [{ type: "scatter" }] }).gl, false);
+  });
+
+  it("finds a word cloud by its series type", () => {
+    assert.equal(neededExtensions({ series: [{ type: "bar" }, { type: "wordCloud" }] }).wordCloud, true);
+    assert.equal(neededExtensions({ series: { type: "wordCloud" } }).wordCloud, true);
+    assert.equal(neededExtensions({ series: [{ type: "WordCloud" }] }).wordCloud, false);
+    assert.equal(neededExtensions({ wordCloud: {} }).wordCloud, false);
   });
 
   it("finds bundled maps on map series, geo and geo3D, once each, and ignores others", () => {
@@ -40,12 +47,13 @@ describe("neededExtensions", () => {
 
   it("looks into a timeline's baseOption and options", () => {
     const option = { baseOption: { geo: { map: "japan" } }, options: [{ series: [{ type: "bar3D" }] }] };
-    assert.deepEqual(neededExtensions(option), { gl: true, maps: ["japan"] });
+    assert.deepEqual(neededExtensions(option), { gl: true, wordCloud: false, maps: ["japan"] });
   });
 
-  it("says only 3D needs a browser", () => {
-    assert.equal(needsBrowser({ gl: true, maps: [] }), true);
-    assert.equal(needsBrowser({ gl: false, maps: ["world"] }), false);
+  it("says 3D and word clouds need a browser, maps do not", () => {
+    assert.equal(needsBrowser({ gl: true, wordCloud: false, maps: [] }), true);
+    assert.equal(needsBrowser({ gl: false, wordCloud: true, maps: [] }), true);
+    assert.equal(needsBrowser({ gl: false, wordCloud: false, maps: ["world"] }), false);
   });
 });
 
