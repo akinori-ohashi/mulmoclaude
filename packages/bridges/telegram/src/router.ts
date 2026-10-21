@@ -6,6 +6,7 @@
 
 import type { TelegramApi, TelegramMessage } from "./api.js";
 import type { Allowlist } from "./allowlist.js";
+import { createReplyStream, type ReplyStream } from "./stream.js";
 import type { Attachment } from "@mulmobridge/protocol";
 import { parseDataUrl, replyAfterProcessingIndicator, type MessageAck, type PushEvent } from "@mulmobridge/client";
 
@@ -71,53 +72,21 @@ export function createMessageRouter(deps: RouterDeps): MessageRouter {
   // One denial reply per chat per bridge lifetime — restart clears.
   const deniedAlreadyNotified = new Set<number>();
 
-  // Streaming state: while a relay is in flight, chunks accumulate
-  // here. A timer periodically flushes them via editMessageText.
-  let streamChatId: number | null = null;
-  let streamMessageId: number | null = null;
-  let streamAccumulated = "";
-  let streamDirty = false;
-  let streamTimer: ReturnType<typeof setInterval> | null = null;
+  // The reply stream of the request in flight. Chunks carry no chat id; the
+  // polling loop handles one message at a time, so they belong to this one.
+  const inFlight: { stream: ReplyStream | null } = { stream: null };
 
-  function startStream(chatId: number): void {
-    streamChatId = chatId;
-    streamMessageId = null;
-    streamAccumulated = "";
-    streamDirty = false;
-    streamTimer = setInterval(flushStream, STREAM_EDIT_INTERVAL_MS);
-  }
-
-  function stopStream(): void {
-    if (streamTimer !== null) {
-      clearInterval(streamTimer);
-      streamTimer = null;
-    }
-    streamChatId = null;
-    streamMessageId = null;
-    streamAccumulated = "";
-    streamDirty = false;
-  }
-
-  function flushStream(): void {
-    if (!streamDirty || streamChatId === null) return;
-    streamDirty = false;
-    const chatId = streamChatId;
-    const text = streamAccumulated || "…";
-    if (streamMessageId === null) {
-      // First flush: send a new message
-      api
-        .sendMessage(chatId, text)
-        .then((msgId) => {
-          streamMessageId = msgId;
-        })
-        .catch((err) => {
-          log.error(`[telegram] stream sendMessage failed: ${String(err)}`);
-        });
-    } else {
-      // Subsequent flushes: edit existing message
-      api.editMessageText(chatId, streamMessageId, text).catch((err) => {
-        log.error(`[telegram] stream editMessage failed: ${String(err)}`);
-      });
+  /** Runs `work` while its streamed chunks are mirrored into the chat. The
+   *  timer is stopped even when `work` throws. */
+  async function streamWhile<T>(chatId: number, work: () => Promise<T>): Promise<{ result: T; streamedMessageId: number | null }> {
+    const stream = createReplyStream(api, chatId, log, STREAM_EDIT_INTERVAL_MS);
+    inFlight.stream = stream;
+    try {
+      const result = await work();
+      return { result, streamedMessageId: await stream.finish() };
+    } finally {
+      stream.stop();
+      if (inFlight.stream === stream) inFlight.stream = null;
     }
   }
 
@@ -205,26 +174,20 @@ export function createMessageRouter(deps: RouterDeps): MessageRouter {
     // Surface the attachment failure so the user knows the file was lost.
     const messageText = resolveMessageText(text, failed);
 
-    // Start streaming: chunks will arrive via handleTextChunk and
-    // be sent/edited in the Telegram chat in real time.
-    startStream(chatId);
-    const ack = await sendToMulmo(String(chatId), messageText, attachments.length > 0 ? attachments : undefined);
-    // Final flush + capture the message id before stopStream clears it.
-    flushStream();
-    const sentMsgId = streamMessageId;
-    stopStream();
-    return () => deliverFinal(chatId, sentMsgId, ack);
+    const { result: ack, streamedMessageId } = await streamWhile(chatId, () =>
+      sendToMulmo(String(chatId), messageText, attachments.length > 0 ? attachments : undefined),
+    );
+    return () => deliverFinal(chatId, streamedMessageId, ack);
   }
 
-  // If streaming sent the text, do a final edit with the full ack
-  // to catch any trailing chunks. If no streaming happened,
-  // send the full reply as a new message.
-  async function deliverFinal(chatId: number, sentMsgId: number | null, ack: MessageAck): Promise<void> {
-    if (sentMsgId !== null && ack.ok) {
-      await api.editMessageText(chatId, sentMsgId, ack.reply ?? "").catch(() => {});
-    } else if (sentMsgId === null) {
-      await sendReply(chatId, ack);
+  // A streamed reply is completed in place; an error after streaming is sent
+  // as its own message so the partial text is not the last word.
+  async function deliverFinal(chatId: number, streamedMessageId: number | null, ack: MessageAck): Promise<void> {
+    if (streamedMessageId !== null && ack.ok) {
+      await api.editMessageText(chatId, streamedMessageId, ack.reply ?? "").catch(() => {});
+      return;
     }
+    await sendReply(chatId, ack);
   }
 
   async function handleDenied(msg: TelegramMessage): Promise<void> {
@@ -266,9 +229,7 @@ export function createMessageRouter(deps: RouterDeps): MessageRouter {
     },
 
     handleTextChunk(chunk: string) {
-      if (streamChatId === null) return;
-      streamAccumulated += chunk;
-      streamDirty = true;
+      inFlight.stream?.append(chunk);
     },
 
     deniedAlreadyNotified() {
