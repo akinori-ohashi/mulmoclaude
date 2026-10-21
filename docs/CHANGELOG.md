@@ -8,6 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-10-22
+
+**The spreadsheet is the shared `@gui-chat-plugin/spreadsheet` package, word clouds are drawn by
+`@modernized/echarts-wordcloud`, and Telegram no longer sends a streamed reply twice.**
+
 ### Changed
 
 #### The spreadsheet is the shared `@gui-chat-plugin/spreadsheet` package (#3497, PR #3498)
@@ -18,8 +23,6 @@ unchanged. The agent's spreadsheet help now lists exactly the functions the pack
 arrays, `LET` / `LAMBDA`, `GROUPBY` / `PIVOTBY`, regression, forecasting and statistics added since — and a test keeps
 that list in step with the package. The help also says that a workbook may define its own functions.
 
-Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
-
 #### Word clouds are drawn by `@modernized/echarts-wordcloud` (#3560, PR #3563)
 
 The chart plugin no longer lays word clouds out itself: the browser loads `@modernized/echarts-wordcloud@^4.0.1` and
@@ -27,6 +30,8 @@ draws them with it, and the series accepts its `shape` (circle, cardioid, diamon
 The server saves a word cloud after checking only its formats, without a trial draw, and a word cloud exports to PNG but
 no longer to SVG. 4.0.1 of the extension stops a layout when its chart is disposed or redrawn
 (modernized-js/echarts-wordcloud#24).
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ### Fixed
 
