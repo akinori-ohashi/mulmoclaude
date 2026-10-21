@@ -1,5 +1,6 @@
 // Scoped FileOps: a lexical check on the plugin-supplied path, then a realpath check so a
-// symlink inside the scope root cannot lead out of it.
+// symlink inside the scope root cannot lead out of it. Check-then-use, like `resolveWithinRoot`: not atomic
+// against a path swapped between the check and the call (Node fs has no openat / no-follow-parent).
 
 import path from "node:path";
 import { mkdir, readFile, readdir, realpath, stat as fsStat, unlink as fsUnlink } from "node:fs/promises";
