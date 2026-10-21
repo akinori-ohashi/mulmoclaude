@@ -8,6 +8,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Added
+
+#### LINE: groups and rooms are one conversation, answered when the bot is mentioned (#3567, PR #3569)
+
+A LINE bot invited to a group or a multi-person room now keeps one session for the whole group and posts its replies
+there; `/reset`, `/role` and the other commands apply to the group's session. By default it answers only messages that
+mention it, and the mention is removed from the text it passes on; `LINE_BRIDGE_GROUP_REQUIRE_MENTION=0` answers every
+message. One-on-one chats are unchanged. Before this, a group message was answered in the sender's one-on-one chat and
+joined their personal session. Shipped in `@mulmobridge/line@1.3.0`; the bridge reaches users by upgrading it, not
+through a `mulmoclaude` release.
+
 ## [2.8.0] - 2026-10-22
 
 **The spreadsheet is the shared `@gui-chat-plugin/spreadsheet` package, word clouds are drawn by
