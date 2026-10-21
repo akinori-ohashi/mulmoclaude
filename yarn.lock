@@ -1969,10 +1969,10 @@
     zod "^3.25 || ^4.0"
     zod-to-json-schema "^3.25.1"
 
-"@modernized/echarts-wordcloud@^4.0.0":
-  version "4.0.0"
-  resolved "https://registry.yarnpkg.com/@modernized/echarts-wordcloud/-/echarts-wordcloud-4.0.0.tgz#8d644332718215828a3475f730a75acbaa998f97"
-  integrity sha512-k2tFAt2W0T6nMYQMq+yLKg2E9IVwQnlrGHLXRTTlUrtFde2D4rsUqcoidhwd3VjlF3HwYifU+i1TShAQp8RFvw==
+"@modernized/echarts-wordcloud@^4.0.1":
+  version "4.0.1"
+  resolved "https://registry.yarnpkg.com/@modernized/echarts-wordcloud/-/echarts-wordcloud-4.0.1.tgz#4314d6d12df95b2c6d524850811f5eb673577e9d"
+  integrity sha512-5JExyLGeP01dBTB2dYTpGGHJiUyzxtlkOUyyuoE/W/SuUoJt6qim8QEkWoBTOAei+3yZtqpxxpfqaXYIAOjciw==
 
 "@modernized/fluent-ffmpeg@^1.0.3":
   version "1.0.3"
