@@ -8,6 +8,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Fixed
+
+#### Telegram: a streamed reply arrives once, and an error after it is shown (#3548, PR #3561, #3562)
+
+A reply that streamed into Telegram could also arrive a second time as a new message, because the bridge did not wait
+for its first send before deciding there was nothing to edit. If MulmoClaude failed after part of the reply had
+streamed, the error was never shown; it now arrives as its own message under the partial text. A request that threw
+also left its edit timer running. The bridge reaches users by upgrading it, not through a `mulmoclaude` release.
+
+Ships `@mulmobridge/telegram@1.3.1`.
+
 ## [2.7.0] - 2026-10-21
 
 **Charts read straight from a spreadsheet range and redraw when it changes, say why they could not be drawn, and gain
