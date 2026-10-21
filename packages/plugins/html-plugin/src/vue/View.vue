@@ -31,8 +31,39 @@
       </div>
     </div>
     <div v-if="downloadError" class="download-error" role="alert">{{ t.downloadError(downloadError) }}</div>
+    <div v-if="submission" class="px-4 py-3 border-b border-blue-200 bg-blue-50 shrink-0 flex flex-col gap-2" data-testid="present-html-submit">
+      <div class="text-sm font-medium text-gray-800">{{ t.submitTitle }}</div>
+      <div class="text-xs text-gray-600">{{ t.submitHint }}</div>
+      <textarea
+        v-model="submission.text"
+        spellcheck="false"
+        class="w-full h-32 p-2 text-sm font-mono bg-white border border-gray-300 rounded resize-y focus:outline-none focus:border-blue-500"
+        data-testid="present-html-submit-text"
+      ></textarea>
+      <div class="flex justify-end gap-2">
+        <button
+          class="px-3 py-1 text-sm rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
+          data-testid="present-html-submit-discard"
+          @click="discard"
+        >
+          {{ t.submitDiscard }}
+        </button>
+        <button
+          class="px-3 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          :disabled="submission.text.trim() === ''"
+          data-testid="present-html-submit-send"
+          @click="sendSubmission"
+        >
+          {{ t.submitSend }}
+        </button>
+      </div>
+    </div>
+    <div v-else-if="rejectedTooLong" class="px-4 py-2 border-b border-red-200 bg-red-50 shrink-0 flex items-center justify-between gap-2" role="alert">
+      <span class="text-sm text-red-800">{{ t.submitTooLong(MAX_SUBMIT_TEXT_CHARS) }}</span>
+      <button class="px-2 py-1 text-xs rounded border border-red-300 text-red-700 hover:bg-red-100" @click="discard">{{ t.submitDiscard }}</button>
+    </div>
     <div class="iframe-wrapper">
-      <iframe v-if="frameSrc" data-testid="present-html-iframe" :src="frameSrc" sandbox="allow-scripts" class="w-full h-full border-0" />
+      <iframe v-if="frameSrc" ref="frame" data-testid="present-html-iframe" :src="frameSrc" sandbox="allow-scripts" class="w-full h-full border-0" />
       <div v-else class="h-full flex items-center justify-center text-sm text-gray-500">
         {{ t.untitled }}
       </div>
@@ -73,13 +104,26 @@ import { useT } from "../lang";
 import { buildPrintCspContent } from "./previewCsp";
 import { useFileWatch } from "@mulmoclaude/core/plugin-vue";
 import { errorMessage } from "@mulmoclaude/common";
+import { MAX_SUBMIT_TEXT_CHARS } from "../core/submitMessage";
+import { useHtmlSubmit } from "./useHtmlSubmit";
 
 const runtime = useRuntime();
 const t = useT();
 
 const props = defineProps<{
   selectedResult: ToolResultComplete<PresentHtmlData>;
+  sendTextMessage?: (text?: string) => void;
 }>();
+
+const frame = ref<HTMLIFrameElement>();
+const { submission, rejectedTooLong, discard } = useHtmlSubmit(frame, () => props.sendTextMessage !== undefined);
+
+function sendSubmission() {
+  const text = submission.value?.text;
+  if (!text || text.trim() === "" || !props.sendTextMessage) return;
+  props.sendTextMessage(text);
+  discard();
+}
 
 const PRINT_STYLE_CSS = `@media print {
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }

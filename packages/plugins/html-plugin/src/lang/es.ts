@@ -15,6 +15,11 @@ const es: Messages = {
   saveError: (error) => `⚠ Error al guardar: ${error}`,
   loadingSource: "Cargando código…",
   sourceError: (error) => `Error al cargar el código: ${error}`,
+  submitTitle: "¿Enviar esto a la conversación?",
+  submitHint: "La página quiere enviar esto. Edítalo si hace falta: no se envía nada hasta que pulses Enviar.",
+  submitSend: "Enviar",
+  submitDiscard: "Descartar",
+  submitTooLong: (maxChars) => `La página intentó enviar más de ${maxChars} caracteres, así que no se envió nada.`,
 };
 
 export default es;

@@ -13,4 +13,9 @@ export interface Messages {
   saveError(error: string): string;
   loadingSource: string;
   sourceError(error: string): string;
+  submitTitle: string;
+  submitHint: string;
+  submitSend: string;
+  submitDiscard: string;
+  submitTooLong(maxChars: number): string;
 }
