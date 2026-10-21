@@ -8,6 +8,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Changed
+
+#### The spreadsheet is the shared `@gui-chat-plugin/spreadsheet` package (#3497, PR #3498)
+
+The spreadsheet that was built into MulmoClaude is replaced by `@gui-chat-plugin/spreadsheet@^4.3.0`, the package
+MulmoTerminal also uses. Workbooks are saved where and as before (`artifacts/spreadsheets/…json`), and existing ones open
+unchanged. The agent's spreadsheet help now lists exactly the functions the package registers — including the dynamic
+arrays, `LET` / `LAMBDA`, `GROUPBY` / `PIVOTBY`, regression, forecasting and statistics added since — and a test keeps
+that list in step with the package. The help also says that a workbook may define its own functions.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.5.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ### Fixed
 
 #### Telegram: a streamed reply arrives once, and an error after it is shown (#3548, PR #3561, #3562)

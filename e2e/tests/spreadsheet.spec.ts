@@ -3,9 +3,9 @@ import { mockAllApis } from "../fixtures/api";
 
 import { ONE_SECOND_MS } from "../../server/utils/time.ts";
 // Mount a session where the sidebar holds a presentSpreadsheet tool
-// result. The spreadsheet View.vue renders when the user clicks the
-// sidebar entry, so asserting against the rendered table exercises
-// both the file-backed fetchSheets path and the table render.
+// result. The @gui-chat-plugin/spreadsheet View renders when the user clicks
+// the sidebar entry, so asserting against the rendered table exercises both the
+// file-backed load (runtime dispatch) and the table render.
 
 interface SpreadsheetResultOptions {
   // Stored file path ("artifacts/spreadsheets/abc.json") or inline sheets array.
@@ -51,10 +51,20 @@ async function setupSpreadsheetSession(page: Page, opts: SpreadsheetResultOption
   );
 }
 
-async function mockFileContent(page: Page, path: string, body: { kind?: string; content?: string; message?: string }) {
+// The package View loads a file-backed workbook through its runtime dispatch
+// ({ kind: "loadSpreadsheet", path }), which reaches server/plugins/spreadsheet-builtin.ts.
+const SPREADSHEET_DISPATCH = "/api/plugins/runtime/spreadsheet/dispatch";
+
+const isLoadOf = (body: unknown, path: string): boolean =>
+  typeof body === "object" && body !== null && "kind" in body && body.kind === "loadSpreadsheet" && "path" in body && body.path === path;
+
+async function mockLoad(page: Page, path: string, response: { status?: number; json: unknown }) {
   await page.route(
-    (url) => url.pathname === "/api/files/content" && url.searchParams.get("path") === path,
-    (route) => route.fulfill({ json: body }),
+    (url) => url.pathname === SPREADSHEET_DISPATCH,
+    async (route) => {
+      if (!isLoadOf(route.request().postDataJSON(), path)) return route.fallback();
+      return route.fulfill({ status: response.status ?? 200, json: response.json });
+    },
   );
 }
 
@@ -84,10 +94,7 @@ test.describe("spreadsheet — rendering", () => {
       },
     ];
     await setupSpreadsheetSession(page, { sheets: path });
-    await mockFileContent(page, path, {
-      kind: "text",
-      content: JSON.stringify(sheets),
-    });
+    await mockLoad(page, path, { json: { message: "Loaded", data: { sheets } } });
 
     await openSpreadsheetView(page);
     await expect(page.getByText("Apples").first()).toBeVisible({
@@ -286,6 +293,56 @@ test.describe("spreadsheet — mini editor", () => {
   });
 });
 
+test.describe("spreadsheet — saving a file-backed sheet", () => {
+  test("editing a cell sends saveSpreadsheet with the edit and the same path", async ({ page }) => {
+    const path = "artifacts/spreadsheets/2026/10/0123456789abcdef.json";
+    const sheets = [
+      {
+        name: "Sheet1",
+        data: [
+          [{ v: "Price" }, { v: 100 }],
+          [{ v: "Total" }, { v: "=B1*2" }],
+        ],
+      },
+    ];
+    await setupSpreadsheetSession(page, { sheets: path });
+    await mockLoad(page, path, { json: { message: "Loaded", data: { sheets } } });
+    const saves: unknown[] = [];
+    await page.route(
+      (url) => url.pathname === SPREADSHEET_DISPATCH,
+      async (route) => {
+        const body: unknown = route.request().postDataJSON();
+        if (typeof body !== "object" || body === null || !("kind" in body) || body.kind !== "saveSpreadsheet") return route.fallback();
+        saves.push(body);
+        return route.fulfill({ json: { message: "Saved", data: { sheets: path } } });
+      },
+    );
+    await openSpreadsheetView(page);
+    await expect(page.locator("td", { hasText: "200" }).first()).toBeVisible({ timeout: 5 * ONE_SECOND_MS });
+
+    await page.locator("td", { hasText: "100" }).first().click();
+    const valueInput = page.locator(".mini-editor-panel input.form-input").first();
+    await valueInput.fill("150");
+    await page.locator(".mini-editor-panel .save-btn").click();
+
+    await expect(page.locator("td", { hasText: "300" }).first()).toBeVisible({ timeout: 5 * ONE_SECOND_MS });
+    await expect.poll(() => saves.length).toBe(1);
+    expect(saves[0]).toMatchObject({
+      kind: "saveSpreadsheet",
+      path,
+      sheets: [
+        {
+          name: "Sheet1",
+          data: [
+            [{ v: "Price" }, { v: 150 }],
+            [{ v: "Total" }, { v: "=B1*2" }],
+          ],
+        },
+      ],
+    });
+  });
+});
+
 test.describe("spreadsheet — source editor", () => {
   test("Details section 'Edit Spreadsheet Data' is present", async ({ page }) => {
     const sheets = [{ name: "Sheet1", data: [[{ v: "x" }]] }];
@@ -316,74 +373,21 @@ test.describe("spreadsheet — source editor", () => {
 });
 
 test.describe("spreadsheet — error handling", () => {
-  test("too-large file shows an error message", async ({ page }) => {
-    const path = "artifacts/spreadsheets/huge.json";
+  test("a failed load shows the server's error", async ({ page }) => {
+    const path = "artifacts/spreadsheets/missing.json";
     await setupSpreadsheetSession(page, { sheets: path });
-    await mockFileContent(page, path, {
-      kind: "too-large",
-      message: "File exceeds size limit",
-    });
+    await mockLoad(page, path, { status: 500, json: { error: "plugin execute failed: ENOENT: no such file" } });
     await openSpreadsheetView(page);
-    await expect(page.getByText("File exceeds size limit")).toBeVisible({
-      timeout: 5 * ONE_SECOND_MS,
-    });
+    await expect(page.getByText(/Failed to load spreadsheet/i)).toBeVisible({ timeout: 5 * ONE_SECOND_MS });
+    await expect(page.getByText(/ENOENT/)).toBeVisible();
   });
 
-  test("binary file shows the default 'Cannot load' message", async ({ page }) => {
-    const path = "artifacts/spreadsheets/blob.json";
-    await setupSpreadsheetSession(page, { sheets: path });
-    await mockFileContent(page, path, { kind: "binary" });
-    await openSpreadsheetView(page);
-    await expect(page.getByText(/binary/i)).toBeVisible({ timeout: 5 * ONE_SECOND_MS });
-  });
-
-  test("malformed JSON shows a parse error message", async ({ page }) => {
-    const path = "artifacts/spreadsheets/broken.json";
-    await setupSpreadsheetSession(page, { sheets: path });
-    await mockFileContent(page, path, {
-      kind: "text",
-      content: "{not valid json",
-    });
-    await openSpreadsheetView(page);
-    await expect(page.getByText(/malformed/i)).toBeVisible({ timeout: 5 * ONE_SECOND_MS });
-  });
-
-  test("non-array content shows a shape error", async ({ page }) => {
+  test("a load that returns something other than sheets shows a shape error", async ({ page }) => {
     const path = "artifacts/spreadsheets/wrong.json";
     await setupSpreadsheetSession(page, { sheets: path });
-    await mockFileContent(page, path, {
-      kind: "text",
-      content: JSON.stringify({ name: "not an array" }),
-    });
+    await mockLoad(page, path, { json: { message: "Loaded", data: { sheets: { name: "not an array" } } } });
     await openSpreadsheetView(page);
-    await expect(page.getByText(/not an array/i)).toBeVisible({
-      timeout: 5 * ONE_SECOND_MS,
-    });
-  });
-
-  test("missing content field shows 'no content' message", async ({ page }) => {
-    const path = "artifacts/spreadsheets/empty.json";
-    await setupSpreadsheetSession(page, { sheets: path });
-    await mockFileContent(page, path, { kind: "text" });
-    await openSpreadsheetView(page);
-    await expect(page.getByText(/no content/i)).toBeVisible({ timeout: 5 * ONE_SECOND_MS });
-  });
-
-  test("HTTP failure shows a statusText error", async ({ page }) => {
-    const path = "artifacts/spreadsheets/404.json";
-    await setupSpreadsheetSession(page, { sheets: path });
-    await page.route(
-      (url) => url.pathname === "/api/files/content" && url.searchParams.get("path") === path,
-      (route) =>
-        route.fulfill({
-          status: 404,
-          json: { error: "not found" },
-        }),
-    );
-    await openSpreadsheetView(page);
-    await expect(page.getByText(/Failed to load spreadsheet/i)).toBeVisible({
-      timeout: 5 * ONE_SECOND_MS,
-    });
+    await expect(page.getByText(/Data must be an array of sheets/i)).toBeVisible({ timeout: 5 * ONE_SECOND_MS });
   });
 });
 

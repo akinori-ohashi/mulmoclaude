@@ -92,7 +92,7 @@ PR #969 / #972 / #974 でほぼ統一された 4 段の戦略になっていま�
 | Markdown plugin(チャット) | `src/plugins/markdown/View.vue` | `/chat` の tool result | `marked` + `v-html` | pre-parse rewriter | 閲覧 / **編集** / 保存 / **PDF ダウンロード** / **rendered↔raw 切替** / **コピー** / タスクチェックボックス |
 | TextResponse plugin | `src/plugins/textResponse/View.vue` | `/chat` の assistant バブル / Files の `.md` プレビュー | `marked` + `v-html` | rewriter なし(外部 URL 前提) | 閲覧 / **PDF ダウンロード** / **コピー** / 外部リンクは別タブ |
 | ManageSkills plugin | `src/plugins/manageSkills/View.vue` | `/chat` の tool result | `marked` + **DOMPurify** + `v-html` | 不要 | 閲覧 / 編集(プロジェクト skill のみ)/ 削除 / 実行 |
-| Spreadsheet plugin | `src/plugins/spreadsheet/View.vue` | `/chat` の tool result | `XLSX.utils.sheet_to_html()` + `v-html` | 不要 | 閲覧 / **XLSX ダウンロード** / セル編集 |
+| Spreadsheet plugin | `@gui-chat-plugin/spreadsheet` の View（`src/plugins/spreadsheet/index.ts` で登録） | `/chat` の tool result | `XLSX.utils.sheet_to_html()` + `v-html` | 不要 | 閲覧 / **XLSX ダウンロード** / セル編集 |
 | News body | `src/components/NewsView.vue` | `/news` または `/chat` | `marked` + `v-html`(RSS body 素通し) | 外部 URL 前提、書き換えなし | 閲覧 / 元記事リンク / 記事スコープのチャット composer |
 | SourcesManager brief | `src/components/SourcesManager.vue` | `/sources` または `/chat` | `marked` + **DOMPurify** + `v-html` | 画像書き換えなし(外部 RSS / brief 前提) | 閲覧のみ |
 

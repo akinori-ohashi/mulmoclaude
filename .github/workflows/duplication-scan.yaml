@@ -119,7 +119,7 @@ jobs:
           set -euo pipefail
           jscpd . \
             --format typescript \
-            --ignore "**/node_modules/**,**/dist/**,**/*.d.ts,**/test/**,**/e2e/**,**/e2e-live/**,**/spreadsheet/engine/**,**/_generated/**,**/vendor/**" \
+            --ignore "**/node_modules/**,**/dist/**,**/*.d.ts,**/test/**,**/e2e/**,**/e2e-live/**,**/_generated/**,**/vendor/**" \
             --reporters console,sarif \
             --output report
 

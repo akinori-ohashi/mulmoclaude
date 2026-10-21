@@ -4,9 +4,9 @@ import { latestToolResult } from "../../events/session-store/index.js";
 import { TOOL_NAMES } from "../../../src/config/toolNames.js";
 import { META as PRESENT_FORM_META } from "../../../src/plugins/presentForm/meta.js";
 import { META as PRESENT_COLLECTION_META } from "../../../src/plugins/presentCollection/meta.js";
-import type { ToolContext } from "gui-chat-protocol";
+import type { FileOps, ToolContext } from "gui-chat-protocol";
 import { executeMindMap } from "@gui-chat-plugin/mindmap";
-import { executeSpreadsheet, type SpreadsheetArgs } from "../../../src/plugins/spreadsheet/definition.js";
+import { executeSpreadsheet, type SpreadsheetArgs } from "@gui-chat-plugin/spreadsheet";
 import { executeQuiz } from "@mulmochat-plugin/quiz";
 import { executeForm } from "../../../src/plugins/presentForm/plugin.js";
 import { executePresentCollection } from "../../../src/plugins/presentCollection/plugin.js";
@@ -23,7 +23,6 @@ import { fillMarkdownImagePlaceholders } from "../../utils/files/markdown-image-
 import { saveMarkdown } from "../../utils/files/markdown-store.js";
 import { documentExists, overwriteDocument, resolveDocumentPath } from "../../utils/files/document-store.js";
 import { makeByPathFileOps } from "../../utils/files/by-path.js";
-import { saveSpreadsheet, overwriteSpreadsheet, isSpreadsheetPath } from "../../utils/files/spreadsheet-store.js";
 import { API_ROUTES } from "../../../src/config/apiRoutes.js";
 import { bindRoute } from "../../utils/router.js";
 import { collectPluginMetaDiagnostics } from "../../plugins/diagnostics.js";
@@ -31,6 +30,7 @@ import { log } from "../../system/logger/index.js";
 import { previewSnippet } from "../../utils/logPreview.js";
 import { publishFileChange } from "../../events/file-change.js";
 import { makeArtifactsFileOps } from "../../plugins/runtime.js";
+import { makeConfinedArtifactsFileOps } from "../../plugins/confined-file-ops.js";
 import { isAblated } from "../../system/env.js";
 import { executeKenteiScript } from "../../plugins/kentei-builtin.js";
 import { META as KENTEI_META } from "../../../src/plugins/manageKenteiScript/meta.js";
@@ -253,66 +253,16 @@ export function sessionToolContext(req: Request<object, unknown, unknown>, toolN
   return currentResult ? { currentResult } : SERVER_TOOL_CONTEXT;
 }
 
-// presentSpreadsheet — validate, then save sheets to disk
+// presentSpreadsheet — validation and the write to artifacts/spreadsheets/ live in
+// @gui-chat-plugin/spreadsheet; the result's data.sheets is the saved file's path.
+// Cell edits come back through the View's dispatch (server/plugins/spreadsheet-builtin.ts).
 bindRoute(
   router,
   API_ROUTES.spreadsheet.create,
-  wrapPluginExecute<SpreadsheetArgs, unknown>(async (req) => {
-    const result = await executeSpreadsheet(req.body);
-    if (!Array.isArray(result.data.sheets)) {
-      throw new Error("Expected sheets array from executeSpreadsheet");
-    }
-    const sheetsPath = await saveSpreadsheet(result.data.sheets);
-    return { ...result, data: { ...result.data, sheets: sheetsPath } };
+  wrapPluginExecute<SpreadsheetArgs, unknown>((req) => {
+    const context: ToolContext & { files: { artifacts: FileOps } } = { files: { artifacts: makeConfinedArtifactsFileOps() } };
+    return executeSpreadsheet(context, req.body);
   }),
-);
-
-// Update spreadsheet file on disk (user edits in View). Body carries
-// the workspace-relative path so the route is symmetric with
-// updateMarkdown / image.update — see #764.
-interface UpdateSpreadsheetBody {
-  relativePath: string;
-  sheets: unknown[];
-}
-
-interface UpdateSpreadsheetResponse {
-  path: string;
-}
-
-interface UpdateSpreadsheetError {
-  error: string;
-}
-
-bindRoute(
-  router,
-  API_ROUTES.spreadsheet.update,
-  async (req: Request<object, unknown, UpdateSpreadsheetBody>, res: Response<UpdateSpreadsheetResponse | UpdateSpreadsheetError>) => {
-    const { relativePath, sheets } = req.body;
-    log.info("plugins", "updateSpreadsheet: start", {
-      pathPreview: typeof relativePath === "string" ? previewSnippet(relativePath) : undefined,
-      sheetCount: Array.isArray(sheets) ? sheets.length : undefined,
-    });
-    if (!Array.isArray(sheets)) {
-      log.warn("plugins", "updateSpreadsheet: sheets not an array");
-      badRequest(res, "sheets must be an array");
-      return;
-    }
-    if (!relativePath || !isSpreadsheetPath(relativePath)) {
-      log.warn("plugins", "updateSpreadsheet: invalid relativePath", {
-        pathPreview: typeof relativePath === "string" ? previewSnippet(relativePath) : undefined,
-      });
-      badRequest(res, "invalid spreadsheet relativePath");
-      return;
-    }
-    try {
-      await overwriteSpreadsheet(relativePath, sheets);
-      log.info("plugins", "updateSpreadsheet: ok", { pathPreview: previewSnippet(relativePath), sheetCount: sheets.length });
-      res.json({ path: relativePath });
-    } catch (err) {
-      log.error("plugins", "updateSpreadsheet: threw", { pathPreview: previewSnippet(relativePath), error: errorMessage(err) });
-      serverError(res, errorMessage(err));
-    }
-  },
 );
 
 // createMindMap — uses package execute for node layout computation
