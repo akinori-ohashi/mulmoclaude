@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Added
+
+#### Charts drawn from a spreadsheet range (#3512)
+
+A `presentChart` chart can name a saved spreadsheet range (`source: { spreadsheet, range }`, or several in `sources`)
+instead of carrying its numbers, as it already could in MulmoTerminal. The range is calculated by the spreadsheet's own
+engine, so the chart shows what the sheet shows, formulas included, and an open chart redraws when the sheet is edited.
+The workbook may be named by the path the spreadsheet tool reported, by its full path, or by its path inside the
+sandbox. A path outside the workspace's spreadsheets is refused with the reason.
+
 ## [2.8.1] - 2026-10-22
 
 **Plugin file access can no longer follow a symlink out of its folder, and LINE groups and rooms become one
