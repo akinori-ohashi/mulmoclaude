@@ -20,3 +20,9 @@ declare module "echarts-gl" {}
 interface ImportMeta {
   glob: (pattern: string | readonly string[], options?: { eager?: boolean }) => Record<string, unknown>;
 }
+
+// ECharts ships its dark theme object at this path without types; its own declaration is not exported.
+declare module "echarts/lib/theme/dark.js" {
+  const theme: Record<string, unknown>;
+  export default theme;
+}

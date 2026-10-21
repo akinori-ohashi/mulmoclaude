@@ -73,6 +73,8 @@ import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from 
 import { setOptionProblem } from "../core/drawProblem";
 import { withFormatters } from "../core/formats";
 import { withWordClouds } from "../core/wordCloud";
+import { DARK_THEME } from "../core/darkTheme";
+import { withMapData } from "../core/mapData";
 import { chartHeightPx, documentColumns, gridColumnsClass } from "../core/layout";
 import { chartOption, chartSources, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
 import { useT } from "../lang";
@@ -193,7 +195,7 @@ function renderAll(): void {
   });
 }
 
-const echartsTheme = (): string | undefined => (appearance.value === "dark" ? "dark" : undefined);
+const echartsTheme = (): string | undefined => (appearance.value === "dark" ? DARK_THEME : undefined);
 
 /** ECharts' dark theme paints its own background; the card's shows through instead, unless the option sets one. */
 const themed = (option: Record<string, unknown>): Record<string, unknown> =>
@@ -220,7 +222,7 @@ function drawProblem(instance: echarts.ECharts, chart: ChartEntry, rows: ChartSo
 }
 
 function optionFor(chart: ChartEntry, rows: ChartSourceRows[] | undefined): Record<string, unknown> {
-  return withWordClouds(withFormatters(chartOption(chart, rows, runtime !== undefined), runtime?.locale.value));
+  return withMapData(withWordClouds(withFormatters(chartOption(chart, rows, runtime !== undefined), runtime?.locale.value)));
 }
 
 // Long enough for a large workbook on a busy host; a read past it is reported
