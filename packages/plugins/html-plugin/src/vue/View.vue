@@ -64,7 +64,15 @@
       <button class="px-2 py-1 text-xs rounded border border-red-300 text-red-700 hover:bg-red-100" @click="discard">{{ t.submitDiscard }}</button>
     </div>
     <div class="iframe-wrapper">
-      <iframe v-if="frameSrc" ref="frame" data-testid="present-html-iframe" :src="frameSrc" sandbox="allow-scripts" class="w-full h-full border-0" />
+      <iframe
+        v-if="frameSrc"
+        ref="frame"
+        data-testid="present-html-iframe"
+        @load="discard"
+        :src="frameSrc"
+        sandbox="allow-scripts"
+        class="w-full h-full border-0"
+      />
       <div v-else class="h-full flex items-center justify-center text-sm text-gray-500">
         {{ t.untitled }}
       </div>
@@ -169,9 +177,6 @@ const frameSrc = computed(() => {
   const query = [previewVersion.value > 0 ? `v=${previewVersion.value}` : null, reloadNonce.value > 0 ? `r=${reloadNonce.value}` : null].filter(Boolean);
   return query.length > 0 ? `${base}?${query.join("&")}` : base;
 });
-
-// A decision made on the page before it was reloaded or rewritten no longer describes what is on screen.
-watch(frameSrc, discard);
 
 const sourceDetails = ref<HTMLDetailsElement>();
 // Keyed by filePath so a remounted/reused View instance with a different

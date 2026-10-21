@@ -19,6 +19,8 @@ export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, isEnabl
     submission.value = read.kind === "text" ? { text: read.text } : null;
   }
 
+  // Also the iframe's load handler: a decision made before any (re)load, by the host or by the page
+  // itself, no longer describes what is on screen.
   function discard() {
     submission.value = null;
     rejectedTooLong.value = false;
