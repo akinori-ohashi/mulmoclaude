@@ -19,4 +19,5 @@ theme, as it is now and through `withDarkAxes3D`: labels, categories and axis na
 
 ## Out of scope
 
-`globe` and `geo3D`, which have no such axes; a 3D chart inside a timeline.
+`globe` and `geo3D`, which have no such axes. A timeline is covered: the defaults go into its
+`baseOption` when that has a grid3D, else into each of its options.

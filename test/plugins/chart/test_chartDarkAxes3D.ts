@@ -71,4 +71,13 @@ describe("withDarkAxes3D", () => {
       options: [{ grid3D: { axisLine: { lineStyle: { color: "#0f0" } } } }, { series: [] }],
     });
   });
+
+  it("darkens a timeline's options when its baseOption's grid3D draws no grid", () => {
+    const field = (value: unknown, ...keys: (string | number)[]): unknown =>
+      keys.reduce<unknown>((current, key) => (typeof current === "object" && current !== null ? Reflect.get(current, key) : undefined), value);
+    [null, true, []].forEach((empty) => {
+      const darkened = withDarkAxes3D({ baseOption: { grid3D: empty }, options: [{ grid3D: {} }] });
+      assert.equal(field(darkened, "options", 0, "grid3D", "axisLine", "lineStyle", "color"), LIGHT_LINE, String(empty));
+    });
+  });
 });

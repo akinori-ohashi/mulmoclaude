@@ -30,7 +30,8 @@ function darkPart(part: Record<string, unknown>): Record<string, unknown> {
   return { ...part, grid3D: Array.isArray(grid3D) ? grid3D.map(darkGrid) : darkGrid(grid3D) };
 }
 
-const hasGrid3D = (part: unknown): boolean => isRecord(part) && part.grid3D !== undefined;
+// A grid3D that is not an object (`null`, `true`, `[]`) draws no grid, in ECharts' eyes as in ours.
+const hasGrid3D = (part: unknown): boolean => isRecord(part) && asList(part.grid3D).some(isRecord);
 
 /** `option` with each grid3D, a timeline's `baseOption` and `options` included, given axis colours
  *  that read on a dark background, under the author's own. */
