@@ -20,6 +20,17 @@ that list in step with the package. The help also says that a workbook may defin
 
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.5.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
+### Fixed
+
+#### Telegram: a streamed reply arrives once, and an error after it is shown (#3548, PR #3561, #3562)
+
+A reply that streamed into Telegram could also arrive a second time as a new message, because the bridge did not wait
+for its first send before deciding there was nothing to edit. If MulmoClaude failed after part of the reply had
+streamed, the error was never shown; it now arrives as its own message under the partial text. A request that threw
+also left its edit timer running. The bridge reaches users by upgrading it, not through a `mulmoclaude` release.
+
+Ships `@mulmobridge/telegram@1.3.1`.
+
 ## [2.7.0] - 2026-10-21
 
 **Charts read straight from a spreadsheet range and redraw when it changes, say why they could not be drawn, and gain
