@@ -73,6 +73,7 @@ import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from 
 import { setOptionProblem } from "../core/drawProblem";
 import { withFormatters } from "../core/formats";
 import { withWordClouds } from "../core/wordCloud";
+import { DARK_THEME } from "../core/darkTheme";
 import { withMapData } from "../core/mapData";
 import { chartHeightPx, documentColumns, gridColumnsClass } from "../core/layout";
 import { chartOption, chartSources, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
@@ -194,7 +195,7 @@ function renderAll(): void {
   });
 }
 
-const echartsTheme = (): string | undefined => (appearance.value === "dark" ? "dark" : undefined);
+const echartsTheme = (): string | undefined => (appearance.value === "dark" ? DARK_THEME : undefined);
 
 /** ECharts' dark theme paints its own background; the card's shows through instead, unless the option sets one. */
 const themed = (option: Record<string, unknown>): Record<string, unknown> =>
