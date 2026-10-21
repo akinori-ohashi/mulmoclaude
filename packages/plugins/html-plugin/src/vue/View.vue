@@ -169,6 +169,9 @@ const frameSrc = computed(() => {
   return query.length > 0 ? `${base}?${query.join("&")}` : base;
 });
 
+// A decision made on the page before it was reloaded or rewritten no longer describes what is on screen.
+watch(frameSrc, discard);
+
 const sourceDetails = ref<HTMLDetailsElement>();
 // Keyed by filePath so a remounted/reused View instance with a different
 // selectedResult does not return stale source.
