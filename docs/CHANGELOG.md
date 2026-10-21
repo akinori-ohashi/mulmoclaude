@@ -21,13 +21,22 @@ bridge, not through a `mulmoclaude` release.
 
 Ships `@mulmobridge/client@1.5.0`, `@mulmobridge/discord@1.4.1`, `@mulmobridge/line@1.2.0`, `@mulmobridge/telegram@1.3.0`.
 
+#### Charts can be word clouds (#3549, PR #3555)
+
+A chart can be `type: "wordCloud"`: each word is sized by its value, from `series.data` or from a sheet range. The
+chart plugin lays the words out itself, so the cloud draws on the server's trial draw and exports to SVG like any other
+chart; words that do not fit are left out, and words in Japanese, Chinese or Korean stay level. Options are
+`sizeRange`, `rotationRange`, `rotationStep` and `gridSize`. A word cloud inside a timeline is refused.
+
+Ships `@mulmoclaude/chart-plugin@4.5.0`.
+
 ### Under the hood
 
 #### Remote host: a host can tell its machines apart (PR #3506)
 
 `@mulmoclaude/core/remote-host` lets a host write a `machineId` and a `label` into every presence beat (`HostRunnerOptions.machine`), and decide its channel id once signed in (`RemoteHostDeps.resolveHostId`, bounded by a timeout). MulmoTerminal uses this to connect several machines under one account (receptron/mulmoterminal#3092). MulmoClaude passes neither, so its presence and channel are unchanged.
 
-Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.4.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.5.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.6.0] - 2026-10-18
 
