@@ -65,17 +65,36 @@ describe("makeConfinedFileOps", () => {
     assert.equal(readFileSync(path.join(outside, "secret.json"), "utf8"), "secret");
   });
 
-  it("does not delete through a symlink that leads out", async () => {
+  it("removes a symlink that leads out, never its target", async () => {
     symlinkSync(path.join(outside, "secret.json"), path.join(root, "sheets", "unlink-link.json"));
     await ops.unlink("sheets/unlink-link.json");
     assert.equal(readFileSync(path.join(outside, "secret.json"), "utf8"), "secret");
+    assert.equal(readdirSync(path.join(root, "sheets")).includes("unlink-link.json"), false);
   });
 
-  it("refuses parent traversal and absolute paths", async () => {
-    await assert.rejects(ops.read("../outside/secret.json"), isEnoent);
-    await assert.rejects(ops.read(path.join(outside, "secret.json")), isEnoent);
-    await assert.rejects(ops.write("../outside/planted.json", "x"), /outside the scope/);
+  it("removes an in-root symlink, never its target", async () => {
+    symlinkSync(path.join(root, "sheets", "in.json"), path.join(root, "sheets", "alias.json"));
+    await ops.unlink("sheets/alias.json");
+    assert.equal(readFileSync(path.join(root, "sheets", "in.json"), "utf8"), "inside");
+    assert.equal(readdirSync(path.join(root, "sheets")).includes("alias.json"), false);
+  });
+
+  it("does not delete through a directory symlink that leads out", async () => {
+    await ops.unlink("sheets/dir-link/secret.json");
+    assert.equal(readFileSync(path.join(outside, "secret.json"), "utf8"), "secret");
+  });
+
+  it("refuses parent traversal and absolute paths before touching the disk", async () => {
+    await assert.rejects(ops.read("../outside/secret.json"), /escapes plugin scope/);
+    await assert.rejects(ops.read(path.join(outside, "secret.json")), /escapes plugin scope/);
+    await assert.rejects(ops.write("../outside/planted.json", "x"), /escapes plugin scope/);
+    await assert.rejects(ops.unlink("../outside/secret.json"), /escapes plugin scope/);
     assert.deepEqual(readdirSync(outside).sort(), ["secret.json"]);
+  });
+
+  it("accepts Windows-style backslash separators", async () => {
+    await ops.write("sheets\\win\\file.json", "win");
+    assert.equal(await ops.read("sheets/win/file.json"), "win");
   });
 
   it("reports a missing file as missing", async () => {

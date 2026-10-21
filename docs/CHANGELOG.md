@@ -30,6 +30,14 @@ no longer to SVG. 4.0.1 of the extension stops a layout when its chart is dispos
 
 ### Fixed
 
+#### Plugin file access cannot follow a symlink out of its folder (#3564)
+
+The files that plugins and their host routes read and write — `artifacts/` (charts, HTML, ShapeScript, MulmoScript,
+spreadsheets, runtime plugins' `files.artifacts`) and each runtime plugin's own data and config folders — were checked
+against `..` only, so a symlink placed inside could read or write outside. Every one of them now checks the real
+location: a read through such a link reads as a missing file, a write is refused, and deleting a link removes the link
+rather than its target. A symlinked workspace folder itself keeps working.
+
 #### Telegram: a streamed reply arrives once, and an error after it is shown (#3548, PR #3561, #3562)
 
 A reply that streamed into Telegram could also arrive a second time as a new message, because the bridge did not wait
