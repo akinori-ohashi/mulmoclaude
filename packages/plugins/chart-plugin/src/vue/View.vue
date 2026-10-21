@@ -72,6 +72,7 @@ import { PLUGIN_RUNTIME_KEY, type ToolResultComplete } from "gui-chat-protocol/v
 import type { ChartEntry, ChartSource, ChartSourceRows, PresentChartData } from "../core/types";
 import { setOptionProblem } from "../core/drawProblem";
 import { withFormatters } from "../core/formats";
+import { withWordClouds } from "../core/wordCloud";
 import { chartHeightPx, documentColumns, gridColumnsClass } from "../core/layout";
 import { chartOption, chartSources, readSourceReply, settleWithin, sourceSpreadsheets } from "../core/source";
 import { useT } from "../lang";
@@ -219,7 +220,7 @@ function drawProblem(instance: echarts.ECharts, chart: ChartEntry, rows: ChartSo
 }
 
 function optionFor(chart: ChartEntry, rows: ChartSourceRows[] | undefined): Record<string, unknown> {
-  return withFormatters(chartOption(chart, rows, runtime !== undefined), runtime?.locale.value);
+  return withWordClouds(withFormatters(chartOption(chart, rows, runtime !== undefined), runtime?.locale.value));
 }
 
 // Long enough for a large workbook on a busy host; a read past it is reported

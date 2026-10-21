@@ -25,4 +25,4 @@ could not be drawn — maps above all, which regional analysis uses often.
 
 Word clouds: echarts-wordcloud 2.1 declares `echarts ^5` as its peer, and this plugin uses ECharts 6,
 so how npm installs it for launcher users is unknown. Dropped from this change at the maintainer's
-decision; a `wordCloud` series is refused by the trial draw as a series ECharts does not know.
+decision. Word clouds came back in #3549, laid out by the plugin itself.

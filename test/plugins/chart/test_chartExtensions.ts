@@ -114,13 +114,6 @@ describe("executeChart with extensions", () => {
     assert.ok(result.data, result.message);
   });
 
-  it("refuses a word cloud, which this plugin does not load", async () => {
-    const wordCloud = { option: { series: [{ type: "wordCloud", data: [{ name: "a", value: 3 }] }] } };
-    const refused = await executeChart({ files: { artifacts: memoryArtifacts() } }, { document: { charts: [wordCloud] } });
-    assert.equal(refused.data, undefined);
-    assert.match(refused.message ?? "", /wordCloud/);
-  });
-
   it("saves a 3D chart without a trial draw, but still checks its formats", async () => {
     const scatter3D = { grid3D: {}, xAxis3D: {}, yAxis3D: {}, zAxis3D: {}, series: [{ type: "scatter3D", data: [[1, 2, 3]] }] };
     const saved = await executeChart({ files: { artifacts: memoryArtifacts() } }, { document: { charts: [{ option: scatter3D }] } });

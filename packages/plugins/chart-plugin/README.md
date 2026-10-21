@@ -91,6 +91,22 @@ ECharts it registers with. The server's trial draw loads the maps
 first; a 3D chart needs WebGL, so on the server only its formats are
 checked, and its card has no SVG export.
 
+## Word clouds
+
+`type: "wordCloud"` is laid out by the plugin (`src/core/wordCloudLayout.ts`) and drawn as an
+ECharts `custom` series (`src/core/wordCloud.ts`), not with echarts-wordcloud, which declares
+ECharts 5. Words come from `data` (`{ name, value }` or `[name, value]`) or from the series'
+dataset (a sheet range: `encode.itemName` / `encode.value`, else its first two columns); the
+largest 300 are kept. Settings: `sizeRange` (px, default `[12, 60]`), `rotationRange` (degrees
+within ±90, default `[0, 90]`) with `rotationStep` (default 90), `gridSize` (px of the grid that
+marks taken space, default 8), `textStyle.fontFamily` / `fontWeight`. Words are placed largest
+first on a spiral from the centre; one that fits nowhere is left out. A word with CJK, kana or
+hangul stays level whatever its angle. In the browser each word is measured in its font; the
+server's trial draw, which has no fonts, estimates widths on the wide side. Each word takes the
+next palette colour. A word cloud is an ordinary chart otherwise: drawn on the server's trial
+draw, exported as SVG. A word cloud inside a timeline (`baseOption` / `options`) is refused with that
+reason.
+
 ## Height and columns
 
 A chart entry may set `height` in pixels (kept between 160 and 1200; 400 when left out), and the
