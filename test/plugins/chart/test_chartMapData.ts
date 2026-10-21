@@ -73,6 +73,30 @@ describe("withMapData", () => {
     assert.deepEqual(firstSeries(option), own);
   });
 
+  it("keeps a map reading a row-wise dataset, which ECharts reads by column", () => {
+    const series = { type: "map", map: "japan", seriesLayoutBy: "row" };
+    const option = withMapData({
+      dataset: {
+        source: [
+          ["Tokyo", "Osaka"],
+          [10, 20],
+        ],
+      },
+      series: [series],
+    });
+    assert.deepEqual(firstSeries(option), series);
+  });
+
+  it("keeps the option whole when a visualMap names the column it colours by", () => {
+    const option = withSourceRows({ visualMap: { dimension: "売上", min: 0, max: 2400 }, series: [MAP_SERIES] }, ROWS);
+    assert.equal(withMapData(option), option);
+  });
+
+  it("leaves a map inside a timeline as it is", () => {
+    const option = { baseOption: { timeline: {}, dataset: { source: ROWS }, series: [MAP_SERIES] }, options: [{}] };
+    assert.equal(withMapData(option), option);
+  });
+
   it("keeps a map reading a transform's output, which has no rows of its own", () => {
     const series = { type: "map", map: "japan", datasetIndex: 1, encode: { itemName: "Region", value: "Sales" } };
     const option = withMapData({ dataset: [{ source: ROWS }, { transform: { type: "filter", config: { dimension: 1, ">": 0 } } }], series: [series] });

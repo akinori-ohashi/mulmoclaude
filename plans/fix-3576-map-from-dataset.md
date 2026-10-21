@@ -24,6 +24,9 @@ does not change it; `itemStyle.color` does, but the right colour depends on the 
 - The recipe test draws through `withMapData`, and checks the map by value rather than by column,
   as it already did for word clouds.
 
+- Left to ECharts, which reads them right: a row-wise dataset (`seriesLayoutBy: "row"`), and an
+  option whose visualMap names a `dimension` (the `{ name, value }` items would not have that column).
+
 ## Out of scope
 
 - A map inside a timeline (`baseOption` / `options`), which the rewrite does not reach.

@@ -13,16 +13,23 @@ const isMapSeries = (series: unknown): series is Record<string, unknown> => isRe
 
 const hasOwnData = (series: Record<string, unknown>): boolean => Array.isArray(series.data) && series.data.length > 0;
 
+// Left to ECharts, which reads these right: a row-wise dataset, and a visualMap naming the column
+// it colours by, which `{ name, value }` items would no longer have.
+const readsRowWise = (series: Record<string, unknown>): boolean => series.seriesLayoutBy === "row";
+const namesVisualDimension = (option: Record<string, unknown>): boolean =>
+  asList(option.visualMap).some((visualMap) => isRecord(visualMap) && visualMap.dimension !== undefined);
+
 function mapSeries(option: Record<string, unknown>, series: Record<string, unknown>): Record<string, unknown> {
-  if (hasOwnData(series) || !readsDatasetRows(option, series)) return series;
+  if (hasOwnData(series) || readsRowWise(series) || !readsDatasetRows(option, series)) return series;
   const rest = Object.fromEntries(Object.entries(series).filter(([key]) => !REWRITTEN.includes(key)));
   return { ...rest, data: datasetNamedAmounts(option, series) };
 }
 
-/** `option` with each top-level map series that reads a dataset's rows given them as `data`. Anything else is kept. */
+/** `option` with each top-level map series that reads a dataset's rows given them as `data`.
+ *  Anything else is kept, a map inside a timeline (`baseOption` / `options`) included. */
 export function withMapData(option: Record<string, unknown>): Record<string, unknown> {
   const { series } = option;
-  if (!asList(series).some(isMapSeries)) return option;
+  if (!asList(series).some(isMapSeries) || namesVisualDimension(option)) return option;
   const drawn = (entry: unknown): unknown => (isMapSeries(entry) ? mapSeries(option, entry) : entry);
   return { ...option, series: Array.isArray(series) ? series.map(drawn) : drawn(series) };
 }
