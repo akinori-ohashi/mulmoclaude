@@ -81,10 +81,35 @@ describe("withMapData", () => {
           ["Tokyo", "Osaka"],
           [10, 20],
         ],
+        sourceHeader: true,
       },
       series: [series],
     });
     assert.deepEqual(firstSeries(option), series);
+  });
+
+  it("keeps a map whose rows are not the sheet's own shape, which ECharts reads another way", () => {
+    const encode = { itemName: "Region", value: "Sales" };
+    const shapes = [
+      { dataset: { source: [{ Region: "Tokyo", Sales: 10 }], sourceHeader: true }, series: [{ type: "map", map: "japan", encode }] },
+      {
+        dataset: {
+          source: [
+            ["Sales", "Region"],
+            [10, "Tokyo"],
+          ],
+          sourceHeader: "auto",
+        },
+        series: [{ type: "map", map: "japan", encode }],
+      },
+      { dataset: [{ id: "raw", source: ROWS, sourceHeader: true }], series: [{ type: "map", map: "japan-ja", datasetId: "raw" }] },
+    ];
+    shapes.forEach((option) => assert.deepEqual(withMapData(option), option));
+  });
+
+  it("keeps a map whose data is an empty list, which ECharts draws with no items", () => {
+    const option = { dataset: { source: ROWS, sourceHeader: true }, series: [{ ...MAP_SERIES, data: [] }] };
+    assert.deepEqual(firstSeries(withMapData(option)).data, []);
   });
 
   it("keeps the option whole when a visualMap names the column it colours by", () => {

@@ -35,10 +35,13 @@ function columnOf(dimension: unknown, header: unknown[] | null, fallback: number
 const seriesDataset = (option: Record<string, unknown>, series: Record<string, unknown>): unknown =>
   asList(option.dataset)[typeof series.datasetIndex === "number" ? series.datasetIndex : 0];
 
-/** Whether the series' dataset holds rows of its own, rather than a transform's output. */
-export function readsDatasetRows(option: Record<string, unknown>, series: Record<string, unknown>): boolean {
+/** Whether the series reads a sheet's rows as `withSourceRows` writes them: a header row, then one
+ *  array per row, found by position. A dataset chosen by id, a transform's output, rows as objects
+ *  and a header ECharts is left to guess are all read some other way, so they answer no. */
+export function readsSheetRows(option: Record<string, unknown>, series: Record<string, unknown>): boolean {
+  if (series.datasetId !== undefined) return false;
   const dataset = seriesDataset(option, series);
-  return isRecord(dataset) && Array.isArray(dataset.source);
+  return isRecord(dataset) && dataset.sourceHeader === true && Array.isArray(dataset.source) && dataset.source.every(Array.isArray);
 }
 
 /** The rows of the series' dataset, and whether the first is a header: said so, or no number where the value goes. */

@@ -4,14 +4,15 @@
 // range therefore gets its rows written into `data` here.
 
 import { asList, isRecord } from "./optionParts";
-import { datasetNamedAmounts, readsDatasetRows } from "./seriesDataset";
+import { datasetNamedAmounts, readsSheetRows } from "./seriesDataset";
 
 // Replaced by `data`: left in, `encode` would still point ECharts at the dataset.
 const REWRITTEN = ["data", "datasetIndex", "encode"];
 
 const isMapSeries = (series: unknown): series is Record<string, unknown> => isRecord(series) && series.type === "map";
 
-const hasOwnData = (series: Record<string, unknown>): boolean => Array.isArray(series.data) && series.data.length > 0;
+// An empty `data: []` is the author's too: ECharts then draws no items rather than the dataset's.
+const hasOwnData = (series: Record<string, unknown>): boolean => Array.isArray(series.data);
 
 // Left to ECharts, which reads these right: a row-wise dataset, and a visualMap naming the column
 // it colours by, which `{ name, value }` items would no longer have.
@@ -20,7 +21,7 @@ const namesVisualDimension = (option: Record<string, unknown>): boolean =>
   asList(option.visualMap).some((visualMap) => isRecord(visualMap) && visualMap.dimension !== undefined);
 
 function mapSeries(option: Record<string, unknown>, series: Record<string, unknown>): Record<string, unknown> {
-  if (hasOwnData(series) || readsRowWise(series) || !readsDatasetRows(option, series)) return series;
+  if (hasOwnData(series) || readsRowWise(series) || !readsSheetRows(option, series)) return series;
   const rest = Object.fromEntries(Object.entries(series).filter(([key]) => !REWRITTEN.includes(key)));
   return { ...rest, data: datasetNamedAmounts(option, series) };
 }
