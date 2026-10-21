@@ -1,6 +1,6 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeConfinedFileOps } from "../../server/plugins/confined-file-ops.js";
@@ -95,6 +95,27 @@ describe("makeConfinedFileOps", () => {
   it("accepts Windows-style backslash separators", async () => {
     await ops.write("sheets\\win\\file.json", "win");
     assert.equal(await ops.read("sheets/win/file.json"), "win");
+  });
+
+  it("propagates an error other than ENOENT instead of reading it as missing", async () => {
+    const isEnotdir = (err: unknown): boolean => err instanceof Error && "code" in err && err.code === "ENOTDIR";
+    await assert.rejects(ops.read("sheets/in.json/x"), isEnotdir);
+    await assert.rejects(ops.stat("sheets/in.json/x"), isEnotdir);
+    await assert.rejects(ops.exists("sheets/in.json/x"), isEnotdir);
+    await assert.rejects(ops.readDir("sheets/in.json"), isEnotdir);
+    await assert.rejects(ops.unlink("sheets/in.json/x"), isEnotdir);
+  });
+
+  it("leaves an absent root absent on read-only calls", async () => {
+    const absentRoot = path.join(base, "never-written");
+    const absentOps = makeConfinedFileOps(absentRoot);
+    assert.equal(await absentOps.exists("a.json"), false);
+    assert.deepEqual(await absentOps.readDir("."), []);
+    await assert.rejects(absentOps.read("a.json"), isEnoent);
+    await absentOps.unlink("a.json");
+    assert.equal(existsSync(absentRoot), false);
+    await absentOps.write("a.json", "now");
+    assert.equal(await absentOps.read("a.json"), "now");
   });
 
   it("reports a missing file as missing", async () => {

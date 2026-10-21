@@ -32,6 +32,9 @@ One factory, `makeConfinedFileOps(scopeRoot)` in `server/plugins/confined-file-o
    - write — `resolveWriteWithinRoot`; an escape throws
    - unlink — confine the PARENT only and unlink the leaf itself, so a link is removed rather
      than its target; a missing parent or file is a no-op
+   - only ENOENT and an out-of-scope target read as "missing"; any other error (EACCES,
+     ENOTDIR, ELOOP) propagates as it did before
+   - only a write creates the scope root; read-only calls against an absent root see "missing"
 
 `runtime.ts` uses it for data / config / artifacts. `makeConfinedArtifactsFileOps` goes away;
 the spreadsheet dispatch and the plugin create route use `makeArtifactsFileOps` again.

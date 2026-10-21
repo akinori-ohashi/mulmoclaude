@@ -5,7 +5,7 @@ import path from "node:path";
 import { mkdir, readFile, readdir, realpath, stat as fsStat, unlink as fsUnlink } from "node:fs/promises";
 import type { FileOps } from "gui-chat-protocol";
 import { writeFileAtomic } from "../utils/files/atomic.js";
-import { isEnoent, resolveWithinRoot, resolveWriteWithinRoot } from "../utils/files/safe.js";
+import { isEnoent, resolveWriteWithinRoot } from "../utils/files/safe.js";
 import { ensureInsideBase } from "./runtime-loader.js";
 
 // ─────────────────────────────────────────────────────────────────────
@@ -49,13 +49,35 @@ const scopeRelative = (scopeRoot: string, rel: string): string => path.relative(
 /** An escape reads as a missing file, so callers that treat ENOENT as "not there" stay closed. */
 const notInScope = (rel: string): Error & { code: string } => Object.assign(new Error(`not inside the scope: ${rel}`), { code: "ENOENT" });
 
+/** Only a missing path reads as null; EACCES, ELOOP, ENOTDIR … propagate as before. */
+const realpathIfPresent = async (absPath: string): Promise<string | null> => {
+  try {
+    return await realpath(absPath);
+  } catch (err) {
+    if (isEnoent(err)) return null;
+    throw err;
+  }
+};
+
+const isWithin = (rootReal: string, candidateReal: string): boolean => candidateReal === rootReal || candidateReal.startsWith(rootReal + path.sep);
+
+/** Real location of `relative` (host-native, from `scopeRelative`) if it exists inside the root; null when missing or outside. */
+const resolveExisting = async (rootReal: string, relative: string): Promise<string | null> => {
+  const candidateReal = await realpathIfPresent(path.resolve(rootReal, relative));
+  return candidateReal !== null && isWithin(rootReal, candidateReal) ? candidateReal : null;
+};
+
+// Only a write creates the scope root; a read-only call against an absent root sees "missing".
 const realRoot = async (scopeRoot: string): Promise<string> => {
   await mkdir(scopeRoot, { recursive: true });
   return realpath(scopeRoot);
 };
 
-const existingPath = async (scopeRoot: string, rel: string): Promise<string | null> =>
-  resolveWithinRoot(await realRoot(scopeRoot), scopeRelative(scopeRoot, rel));
+const existingPath = async (scopeRoot: string, rel: string): Promise<string | null> => {
+  const relative = scopeRelative(scopeRoot, rel);
+  const rootReal = await realpathIfPresent(scopeRoot);
+  return rootReal === null ? null : resolveExisting(rootReal, relative);
+};
 
 const requireExisting = async (scopeRoot: string, rel: string): Promise<string> => {
   const resolved = await existingPath(scopeRoot, rel);
@@ -72,17 +94,19 @@ const writeTarget = async (scopeRoot: string, rel: string): Promise<string> => {
 // unlink does not follow the leaf, so only the parent is confined: a link is removed, never its target.
 const unlinkTarget = async (scopeRoot: string, rel: string): Promise<string | null> => {
   const relative = scopeRelative(scopeRoot, rel);
-  const rootReal = await realRoot(scopeRoot);
+  const rootReal = await realpathIfPresent(scopeRoot);
+  if (rootReal === null) return null;
   if (relative === "") return rootReal;
-  const parentReal = resolveWithinRoot(rootReal, path.dirname(relative));
+  const parentReal = await resolveExisting(rootReal, path.dirname(relative));
   return parentReal === null ? null : path.join(parentReal, path.basename(relative));
 };
 
-const unlinkIfPresent = async (target: string): Promise<void> => {
+const ignoreEnoent = async <T>(operation: () => Promise<T>, fallback: T): Promise<T> => {
   try {
-    await fsUnlink(target);
+    return await operation();
   } catch (err) {
-    if (!isEnoent(err)) throw err;
+    if (isEnoent(err)) return fallback;
+    throw err;
   }
 };
 
@@ -96,7 +120,7 @@ export function makeConfinedFileOps(scopeRoot: string): FileOps {
     write: async (rel, content) => writeFileAtomic(await writeTarget(scopeRoot, rel), content),
     readDir: async (rel) => {
       const resolved = await existingPath(scopeRoot, rel);
-      return resolved === null ? [] : readdir(resolved);
+      return resolved === null ? [] : ignoreEnoent(() => readdir(resolved), []);
     },
     stat: async (rel) => {
       const { mtimeMs, size } = await fsStat(await requireExisting(scopeRoot, rel));
@@ -105,7 +129,7 @@ export function makeConfinedFileOps(scopeRoot: string): FileOps {
     exists: async (rel) => (await existingPath(scopeRoot, rel)) !== null,
     unlink: async (rel) => {
       const target = await unlinkTarget(scopeRoot, rel);
-      if (target !== null) await unlinkIfPresent(target);
+      if (target !== null) await ignoreEnoent(() => fsUnlink(target), undefined);
     },
   };
 }
