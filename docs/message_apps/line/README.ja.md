@@ -144,6 +144,11 @@ LINE Developers Console → **Messaging API** タブの QR コードを
 スキャンして bot を友だち追加。メッセージを送ると MulmoClaude から
 返信が来ます。
 
+**グループで使う場合:** LINE Official Account Manager で「グループ・複数人チャットへの参加を許可する」を
+オンにして bot を招待します。グループ全体で一つの会話になり、既定では bot がメンションされた時
+（`@<bot 名> …`）だけ応答します。詳しくは
+[Groups and rooms](../../../packages/bridges/line/README.md#groups-and-rooms) を参照。
+
 ---
 
 ## トラブルシューティング
