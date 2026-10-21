@@ -8,6 +8,10 @@ string. A component swapped to a symlink between the two syscalls is followed. N
 
 ## What can be closed in portable Node, and how
 
+Both operations first bind the root: `lstat` of the root realpath (bigint `dev` + `ino`) is taken
+when the call begins and must still match at verification, so a root renamed away and replaced by
+another directory mid-call is refused (Codex, PR #3580 round 1).
+
 **Reads (read / readBytes): closed.** Open first, then prove the descriptor is the
 in-root file:
 
@@ -42,6 +46,8 @@ the link's target needs write access to that target already.
   would make an unreadable file throw EACCES where `stat` / `exists` answer today.
 - **a stray empty staging file** — a write whose parent was swapped before the staging file was
   created fails, and can leave that empty `<leaf>.<random>.tmp` in the link's target.
+- **a real directory moved in** — a directory renamed into the root (not linked) is inside the
+  root from then on; moving one in from outside the workspace needs write access to it already.
 - **hard links** — an in-root hard link to an outside file is the outside file; creating one needs
   access to that file already.
 

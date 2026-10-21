@@ -60,8 +60,26 @@ async function openIfPresent(absPath: string, flags: number): Promise<FileHandle
   }
 }
 
-async function isInRootFile(rootReal: string, candidateReal: string, handle: FileHandle): Promise<boolean> {
-  const again = await resolveExistingWithinRoot(rootReal, candidateReal);
+/** The root pathname plus the directory it named when the call began, so a root renamed away and
+ *  replaced by another directory mid-call is caught — the pathname alone would accept it. */
+interface BoundRoot {
+  real: string;
+  identity: BigIntStats;
+}
+
+async function bindRoot(rootReal: string): Promise<BoundRoot | null> {
+  const identity = await lstatIfPresent(rootReal);
+  return identity === null ? null : { real: rootReal, identity };
+}
+
+async function rootUnchanged(root: BoundRoot): Promise<boolean> {
+  const now = await lstatIfPresent(root.real);
+  return now !== null && sameFile(now, root.identity);
+}
+
+async function isInRootFile(root: BoundRoot, candidateReal: string, handle: FileHandle): Promise<boolean> {
+  if (!(await rootUnchanged(root))) return false;
+  const again = await resolveExistingWithinRoot(root.real, candidateReal);
   if (again === null) return false;
   const onDisk = await lstatIfPresent(again);
   return onDisk !== null && sameFile(onDisk, await handle.stat({ bigint: true }));
@@ -70,6 +88,8 @@ async function isInRootFile(rootReal: string, candidateReal: string, handle: Fil
 /** Opens `relative` under `rootReal` for reading and proves the handle is the in-root file. Null when
  *  missing, outside, or swapped during the call. The caller owns the returned handle. */
 export async function openVerifiedWithinRoot(rootReal: string, relative: string, hooks: VerifiedFileHooks = {}): Promise<FileHandle | null> {
+  const root = await bindRoot(rootReal);
+  if (root === null) return null;
   const candidateReal = await resolveExistingWithinRoot(rootReal, relative);
   if (candidateReal === null) return null;
   await hooks.beforeOpen?.();
@@ -77,7 +97,7 @@ export async function openVerifiedWithinRoot(rootReal: string, relative: string,
   if (handle === null) return null;
   try {
     await hooks.afterOpen?.();
-    if (await isInRootFile(rootReal, candidateReal, handle)) return handle;
+    if (await isInRootFile(root, candidateReal, handle)) return handle;
   } catch (err) {
     await handle.close();
     throw err;
@@ -87,19 +107,20 @@ export async function openVerifiedWithinRoot(rootReal: string, relative: string,
 }
 
 /** The staging file's directory, re-resolved, if it is inside the root and holds exactly the opened staging file. */
-async function verifiedStagingDir(rootReal: string, dirReal: string, staging: string, handle: FileHandle): Promise<string | null> {
-  const dirAgain = await resolveExistingWithinRoot(rootReal, dirReal);
+async function verifiedStagingDir(root: BoundRoot, dirReal: string, staging: string, handle: FileHandle): Promise<string | null> {
+  if (!(await rootUnchanged(root))) return null;
+  const dirAgain = await resolveExistingWithinRoot(root.real, dirReal);
   if (dirAgain === null) return null;
   const entry = await lstatIfPresent(path.join(dirAgain, staging));
   return entry !== null && sameFile(entry, await handle.stat({ bigint: true })) ? dirAgain : null;
 }
 
-async function writeStaging(rootReal: string, dirReal: string, staging: string, content: string | Uint8Array, hooks: VerifiedFileHooks): Promise<string> {
+async function writeStaging(root: BoundRoot, dirReal: string, staging: string, content: string | Uint8Array, hooks: VerifiedFileHooks): Promise<string> {
   await hooks.beforeOpen?.();
   const handle = await promises.open(path.join(dirReal, staging), CREATE_FLAGS);
   try {
     await hooks.afterOpen?.();
-    const stagingDir = await verifiedStagingDir(rootReal, dirReal, staging, handle);
+    const stagingDir = await verifiedStagingDir(root, dirReal, staging, handle);
     if (stagingDir === null) throw new Error(`refusing to write: ${dirReal} left the scope during the write`);
     await handle.writeFile(content);
     return stagingDir;
@@ -118,8 +139,10 @@ export async function writeFileVerifiedInDir(
   content: string | Uint8Array,
   hooks: VerifiedFileHooks = {},
 ): Promise<void> {
+  const root = await bindRoot(rootReal);
+  if (root === null) throw new Error(`refusing to write: the scope root ${rootReal} is gone`);
   const staging = `${leaf}.${randomBytes(STAGING_SUFFIX_BYTES).toString("hex")}.tmp`;
-  const stagingDir = await writeStaging(rootReal, dirReal, staging, content, hooks).catch(async (err: unknown) => {
+  const stagingDir = await writeStaging(root, dirReal, staging, content, hooks).catch(async (err: unknown) => {
     await promises.unlink(path.join(dirReal, staging)).catch(() => {});
     throw err;
   });

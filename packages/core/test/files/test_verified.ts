@@ -55,6 +55,24 @@ describe("verified file access", () => {
     assert.equal(await readThrough("dir/in.json", { afterOpen: swapOut }), null);
   });
 
+  // The root pathname itself renamed away and another directory moved into its place.
+  const replaceRoot = async (): Promise<void> => {
+    renameSync(root, `${root}-original`);
+    mkdirSync(path.join(outside, "dir"));
+    writeFileSync(path.join(outside, "dir", "in.json"), "replacement");
+    renameSync(outside, root);
+  };
+
+  it("refuses a read when the root directory is replaced mid-call", async () => {
+    assert.equal(await readThrough("dir/in.json", { beforeOpen: replaceRoot }), null);
+  });
+
+  it("refuses a write when the root directory is replaced mid-call", async () => {
+    await assert.rejects(writeFileVerifiedInDir(root, dir, "in.json", "planted", { beforeOpen: replaceRoot }), /left the scope/);
+    assert.equal(readFileSync(path.join(root, "dir", "in.json"), "utf8"), "replacement");
+    assert.equal(readFileSync(path.join(`${root}-original`, "dir", "in.json"), "utf8"), "inside");
+  });
+
   it("reports a missing or outside path as null", async () => {
     assert.equal(await readThrough("dir/none.json", {}), null);
     assert.equal(await readThrough("../outside/in.json", {}), null);
