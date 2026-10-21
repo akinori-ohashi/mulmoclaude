@@ -3,11 +3,9 @@
 // gets its words written into `data` here.
 
 import { asList, isRecord } from "./optionParts";
+import { datasetNamedAmounts, namedAmount, type NamedAmount } from "./seriesDataset";
 
-export interface CloudWord {
-  name: string;
-  value: number;
-}
+export type CloudWord = NamedAmount;
 
 export interface CloudStyle {
   /** Font sizes in px for the smallest and the largest value. */
@@ -49,56 +47,16 @@ export function cloudStyle(series: Record<string, unknown>): CloudStyle {
   };
 }
 
-/** A word's value: a finite number, or a string holding one; otherwise null. */
-function wordAmount(value: unknown): number | null {
-  const amount = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
-  return typeof amount === "number" && Number.isFinite(amount) ? amount : null;
-}
-
-function cloudWord(name: unknown, value: unknown): CloudWord | null {
-  const text = typeof name === "string" || typeof name === "number" ? String(name).trim() : "";
-  const amount = wordAmount(value);
-  return text !== "" && amount !== null ? { name: text, value: amount } : null;
-}
-
 /** A data item as `{ name, value }` or `[name, value]`. */
 const dataWord = (item: unknown): CloudWord | null => {
-  if (isRecord(item)) return cloudWord(item.name, item.value);
-  return Array.isArray(item) ? cloudWord(item[0], item[1]) : null;
+  if (isRecord(item)) return namedAmount(item.name, item.value);
+  return Array.isArray(item) ? namedAmount(item[0], item[1]) : null;
 };
-
-/** Which column `dimension` names: a header name, a column number, or `fallback`. */
-function columnOf(dimension: unknown, header: unknown[] | null, fallback: number): number {
-  if (typeof dimension === "number") return dimension;
-  if (typeof dimension === "string" && header) {
-    const index = header.findIndex((cell) => cell !== null && String(cell) === dimension);
-    if (index !== -1) return index;
-  }
-  return fallback;
-}
-
-/** The rows of the series' dataset, and whether the first is a header: said so, or no number where the value goes. */
-function datasetTable(option: Record<string, unknown>, series: Record<string, unknown>): { header: unknown[] | null; body: unknown[][] } {
-  const dataset = asList(option.dataset)[typeof series.datasetIndex === "number" ? series.datasetIndex : 0];
-  if (!isRecord(dataset) || !Array.isArray(dataset.source)) return { header: null, body: [] };
-  const rows = dataset.source.filter((row): row is unknown[] => Array.isArray(row));
-  const [first, ...rest] = rows;
-  const firstIsHeader = dataset.sourceHeader === true || (dataset.sourceHeader === undefined && first !== undefined && wordAmount(first[1]) === null);
-  return firstIsHeader ? { header: first ?? null, body: rest } : { header: null, body: rows };
-}
-
-function datasetWords(option: Record<string, unknown>, series: Record<string, unknown>): CloudWord[] {
-  const { header, body } = datasetTable(option, series);
-  const encode = isRecord(series.encode) ? series.encode : {};
-  const nameColumn = columnOf(asList(encode.itemName)[0], header, 0);
-  const valueColumn = columnOf(asList(encode.value)[0], header, 1);
-  return body.flatMap((row) => cloudWord(row[nameColumn], row[valueColumn]) ?? []);
-}
 
 /** The series' words: its own data when it has some, else its dataset's rows. The largest MAX_WORDS. */
 export function cloudWords(option: Record<string, unknown>, series: Record<string, unknown>): CloudWord[] {
   const own = Array.isArray(series.data) ? series.data.flatMap((item) => dataWord(item) ?? []) : [];
-  const words = Array.isArray(series.data) && series.data.length > 0 ? own : datasetWords(option, series);
+  const words = Array.isArray(series.data) && series.data.length > 0 ? own : datasetNamedAmounts(option, series);
   if (words.length <= MAX_WORDS) return words;
   const kept = new Set([...words].sort((a, b) => b.value - a.value).slice(0, MAX_WORDS));
   return words.filter((word) => kept.has(word));
