@@ -62,6 +62,11 @@ describe("readSubmitMessage", () => {
     assert.deepEqual(readSubmitMessage(message({ type: SUBMIT_MESSAGE_TYPE, text: `${atLimit}a` }), frame), { kind: "tooLong" });
   });
 
+  it("reports oversized text as too long even when it is all whitespace", () => {
+    const blank = " ".repeat(MAX_SUBMIT_TEXT_CHARS + 1);
+    assert.deepEqual(readSubmitMessage(message({ type: SUBMIT_MESSAGE_TYPE, text: blank }), frame), { kind: "tooLong" });
+  });
+
   it("checks the source before the payload, so another frame's oversized text is ignored rather than reported", () => {
     const tooLong = "a".repeat(MAX_SUBMIT_TEXT_CHARS + 1);
     assert.deepEqual(readSubmitMessage(message({ type: SUBMIT_MESSAGE_TYPE, text: tooLong }, otherFrame), frame), { kind: "ignored" });

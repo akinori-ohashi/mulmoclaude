@@ -19,7 +19,7 @@ export function readSubmitMessage(event: SubmitEventLike, frameWindow: unknown):
   if (frameWindow === null || frameWindow === undefined || event.source !== frameWindow) return IGNORED;
   const { data } = event;
   if (!isRecord(data) || data.type !== SUBMIT_MESSAGE_TYPE || typeof data.text !== "string") return IGNORED;
-  if (data.text.trim() === "") return IGNORED;
   if (data.text.length > MAX_SUBMIT_TEXT_CHARS) return { kind: "tooLong" };
+  if (data.text.trim() === "") return IGNORED;
   return { kind: "text", text: data.text };
 }

@@ -12,6 +12,7 @@ export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, isEnabl
   const rejectedTooLong = ref(false);
 
   function onMessage(event: MessageEvent) {
+    if (!isEnabled()) return;
     const read = readSubmitMessage(event, frame.value?.contentWindow);
     if (read.kind === "ignored") return;
     rejectedTooLong.value = read.kind === "tooLong";
@@ -23,9 +24,7 @@ export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, isEnabl
     rejectedTooLong.value = false;
   }
 
-  onMounted(() => {
-    if (isEnabled()) window.addEventListener("message", onMessage);
-  });
+  onMounted(() => window.addEventListener("message", onMessage));
   onBeforeUnmount(() => window.removeEventListener("message", onMessage));
 
   return { submission, rejectedTooLong, discard };
