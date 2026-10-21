@@ -38,6 +38,10 @@ export function withDarkAxes3D(option: Record<string, unknown>): Record<string, 
   if (![option, option.baseOption, ...asList(option.options)].some(hasGrid3D)) return option;
   const darkened = darkPart(option);
   if (isRecord(option.baseOption)) darkened.baseOption = darkPart(option.baseOption);
-  if (Array.isArray(option.options)) darkened.options = option.options.map((part: unknown) => (isRecord(part) ? darkPart(part) : part));
+  // Each of a timeline's options is laid over its baseOption, so defaults put in an option would
+  // override what the author wrote in the baseOption: when that has a grid3D, the defaults go there only.
+  if (Array.isArray(option.options) && !hasGrid3D(option.baseOption)) {
+    darkened.options = option.options.map((part: unknown) => (isRecord(part) ? darkPart(part) : part));
+  }
   return darkened;
 }

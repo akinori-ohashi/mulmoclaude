@@ -44,17 +44,30 @@ describe("withDarkAxes3D", () => {
     assert.deepEqual(withDarkAxes3D({ grid3D: [null, {}] }).grid3D, [null, withDarkAxes3D({ grid3D: {} }).grid3D]);
   });
 
-  it("darkens the grid3D of a timeline's baseOption and of each of its options, without touching the input", () => {
-    const option = { baseOption: { timeline: {}, grid3D: {} }, options: [{ grid3D: { axisLine: { lineStyle: { color: "#0f0" } } } }, { series: [] }] };
+  it("darkens a timeline's baseOption only, so an option laid over it keeps the baseOption's own colours", () => {
+    const option = {
+      baseOption: { timeline: {}, grid3D: { axisLine: { lineStyle: { color: "#f00" } } } },
+      options: [{ grid3D: { splitLine: { show: true } } }],
+    };
     const darkened = withDarkAxes3D(option);
     const field = (value: unknown, ...keys: (string | number)[]): unknown =>
       keys.reduce<unknown>((current, key) => (typeof current === "object" && current !== null ? Reflect.get(current, key) : undefined), value);
-    assert.equal(field(darkened, "baseOption", "grid3D", "axisLine", "lineStyle", "color"), LIGHT_LINE);
+    assert.equal(field(darkened, "baseOption", "grid3D", "axisLine", "lineStyle", "color"), "#f00");
+    assert.equal(field(darkened, "baseOption", "grid3D", "splitLine", "lineStyle", "color"), "rgba(255,255,255,0.12)");
+    assert.deepEqual(field(darkened, "options", 0), { grid3D: { splitLine: { show: true } } });
+  });
+
+  it("darkens each of a timeline's options when its baseOption has no grid3D, without touching the input", () => {
+    const option = { baseOption: { timeline: {} }, options: [{ grid3D: { axisLine: { lineStyle: { color: "#0f0" } } } }, { series: [] }] };
+    const darkened = withDarkAxes3D(option);
+    const field = (value: unknown, ...keys: (string | number)[]): unknown =>
+      keys.reduce<unknown>((current, key) => (typeof current === "object" && current !== null ? Reflect.get(current, key) : undefined), value);
+    assert.equal(field(darkened, "baseOption", "grid3D"), undefined);
     assert.equal(field(darkened, "options", 0, "grid3D", "axisLine", "lineStyle", "color"), "#0f0");
     assert.equal(field(darkened, "options", 0, "grid3D", "splitLine", "lineStyle", "color"), "rgba(255,255,255,0.12)");
     assert.deepEqual(field(darkened, "options", 1), { series: [] });
     assert.deepEqual(option, {
-      baseOption: { timeline: {}, grid3D: {} },
+      baseOption: { timeline: {} },
       options: [{ grid3D: { axisLine: { lineStyle: { color: "#0f0" } } } }, { series: [] }],
     });
   });
