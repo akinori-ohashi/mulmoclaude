@@ -14,7 +14,7 @@ const MIN_FONT_PX = 4;
 const MAX_FONT_PX = 400;
 const MAX_ROTATION_DEG = 90;
 const MIN_ROTATION_STEP_DEG = 1;
-const GRID_RANGE_PX: readonly [number, number] = [2, 64];
+const GRID_RANGE_PX: readonly [number, number] = [4, 64];
 // The largest values are kept; more words than this do not fit a card anyway.
 const MAX_WORDS = 300;
 const DEGREES_TO_RAD = Math.PI / 180;

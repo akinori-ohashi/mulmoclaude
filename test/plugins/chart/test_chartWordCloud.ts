@@ -22,6 +22,8 @@ import { memoryArtifacts } from "./memoryArtifacts";
 const STYLE: CloudStyle = { sizeRange: [12, 60], rotationRange: [0, 90], rotationStep: 90, gridSize: 8 };
 const BOX = { width: 640, height: 400 };
 const LINE_HEIGHT_EM = 1.2;
+// Properties of the layout itself, apart from the cap on how many positions one layout may try.
+const UNLIMITED = Number.POSITIVE_INFINITY;
 
 /** Words with generated names and values, the same for the same seed. */
 function generatedWords(count: number, seed: number): CloudWord[] {
@@ -118,6 +120,33 @@ describe("layoutWords", () => {
     });
   });
 
+  it("reaches the corners of the box once the middle is taken", () => {
+    const tiles = Array.from({ length: 3000 }, () => ({ name: "ab", value: 1 }));
+    const placed = layoutWords(tiles, { sizeRange: [8, 8], rotationRange: [0, 0], rotationStep: 90, gridSize: 4 }, BOX, undefined, UNLIMITED);
+    const near = (cornerX: number, cornerY: number): boolean => placed.some((word) => Math.abs(word.x - cornerX) < 20 && Math.abs(word.y - cornerY) < 20);
+    assert.ok(near(0, 0) && near(BOX.width, 0) && near(0, BOX.height) && near(BOX.width, BOX.height));
+  });
+
+  it("skips a word larger than the box at once, leaving the budget to the others", () => {
+    // Searched, the oversized word would spend the whole budget and leave "fits" unplaced.
+    const SMALL_BUDGET = 500;
+    const words = [
+      { name: "x".repeat(200), value: 9 },
+      { name: "fits", value: 1 },
+    ];
+    assert.deepEqual(
+      layoutWords(words, { ...STYLE, rotationRange: [0, 0] }, BOX, undefined, SMALL_BUDGET).map(({ index }) => index),
+      [1],
+    );
+  });
+
+  it("stops trying positions when the layout's budget runs out", () => {
+    const words = generatedWords(60, 4);
+    assert.deepEqual(layoutWords(words, STYLE, BOX, undefined, 0), []);
+    assert.ok(layoutWords(words, STYLE, BOX, undefined, 2000).length < layoutWords(words, STYLE, BOX).length);
+    assert.deepEqual(layoutWords(words, STYLE, BOX), layoutWords(words, STYLE, BOX, undefined, UNLIMITED));
+  });
+
   it("sizes words by the measure it is given", () => {
     const word = [{ name: "a", value: 1 }];
     const box = { width: 100, height: 100 };
@@ -157,7 +186,10 @@ describe("layoutWords", () => {
 
   it("places more words with a finer grid", () => {
     const words = generatedWords(150, 8);
-    assert.ok(layoutWords(words, { ...STYLE, gridSize: 4 }, BOX).length >= layoutWords(words, { ...STYLE, gridSize: 24 }, BOX).length);
+    assert.ok(
+      layoutWords(words, { ...STYLE, gridSize: 4 }, BOX, undefined, UNLIMITED).length >=
+        layoutWords(words, { ...STYLE, gridSize: 24 }, BOX, undefined, UNLIMITED).length,
+    );
   });
 });
 
@@ -170,6 +202,7 @@ describe("cloudStyle", () => {
       rotationStep: 15,
       gridSize: 4,
     });
+    assert.equal(cloudStyle({ gridSize: 2 }).gridSize, STYLE.gridSize, "finer than 4px is too costly to search");
     const wrong = cloudStyle({ sizeRange: [40, 10], rotationRange: [0, 180], rotationStep: 0, gridSize: 1000 });
     assert.deepEqual(wrong, STYLE);
     assert.deepEqual(cloudStyle({ sizeRange: "big", rotationRange: [0], rotationStep: "45", gridSize: Number.NaN }), STYLE);

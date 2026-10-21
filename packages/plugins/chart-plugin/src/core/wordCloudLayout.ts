@@ -51,6 +51,9 @@ const FIRST_FULL_WIDTH_CODE_POINT = 0x1100;
 const BROAD_LETTERS = new Set(["M", "W", "m", "w", "@", "%"]);
 const LINE_HEIGHT_EM = 1.2;
 const FULL_TURN_RAD = 2 * Math.PI;
+/** Candidate positions one layout may try in all, so a cloud of words that do not fit cannot stall
+ *  a redraw; words still unplaced when it runs out are left out. */
+export const LAYOUT_CHECK_BUDGET = 5_000_000;
 const DEGREES_TO_RAD = Math.PI / 180;
 
 const isFullWidth = (character: string): boolean => (character.codePointAt(0) ?? 0) >= FIRST_FULL_WIDTH_CODE_POINT;
@@ -150,7 +153,8 @@ function take(grid: Grid, rect: Rect): void {
 
 const inside = (rect: Rect, box: CloudBox): boolean => rect.left >= 0 && rect.top >= 0 && rect.right <= box.width && rect.bottom <= box.height;
 
-/** Points on a spiral from the centre, stretched to the box's shape, about one cell apart. */
+/** Points on a spiral from the centre, stretched to the box's shape so its last turn passes
+ *  through the corners, about one cell apart. */
 function spiralPoints(box: CloudBox, cellPx: number): { x: number; y: number }[] {
   const longest = Math.max(box.width, box.height);
   const stretch = { x: box.width / longest, y: box.height / longest };
@@ -172,13 +176,26 @@ interface Placing {
   rotationDeg: number;
 }
 
-function place(word: Placing, box: CloudBox, grid: Grid, spiral: { x: number; y: number }[], measure: MeasureText): PlacedWord | null {
-  const extent = halfExtent(word.name, word.fontSize, word.rotationDeg, measure);
-  const spot = spiral.find(({ x, y }) => {
+interface Search {
+  box: CloudBox;
+  grid: Grid;
+  spiral: { x: number; y: number }[];
+  measure: MeasureText;
+  /** Candidate positions still allowed in this layout. */
+  checksLeft: number;
+}
+
+function place(word: Placing, search: Search): PlacedWord | null {
+  const { box, grid } = search;
+  const extent = halfExtent(word.name, word.fontSize, word.rotationDeg, search.measure);
+  if (extent.halfWidth * 2 > box.width || extent.halfHeight * 2 > box.height) return null;
+  const spot = search.spiral.find(({ x, y }) => {
+    search.checksLeft -= 1;
+    if (search.checksLeft < 0) return true;
     const rect = rectAt(extent, x, y);
     return inside(rect, box) && isFree(grid, rect);
   });
-  if (!spot) return null;
+  if (!spot || search.checksLeft < 0) return null;
   take(grid, rectAt(extent, spot.x, spot.y));
   return { index: word.index, x: spot.x, y: spot.y, fontSize: word.fontSize, rotationDeg: word.rotationDeg };
 }
@@ -205,9 +222,14 @@ function placingOrder(words: CloudWord[], style: CloudStyle): Placing[] {
 }
 
 /** Where each word that fits goes in `box`. The same words, style and box give the same layout. */
-export function layoutWords(words: CloudWord[], style: CloudStyle, box: CloudBox, measure: MeasureText = estimateTextWidth): PlacedWord[] {
+export function layoutWords(
+  words: CloudWord[],
+  style: CloudStyle,
+  box: CloudBox,
+  measure: MeasureText = estimateTextWidth,
+  checkBudget = LAYOUT_CHECK_BUDGET,
+): PlacedWord[] {
   if (words.length === 0 || !(box.width > 0) || !(box.height > 0)) return [];
-  const grid = newGrid(box, style.gridSize);
-  const spiral = spiralPoints(box, style.gridSize);
-  return placingOrder(words, style).flatMap((word) => place(word, box, grid, spiral, measure) ?? []);
+  const search: Search = { box, grid: newGrid(box, style.gridSize), spiral: spiralPoints(box, style.gridSize), measure, checksLeft: checkBudget };
+  return placingOrder(words, style).flatMap((word) => place(word, search) ?? []);
 }
