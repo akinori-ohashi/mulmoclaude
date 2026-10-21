@@ -19,6 +19,16 @@ message. One-on-one chats are unchanged. Before this, a group message was answer
 joined their personal session. Shipped in `@mulmobridge/line@1.3.0`; the bridge reaches users by upgrading it, not
 through a `mulmoclaude` release.
 
+### Fixed
+
+#### Plugin file access cannot follow a symlink out of its folder (#3564, PR #3570)
+
+The files that plugins and their host routes read and write — `artifacts/` (charts, HTML, ShapeScript, MulmoScript,
+spreadsheets, runtime plugins' `files.artifacts`) and each runtime plugin's own data and config folders — were checked
+against `..` only, so a symlink placed inside could read or write outside. Every one of them now checks the real
+location: a read through such a link reads as a missing file, a write is refused, and deleting a link removes the link
+rather than its target. A symlinked workspace folder itself keeps working.
+
 ## [2.8.0] - 2026-10-22
 
 **The spreadsheet is the shared `@gui-chat-plugin/spreadsheet` package, word clouds are drawn by
@@ -45,14 +55,6 @@ no longer to SVG. 4.0.1 of the extension stops a layout when its chart is dispos
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ### Fixed
-
-#### Plugin file access cannot follow a symlink out of its folder (#3564)
-
-The files that plugins and their host routes read and write — `artifacts/` (charts, HTML, ShapeScript, MulmoScript,
-spreadsheets, runtime plugins' `files.artifacts`) and each runtime plugin's own data and config folders — were checked
-against `..` only, so a symlink placed inside could read or write outside. Every one of them now checks the real
-location: a read through such a link reads as a missing file, a write is refused, and deleting a link removes the link
-rather than its target. A symlinked workspace folder itself keeps working.
 
 #### Telegram: a streamed reply arrives once, and an error after it is shown (#3548, PR #3561, #3562)
 
