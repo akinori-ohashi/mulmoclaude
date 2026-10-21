@@ -28,7 +28,7 @@ interface FakeRunner {
 // the "current user"), except the token "bad" which rejects — mirroring
 // signInWithCredential leaving currentUser unchanged on failure. An optional
 // `onExpire` is forwarded into deps so a test can assert it reaches the runner.
-const makeHarness = (onExpire?: RemoteHostDeps["onExpire"]) => {
+const makeHarness = (onExpire?: RemoteHostDeps["onExpire"], overrides: Partial<RemoteHostDeps> = {}) => {
   const runners: FakeRunner[] = [];
   let uid: string | null = null;
   let signOutCount = 0;
@@ -54,6 +54,7 @@ const makeHarness = (onExpire?: RemoteHostDeps["onExpire"]) => {
     startRunner,
     handlers: {},
     onExpire,
+    ...overrides,
   };
 
   // A missing runner means the lifecycle under test never started one — fail there, not on a later property read.
@@ -133,5 +134,72 @@ describe("createRemoteHost lifecycle", () => {
     assert.deepEqual(rh.status(), { connected: true, uid: "uid-t2" });
     runnerAt(1).onClosed?.(); // the live runner dies
     assert.equal(rh.status().connected, false);
+  });
+});
+
+// A host whose id depends on what the account already has (mulmoterminal#3092) decides it
+// once signed in, through `resolveHostId`; without one the fixed `hostId` is used as before.
+describe("createRemoteHost resolveHostId", () => {
+  it("binds the runner to the id resolved for the signed-in uid", async () => {
+    const asked: string[] = [];
+    const resolveHostId = async (uid: string) => {
+      asked.push(uid);
+      return `${HOST_ID}-0000ffff`;
+    };
+    const { rh, runnerAt } = makeHarness(undefined, { resolveHostId });
+    await rh.connect("t1");
+    assert.deepEqual(asked, ["uid-t1"]);
+    assert.deepEqual(runnerAt(0).channel, { uid: "uid-t1", hostId: `${HOST_ID}-0000ffff` });
+  });
+
+  it("resolves again on reconnect, for the restored uid", async () => {
+    const resolveHostId = async (uid: string) => `id-for-${uid}`;
+    const restore = async (blob: string) => `uid-${blob}`;
+    const { rh, runnerAt } = makeHarness(undefined, { resolveHostId, restore });
+    await rh.reconnect("r1");
+    assert.deepEqual(runnerAt(0).channel, { uid: "uid-r1", hostId: "id-for-uid-r1" });
+  });
+});
+
+// resolveHostId runs after signIn/restore has replaced the session, so a failure there
+// cannot leave the old runner looking connected, and a lookup that never answers cannot
+// hold the serialized transitions forever.
+describe("createRemoteHost resolveHostId failures", () => {
+  it("a failed resolution starts no runner, and stops the old one whose session was replaced", async () => {
+    let fail = false;
+    const resolveHostId = async () => {
+      if (fail) throw new Error("hosts doc unreadable");
+      return HOST_ID;
+    };
+    const { rh, runners, runnerAt } = makeHarness(undefined, { resolveHostId });
+    await rh.connect("t1");
+    fail = true;
+    await assert.rejects(rh.connect("t2"), /hosts doc unreadable/);
+    assert.equal(runners.length, 1);
+    assert.equal(runnerAt(0).stopped, true);
+    assert.equal(rh.status().connected, false);
+  });
+
+  it("a resolver that throws instead of rejecting is handled the same way", async () => {
+    let fail = false;
+    const resolveHostId = (): Promise<string> => {
+      if (fail) throw new Error("thrown synchronously");
+      return Promise.resolve(HOST_ID);
+    };
+    const { rh, runnerAt } = makeHarness(undefined, { resolveHostId });
+    await rh.connect("t1");
+    fail = true;
+    await assert.rejects(rh.connect("t2"), /thrown synchronously/);
+    assert.equal(runnerAt(0).stopped, true);
+    assert.equal(rh.status().connected, false);
+  });
+
+  it("a resolution that never answers times out, and a later disconnect still runs", async () => {
+    const resolveHostId = () => new Promise<string>(() => undefined);
+    const { rh, runners, signOutCount } = makeHarness(undefined, { resolveHostId, resolveHostIdTimeoutMs: 5 });
+    await assert.rejects(rh.connect("t1"), /resolveHostId did not answer/);
+    assert.equal(runners.length, 0);
+    assert.deepEqual(await rh.disconnect(), { connected: false, uid: null });
+    assert.equal(signOutCount(), 1);
   });
 });

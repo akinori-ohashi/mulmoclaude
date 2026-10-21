@@ -12,8 +12,17 @@ export const plugin: ToolPlugin<PresentChartData, PresentChartData, ChartArgs> =
   previewComponent: Preview,
 };
 
-export type { ChartArgs, ChartDocument, ChartEntry, PresentChartData } from "../core/types";
-export { TOOL_NAME, TOOL_DEFINITION, executeChart, isValidChartDocument, pluginCore, type ChartExecuteContext } from "../core/plugin";
+export type { ChartArgs, ChartDocument, ChartEntry, PresentChartData, ChartSource, ChartSourceRows } from "../core/types";
+export {
+  TOOL_NAME,
+  TOOL_DEFINITION,
+  executeChart,
+  readChartSource,
+  isValidChartDocument,
+  pluginCore,
+  type ChartExecuteContext,
+  type ChartSourceReader,
+} from "../core/plugin";
 export { View, Preview };
 
 export default { plugin };

@@ -41,4 +41,24 @@ describe("buildHostPresence", () => {
   it("advertises an empty capability list for an empty handler table", () => {
     assert.deepEqual(buildHostPresence(channel, {}, true).capabilities, []);
   });
+
+  it("carries the machine fields only when a machine is given", () => {
+    const presence = buildHostPresence(channel, handlers, true, { machineId: "m-1", label: "work-mac" });
+    assert.equal(presence.machineId, "m-1");
+    assert.equal(presence.label, "work-mac");
+    assert.equal("machineId" in buildHostPresence(channel, handlers, true), false);
+    assert.equal("label" in buildHostPresence(channel, handlers, true), false);
+  });
+
+  it("copies only the machine fields, nothing else the object happens to hold", () => {
+    const machine = { machineId: "m-1", label: "work-mac", secret: "x" };
+    assert.deepEqual(Object.keys(buildHostPresence(channel, handlers, false, machine)).sort(), [
+      "capabilities",
+      "hostId",
+      "label",
+      "machineId",
+      "online",
+      "protocolVersion",
+    ]);
+  });
 });

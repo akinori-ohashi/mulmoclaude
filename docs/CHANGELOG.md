@@ -8,6 +8,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Highlights
+
+#### Discord, LINE and Telegram show that the bot is working (#3536, #3541, PR #3538, #3544, #3545, #3547)
+
+While the agent prepares a reply, the Discord bridge shows "typing…", the LINE bridge shows its loading animation
+(one-on-one chats only; LINE refuses it in groups and rooms) and the Telegram bridge shows "typing…". The indicator is
+refreshed until the reply is ready and is fully down before the reply is posted, so it does not reappear on an answered
+message. A failed indicator request is logged as a warning and never holds the reply back. The lifecycle lives once in
+`@mulmobridge/client` (`replyAfterProcessingIndicator`). These are bridge packages, so they reach users by upgrading the
+bridge, not through a `mulmoclaude` release.
+
+Ships `@mulmobridge/client@1.5.0`, `@mulmobridge/discord@1.4.1`, `@mulmobridge/line@1.2.0`, `@mulmobridge/telegram@1.3.0`.
+
+### Under the hood
+
+#### Remote host: a host can tell its machines apart (PR #3506)
+
+`@mulmoclaude/core/remote-host` lets a host write a `machineId` and a `label` into every presence beat (`HostRunnerOptions.machine`), and decide its channel id once signed in (`RemoteHostDeps.resolveHostId`, bounded by a timeout). MulmoTerminal uses this to connect several machines under one account (receptron/mulmoterminal#3092). MulmoClaude passes neither, so its presence and channel are unchanged.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.4.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.6.0] - 2026-10-18
+
+**The Tutor role can quiz you with a KenteiScript test you answer in your own words, and the spreadsheet help lists every built-in function.**
+
+### Highlights
+
+#### Tutor quizzes with KenteiScript (PR #3494, PR #3495)
+
+The Tutor role gains `manageKenteiScript`, the plugin from the [`kenteiscript`](https://www.npmjs.com/package/kenteiscript)
+package: Claude writes a quiz as a small JSON script, you take it in the chat and answer in your own words, and each
+answer is graded on the server by TypeSafe JEV, with the results coming back to Claude as your next message. The tool is
+offered only when `TYPESAFE_API_KEY` is set; without the key, Tutor quizzes with its existing question flow instead.
+
+### Fixes
+
+#### Spreadsheet: every built-in function is listed in the help, and `LOG10` calculates (#3500, PR #3501)
+
+The spreadsheet help listed only some of the functions the engine provides, so the agent did not know about `SUMIF`, `COUNTIF`, `IFERROR`, `XLOOKUP` and the rest. It now lists all of them by category, and a test fails if the list and the engine drift apart. `LOG10` was listed but evaluated to `#ERROR!` because function names with digits were not recognised; it now calculates. Text inside a string literal that looks like a call (`="x"&"SUM(1,2)"`) is no longer evaluated.
+
+#### Sandbox help no longer names credential flags that do not exist (#3499, PR #3502)
+
+The error-recovery and sandbox help pages told the agent to use sandbox credential CLI flags that the launcher does not
+have. Those instructions are gone.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.0.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.11.4`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ## [2.5.0] - 2026-10-15
 
 **MulmoScript beats preview in the browser instead of waiting for a rendered PNG, and still beat images render without ffmpeg.**

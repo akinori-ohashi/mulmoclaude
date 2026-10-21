@@ -237,15 +237,27 @@ Tell the user to enable the two opt-in mounts on the next agent spawn
 (see also `config/helps/sandbox.md` for the full contract):
 
 ```bash
-# Forward the host's SSH agent into the container.
-# Private keys stay on the host; only the signing oracle is exposed.
-SANDBOX_SSH_AGENT_FORWARD=1 \
-# Mount allowlisted config files/dirs read-only — including ~/.config/gh.
-SANDBOX_MOUNT_CONFIGS=gh \
-  yarn dev   # or: npx mulmoclaude
+# SANDBOX_SSH_AGENT_FORWARD=1 forwards the host's SSH agent (private keys stay on the host).
+# SANDBOX_MOUNT_CONFIGS=gh mounts ~/.config/gh read-only.
+SANDBOX_SSH_AGENT_FORWARD=1 SANDBOX_MOUNT_CONFIGS=gh yarn dev   # or: npx mulmoclaude
 ```
 
-Equivalent CLI flags: `--sandbox-forward-ssh-agent --sandbox-mount-configs=gh`.
+These two have **no CLI flag form** — only the environment variables
+work. On Windows PowerShell, where `VAR=value command` does not exist,
+set them in the same session before launching:
+
+```powershell
+$env:SANDBOX_SSH_AGENT_FORWARD = "1"
+$env:SANDBOX_MOUNT_CONFIGS = "gh"
+npx mulmoclaude
+```
+
+On macOS the agent is forwarded through Docker Desktop's built-in
+socket, whatever `$SSH_AUTH_SOCK` says; on other platforms the host's
+`$SSH_AUTH_SOCK` is what gets mounted. When the flag is on but
+forwarding is not attached, the server log says `SSH agent forward requested but skipped` with a
+`reason` — use `gh` over HTTPS then. Either way, `ssh-add -l` below is
+what proves the agent actually works.
 
 After restart, inside the agent's first tool turn verify:
 

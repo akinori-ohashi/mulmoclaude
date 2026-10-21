@@ -12,7 +12,7 @@
 // copies: the path helpers take the `firestore` instance as a parameter (rather
 // than importing a module-level singleton) so a single extracted module serves
 // every host's own Firebase init. The hostId is host-specific ("mulmoclaude",
-// "mulmoterminal") and is supplied by each host — there is no discovery.
+// "mulmoterminal") and is supplied by each host.
 import { CollectionReference, DocumentData, DocumentReference, Firestore, collection, doc } from "firebase/firestore";
 import { isRecord } from "@mulmoclaude/common";
 
@@ -113,9 +113,10 @@ function toJsonEntries(record: Record<string, unknown>, path: string): JsonObjec
  *  naming its path, instead of reaching Firestore as a silently mangled write. */
 export const coerceJsonObject = (payload: Record<string, unknown>): JsonObject => toJsonEntries(payload, "payload");
 
-// A channel routes commands to one specific host. Both sides agree on a
-// hardcoded hostId per use case (e.g. "mulmoclaude", "mulmoterminal"); there is
-// no discovery — the remote and host just share the id.
+// A channel routes commands to one specific host. A host's first machine uses the
+// host's fixed id ("mulmoclaude", "mulmoterminal"); a host that runs on several
+// machines gives each later one "<id>-<8 hex>" (RemoteHostDeps.resolveHostId), and
+// the remote finds those by listing users/{uid}/hosts.
 export interface Channel {
   uid: string;
   hostId: string;
@@ -215,22 +216,33 @@ export const REMOTE_HOST_PROTOCOL_VERSION = 2;
 // Browser-safe so the mobile client compiles against the same shape.
 // `updatedAt` (a Firestore serverTimestamp) is added by the runner at write time
 // and is intentionally not part of this capability contract.
+// Which machine a presence comes from, for a host that can run on several machines
+// under one account (mulmoterminal#3092): a stable id the host recognises itself by,
+// and the name the remote shows for it.
+export interface HostMachine {
+  machineId: string;
+  label: string;
+}
+
 export interface HostPresence {
   online: boolean;
   hostId: string;
   protocolVersion: number;
   // Method names the host serves — the keys of the live handler table.
   capabilities: string[];
+  machineId?: string;
+  label?: string;
 }
 
 // Build the presence payload from the live handler table. Capabilities are
 // `Object.keys(handlers)` so registering a handler is the ONLY step needed to
 // advertise it — there is no second list to keep in sync.
-export const buildHostPresence = (channel: Channel, handlers: CommandHandlers, online: boolean): HostPresence => ({
+export const buildHostPresence = (channel: Channel, handlers: CommandHandlers, online: boolean, machine?: HostMachine): HostPresence => ({
   online,
   hostId: channel.hostId,
   protocolVersion: REMOTE_HOST_PROTOCOL_VERSION,
   capabilities: Object.keys(handlers),
+  ...(machine ? { machineId: machine.machineId, label: machine.label } : {}),
 });
 
 // Per-host command queue: users/{uid}/hosts/{hostId}/commands.

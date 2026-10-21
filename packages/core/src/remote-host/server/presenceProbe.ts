@@ -15,6 +15,7 @@ import type { Firestore } from "firebase/firestore";
 
 import { hostDoc, type Channel } from "../index.js";
 import { presenceStaleAfterMs } from "./hostRunner.js";
+import { withTimeout } from "./withTimeout.js";
 
 const ONE_SECOND_MS = 1_000;
 
@@ -54,19 +55,6 @@ export const presenceIsFresh = (data: Record<string, unknown> | undefined, now: 
   // state, not a broken one — it is meant to be down.
   if (data.online === false) return null;
   return now - updatedAt < staleAfterMs;
-};
-
-/** Reject once `timeoutMs` has passed, so a stalled read answers instead of hanging. */
-export const withTimeout = async <T>(work: Promise<T>, timeoutMs: number): Promise<T> => {
-  const timer: { handle: ReturnType<typeof setTimeout> | null } = { handle: null };
-  const deadline = new Promise<never>((_, reject) => {
-    timer.handle = setTimeout(() => reject(new Error(`presence read did not answer within ${Math.round(timeoutMs / ONE_SECOND_MS)}s`)), timeoutMs);
-  });
-  try {
-    return await Promise.race([work, deadline]);
-  } finally {
-    if (timer.handle) clearTimeout(timer.handle);
-  }
 };
 
 export interface PresenceProbeDeps {

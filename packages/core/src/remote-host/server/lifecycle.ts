@@ -13,6 +13,7 @@
 // drops the session and needs a re-connect.
 import type { Channel, Command, CommandHandlers } from "../index.js";
 import type { HostEvent, HostRunnerOptions } from "./hostRunner.js";
+import { withTimeout } from "./withTimeout.js";
 
 export interface RemoteHostStatus {
   connected: boolean;
@@ -33,6 +34,13 @@ export interface RemoteHostLogger {
 // instance, so this module needs no Firebase of its own.
 export interface RemoteHostDeps {
   hostId: string;
+  // Decide the hostId per session, once signed in — for a host whose id depends on
+  // what the account already has (mulmoterminal#3092). Absent ⇒ `hostId` is used.
+  // It runs after signIn/restore has already replaced the session, so a rejection or a
+  // timeout stops the old runner too (its Firebase app is gone) and the call rejects.
+  resolveHostId?: (uid: string) => Promise<string>;
+  // How long resolveHostId may take before the connect gives up; defaults to 30s.
+  resolveHostIdTimeoutMs?: number;
   signIn: (idToken: string) => Promise<string>;
   // Restore a session from a browser-parked blob (case A', mulmoserver#50) and
   // resolve to its uid — no popup. MUST reject when the blob yields no valid
@@ -62,12 +70,19 @@ export interface RemoteHostLifecycle {
 }
 
 const noop = () => undefined;
+const RESOLVE_HOST_ID_TIMEOUT_MS = 30_000;
 const silentLogger: RemoteHostLogger = { info: noop, warn: noop, debug: noop };
 
 // The message carries the Firestore error code — the only thing that says whether
 // a dead channel is the credential or the network. Logging just the phase and the
 // method threw that away at the last step (#2633).
 const eventText = (event: HostEvent): string => (event.message ? `${event.phase} ${event.method} — ${event.message}` : `${event.phase} ${event.method}`);
+
+// Bounded, because it runs inside a serialized transition: a lookup that never
+// settled would hold back every later connect and disconnect.
+// Async so that a resolver throwing synchronously still arrives as a rejection.
+const hostIdFor = async (deps: RemoteHostDeps, uid: string): Promise<string> =>
+  deps.resolveHostId ? withTimeout(deps.resolveHostId(uid), deps.resolveHostIdTimeoutMs ?? RESOLVE_HOST_ID_TIMEOUT_MS, "resolveHostId") : deps.hostId;
 
 export const createRemoteHost = (deps: RemoteHostDeps): RemoteHostLifecycle => {
   const log = deps.log ?? silentLogger;
@@ -99,9 +114,11 @@ export const createRemoteHost = (deps: RemoteHostDeps): RemoteHostLifecycle => {
 
   // Swap the running runner for one bound to `uid`. Callers authenticate FIRST
   // (before this teardown) so a failed connect/reconnect keeps a healthy session.
-  const attach = (uid: string, verb: string): RemoteHostStatus => {
-    stopIfRunning();
-    const runner = deps.startRunner({ uid, hostId: deps.hostId }, deps.handlers, {
+  // The old runner stops even when the hostId cannot be resolved: authenticating
+  // already replaced its session, so it would report connected on a dead app.
+  const attach = async (uid: string, verb: string): Promise<RemoteHostStatus> => {
+    const hostId = await hostIdFor(deps, uid).finally(stopIfRunning);
+    const runner = deps.startRunner({ uid, hostId }, deps.handlers, {
       onEvent: (event) => log.debug(`host event: ${eventText(event)}`),
       onExpire: deps.onExpire,
       // Fatal listener death: drop the handle so status() stops reporting
@@ -115,7 +132,7 @@ export const createRemoteHost = (deps: RemoteHostDeps): RemoteHostLifecycle => {
       },
     });
     stopRunner = runner;
-    log.info(`${verb} as ${uid}, host runner started (hostId=${deps.hostId})`);
+    log.info(`${verb} as ${uid}, host runner started (hostId=${hostId})`);
     return status();
   };
 

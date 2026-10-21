@@ -13,7 +13,8 @@ export { PRESENCE_STALE_BEATS } from "./presenceBeat.js";
 // probe so a channel that fails silently is still noticed (#2643).
 export { startResilientHostRunner, reconnectDelayMs } from "./resilientRunner.js";
 export type { ResilientHostRunnerDeps, CancelTimer } from "./resilientRunner.js";
-export { createPresenceProbe, presenceIsFresh, withTimeout, PRESENCE_STALE_MS } from "./presenceProbe.js";
+export { createPresenceProbe, presenceIsFresh, PRESENCE_STALE_MS } from "./presenceProbe.js";
+export { withTimeout } from "./withTimeout.js";
 export type { Liveness, PresenceProbeDeps } from "./presenceProbe.js";
 export { stripUndefined, undefinedPaths, unexpectedPaths } from "./firestoreSafeResult.js";
 export { createRemoteHost } from "./lifecycle.js";

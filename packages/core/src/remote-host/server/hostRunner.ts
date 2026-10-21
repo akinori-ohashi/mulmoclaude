@@ -29,6 +29,7 @@ import {
   Command,
   CommandHandler,
   CommandHandlers,
+  HostMachine,
   buildHostPresence,
   byCreatedAt,
   coerceJsonObject,
@@ -82,6 +83,9 @@ export interface HostRunnerOptions {
   // still stripped; declaring them only silences the report, which is what keeps
   // it worth reading (#2634).
   expectedUndefined?: Record<string, readonly string[]>;
+  // Written into every presence beat so the remote can tell one machine of this host
+  // from another. Absent ⇒ the presence carries no machine fields.
+  machine?: HostMachine | undefined;
 }
 
 export interface Claim {
@@ -335,7 +339,7 @@ const buildPresenceBeat = (
   const presence = hostDoc(firestore, channel);
   const report = (message: string) => options.onEvent?.({ phase: "error", method: "presence", message });
   return createPresenceBeat({
-    write: (online) => setDoc(presence, { ...buildHostPresence(channel, handlers, online), updatedAt: serverTimestamp() }),
+    write: (online) => setDoc(presence, { ...buildHostPresence(channel, handlers, online, options.machine), updatedAt: serverTimestamp() }),
     onError: (message) => report(`presence write failed: ${message}`),
     onStale: (silentMs) => {
       report(`no presence write acknowledged across ${PRESENCE_STALE_BEATS} beats (${Math.round(silentMs / 1_000)}s) — the remote cannot see this host`);

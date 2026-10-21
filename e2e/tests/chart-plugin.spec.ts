@@ -1,10 +1,11 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Download, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
 
 // Serves a fake session whose only tool_result is a `presentChart`
-// document with two charts (line + bar). The View renders them via
-// ECharts; we verify both cards and their canvases are in the DOM
-// and that each has a PNG download button.
+// document in two columns with two charts (line + a shorter bar) and one ECharts cannot draw. The
+// View renders them via ECharts; we verify the cards and their canvases
+// are in the DOM, that each has a PNG download button, and that only the
+// broken one says why it is blank.
 
 async function setupChartSession(page: Page) {
   await mockAllApis(page, {
@@ -43,6 +44,7 @@ async function setupChartSession(page: Page) {
                 filePath: "charts/sales-overview-123.chart.json",
                 document: {
                   title: "Sales Overview",
+                  columns: 2,
                   charts: [
                     {
                       title: "Monthly revenue",
@@ -59,11 +61,17 @@ async function setupChartSession(page: Page) {
                     {
                       title: "Units sold",
                       type: "bar",
+                      height: 250,
                       option: {
                         xAxis: { type: "category", data: ["A", "B", "C"] },
                         yAxis: { type: "value" },
                         series: [{ type: "bar", data: [30, 45, 20] }],
                       },
+                    },
+                    {
+                      // Saved before presentChart drew each chart first: a bar with no axes.
+                      title: "No axes",
+                      option: { series: [{ type: "bar", data: [1, 2] }] },
                     },
                   ],
                 },
@@ -76,8 +84,33 @@ async function setupChartSession(page: Page) {
 }
 
 test.describe("chart plugin rendering", () => {
+  test("says why a chart could not be drawn, on that card only", async ({ page }) => {
+    await setupChartSession(page);
+    await page.goto("/chat/chart-session");
+    await page.getByText("Sales Overview").first().click();
+    await expect(page.getByTestId("chart-draw-problem-2")).toContainText("xAxis and yAxis");
+    await expect(page.getByTestId("chart-draw-problem-0")).toHaveCount(0);
+    await expect(page.getByTestId("chart-draw-problem-1")).toHaveCount(0);
+  });
+
   test.beforeEach(async ({ page }) => {
     await setupChartSession(page);
+  });
+
+  test("lays the cards out in the document's columns, each chart at its height", async ({ page }) => {
+    await page.goto("/chat/chart-session");
+    await page.getByText("Sales Overview").first().click();
+    const box = async (testId: string) => {
+      const bounds = await page.getByTestId(testId).boundingBox();
+      expect(bounds).not.toBeNull();
+      return bounds ?? { x: 0, y: 0, width: 0, height: 0 };
+    };
+    const [first, second, third] = [await box("chart-card-0"), await box("chart-card-1"), await box("chart-card-2")];
+    expect(second.y).toBe(first.y);
+    expect(second.x).toBeGreaterThan(first.x);
+    expect(third.y).toBeGreaterThan(first.y);
+    expect((await box("chart-canvas-0")).height).toBe(400);
+    expect((await box("chart-canvas-1")).height).toBe(250);
   });
 
   test("renders both charts in the canvas", async ({ page }) => {
@@ -114,4 +147,39 @@ test.describe("chart plugin rendering", () => {
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/\.png$/);
   });
+
+  test("SVG and CSV exports download the chart and its data", async ({ page }) => {
+    await page.goto("/chat/chart-session");
+    await page.getByText("Sales Overview").first().click();
+
+    const svgDownload = page.waitForEvent("download");
+    await page.getByTestId("chart-export-svg-0").click();
+    const svg = await svgDownload;
+    expect(svg.suggestedFilename()).toBe("monthly-revenue-1.svg");
+    expect((await readDownload(svg)).startsWith("<svg")).toBe(true);
+
+    const csvDownload = page.waitForEvent("download");
+    await page.getByTestId("chart-export-csv-0").click();
+    const csv = await csvDownload;
+    expect(csv.suggestedFilename()).toBe("monthly-revenue-1.csv");
+    expect(await readDownload(csv)).toBe("\uFEFF,Series 1\r\nJan,100\r\nFeb,120\r\nMar,150\r\n");
+  });
+
+  test("follows the host's dark appearance", async ({ page }) => {
+    await page.goto("/chat/chart-session");
+    await page.getByText("Sales Overview").first().click();
+    const card = page.getByTestId("chart-card-0");
+    await expect(card).toHaveClass(/bg-white/);
+    await page.evaluate(() => document.documentElement.setAttribute("data-appearance", "dark"));
+    await expect(card).toHaveClass(/bg-gray-900/);
+    await page.evaluate(() => document.documentElement.setAttribute("data-appearance", "light"));
+    await expect(card).toHaveClass(/bg-white/);
+  });
 });
+
+async function readDownload(download: Download): Promise<string> {
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8");
+}

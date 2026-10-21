@@ -51,7 +51,7 @@ Click the 🔒 icon in the top bar. The popup shows:
 
 - **Sandbox enabled / disabled** — whether Docker was detected and `DISABLE_SANDBOX` is off.
 - **Host credentials attached** (only when the sandbox is on):
-  - **SSH agent**: `forwarded` when `SANDBOX_SSH_AGENT_FORWARD=1` **and** `$SSH_AUTH_SOCK` points at a live socket. If the flag is on but the socket is missing, the popup shows `not forwarded` and the server log carries the reason.
+  - **SSH agent**: `forwarded` when `SANDBOX_SSH_AGENT_FORWARD=1` **and** the agent socket was attached — on macOS Docker Desktop's built-in socket, whatever `$SSH_AUTH_SOCK` says; elsewhere the host's `$SSH_AUTH_SOCK`. If the flag is on but it wasn't attached, the popup shows `not forwarded` and the server log carries the reason.
   - **Mounted configs**: allowlisted names from `SANDBOX_MOUNT_CONFIGS` whose host path exists. Names you typed but whose host path is missing are silently dropped from the UI (they appear in the server log as `config mount skipped`).
 
 The popup also has a **sample query button** that asks Claude to summarise this information in natural language.
@@ -78,7 +78,7 @@ The popup intentionally exposes **names only**, never host paths or skip reasons
 - `[sandbox] host credentials attached to container` — one-line summary of what was mounted on agent spawn.
 - `[sandbox] unknown SANDBOX_MOUNT_CONFIGS entries ignored` — typo in the CSV.
 - `[sandbox] config mount skipped (host path missing)` — name is in the allowlist but the host file/dir doesn't exist.
-- `[sandbox] SSH agent forward requested but skipped` — flag on but `$SSH_AUTH_SOCK` unset or non-existent.
+- `[sandbox] SSH agent forward requested but skipped` — flag on but the socket could not be attached; the log's `reason` says why (on Linux / Windows, usually `$SSH_AUTH_SOCK` unset or pointing at a missing path).
 
 If the popup isn't showing what you expect, grep the startup log for `[sandbox]` first.
 
