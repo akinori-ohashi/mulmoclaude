@@ -103,6 +103,8 @@ describe("withMapData", () => {
         series: [{ type: "map", map: "japan", encode }],
       },
       { dataset: [{ id: "raw", source: ROWS, sourceHeader: true }], series: [{ type: "map", map: "japan-ja", datasetId: "raw" }] },
+      { dataset: { source: ROWS, sourceHeader: true, dimensions: ["売上", "都道府県"] }, series: [{ type: "map", map: "japan-ja" }] },
+      { dataset: { source: ROWS, sourceHeader: true }, series: [{ type: "map", map: "japan-ja", dimensions: ["売上", "都道府県"] }] },
     ];
     shapes.forEach((option) => assert.deepEqual(withMapData(option), option));
   });

@@ -27,7 +27,7 @@ does not change it; `itemStyle.color` does, but the right colour depends on the 
 - Only the shape `withSourceRows` writes is rewritten: a header row (`sourceHeader: true`), then one
   array per row, found by position. Everything else is left to ECharts as before: a dataset chosen by
   `datasetId`, a transform's output, rows as objects, `sourceHeader: "auto"`, a row-wise dataset
-  (`seriesLayoutBy: "row"`), a map with `data` of its own (even `[]`), and an option whose visualMap
+  (`seriesLayoutBy: "row"`), columns named by `dimensions`, a map with `data` of its own (even `[]`), and an option whose visualMap
   names a `dimension` (the `{ name, value }` items would not have that column).
 
 ## Out of scope
