@@ -30,6 +30,7 @@ import { log } from "../../system/logger/index.js";
 import { previewSnippet } from "../../utils/logPreview.js";
 import { publishFileChange } from "../../events/file-change.js";
 import { makeArtifactsFileOps } from "../../plugins/runtime.js";
+import { makeConfinedArtifactsFileOps } from "../../plugins/confined-file-ops.js";
 import { isAblated } from "../../system/env.js";
 import { executeKenteiScript } from "../../plugins/kentei-builtin.js";
 import { META as KENTEI_META } from "../../../src/plugins/manageKenteiScript/meta.js";
@@ -259,7 +260,7 @@ bindRoute(
   router,
   API_ROUTES.spreadsheet.create,
   wrapPluginExecute<SpreadsheetArgs, unknown>((req) => {
-    const context: ToolContext & { files: { artifacts: FileOps } } = { files: { artifacts: makeArtifactsFileOps() } };
+    const context: ToolContext & { files: { artifacts: FileOps } } = { files: { artifacts: makeConfinedArtifactsFileOps() } };
     return executeSpreadsheet(context, req.body);
   }),
 );

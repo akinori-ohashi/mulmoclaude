@@ -5,7 +5,8 @@
 
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { isRecord } from "@mulmoclaude/common";
 import "../../server/plugins/spreadsheet-builtin.js";
@@ -57,6 +58,22 @@ describe("spreadsheet built-in dispatch", () => {
   it("refuses anything that is not a load or save", async () => {
     await assert.rejects(handler?.({ kind: "deleteSpreadsheet", path: filePath }) ?? Promise.resolve(), /unrecognised dispatch payload/);
     await assert.rejects(handler?.({ kind: "saveSpreadsheet", path: filePath, sheets: [{ name: 1 }] }) ?? Promise.resolve(), /unrecognised dispatch payload/);
+  });
+
+  it("does not read or write through a symlink that leads out of the workspace", async () => {
+    const outside = mkdtempSync(path.join(tmpdir(), "sheet-outside-"));
+    try {
+      writeFileSync(path.join(outside, "secret.json"), JSON.stringify(sheets));
+      symlinkSync(path.join(outside, "secret.json"), path.join(path.dirname(absolute), "file-link.json"));
+      symlinkSync(outside, path.join(path.dirname(absolute), "dir-link"));
+      await assert.rejects(handler?.({ kind: "loadSpreadsheet", path: `artifacts/spreadsheets/${testDir}/file-link.json` }) ?? Promise.resolve());
+      await assert.rejects(
+        handler?.({ kind: "saveSpreadsheet", path: `artifacts/spreadsheets/${testDir}/dir-link/planted.json`, sheets }) ?? Promise.resolve(),
+      );
+      assert.deepEqual(readdirSync(outside), ["secret.json"]);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it("refuses a path outside artifacts/spreadsheets/ without writing", async () => {
