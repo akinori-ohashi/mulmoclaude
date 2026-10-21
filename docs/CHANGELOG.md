@@ -8,6 +8,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Highlights
+
+#### Discord, LINE and Telegram show that the bot is working (#3536, #3541, PR #3538, #3544, #3545, #3547)
+
+While the agent prepares a reply, the Discord bridge shows "typing…", the LINE bridge shows its loading animation
+(one-on-one chats only; LINE refuses it in groups and rooms) and the Telegram bridge shows "typing…". The indicator is
+refreshed until the reply is ready and is fully down before the reply is posted, so it does not reappear on an answered
+message. A failed indicator request is logged as a warning and never holds the reply back. The lifecycle lives once in
+`@mulmobridge/client` (`replyAfterProcessingIndicator`). These are bridge packages, so they reach users by upgrading the
+bridge, not through a `mulmoclaude` release.
+
+Ships `@mulmobridge/client@1.5.0`, `@mulmobridge/discord@1.4.1`, `@mulmobridge/line@1.2.0`, `@mulmobridge/telegram@1.3.0`.
+
 ### Under the hood
 
 #### Remote host: a host can tell its machines apart (PR #3506)
