@@ -1,5 +1,7 @@
 // Pure parsing helpers for the LINE bridge webhook.
 
+import { mentionsBot, stripSelfMentions } from "./mention.js";
+
 export interface LineMessage {
   type: string;
   text?: string;
@@ -8,17 +10,35 @@ export interface LineMessage {
    *  (`/v2/bot/message/<id>/content`); the webhook only carries the
    *  reference. */
   id?: string;
+  /** Present on group / room text messages that mention someone. Left unvalidated
+   *  here: a malformed value reads as "not mentioned" (see mention.ts). */
+  mention?: unknown;
+}
+
+export interface LineEventSource {
+  type?: string;
+  userId?: string;
+  groupId?: string;
+  roomId?: string;
 }
 
 export interface LineEvent {
   type: string;
   replyToken?: string;
-  source?: { userId?: string; type?: string };
+  source?: LineEventSource;
   message?: LineMessage;
 }
 
 export interface LineWebhookBody {
   events: LineEvent[];
+}
+
+export type LineChatType = "user" | "group" | "room";
+
+/** Where the message came from: the conversation key and the push target. */
+export interface LineChat {
+  chatId: string;
+  chatType: LineChatType;
 }
 
 /** Discriminated union — the webhook may surface text or media.
@@ -28,7 +48,17 @@ export interface LineWebhookBody {
  *  PR-C of #1222: image is the only media kind we forward today.
  *  Video / audio / file extend this union if/when they become
  *  worth fanning out to the agent. */
-export type IncomingLineMessage = { kind: "text"; userId: string; text: string } | { kind: "image"; userId: string; imageMessageId: string };
+export type IncomingLineMessage = LineChat & { mentionsBot: boolean } & ({ kind: "text"; text: string } | { kind: "image"; imageMessageId: string });
+
+const nonEmpty = (value: string | undefined): value is string => typeof value === "string" && value.length > 0;
+
+/** A group is one conversation keyed by `groupId`, a room by `roomId`. Anything else
+ *  keys by `userId` exactly as before, so one-on-one sessions keep their ids. */
+export function resolveLineChat(source: LineEventSource | undefined): LineChat | null {
+  if (source?.type === "group") return nonEmpty(source.groupId) ? { chatId: source.groupId, chatType: "group" } : null;
+  if (source?.type === "room") return nonEmpty(source.roomId) ? { chatId: source.roomId, chatType: "room" } : null;
+  return nonEmpty(source?.userId) ? { chatId: source.userId, chatType: "user" } : null;
+}
 
 /**
  * Reduce a LINE webhook event to the actionable shape. Returns null
@@ -37,17 +67,18 @@ export type IncomingLineMessage = { kind: "text"; userId: string; text: string }
  */
 export function extractIncomingLineMessage(event: LineEvent): IncomingLineMessage | null {
   if (event.type !== "message") return null;
-  const userId = event.source?.userId;
-  if (!userId) return null;
+  const chat = resolveLineChat(event.source);
+  if (!chat) return null;
   const { message } = event;
   if (!message) return null;
+  const mentioned = { ...chat, mentionsBot: mentionsBot(message.mention) };
   if (message.type === "text") {
-    const text = message.text ?? "";
+    const text = stripSelfMentions(message.text ?? "", message.mention);
     if (!text.trim()) return null;
-    return { kind: "text", userId, text };
+    return { ...mentioned, kind: "text", text };
   }
   if (message.type === "image" && typeof message.id === "string" && message.id.length > 0) {
-    return { kind: "image", userId, imageMessageId: message.id };
+    return { ...mentioned, kind: "image", imageMessageId: message.id };
   }
   return null;
 }
@@ -56,8 +87,8 @@ const isOptionalString = (value: unknown): boolean => value === undefined || typ
 
 function isLineEventSource(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
-  if ("userId" in value && !isOptionalString(value.userId)) return false;
-  return !("type" in value) || isOptionalString(value.type);
+  const fields: (keyof LineEventSource)[] = ["type", "userId", "groupId", "roomId"];
+  return fields.every((field) => !(field in value) || isOptionalString(Reflect.get(value, field)));
 }
 
 function isLineMessage(value: unknown): boolean {

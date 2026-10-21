@@ -13,6 +13,8 @@
 //   MULMOCLAUDE_API_URL       — default: the port in <workspace>/.server-port.
 //                               With none published the client waits (#3078)
 //   MULMOCLAUDE_AUTH_TOKEN    — bearer token
+//   LINE_BRIDGE_GROUP_REQUIRE_MENTION — "1" (default) answers in groups / rooms only
+//                               when the bot is mentioned; "0" answers every message
 
 import "dotenv/config";
 import type { Request, Response } from "express";
@@ -20,6 +22,7 @@ import { createBridgeClient, chunkText, formatAckReply, installProcessGuards, re
 import { createWebhookApp, createWebhookRateLimit, verifyHmacSignature, listenWebhook } from "@mulmobridge/webhook-runtime";
 import { extractIncomingLineMessage, parseLineWebhookBody, type IncomingLineMessage } from "./parse.js";
 import { LINE_LOADING_REFRESH_MS, loadingSenderFor, startLineLoading } from "./loading.js";
+import { parseRequireMention, shouldRespond } from "./groupGate.js";
 
 const TRANSPORT_ID = "line";
 
@@ -35,6 +38,19 @@ function readRequiredEnv(): { channelSecret: string; channelAccessToken: string 
   return { channelSecret, channelAccessToken };
 }
 const { channelSecret, channelAccessToken } = readRequiredEnv();
+
+// The explicit `T` return annotation is what lets TS see `process.exit`'s
+// `never` and accept the catch branch as non-returning.
+function parseEnvOrExit<T>(parse: () => T): T {
+  try {
+    return parse();
+  } catch (err) {
+    console.error(`[line] ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return process.exit(1);
+}
+
+const requireMention = parseEnvOrExit(() => parseRequireMention(process.env.LINE_BRIDGE_GROUP_REQUIRE_MENTION));
 
 const client = createBridgeClient({ transportId: TRANSPORT_ID });
 
@@ -71,7 +87,8 @@ async function downloadLineImage(messageId: string): Promise<{ bytes: Buffer; mi
   }
 }
 
-async function pushMessage(userId: string, text: string): Promise<void> {
+/** `to` is a userId, groupId or roomId — LINE's push accepts all three. */
+async function pushMessage(chatId: string, text: string): Promise<void> {
   const messages = chunkText(text, 5000).map((messageText) => ({
     type: "text",
     text: messageText,
@@ -80,7 +97,7 @@ async function pushMessage(userId: string, text: string): Promise<void> {
   for (let i = 0; i < messages.length; i += 5) {
     try {
       const requestBody = {
-        to: userId,
+        to: chatId,
         messages: messages.slice(i, i + 5),
       };
       const res = await fetch("https://api.line.me/v2/bot/message/push", {
@@ -126,13 +143,13 @@ app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
 
   for (const event of body.events) {
     const incoming = extractIncomingLineMessage(event);
-    if (!incoming) continue;
-    const sendLoading = loadingSenderFor(event.source, () => startLineLoading(fetch, channelAccessToken, incoming.userId));
+    if (!incoming || !shouldRespond(incoming, requireMention)) continue;
+    const sendLoading = loadingSenderFor(event.source, () => startLineLoading(fetch, channelAccessToken, incoming.chatId));
 
     try {
       await replyAfterProcessingIndicator(
         sendLoading,
-        { produce: () => produceReply(incoming), post: (replyText) => pushMessage(incoming.userId, replyText) },
+        { produce: () => produceReply(incoming), post: (replyText) => pushMessage(incoming.chatId, replyText) },
         { refreshMs: LINE_LOADING_REFRESH_MS, label: TRANSPORT_ID, log: console },
       );
     } catch (err) {
@@ -143,10 +160,10 @@ app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
 
 async function produceReply(incoming: IncomingLineMessage): Promise<string> {
   if (incoming.kind === "text") {
-    console.log(`[line] message user=${incoming.userId} len=${incoming.text.length}`);
-    return formatAckReply(await client.send(incoming.userId, incoming.text));
+    console.log(`[line] message ${incoming.chatType}=${incoming.chatId} len=${incoming.text.length}`);
+    return formatAckReply(await client.send(incoming.chatId, incoming.text));
   }
-  console.log(`[line] image user=${incoming.userId} messageId=${incoming.imageMessageId}`);
+  console.log(`[line] image ${incoming.chatType}=${incoming.chatId} messageId=${incoming.imageMessageId}`);
   const image = await downloadLineImage(incoming.imageMessageId);
   if (!image) return "Sorry, I couldn't fetch that image.";
   // chat-service's `parseMessagePayload` rejects empty `text`
@@ -159,7 +176,7 @@ async function produceReply(incoming: IncomingLineMessage): Promise<string> {
   // GPS data is present. (Codex review on PR #1255 / #1263.)
   const attachments = [{ mimeType: image.mimeType, data: image.bytes.toString("base64") }];
   const placeholderText = "Describe / analyze this file.";
-  return formatAckReply(await client.send(incoming.userId, placeholderText, attachments));
+  return formatAckReply(await client.send(incoming.chatId, placeholderText, attachments));
 }
 
 listenWebhook(app, { envVar: "LINE_BRIDGE_PORT", fallback: 3002 }, (port) => {
