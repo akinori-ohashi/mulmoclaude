@@ -12,6 +12,7 @@ import { echarts } from "../../../packages/plugins/chart-plugin/src/core/chartin
 import { trialDrawProblem } from "../../../packages/plugins/chart-plugin/src/core/drawProblem";
 import { formatProblem, withFormatters } from "../../../packages/plugins/chart-plugin/src/core/formats";
 import { withWordClouds } from "../../../packages/plugins/chart-plugin/src/core/wordCloud";
+import { withMapData } from "../../../packages/plugins/chart-plugin/src/core/mapData";
 import { BUNDLED_MAPS, loadMaps, neededExtensions, needsBrowser } from "../../../packages/plugins/chart-plugin/src/core/extensions";
 
 // Claude Code cuts an MCP tool's top-level description here (CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH)
@@ -295,9 +296,9 @@ function itemCount(data: unknown): number {
   return count;
 }
 
-/** The option as the View draws it: the sheet's rows, then formats, then word clouds. */
+/** The option as the View draws it: the sheet's rows, then formats, then word clouds and maps. */
 const drawnOption = (recipe: ChartRecipe, rows: ChartSourceRows | null): Record<string, unknown> =>
-  withWordClouds(withFormatters(rows ? withSourceRows(recipe.option, rows) : recipe.option));
+  withMapData(withWordClouds(withFormatters(rows ? withSourceRows(recipe.option, rows) : recipe.option)));
 
 function drawRecipe(recipe: ChartRecipe, rows: ChartSourceRows | null = sampleRows(recipe)): Drawn {
   const option = drawnOption(recipe, rows);
@@ -408,8 +409,10 @@ describe("presentChart recipes", () => {
 
   // A series drawing the wrong column, or left out of a stack, still draws; this pins what each
   // sourced recipe means.
-  // A word cloud's custom series reads no column itself: its words are read in our own code.
-  for (const recipe of CHART_RECIPES.filter((candidate) => candidate.header && !candidate.use.startsWith("word cloud"))) {
+  // A word cloud's custom series and a map read no column themselves: their rows are written into
+  // `data` by our own code (wordCloud.ts, mapData.ts), so they are checked by value below.
+  const readsOwnColumns = (recipe: ChartRecipe): boolean => !recipe.use.startsWith("word cloud") && !recipe.use.startsWith("map of regions");
+  for (const recipe of CHART_RECIPES.filter((candidate) => candidate.header && readsOwnColumns(candidate))) {
     it(`draws each series from the intended column: ${recipe.use}`, () => {
       const header = recipe.header?.join("|") ?? "";
       assert.deepEqual(
@@ -426,6 +429,16 @@ describe("presentChart recipes", () => {
       recipeSeries(recipe).forEach((series) => assert.ok(typeof series.type === "string" && recipe.use.includes(series.type), String(series.type)));
     });
   }
+
+  it("map of regions paints each region with its own row's value", () => {
+    const recipe = recipeNamed("map of regions");
+    const rows = sampleRows(recipe) ?? [];
+    // The series holds every region of the map; those with no row have no number.
+    const painted = (drawRecipe(recipe).series[0]?.values.value.flat() ?? []).filter((value) => typeof value === "number" && Number.isFinite(value));
+    const sortedNumbers = (values: unknown[]): number[] =>
+      values.filter((value): value is number => typeof value === "number").sort((left, right) => left - right);
+    assert.deepEqual(sortedNumbers(painted), sortedNumbers(rows.slice(1).map((row) => row[1])));
+  });
 
   it("calendar heatmap is drawn on the calendar", () => {
     const drawn = drawRecipe(recipeNamed("calendar heatmap"));
