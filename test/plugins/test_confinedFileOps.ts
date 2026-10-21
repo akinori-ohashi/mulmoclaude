@@ -1,6 +1,6 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeConfinedFileOps } from "../../server/plugins/confined-file-ops.js";
@@ -65,17 +65,57 @@ describe("makeConfinedFileOps", () => {
     assert.equal(readFileSync(path.join(outside, "secret.json"), "utf8"), "secret");
   });
 
-  it("does not delete through a symlink that leads out", async () => {
+  it("removes a symlink that leads out, never its target", async () => {
     symlinkSync(path.join(outside, "secret.json"), path.join(root, "sheets", "unlink-link.json"));
     await ops.unlink("sheets/unlink-link.json");
     assert.equal(readFileSync(path.join(outside, "secret.json"), "utf8"), "secret");
+    assert.equal(readdirSync(path.join(root, "sheets")).includes("unlink-link.json"), false);
   });
 
-  it("refuses parent traversal and absolute paths", async () => {
-    await assert.rejects(ops.read("../outside/secret.json"), isEnoent);
-    await assert.rejects(ops.read(path.join(outside, "secret.json")), isEnoent);
-    await assert.rejects(ops.write("../outside/planted.json", "x"), /outside the scope/);
+  it("removes an in-root symlink, never its target", async () => {
+    symlinkSync(path.join(root, "sheets", "in.json"), path.join(root, "sheets", "alias.json"));
+    await ops.unlink("sheets/alias.json");
+    assert.equal(readFileSync(path.join(root, "sheets", "in.json"), "utf8"), "inside");
+    assert.equal(readdirSync(path.join(root, "sheets")).includes("alias.json"), false);
+  });
+
+  it("does not delete through a directory symlink that leads out", async () => {
+    await ops.unlink("sheets/dir-link/secret.json");
+    assert.equal(readFileSync(path.join(outside, "secret.json"), "utf8"), "secret");
+  });
+
+  it("refuses parent traversal and absolute paths before touching the disk", async () => {
+    await assert.rejects(ops.read("../outside/secret.json"), /escapes plugin scope/);
+    await assert.rejects(ops.read(path.join(outside, "secret.json")), /escapes plugin scope/);
+    await assert.rejects(ops.write("../outside/planted.json", "x"), /escapes plugin scope/);
+    await assert.rejects(ops.unlink("../outside/secret.json"), /escapes plugin scope/);
     assert.deepEqual(readdirSync(outside).sort(), ["secret.json"]);
+  });
+
+  it("accepts Windows-style backslash separators", async () => {
+    await ops.write("sheets\\win\\file.json", "win");
+    assert.equal(await ops.read("sheets/win/file.json"), "win");
+  });
+
+  it("propagates an error other than ENOENT instead of reading it as missing", async () => {
+    const isEnotdir = (err: unknown): boolean => err instanceof Error && "code" in err && err.code === "ENOTDIR";
+    await assert.rejects(ops.read("sheets/in.json/x"), isEnotdir);
+    await assert.rejects(ops.stat("sheets/in.json/x"), isEnotdir);
+    await assert.rejects(ops.exists("sheets/in.json/x"), isEnotdir);
+    await assert.rejects(ops.readDir("sheets/in.json"), isEnotdir);
+    await assert.rejects(ops.unlink("sheets/in.json/x"), isEnotdir);
+  });
+
+  it("leaves an absent root absent on read-only calls", async () => {
+    const absentRoot = path.join(base, "never-written");
+    const absentOps = makeConfinedFileOps(absentRoot);
+    assert.equal(await absentOps.exists("a.json"), false);
+    assert.deepEqual(await absentOps.readDir("."), []);
+    await assert.rejects(absentOps.read("a.json"), isEnoent);
+    await absentOps.unlink("a.json");
+    assert.equal(existsSync(absentRoot), false);
+    await absentOps.write("a.json", "now");
+    assert.equal(await absentOps.read("a.json"), "now");
   });
 
   it("reports a missing file as missing", async () => {
