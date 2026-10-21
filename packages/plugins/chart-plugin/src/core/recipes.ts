@@ -194,7 +194,7 @@ export const CHART_RECIPES: readonly ChartRecipe[] = [
     },
   },
   {
-    use: "word cloud (wordCloud: the largest count at the largest size; sizeRange, rotationRange, rotationStep, gridSize)",
+    use: "word cloud (wordCloud: the largest count at the largest size; sizeRange, rotationRange, rotationStep, gridSize, shape: circle / cardioid / diamond / square / triangle / pentagon / star)",
     header: ["Word", "Count"],
     option: { tooltip: {}, series: [{ type: "wordCloud", encode: { itemName: "Word", value: "Count" } }] },
   },

@@ -1,9 +1,8 @@
-import { test, expect, type Download, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { mockAllApis } from "../fixtures/api";
 
-// A word cloud is laid out by the plugin with estimated text widths. This draws one in Chromium
-// and checks the estimate against the browser: the exported SVG, laid out with the browser's own
-// fonts, must have no two words over each other.
+// A word cloud is drawn by @modernized/echarts-wordcloud, loaded only when a chart has one. If it
+// were not loaded, ECharts would drop the series and the card would say "Unknown series type".
 
 const WORDS = [
   "revenue",
@@ -69,62 +68,32 @@ async function setupSession(page: Page) {
   );
 }
 
-async function readDownload(download: Download): Promise<string> {
-  const stream = await download.createReadStream();
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-  return Buffer.concat(chunks).toString("utf8");
-}
+// The extension places words on timers after setOption, so wait for the canvas to fill.
+const PAINTED_PIXELS_MIN = 2_000;
 
-test("draws a word cloud whose words do not overlap in the browser's own fonts", async ({ page }) => {
+test("draws a word cloud with the extension, with no draw problem and no SVG export", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await setupSession(page);
   await page.goto("/chat/cloud-session");
   await page.getByText("Words").first().click();
-  await expect(page.getByTestId("chart-canvas-0").locator("canvas").first()).toBeVisible();
+  const canvas = page.getByTestId("chart-canvas-0").locator("canvas").first();
+  await expect(canvas).toBeVisible();
+
+  await expect
+    .poll(() =>
+      canvas.evaluate((element) => {
+        if (!(element instanceof HTMLCanvasElement)) return 0;
+        const context = element.getContext("2d");
+        if (!context) return 0;
+        const { data } = context.getImageData(0, 0, element.width, element.height);
+        return data.filter((_value, index) => index % 4 === 3 && data[index] !== 0).length;
+      }),
+    )
+    .toBeGreaterThan(PAINTED_PIXELS_MIN);
+
   await expect(page.getByTestId("chart-draw-problem-0")).toHaveCount(0);
-
-  const download = page.waitForEvent("download");
-  await page.getByTestId("chart-export-svg-0").click();
-  const svg = await readDownload(await download);
-
-  const measured = await page.evaluate((markup) => {
-    const holder = document.createElement("div");
-    holder.style.position = "fixed";
-    holder.style.left = "0";
-    holder.style.top = "0";
-    document.body.appendChild(holder);
-    const parsed = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
-    holder.appendChild(document.importNode(parsed, true));
-    const frame = holder.getBoundingClientRect();
-    const words = [...holder.querySelectorAll("text")].map((text) => {
-      const box = text.getBoundingClientRect();
-      return { text: text.textContent ?? "", left: box.left, top: box.top, right: box.right, bottom: box.bottom };
-    });
-    holder.remove();
-    return { words, width: frame.width, height: frame.height };
-  }, svg);
-
+  await expect(page.getByTestId("chart-export-svg-0")).toHaveCount(0);
+  await expect(page.getByTestId("chart-export-png-0")).toBeVisible();
   expect(errors).toEqual([]);
-  expect(measured.words.length).toBeGreaterThan(WORDS.length / 2);
-  // Glyph boxes include the font's line gap, so neighbours may touch by a pixel without overlapping ink.
-  const TOUCH_PX = 1;
-  const overlapping = measured.words.flatMap((first, i) =>
-    measured.words
-      .slice(i + 1)
-      .filter(
-        (second) =>
-          first.left < second.right - TOUCH_PX &&
-          second.left < first.right - TOUCH_PX &&
-          first.top < second.bottom - TOUCH_PX &&
-          second.top < first.bottom - TOUCH_PX,
-      )
-      .map((second) => `${first.text} / ${second.text}`),
-  );
-  expect(overlapping).toEqual([]);
-  measured.words.forEach((word) => {
-    expect(word.left).toBeGreaterThanOrEqual(-TOUCH_PX);
-    expect(word.right).toBeLessThanOrEqual(measured.width + TOUCH_PX);
-  });
 });

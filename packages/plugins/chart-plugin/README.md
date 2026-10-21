@@ -93,19 +93,20 @@ checked, and its card has no SVG export.
 
 ## Word clouds
 
-`type: "wordCloud"` is laid out by the plugin (`src/core/wordCloudLayout.ts`) and drawn as an
-ECharts `custom` series (`src/core/wordCloud.ts`), not with echarts-wordcloud, which declares
-ECharts 5. Words come from `data` (`{ name, value }` or `[name, value]`) or from the series'
-dataset (a sheet range: `encode.itemName` / `encode.value`, else its first two columns); the
-largest 300 are kept. Settings: `sizeRange` (px, default `[12, 60]`), `rotationRange` (degrees
-within ±90, default `[0, 90]`) with `rotationStep` (default 90), `gridSize` (px of the grid that
-marks taken space, default 8), `textStyle.fontFamily` / `fontWeight`. Words are placed largest
-first on a spiral from the centre; one that fits nowhere is left out. A word with CJK, kana or
-hangul stays level whatever its angle. In the browser each word is measured in its font; the
-server's trial draw, which has no fonts, estimates widths on the wide side. Each word takes the
-next palette colour. A word cloud is an ordinary chart otherwise: drawn on the server's trial
-draw, exported as SVG. A word cloud inside a timeline (`baseOption` / `options`) is refused with that
-reason.
+`type: "wordCloud"` is drawn by
+[`@modernized/echarts-wordcloud`](https://www.npmjs.com/package/@modernized/echarts-wordcloud),
+loaded in the browser only when a chart has one (like echarts-gl, a dependency kept external to
+the build). Words come from `data` (`{ name, value }` or `[name, value]`) or from the series'
+dataset (a sheet range: `encode.itemName` / `encode.value`, else its first two columns), which the
+plugin writes into `data` because the extension reads only that; the largest 300 are kept.
+Settings: `sizeRange` (px, default `[12, 60]`), `rotationRange` (degrees within ±90, default
+`[0, 90]`) with `rotationStep` (default 90), `gridSize` (px, default 8); a value out of range falls
+back to its default. Anything else on the series (`shape`, `textStyle`, …) goes to the extension
+as is. The extension places words at random on each draw and leaves out a word that does not fit.
+
+The extension lays words out on a DOM canvas after `setOption` returns, so the server's trial
+draw checks only a word cloud's formats, and its card has no SVG export. A word cloud inside a
+timeline (`baseOption` / `options`) is refused with that reason.
 
 ## Height and columns
 
