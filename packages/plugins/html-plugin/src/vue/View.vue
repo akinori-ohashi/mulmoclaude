@@ -36,6 +36,7 @@
       <div class="text-xs text-gray-600">{{ t.submitHint }}</div>
       <textarea
         v-model="submission.text"
+        :maxlength="MAX_SUBMIT_TEXT_CHARS"
         spellcheck="false"
         class="w-full h-32 p-2 text-sm font-mono bg-white border border-gray-300 rounded resize-y focus:outline-none focus:border-blue-500"
         data-testid="present-html-submit-text"
@@ -120,7 +121,7 @@ const { submission, rejectedTooLong, discard } = useHtmlSubmit(frame, () => prop
 
 function sendSubmission() {
   const text = submission.value?.text;
-  if (!text || text.trim() === "" || !props.sendTextMessage) return;
+  if (!text || text.trim() === "" || text.length > MAX_SUBMIT_TEXT_CHARS || !props.sendTextMessage) return;
   props.sendTextMessage(text);
   discard();
 }
