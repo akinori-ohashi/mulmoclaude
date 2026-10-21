@@ -7,6 +7,7 @@ import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { isRecord } from "@mulmoclaude/common";
 import "../../server/plugins/spreadsheet-builtin.js";
 import { getBuiltinDispatch } from "../../server/plugins/builtin-dispatch.js";
 import { workspacePath } from "../../server/workspace/paths.js";
@@ -16,6 +17,10 @@ const testDir = `test-builtin-${process.pid}`;
 const filePath = `artifacts/spreadsheets/${testDir}/sheet.json`;
 const absolute = path.join(workspacePath, filePath);
 const sheets = [{ name: "Budget", data: [[{ v: "Income" }, { v: 5000 }]] }];
+
+/** The `version` a load or save answered, which names the file's content at that moment. */
+const versionOf = (result: unknown): string =>
+  isRecord(result) && isRecord(result.data) && typeof result.data.version === "string" ? result.data.version : "";
 
 describe("spreadsheet built-in dispatch", () => {
   after(() => rmSync(path.join(workspacePath, "artifacts/spreadsheets", testDir), { recursive: true, force: true }));
@@ -28,14 +33,25 @@ describe("spreadsheet built-in dispatch", () => {
     mkdirSync(path.dirname(absolute), { recursive: true });
     writeFileSync(absolute, JSON.stringify(sheets));
     const result = await handler?.({ kind: "loadSpreadsheet", path: filePath });
-    assert.deepEqual(result, { message: `Loaded spreadsheet ${filePath}`, data: { sheets } });
+    assert.deepEqual(result, { message: `Loaded spreadsheet ${filePath}`, data: { sheets, version: versionOf(result) } });
+    assert.match(versionOf(result), /^[0-9a-f]{64}$/);
   });
 
   it("writes an edit back to the same file", async () => {
     const edited = [{ name: "Budget", data: [[{ v: "Income" }, { v: 6000 }]] }];
     const result = await handler?.({ kind: "saveSpreadsheet", path: filePath, sheets: edited });
-    assert.deepEqual(result, { message: `Saved spreadsheet ${filePath}`, data: { sheets: filePath } });
+    assert.deepEqual(result, { message: `Saved spreadsheet ${filePath}`, data: { sheets: filePath, version: versionOf(result) } });
     assert.deepEqual(JSON.parse(readFileSync(absolute, "utf8")), edited);
+  });
+
+  it("does not overwrite a change made since the View's version", async () => {
+    const loaded = await handler?.({ kind: "loadSpreadsheet", path: filePath });
+    const changedOnDisk = [{ name: "Budget", data: [[{ v: "Income" }, { v: 7000 }]] }];
+    writeFileSync(absolute, JSON.stringify(changedOnDisk));
+    const stale = [{ name: "Budget", data: [[{ v: "Income" }, { v: 1 }]] }];
+    const result = await handler?.({ kind: "saveSpreadsheet", path: filePath, sheets: stale, baseVersion: versionOf(loaded) });
+    assert.equal(isRecord(result) && isRecord(result.data) && result.data.conflict, true);
+    assert.deepEqual(JSON.parse(readFileSync(absolute, "utf8")), changedOnDisk);
   });
 
   it("refuses anything that is not a load or save", async () => {
