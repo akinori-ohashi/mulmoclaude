@@ -110,6 +110,7 @@ describe("createReplyStream", () => {
   it("stop halts the timer and ignores later chunks", async () => {
     const api = slowSendApi();
     const stream = createReplyStream(api, CHAT_ID, log, INTERVAL_MS);
+    stream.append("pending");
     stream.stop();
     stream.append("late");
     mock.timers.tick(INTERVAL_MS * 3);

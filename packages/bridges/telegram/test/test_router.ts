@@ -327,6 +327,7 @@ describe("router.handleMessage — streamed replies", () => {
         api,
         allowlist: createAllowlist([42]),
         sendToMulmo: async () => {
+          router.handleTextChunk(STREAMED_TEXT);
           throw new Error("socket closed");
         },
         log: silentLog,
