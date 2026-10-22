@@ -105,3 +105,9 @@ When the page is for the user to decide something — pick between mockups, sett
 - `text` is plain text, at most 20,000 characters; a longer one is refused, not truncated.
 - The host shows it in a confirmation bar above the page. The user can edit it, and it is sent as their next message only when they press Send — so after presenting, finish your turn instead of waiting or polling.
 - Write `text` so it stands on its own: name each decision and the option chosen, not just "B".
+- A page you write with `html` purely to hand decisions back may pass `submit: "direct"` to `presentHtml`: its posts then reach the conversation without the confirmation bar, as long as each one carries the key the host puts in the page's URL. A post without it, or a second one within a few seconds, still goes to the bar. It is ignored for `path` — never ask for it on a page whose script you did not write.
+
+  ```js
+  const key = new URLSearchParams(location.hash.slice(1)).get("mulmo-submit-key");
+  window.parent.postMessage({ type: "mulmo-html-submit", text: summary(), key }, "*");
+  ```

@@ -4,7 +4,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { MAX_SUBMIT_TEXT_CHARS, SUBMIT_MESSAGE_TYPE, readSubmitMessage } from "../src/core/submitMessage";
+import { MAX_SUBMIT_KEY_CHARS, MAX_SUBMIT_TEXT_CHARS, SUBMIT_MESSAGE_TYPE, readSubmitMessage } from "../src/core/submitMessage";
 
 const frame = { name: "this-frame" };
 const otherFrame = { name: "other-frame" };
@@ -70,5 +70,14 @@ describe("readSubmitMessage", () => {
   it("checks the source before the payload, so another frame's oversized text is ignored rather than reported", () => {
     const tooLong = "a".repeat(MAX_SUBMIT_TEXT_CHARS + 1);
     assert.deepEqual(readSubmitMessage(message({ type: SUBMIT_MESSAGE_TYPE, text: tooLong }, otherFrame), frame), { kind: "ignored" });
+  });
+
+  it("carries a string key, and drops a key that is not a string or is too long", () => {
+    assert.deepEqual(readSubmitMessage(message({ type: SUBMIT_MESSAGE_TYPE, text: "x", key: "k" }), frame), { kind: "text", text: "x", key: "k" });
+    for (const key of [undefined, 1, null, { k: 1 }, "k".repeat(MAX_SUBMIT_KEY_CHARS + 1)]) {
+      assert.deepEqual(readSubmitMessage(message({ type: SUBMIT_MESSAGE_TYPE, text: "x", key }), frame), { kind: "text", text: "x" });
+    }
+    const atLimit = "k".repeat(MAX_SUBMIT_KEY_CHARS);
+    assert.deepEqual(readSubmitMessage(message({ type: SUBMIT_MESSAGE_TYPE, text: "x", key: atLimit }), frame), { kind: "text", text: "x", key: atLimit });
   });
 });

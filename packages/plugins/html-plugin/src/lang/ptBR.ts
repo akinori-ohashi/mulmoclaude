@@ -20,6 +20,8 @@ const ptBR: Messages = {
   submitSend: "Enviar",
   submitDiscard: "Descartar",
   submitTooLong: (maxChars) => `A página tentou enviar mais de ${maxChars} caracteres, então nada foi enviado.`,
+  submitSent: "Enviado para a conversa.",
+  submitFailed: "Não foi possível enviar: o terminal não está conectado. O texto continua aqui; clique em Enviar para tentar de novo.",
 };
 
 export default ptBR;

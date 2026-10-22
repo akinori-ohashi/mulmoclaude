@@ -4,7 +4,19 @@ export { executeHtml, executeHtmlUpdate, pluginCore, type HtmlExecuteContext, ty
 export { executeHtmlDispatch, type HtmlDispatchContext } from "./dispatch";
 export type { HtmlDispatchArgs, HtmlDispatchResult, LoadHtmlArgs, SaveHtmlArgs, PackHtmlArgs, PackHtmlResult } from "./contract";
 export { isHtmlDispatchArgs, isPackHtmlArgs } from "./contract";
-export { MAX_SUBMIT_TEXT_CHARS, SUBMIT_MESSAGE_TYPE, readSubmitMessage, type SubmitRead } from "./submitMessage";
+export { MAX_SUBMIT_KEY_CHARS, MAX_SUBMIT_TEXT_CHARS, SUBMIT_MESSAGE_TYPE, readSubmitMessage, type SubmitRead } from "./submitMessage";
+export {
+  DIRECT_SUBMIT,
+  DIRECT_SUBMIT_MIN_INTERVAL_MS,
+  SUBMIT_KEY_PARAM,
+  deliveryFor,
+  submitModeFor,
+  submitModeOfResult,
+  withSubmitKey,
+  type DirectSubmitCheck,
+  type SubmitDelivery,
+  type SubmitMode,
+} from "./submitMode";
 export {
   htmlArtifactPath,
   htmlArtifactPreviewUrl,

@@ -4,7 +4,9 @@ export const SUBMIT_MESSAGE_TYPE = "mulmo-html-submit";
 
 export const MAX_SUBMIT_TEXT_CHARS = 20_000;
 
-export type SubmitRead = { kind: "ignored" } | { kind: "tooLong" } | { kind: "text"; text: string };
+export const MAX_SUBMIT_KEY_CHARS = 128;
+
+export type SubmitRead = { kind: "ignored" } | { kind: "tooLong" } | { kind: "text"; text: string; key?: string };
 
 export interface SubmitEventLike {
   source: unknown;
@@ -21,5 +23,6 @@ export function readSubmitMessage(event: SubmitEventLike, frameWindow: unknown):
   if (!isRecord(data) || data.type !== SUBMIT_MESSAGE_TYPE || typeof data.text !== "string") return IGNORED;
   if (data.text.length > MAX_SUBMIT_TEXT_CHARS) return { kind: "tooLong" };
   if (data.text.trim() === "") return IGNORED;
-  return { kind: "text", text: data.text };
+  const key = typeof data.key === "string" && data.key.length <= MAX_SUBMIT_KEY_CHARS ? data.key : undefined;
+  return key === undefined ? { kind: "text", text: data.text } : { kind: "text", text: data.text, key };
 }

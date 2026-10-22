@@ -20,6 +20,8 @@ const es: Messages = {
   submitSend: "Enviar",
   submitDiscard: "Descartar",
   submitTooLong: (maxChars) => `La página intentó enviar más de ${maxChars} caracteres, así que no se envió nada.`,
+  submitSent: "Enviado a la conversación.",
+  submitFailed: "No se pudo enviar: el terminal no está conectado. El texto se conserva aquí; pulsa Enviar para reintentar.",
 };
 
 export default es;

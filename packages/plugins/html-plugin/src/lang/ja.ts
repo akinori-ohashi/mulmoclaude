@@ -20,6 +20,8 @@ const ja: Messages = {
   submitSend: "送信",
   submitDiscard: "破棄",
   submitTooLong: (maxChars) => `ページが ${maxChars} 文字を超える内容を送ろうとしたため、送っていません。`,
+  submitSent: "会話に送りました。",
+  submitFailed: "送れませんでした。端末がつながっていません。内容はここに残してあるので、もう一度「送信」を押してください。",
 };
 
 export default ja;
