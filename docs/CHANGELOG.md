@@ -25,6 +25,15 @@ its split lines stood out. The chart plugin now draws dark with a theme of its o
 colours for 3D axes — so they read, and colours the chart sets itself still win.
 
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+### Added
+
+#### Charts drawn from a spreadsheet range (#3512)
+
+A `presentChart` chart can name a saved spreadsheet range (`source: { spreadsheet, range }`, or several in `sources`)
+instead of carrying its numbers, as it already could in MulmoTerminal. The range is calculated by the spreadsheet's own
+engine, so the chart shows what the sheet shows, formulas included, and an open chart redraws when the sheet is edited.
+The workbook may be named by the path the spreadsheet tool reported, by its full path, or by its path inside the
+sandbox. A path outside the workspace's spreadsheets is refused with the reason.
 
 ## [2.8.1] - 2026-10-22
 

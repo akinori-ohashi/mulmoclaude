@@ -1,7 +1,8 @@
 import { Router, Request, Response } from "express";
 import { executeChart, isValidChartDocument } from "@mulmoclaude/chart-plugin";
 import type { ChartArgs } from "@mulmoclaude/chart-plugin";
-import { makeArtifactsFileOps } from "../../plugins/runtime.js";
+import { chartExecuteContext, toWorkspaceWorkbook } from "../../plugins/chart-sources.js";
+import { renameChartSources } from "../../plugins/chart-source-path.js";
 import { errorMessage } from "../../utils/errors.js";
 import { serverError } from "../../utils/httpError.js";
 import { log } from "../../system/logger/index.js";
@@ -15,8 +16,9 @@ const router = Router();
 // shared @mulmoclaude/chart-plugin package (single source of truth, also
 // consumed by MulmoTerminal). This route is a THIN host adapter: it injects
 // the GENERIC `files.artifacts` runtime capability (the shared, user-browsable
-// artifacts area) and forwards the package's ToolResult. All chart logic —
-// validation, slug/path building, JSON write — lives in the package.
+// artifacts area) plus `sources` (a chart drawn from a spreadsheet range) and
+// forwards the package's ToolResult. All chart logic — validation, slug/path
+// building, JSON write — lives in the package.
 //
 // `isValidChartDocument` is re-exported so test/routes/test_chartRoute.ts and
 // any other host caller keep importing it from here unchanged.
@@ -29,7 +31,8 @@ bindRoute(router, API_ROUTES.chart.create, async (req: Request<object, unknown, 
     chartCount: isValidChartDocument(req.body?.document) ? req.body.document.charts.length : undefined,
   });
   try {
-    const result = await executeChart({ files: { artifacts: makeArtifactsFileOps() } }, req.body);
+    renameChartSources(req.body?.document, toWorkspaceWorkbook);
+    const result = await executeChart(chartExecuteContext(), req.body);
     log.info("chart", "present: ok", { hasData: "data" in result });
     res.json(result);
   } catch (err) {

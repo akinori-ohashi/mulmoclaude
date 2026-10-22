@@ -13,7 +13,9 @@ import { wrapWithScope } from "../scope";
 // path (POST /api/chart) — the host route injects the generic `files.artifacts`
 // capability and calls the package's executeChart. We re-wrap the package's
 // components in MulmoClaude's scoped runtime provider (wrapWithScope) so the
-// package's useT()/locale resolves to the host.
+// package's useT()/locale resolves to the host, and so a chart drawn from a
+// spreadsheet range can read it (dispatch "readSource", server/plugins/chart-builtin.ts)
+// and redraw on the workbook's `plugin:chart:file:<path>` channel.
 const chartPlugin: ToolPlugin<PresentChartData> = {
   toolDefinition: TOOL_DEFINITION,
 

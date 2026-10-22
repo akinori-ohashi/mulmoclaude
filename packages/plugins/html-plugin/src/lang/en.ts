@@ -15,6 +15,11 @@ const en: Messages = {
   saveError: (error) => `⚠ Save failed: ${error}`,
   loadingSource: "Loading source…",
   sourceError: (error) => `Failed to load source: ${error}`,
+  submitTitle: "Send this to the conversation?",
+  submitHint: "The page wants to send this. Edit it if needed — nothing is sent until you press Send.",
+  submitSend: "Send",
+  submitDiscard: "Discard",
+  submitTooLong: (maxChars) => `The page tried to send more than ${maxChars} characters, so nothing was sent.`,
 };
 
 export default en;
