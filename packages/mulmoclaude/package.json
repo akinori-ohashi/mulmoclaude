@@ -44,7 +44,7 @@
     "@mulmoclaude/core": "^5.13.0",
     "@mulmoclaude/form-plugin": "^2.2.0",
     "@mulmoclaude/google-plugin": "^4.1.0",
-    "@mulmoclaude/html-plugin": "^5.1.0",
+    "@mulmoclaude/html-plugin": "^5.2.0",
     "@mulmoclaude/markdown-plugin": "^5.2.0",
     "@mulmoclaude/markdown-utils": "^3.0.2",
     "@mulmoclaude/mulmoscript-plugin": "^5.5.0",
