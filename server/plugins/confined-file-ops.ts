@@ -6,7 +6,14 @@
 import path from "node:path";
 import { mkdir, readdir, realpath, stat as fsStat, unlink as fsUnlink } from "node:fs/promises";
 import type { FileOps } from "gui-chat-protocol";
-import { openVerifiedWithinRoot, realpathIfPresent, resolveExistingWithinRoot, writeFileVerifiedInDir } from "@mulmoclaude/core/files";
+import {
+  openVerifiedWithinScope,
+  realpathIfPresent,
+  resolveExistingWithinRoot,
+  scopeRealpath,
+  writeFileVerifiedInScope,
+  type VerifiedScope,
+} from "@mulmoclaude/core/files";
 import { isEnoent, resolveWriteWithinRoot } from "../utils/files/safe.js";
 import { ensureInsideBase } from "./runtime-loader.js";
 
@@ -60,10 +67,15 @@ export interface FileScope {
 
 const scopeWithinTrusted = (scope: FileScope): string => path.relative(scope.trustedRoot, scope.root);
 
+const verifiedScopeOf = async (scope: FileScope): Promise<VerifiedScope | null> => {
+  const trustedReal = await realpathIfPresent(scope.trustedRoot);
+  return trustedReal === null ? null : { trustedReal, scopeWithinTrusted: scopeWithinTrusted(scope) };
+};
+
 /** The scope root's realpath when it exists inside the trusted root; null when absent or led outside. */
 const scopeRootIfPresent = async (scope: FileScope): Promise<string | null> => {
-  const trustedReal = await realpathIfPresent(scope.trustedRoot);
-  return trustedReal === null ? null : resolveExistingWithinRoot(trustedReal, scopeWithinTrusted(scope));
+  const verified = await verifiedScopeOf(scope);
+  return verified === null ? null : scopeRealpath(verified);
 };
 
 // Only a write creates the scope root; a read-only call against an absent root sees "missing".
@@ -90,8 +102,8 @@ const requireExisting = async (scope: FileScope, rel: string): Promise<string> =
 
 const readVerified = async (scope: FileScope, rel: string): Promise<Buffer> => {
   const relative = scopeRelative(scope.root, rel);
-  const rootReal = await scopeRootIfPresent(scope);
-  const handle = rootReal === null ? null : await openVerifiedWithinRoot(rootReal, relative);
+  const verified = await verifiedScopeOf(scope);
+  const handle = verified === null ? null : await openVerifiedWithinScope(verified, relative);
   if (handle === null) throw notInScope(rel);
   try {
     return await handle.readFile();
@@ -104,8 +116,9 @@ const writeVerified = async (scope: FileScope, rel: string, content: string | Ui
   const relative = scopeRelative(scope.root, rel);
   const rootReal = await createScopeRoot(scope);
   const target = await resolveWriteWithinRoot(rootReal, relative);
-  if (target === null) throw new Error(`refusing to write outside the scope: ${rel}`);
-  await writeFileVerifiedInDir(rootReal, path.dirname(target), path.basename(target), content);
+  const verified = await verifiedScopeOf(scope);
+  if (target === null || verified === null) throw new Error(`refusing to write outside the scope: ${rel}`);
+  await writeFileVerifiedInScope(verified, path.dirname(target), path.basename(target), content);
 };
 
 // unlink does not follow the leaf, so only the parent is confined: a link is removed, never its target.

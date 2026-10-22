@@ -8,7 +8,15 @@ export { writeFileAtomic, writeFileAtomicSync, type WriteAtomicOptions } from ".
 export { writeJsonAtomic } from "./json.js";
 export { isEnoent, resolveWithinRoot } from "./safe.js";
 // Check-then-use that survives a path swapped mid-call (#3573): reads prove the opened handle, writes verify their staging file.
-export { openVerifiedWithinRoot, writeFileVerifiedInDir, resolveExistingWithinRoot, realpathIfPresent, type VerifiedFileHooks } from "./verified.js";
+export {
+  openVerifiedWithinScope,
+  writeFileVerifiedInScope,
+  scopeRealpath,
+  resolveExistingWithinRoot,
+  realpathIfPresent,
+  type VerifiedScope,
+  type VerifiedFileHooks,
+} from "./verified.js";
 export { toPosixRelPath, joinPosixRelPath } from "./relPath.js";
 export { canonicalRoot } from "./root.js";
 // presentDocument / presentHtml's `path` argument: resolving a caller-supplied

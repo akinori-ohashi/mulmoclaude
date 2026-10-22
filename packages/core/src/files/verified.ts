@@ -60,44 +60,55 @@ async function openIfPresent(absPath: string, flags: number): Promise<FileHandle
   }
 }
 
-/** The root pathname plus the directory it named when the call began, so a root renamed away and
- *  replaced by another directory mid-call is caught — the pathname alone would accept it. */
-interface BoundRoot {
-  real: string;
-  identity: BigIntStats;
+/** A scope folder under a trusted anchor. `trustedReal` MUST be a realpath that the party being defended
+ *  against cannot replace (the workspace: in Docker it is the mount root). The scope is re-resolved under
+ *  it at every check, so a scope replaced by a link out is refused; a real directory moved into the
+ *  scope's place from inside the anchor is simply the scope from then on. */
+export interface VerifiedScope {
+  trustedReal: string;
+  scopeWithinTrusted: string;
 }
 
-async function bindRoot(rootReal: string): Promise<BoundRoot | null> {
-  const identity = await lstatIfPresent(rootReal);
-  return identity === null ? null : { real: rootReal, identity };
+/** The scope's realpath if it exists inside the anchor now; null when absent or led outside. */
+export const scopeRealpath = async (scope: VerifiedScope): Promise<string | null> => resolveExistingWithinRoot(scope.trustedReal, scope.scopeWithinTrusted);
+
+interface BoundScope {
+  scope: VerifiedScope;
+  anchorIdentity: BigIntStats;
 }
 
-async function rootUnchanged(root: BoundRoot): Promise<boolean> {
-  const now = await lstatIfPresent(root.real);
-  return now !== null && sameFile(now, root.identity);
+async function bindScope(scope: VerifiedScope): Promise<BoundScope | null> {
+  const anchorIdentity = await lstatIfPresent(scope.trustedReal);
+  return anchorIdentity === null ? null : { scope, anchorIdentity };
 }
 
-async function isInRootFile(root: BoundRoot, candidateReal: string, handle: FileHandle): Promise<boolean> {
-  if (!(await rootUnchanged(root))) return false;
-  const again = await resolveExistingWithinRoot(root.real, candidateReal);
+/** The scope's realpath at this moment, provided the anchor is still the directory bound at the start. */
+async function scopeRealNow(bound: BoundScope): Promise<string | null> {
+  const anchorNow = await lstatIfPresent(bound.scope.trustedReal);
+  return anchorNow !== null && sameFile(anchorNow, bound.anchorIdentity) ? scopeRealpath(bound.scope) : null;
+}
+
+async function isInScopeFile(bound: BoundScope, candidateReal: string, handle: FileHandle): Promise<boolean> {
+  const scopeReal = await scopeRealNow(bound);
+  const again = scopeReal === null ? null : await resolveExistingWithinRoot(scopeReal, candidateReal);
   if (again === null) return false;
   const onDisk = await lstatIfPresent(again);
   return onDisk !== null && sameFile(onDisk, await handle.stat({ bigint: true }));
 }
 
-/** Opens `relative` under `rootReal` for reading and proves the handle is the in-root file. Null when
- *  missing, outside, or swapped during the call. The caller owns the returned handle. */
-export async function openVerifiedWithinRoot(rootReal: string, relative: string, hooks: VerifiedFileHooks = {}): Promise<FileHandle | null> {
-  const root = await bindRoot(rootReal);
-  if (root === null) return null;
-  const candidateReal = await resolveExistingWithinRoot(rootReal, relative);
-  if (candidateReal === null) return null;
+/** Opens `relative` under the scope for reading and proves, after opening, that the handle is the file
+ *  the scope holds now. Null when missing, outside, or swapped during the call. The caller owns the handle. */
+export async function openVerifiedWithinScope(scope: VerifiedScope, relative: string, hooks: VerifiedFileHooks = {}): Promise<FileHandle | null> {
+  const bound = await bindScope(scope);
+  const scopeReal = bound === null ? null : await scopeRealNow(bound);
+  const candidateReal = scopeReal === null ? null : await resolveExistingWithinRoot(scopeReal, relative);
+  if (bound === null || candidateReal === null) return null;
   await hooks.beforeOpen?.();
   const handle = await openIfPresent(candidateReal, READ_FLAGS);
   if (handle === null) return null;
   try {
     await hooks.afterOpen?.();
-    if (await isInRootFile(root, candidateReal, handle)) return handle;
+    if (await isInScopeFile(bound, candidateReal, handle)) return handle;
   } catch (err) {
     await handle.close();
     throw err;
@@ -106,21 +117,21 @@ export async function openVerifiedWithinRoot(rootReal: string, relative: string,
   return null;
 }
 
-/** The staging file's directory, re-resolved, if it is inside the root and holds exactly the opened staging file. */
-async function verifiedStagingDir(root: BoundRoot, dirReal: string, staging: string, handle: FileHandle): Promise<string | null> {
-  if (!(await rootUnchanged(root))) return null;
-  const dirAgain = await resolveExistingWithinRoot(root.real, dirReal);
+/** The staging file's directory, re-resolved, if it is inside the scope now and holds exactly the opened staging file. */
+async function verifiedStagingDir(bound: BoundScope, dirReal: string, staging: string, handle: FileHandle): Promise<string | null> {
+  const scopeReal = await scopeRealNow(bound);
+  const dirAgain = scopeReal === null ? null : await resolveExistingWithinRoot(scopeReal, dirReal);
   if (dirAgain === null) return null;
   const entry = await lstatIfPresent(path.join(dirAgain, staging));
   return entry !== null && sameFile(entry, await handle.stat({ bigint: true })) ? dirAgain : null;
 }
 
-async function writeStaging(root: BoundRoot, dirReal: string, staging: string, content: string | Uint8Array, hooks: VerifiedFileHooks): Promise<string> {
+async function writeStaging(bound: BoundScope, dirReal: string, staging: string, content: string | Uint8Array, hooks: VerifiedFileHooks): Promise<string> {
   await hooks.beforeOpen?.();
   const handle = await promises.open(path.join(dirReal, staging), CREATE_FLAGS);
   try {
     await hooks.afterOpen?.();
-    const stagingDir = await verifiedStagingDir(root, dirReal, staging, handle);
+    const stagingDir = await verifiedStagingDir(bound, dirReal, staging, handle);
     if (stagingDir === null) throw new Error(`refusing to write: ${dirReal} left the scope during the write`);
     await handle.writeFile(content);
     return stagingDir;
@@ -147,20 +158,20 @@ async function renameIntoPlace(stagingDir: string, staging: string, leaf: string
   }
 }
 
-/** Atomic write of `leaf` into `dirReal` (an already-confined realpath under `rootReal`). The staging
- *  file is verified to sit inside the root before any byte is written, and the rename lands in the
- *  directory holding it, so a parent swapped for a link mid-call makes the write fail. */
-export async function writeFileVerifiedInDir(
-  rootReal: string,
+/** Atomic write of `leaf` into `dirReal` (an already-confined directory of the scope). The staging file is
+ *  verified to sit inside the scope before any byte is written, and the rename lands in the directory
+ *  holding it, so a parent swapped for a link mid-call makes the write fail. */
+export async function writeFileVerifiedInScope(
+  scope: VerifiedScope,
   dirReal: string,
   leaf: string,
   content: string | Uint8Array,
   hooks: VerifiedFileHooks = {},
 ): Promise<void> {
-  const root = await bindRoot(rootReal);
-  if (root === null) throw new Error(`refusing to write: the scope root ${rootReal} is gone`);
+  const bound = await bindScope(scope);
+  if (bound === null) throw new Error(`refusing to write: the trusted root ${scope.trustedReal} is gone`);
   const staging = stagingNameFor(leaf);
-  const stagingDir = await writeStaging(root, dirReal, staging, content, hooks).catch(async (err: unknown) => {
+  const stagingDir = await writeStaging(bound, dirReal, staging, content, hooks).catch(async (err: unknown) => {
     await removeQuietly(path.join(dirReal, staging));
     throw err;
   });

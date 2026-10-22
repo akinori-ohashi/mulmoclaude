@@ -8,21 +8,28 @@ string. A component swapped to a symlink between the two syscalls is followed. N
 
 ## What can be closed in portable Node, and how
 
-The scope root itself must resolve inside a trusted root — the workspace — so a scope folder
-(`artifacts/`, a plugin's data or config folder) replaced by a symlink is refused rather than
-becoming the root (`makeConfinedFileOps({ root, trustedRoot })`; reproduced on a real server,
-Codex PR #3580 round 2).
+**The trust anchor is the workspace, not the scope folder.** The scope folder (`artifacts/`, a
+plugin's data or config folder) is something the agent can rename or replace; the workspace is
+not (in Docker it is the mount root). So every check works from the anchor:
 
-Both operations first bind the root: `lstat` of the root realpath (bigint `dev` + `ino`) is taken
-when the call begins and must still match at verification, so a root renamed away and replaced by
-another directory mid-call is refused (Codex, PR #3580 round 1).
+- `bindScope` records the anchor's bigint `dev` + `ino` when the call begins; it must still match
+  at verification
+- the scope is re-resolved under the anchor at every check (`scopeRealpath`): a scope that is, or
+  becomes, a link out of the anchor is refused
+- a real directory renamed into the scope's place from inside the anchor IS the scope from then
+  on — the same as moving it there before the request, so nothing is gained by racing it
+
+This replaced a per-scope root binding after three Codex findings on the same symbol (PR #3580
+rounds 1–3: root replaced mid-call; scope already a link at call time; root swapped between the
+host's check and the core call). Binding the scope enumerated ways to replace it; anchoring to
+what cannot be replaced states the rule once.
 
 **Reads (read / readBytes): closed.** Open first, then prove the descriptor is the
 in-root file:
 
 1. realpath the candidate; outside or missing → missing
 2. `open` it (`O_RDONLY`, plus `O_NOFOLLOW` / `O_NONBLOCK` where the platform has them)
-3. realpath the candidate AGAIN; it must still be inside the root, and `lstat` of it must have the
+3. re-resolve the scope under the anchor and the candidate under the scope; `lstat` of it must have the
    same `dev` + `ino` (bigint) as `fstat` of the handle
 4. read from the handle only
 
@@ -34,7 +41,7 @@ rename lands in the directory that holds it:
 
 1. confine the parent as today (`resolveWriteWithinRoot`, which mkdirs it)
 2. create `<leaf>.<random>.tmp` with `wx` (+ `O_NOFOLLOW`)
-3. realpath the parent again (must be inside the root) and `lstat` the staging entry there: its
+3. re-resolve the scope under the anchor and the parent under the scope, and `lstat` the staging entry there: its
    inode must equal `fstat` of the handle — so the bytes are going into an in-root directory
 4. write through the handle, close, rename staging → leaf in the directory holding it
 
@@ -54,15 +61,15 @@ the link's target needs write access to that target already.
   would make an unreadable file throw EACCES where `stat` / `exists` answer today.
 - **a stray empty staging file** — a write whose parent was swapped before the staging file was
   created fails, and can leave that empty `<leaf>.<random>.tmp` in the link's target.
-- **a real directory moved in** — a directory renamed into the root (not linked) is inside the
-  root from then on; moving one in from outside the workspace needs write access to it already.
+- **a real directory moved in** — a directory renamed into the scope (not linked) is inside it from
+  then on; moving one in from outside the workspace needs write access to it already.
 - **hard links** — an in-root hard link to an outside file is the outside file; creating one needs
   access to that file already.
 
 ## Shape
 
-- `packages/core/src/files/verified.ts`: `openVerifiedWithinRoot`, `writeFileVerifiedInDir`,
-  exported from `@mulmoclaude/core/files`. Core gets a minor bump; ranges swept.
+- `packages/core/src/files/verified.ts`: `openVerifiedWithinScope`, `writeFileVerifiedInScope`,
+  `scopeRealpath` (+ `VerifiedScope`), exported from `@mulmoclaude/core/files`. Core gets a minor bump; ranges swept.
 - `server/plugins/confined-file-ops.ts` uses them for read / readBytes / write.
 - Other `resolveWithinRoot` call sites (files.ts, pdf.ts, /artifacts static, …) migrate in
   follow-up PRs, one per site group — each can be reverted on its own.
