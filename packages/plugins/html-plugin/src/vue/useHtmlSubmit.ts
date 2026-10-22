@@ -10,6 +10,8 @@ export type SendText = (text?: string) => boolean | void;
 
 export interface HtmlSubmitOptions {
   mode: () => SubmitMode | undefined;
+  /** The key carried in this frame document's URL fragment; undefined when the page is not direct. */
+  expectedKey: () => string | undefined;
   sender: () => SendText | undefined;
 }
 
@@ -27,7 +29,6 @@ export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, options
   const sendFailed = ref(false);
   const sentNotice = ref(false);
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
-
   // A host returns false when the terminal could not take the text; an older host returns nothing.
   function deliver(text: string): boolean {
     const sender = options.sender();
@@ -46,9 +47,10 @@ export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, options
     sendFailed.value = failed;
   }
 
-  function receive(text: string) {
+  function receive(text: string, givenKey: string | undefined) {
     const nowMs = performance.now();
-    if (deliveryFor(options.mode(), directSubmitClock.lastAtMs, nowMs) === "confirm") return hold(text, false);
+    const check = { mode: options.mode(), expectedKey: options.expectedKey(), givenKey, lastDirectAtMs: directSubmitClock.lastAtMs, nowMs };
+    if (deliveryFor(check) === "confirm") return hold(text, false);
     if (!deliver(text)) return hold(text, true);
     directSubmitClock.lastAtMs = nowMs;
     discard();
@@ -64,7 +66,7 @@ export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, options
       rejectedTooLong.value = true;
       return;
     }
-    receive(read.text);
+    receive(read.text, read.key);
   }
 
   function sendHeld() {

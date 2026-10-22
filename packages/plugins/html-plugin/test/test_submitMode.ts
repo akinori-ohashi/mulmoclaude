@@ -4,7 +4,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { DIRECT_SUBMIT, DIRECT_SUBMIT_MIN_INTERVAL_MS, deliveryFor, submitModeFor, submitModeOfResult } from "../src/core/submitMode";
+import {
+  DIRECT_SUBMIT,
+  DIRECT_SUBMIT_MIN_INTERVAL_MS,
+  SUBMIT_KEY_PARAM,
+  deliveryFor,
+  submitModeFor,
+  submitModeOfResult,
+  withSubmitKey,
+} from "../src/core/submitMode";
 
 describe("submitModeFor", () => {
   it("grants direct submit to a new page written with html", () => {
@@ -73,24 +81,46 @@ describe("submitModeOfResult", () => {
 
 describe("deliveryFor", () => {
   const now = 100_000;
+  const key = "k-123";
+  const direct = (over: Partial<Parameters<typeof deliveryFor>[0]> = {}) =>
+    deliveryFor({ mode: DIRECT_SUBMIT, expectedKey: key, givenKey: key, lastDirectAtMs: null, nowMs: now, ...over });
 
   it("confirms everything for a page without the mode", () => {
-    assert.equal(deliveryFor(undefined, null, now), "confirm");
-    assert.equal(deliveryFor(undefined, now - 10 * DIRECT_SUBMIT_MIN_INTERVAL_MS, now), "confirm");
+    assert.equal(direct({ mode: undefined }), "confirm");
+    assert.equal(direct({ mode: undefined, lastDirectAtMs: now - 10 * DIRECT_SUBMIT_MIN_INTERVAL_MS }), "confirm");
   });
 
-  it("sends the first submit of a direct page straight away", () => {
-    assert.equal(deliveryFor(DIRECT_SUBMIT, null, now), "direct");
+  it("sends the first submit of a direct page carrying its key straight away", () => {
+    assert.equal(direct(), "direct");
+  });
+
+  it("confirms a submit without the key, with another key, or when no key was issued", () => {
+    assert.equal(direct({ givenKey: undefined }), "confirm");
+    assert.equal(direct({ givenKey: "k-124" }), "confirm");
+    assert.equal(direct({ givenKey: "" }), "confirm");
+    assert.equal(direct({ expectedKey: undefined, givenKey: undefined }), "confirm");
+    assert.equal(direct({ expectedKey: "", givenKey: "" }), "confirm");
   });
 
   it("sends directly again once the interval has passed, and not before", () => {
-    assert.equal(deliveryFor(DIRECT_SUBMIT, now - DIRECT_SUBMIT_MIN_INTERVAL_MS, now), "direct");
-    assert.equal(deliveryFor(DIRECT_SUBMIT, now - DIRECT_SUBMIT_MIN_INTERVAL_MS + 1, now), "confirm");
-    assert.equal(deliveryFor(DIRECT_SUBMIT, now, now), "confirm");
+    assert.equal(direct({ lastDirectAtMs: now - DIRECT_SUBMIT_MIN_INTERVAL_MS }), "direct");
+    assert.equal(direct({ lastDirectAtMs: now - DIRECT_SUBMIT_MIN_INTERVAL_MS + 1 }), "confirm");
+    assert.equal(direct({ lastDirectAtMs: now }), "confirm");
   });
 
   it("confirms when the last send appears to be in the future", () => {
-    assert.equal(deliveryFor(DIRECT_SUBMIT, now + 1, now), "confirm");
-    assert.equal(deliveryFor(DIRECT_SUBMIT, now + 10 * DIRECT_SUBMIT_MIN_INTERVAL_MS, now), "confirm");
+    assert.equal(direct({ lastDirectAtMs: now + 1 }), "confirm");
+    assert.equal(direct({ lastDirectAtMs: now + 10 * DIRECT_SUBMIT_MIN_INTERVAL_MS }), "confirm");
+  });
+});
+
+describe("withSubmitKey", () => {
+  it("puts the key in the fragment, encoded, after the query", () => {
+    assert.equal(withSubmitKey("/artifacts/html/a.html?v=3", "a b&c"), "/artifacts/html/a.html?v=3#mulmo-submit-key=a%20b%26c");
+  });
+
+  it("reads back with URLSearchParams on the fragment, as the page does", () => {
+    const url = new URL(withSubmitKey("http://h/a.html", "k=1#2"), "http://h");
+    assert.equal(new URLSearchParams(url.hash.slice(1)).get(SUBMIT_KEY_PARAM), "k=1#2");
   });
 });

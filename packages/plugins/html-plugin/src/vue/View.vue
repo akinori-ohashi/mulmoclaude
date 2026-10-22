@@ -75,10 +75,11 @@
     <div class="iframe-wrapper">
       <iframe
         v-if="frameSrc"
+        :key="frameKey"
         ref="frame"
         data-testid="present-html-iframe"
         @load="discard"
-        :src="frameSrc"
+        :src="framedSrc"
         sandbox="allow-scripts"
         class="w-full h-full border-0"
       />
@@ -124,7 +125,7 @@ import { useFileWatch } from "@mulmoclaude/core/plugin-vue";
 import { errorMessage } from "@mulmoclaude/common";
 import { MAX_SUBMIT_TEXT_CHARS } from "../core/submitMessage";
 import { useHtmlSubmit, type SendText } from "./useHtmlSubmit";
-import { submitModeOfResult } from "../core/submitMode";
+import { submitModeOfResult, withSubmitKey } from "../core/submitMode";
 
 const runtime = useRuntime();
 const t = useT();
@@ -137,6 +138,7 @@ const props = defineProps<{
 const frame = ref<HTMLIFrameElement>();
 const { submission, rejectedTooLong, sendFailed, sentNotice, discard, sendHeld } = useHtmlSubmit(frame, {
   mode: () => submitModeOfResult(data.value),
+  expectedKey: () => (submitModeOfResult(data.value) ? submitKey.value : undefined),
   sender: () => props.sendTextMessage,
 });
 
@@ -176,6 +178,20 @@ const previewBaseUrl = computed(() => data.value?.previewUrl ?? htmlArtifactPrev
 // when the bytes on disk did not change — or when no file-change event was
 // heard at all.
 const reloadNonce = ref(0);
+
+// A new iframe element per page and per result: its Window is what a submit is matched against, and
+// a reused element keeps the same Window across a navigation, so a message the previous document
+// queued would otherwise be judged by the next result's mode.
+const frameKey = computed(() => `${props.selectedResult.uuid}|${frameSrc.value ?? ""}`);
+
+// A fresh key for each frame document, recomputed only when frameKey changes. It reaches the page
+// through its URL fragment and only a direct page is given one.
+const submitKey = computed(() => (frameKey.value ? crypto.randomUUID() : ""));
+const framedSrc = computed(() => {
+  const src = frameSrc.value;
+  if (!src) return undefined;
+  return submitModeOfResult(data.value) ? withSubmitKey(src, submitKey.value) : src;
+});
 
 const frameSrc = computed(() => {
   const base = previewBaseUrl.value;

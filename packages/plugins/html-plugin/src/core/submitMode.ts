@@ -9,6 +9,8 @@ export type SubmitDelivery = "direct" | "confirm";
 
 export const DIRECT_SUBMIT_MIN_INTERVAL_MS = 3_000;
 
+export const SUBMIT_KEY_PARAM = "mulmo-submit-key";
+
 const nonEmptyString = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
 // Only a page the agent writes now (`html`) may skip the confirmation bar. A `path` names a
@@ -29,10 +31,27 @@ export function submitModeOfResult(data: unknown): SubmitMode | undefined {
   return DIRECT_SUBMIT;
 }
 
-// A direct send is allowed once per interval; anything sooner goes to the bar, so a page that
-// posts in a loop fills one editable bar instead of the conversation.
-export function deliveryFor(mode: SubmitMode | undefined, lastDirectAtMs: number | null, nowMs: number): SubmitDelivery {
+// The key rides in the fragment of the URL the View loads, so only the document that URL produced
+// can read it. A link or script that moves the frame to another document drops the fragment, and
+// that document — which may post before its load event fires — cannot present the key.
+export function withSubmitKey(src: string, key: string): string {
+  return `${src}#${SUBMIT_KEY_PARAM}=${encodeURIComponent(key)}`;
+}
+
+export interface DirectSubmitCheck {
+  mode: SubmitMode | undefined;
+  expectedKey: string | undefined;
+  givenKey: string | undefined;
+  lastDirectAtMs: number | null;
+  nowMs: number;
+}
+
+// A direct send needs the mode, the key of this frame's document, and the interval since the last
+// direct send; anything else goes to the bar, so a page that posts in a loop fills one editable bar
+// instead of the conversation.
+export function deliveryFor({ mode, expectedKey, givenKey, lastDirectAtMs, nowMs }: DirectSubmitCheck): SubmitDelivery {
   if (mode !== DIRECT_SUBMIT) return "confirm";
+  if (!expectedKey || givenKey !== expectedKey) return "confirm";
   if (lastDirectAtMs === null) return "direct";
   const elapsedMs = nowMs - lastDirectAtMs;
   return elapsedMs >= DIRECT_SUBMIT_MIN_INTERVAL_MS ? "direct" : "confirm";
