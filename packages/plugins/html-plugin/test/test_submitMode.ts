@@ -4,7 +4,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { DIRECT_SUBMIT, DIRECT_SUBMIT_MIN_INTERVAL_MS, deliveryFor, submitModeFor } from "../src/core/submitMode";
+import { DIRECT_SUBMIT, DIRECT_SUBMIT_MIN_INTERVAL_MS, deliveryFor, submitModeFor, submitModeOfResult } from "../src/core/submitMode";
 
 describe("submitModeFor", () => {
   it("grants direct submit to a new page written with html", () => {
@@ -36,6 +36,38 @@ describe("submitModeFor", () => {
 
   it("treats an empty path as no path", () => {
     assert.equal(submitModeFor({ html: "<html></html>", path: "", submit: DIRECT_SUBMIT }), DIRECT_SUBMIT);
+  });
+});
+
+describe("submitModeOfResult", () => {
+  const artifact = "artifacts/html/2026/10/plan-1.html";
+
+  it("honours the flag on a page this tool wrote", () => {
+    assert.equal(submitModeOfResult({ filePath: artifact, submit: DIRECT_SUBMIT }), DIRECT_SUBMIT);
+  });
+
+  it("refuses the flag on a result pointing anywhere else, as a forged or restored result could", () => {
+    for (const filePath of ["docs/report.html", "/tmp/x.html", "artifacts/html/../../repo/x.html", "artifacts/htmlx/a.html", "artifacts/html/a.txt"]) {
+      assert.equal(submitModeOfResult({ filePath, submit: DIRECT_SUBMIT }), undefined, filePath);
+    }
+  });
+
+  it("refuses a missing or non-string filePath", () => {
+    for (const filePath of [undefined, null, 1, ["artifacts/html/a.html"]]) {
+      assert.equal(submitModeOfResult({ filePath, submit: DIRECT_SUBMIT }), undefined);
+    }
+  });
+
+  it("needs the exact flag", () => {
+    for (const submit of [undefined, "DIRECT", true, "confirm"]) {
+      assert.equal(submitModeOfResult({ filePath: artifact, submit }), undefined);
+    }
+  });
+
+  it("ignores non-object data", () => {
+    for (const data of [null, undefined, "direct", 3, [artifact]]) {
+      assert.equal(submitModeOfResult(data), undefined);
+    }
   });
 });
 

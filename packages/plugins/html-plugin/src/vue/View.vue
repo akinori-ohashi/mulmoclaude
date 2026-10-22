@@ -124,6 +124,7 @@ import { useFileWatch } from "@mulmoclaude/core/plugin-vue";
 import { errorMessage } from "@mulmoclaude/common";
 import { MAX_SUBMIT_TEXT_CHARS } from "../core/submitMessage";
 import { useHtmlSubmit, type SendText } from "./useHtmlSubmit";
+import { submitModeOfResult } from "../core/submitMode";
 
 const runtime = useRuntime();
 const t = useT();
@@ -135,7 +136,7 @@ const props = defineProps<{
 
 const frame = ref<HTMLIFrameElement>();
 const { submission, rejectedTooLong, sendFailed, sentNotice, discard, sendHeld } = useHtmlSubmit(frame, {
-  mode: () => data.value?.submit,
+  mode: () => submitModeOfResult(data.value),
   sender: () => props.sendTextMessage,
 });
 
