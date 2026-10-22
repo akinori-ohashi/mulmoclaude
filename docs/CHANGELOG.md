@@ -18,6 +18,17 @@ engine, so the chart shows what the sheet shows, formulas included, and an open 
 The workbook may be named by the path the spreadsheet tool reported, by its full path, or by its path inside the
 sandbox. A path outside the workspace's spreadsheets is refused with the reason.
 
+#### A `presentHtml` page can hand the user's decisions back to the conversation (#3581, PR #3583)
+
+A page shown with `presentHtml` can post `{ type: "mulmo-html-submit", text }` to its parent — for example from a
+"Send" button on a plan where the user picked between mockups. The text is not sent straight away: it appears in a
+bar above the page, where the user can edit or discard it, and it becomes their next message only when they press
+Send there, since a click inside an LLM-authored page cannot be told from a scripted one. Only the page's own frame is
+heard, text over 20,000 characters is refused rather than cut, and reloading the page drops a decision that was waiting.
+The tool's description tells the agent how to add such a button. Shipped in `@mulmoclaude/html-plugin@5.1.0`.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.1.0`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
 ## [2.8.1] - 2026-10-22
 
 **Plugin file access can no longer follow a symlink out of its folder, and LINE groups and rooms become one
