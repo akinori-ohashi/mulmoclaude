@@ -91,7 +91,7 @@ describe("saveCompanion symlink escape", () => {
 
     await assert.rejects(
       () => saveCompanion("data/attachments/9999/99/<id>.pptx", FAKE_PDF, ".pdf"),
-      /path traversal rejected/,
+      /refusing to write outside the scope/,
       "symlinked partition that escapes root must be rejected",
     );
   });

@@ -30,6 +30,14 @@ and SVGs. Each request now checks that the folder still sits inside the workspac
 folder or file swapped for a link mid-request is not followed either. A dotfile under `/artifacts/images` now answers
 404 instead of 403. Video and audio seeking (Range requests) and browser caching keep working.
 
+#### Image and attachment stores read and write only inside the workspace (#3573)
+
+Generated, drawn and edited images (`artifacts/images/`) and chat attachments (`data/attachments/`) took their folder's
+real location as the boundary, so replacing that folder — or the folder above it — with a symlink to a folder elsewhere
+on the computer let image editing and chat attachments read files there, and let saves and uploads write into it. Each
+read and write now checks that the folder still sits inside the workspace and goes through the file it verified; a
+store folder that leads outside makes the upload or save fail with an error instead.
+
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.2`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.13.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.2.0`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.9.0] - 2026-10-22
