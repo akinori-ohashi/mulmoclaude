@@ -8,25 +8,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
-### Added
-
-#### Charts drawn from a spreadsheet range (#3512)
-
-A `presentChart` chart can name a saved spreadsheet range (`source: { spreadsheet, range }`, or several in `sources`)
-instead of carrying its numbers, as it already could in MulmoTerminal. The range is calculated by the spreadsheet's own
-engine, so the chart shows what the sheet shows, formulas included, and an open chart redraws when the sheet is edited.
-The workbook may be named by the path the spreadsheet tool reported, by its full path, or by its path inside the
-sandbox. A path outside the workspace's spreadsheets is refused with the reason.
-
-#### A `presentHtml` page can hand the user's decisions back to the conversation (#3581, PR #3583)
-
-A page shown with `presentHtml` can post `{ type: "mulmo-html-submit", text }` to its parent — for example from a
-"Send" button on a plan where the user picked between mockups. The text is not sent straight away: it appears in a
-bar above the page, where the user can edit or discard it, and it becomes their next message only when they press
-Send there, since a click inside an LLM-authored page cannot be told from a scripted one. Only the page's own frame is
-heard, text over 20,000 characters is refused rather than cut, and reloading the page drops a decision that was waiting.
-The tool's description tells the agent how to add such a button. Shipped in `@mulmoclaude/html-plugin@5.1.0`.
-
 ### Fixed
 
 #### A map drawn from a spreadsheet range is coloured by its values (#3576, PR #3577)
@@ -51,6 +32,25 @@ inside the folder; writing confirms the staging file is inside the folder before
 replaced by a symlink — `artifacts/`, or a plugin's data or config folder pointed elsewhere — is now refused instead of
 being followed. Checking whether a file exists, listing a folder and deleting a file still check first and then
 act — what each can still expose is listed in `plans/fix-3573-verified-open.md`.
+
+### Added
+
+#### Charts drawn from a spreadsheet range (#3512)
+
+A `presentChart` chart can name a saved spreadsheet range (`source: { spreadsheet, range }`, or several in `sources`)
+instead of carrying its numbers, as it already could in MulmoTerminal. The range is calculated by the spreadsheet's own
+engine, so the chart shows what the sheet shows, formulas included, and an open chart redraws when the sheet is edited.
+The workbook may be named by the path the spreadsheet tool reported, by its full path, or by its path inside the
+sandbox. A path outside the workspace's spreadsheets is refused with the reason.
+
+#### A `presentHtml` page can hand the user's decisions back to the conversation (#3581, PR #3583)
+
+A page shown with `presentHtml` can post `{ type: "mulmo-html-submit", text }` to its parent — for example from a
+"Send" button on a plan where the user picked between mockups. The text is not sent straight away: it appears in a
+bar above the page, where the user can edit or discard it, and it becomes their next message only when they press
+Send there, since a click inside an LLM-authored page cannot be told from a scripted one. Only the page's own frame is
+heard, text over 20,000 characters is refused rather than cut, and reloading the page drops a decision that was waiting.
+The tool's description tells the agent how to add such a button. Shipped in `@mulmoclaude/html-plugin@5.1.0`.
 
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.13.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.1.0`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
