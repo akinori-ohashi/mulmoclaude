@@ -17,7 +17,10 @@ for a link in between handed an outside file to the EXIF parser.
 - `data/locations` is a store (`photo-locations/store.ts`, `makeStoreFiles`). The sidecar is written through
   `store.write`; its `0o600` mode is applied with `chmod` on the verified handle after the write.
 - `StoreFiles.listDir` lists a folder only when it resolves inside the store (empty otherwise). `list.ts` walks with
-  it and reads every sidecar through `store.read`, so a sidecar link out is skipped. Only names are check-then-use.
+  it and reads every sidecar through `store.read`, so a sidecar link out is skipped. Only names are check-then-use: Node has no handle-based `readdir`,
+  so a folder swapped for a link between the check and the `readdir` can name outside entries (they surface only in a
+  `log.warn` when their verified read is refused). Contents never leave the workspace. Same limit as
+  `confined-file-ops`' `readDir`.
 
 Behaviour changes: a `data/locations` leading outside makes the capture log `sidecar write failed` and the list
 empty; a sidecar that is a link is skipped by the list. The sidecar is briefly at the default mode between the

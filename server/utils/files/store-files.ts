@@ -17,7 +17,8 @@ export interface StoreFiles {
   write: (relativePath: string, content: Uint8Array, options?: { mode?: number }) => Promise<void>;
   /** Never throws: anything but a regular file inside the store is false. */
   isFile: (relativePath: string) => Promise<boolean>;
-  /** Entries of a folder in the store ("" for the store itself); empty when it is missing or outside. */
+  /** Entries of a folder in the store ("" for the store itself); empty when it is missing or outside. Names only:
+   *  a folder swapped for a link mid-call can name outside entries, so read contents through `read`, never by path. */
   listDir: (relativeDir: string) => Promise<Dirent[]>;
 }
 
