@@ -15,6 +15,11 @@ const ko: Messages = {
   saveError: (error) => `⚠ 저장 실패: ${error}`,
   loadingSource: "소스를 불러오는 중…",
   sourceError: (error) => `소스 로드 실패: ${error}`,
+  submitTitle: "이 내용을 대화로 보낼까요?",
+  submitHint: "페이지가 이 내용을 보내려고 합니다. 필요하면 수정하세요. 보내기를 누르기 전에는 전송되지 않습니다.",
+  submitSend: "보내기",
+  submitDiscard: "버리기",
+  submitTooLong: (maxChars) => `페이지가 ${maxChars}자를 넘는 내용을 보내려고 해서 전송하지 않았습니다.`,
 };
 
 export default ko;

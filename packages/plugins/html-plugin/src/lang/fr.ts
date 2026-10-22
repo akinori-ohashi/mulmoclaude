@@ -15,6 +15,11 @@ const fr: Messages = {
   saveError: (error) => `⚠ Échec de l'enregistrement : ${error}`,
   loadingSource: "Chargement de la source…",
   sourceError: (error) => `Échec du chargement de la source : ${error}`,
+  submitTitle: "Envoyer ceci dans la conversation ?",
+  submitHint: "La page souhaite envoyer ceci. Modifiez-le si besoin : rien n'est envoyé tant que vous n'appuyez pas sur Envoyer.",
+  submitSend: "Envoyer",
+  submitDiscard: "Ignorer",
+  submitTooLong: (maxChars) => `La page a tenté d'envoyer plus de ${maxChars} caractères ; rien n'a été envoyé.`,
 };
 
 export default fr;

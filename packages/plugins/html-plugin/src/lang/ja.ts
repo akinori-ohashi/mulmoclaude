@@ -15,6 +15,11 @@ const ja: Messages = {
   saveError: (error) => `⚠ 保存に失敗しました: ${error}`,
   loadingSource: "ソースを読み込み中…",
   sourceError: (error) => `ソースの読み込みに失敗しました: ${error}`,
+  submitTitle: "この内容を会話に送りますか？",
+  submitHint: "ページがこの内容を送ろうとしています。必要なら書き換えてください。「送信」を押すまで送られません。",
+  submitSend: "送信",
+  submitDiscard: "破棄",
+  submitTooLong: (maxChars) => `ページが ${maxChars} 文字を超える内容を送ろうとしたため、送っていません。`,
 };
 
 export default ja;
