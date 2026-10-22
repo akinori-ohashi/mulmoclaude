@@ -56,6 +56,7 @@ import "./plugins/markdown-builtin.js";
 // presentHtml View's useRuntime().dispatch({ kind }) resolves (phase 2).
 import "./plugins/html-builtin.js";
 import "./plugins/spreadsheet-builtin.js";
+import "./plugins/chart-builtin.js";
 // Side-effect: registers the built-in "shapescript" dispatch handler so the
 // presentShapeScript View's useRuntime().dispatch({ kind }) resolves — the
 // source editor's load / save against artifacts/shapes/.

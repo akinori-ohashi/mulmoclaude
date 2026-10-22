@@ -15,6 +15,7 @@ import { configureFileChangePublisher, publishFileChange } from "@mulmoclaude/co
 import { fileChannel, toPosixWorkspacePath } from "../../src/config/pubsubChannels.js";
 import { isMarkdownPath } from "../utils/files/markdown-store.js";
 import { isHtmlPath } from "../utils/files/html-store.js";
+import { isSpreadsheetArtifactPath } from "@gui-chat-plugin/spreadsheet/core";
 import { workspacePath } from "../workspace/workspace.js";
 import { maybeRegenerateTopicIndex, TOPIC_INDEX_RELATIVE_PATH } from "../workspace/memory/topic-index-hook.js";
 import { log } from "../system/logger/index.js";
@@ -34,6 +35,8 @@ export function initFileChangePublisher(instance: IPubSub): void {
     pluginScopes: [
       { scope: "markdown", matches: isMarkdownPath },
       { scope: "html", matches: isHtmlPath },
+      // A chart drawn from a spreadsheet range redraws when the workbook changes.
+      { scope: "chart", matches: isSpreadsheetArtifactPath },
     ],
     // Side-effect: keep the topic-format MEMORY.md index in sync when a user
     // edits a topic file via the file explorer (#1032). No-op for non-topic
