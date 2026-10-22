@@ -60,6 +60,21 @@ describe("submitModeOfResult", () => {
     }
   });
 
+  it("accepts a previewUrl that is the canonical URL of that artifact, and refuses any other", () => {
+    assert.equal(submitModeOfResult({ filePath: artifact, previewUrl: `/${artifact}`, submit: DIRECT_SUBMIT }), DIRECT_SUBMIT);
+    for (const previewUrl of [
+      "/htmlfile/ws/docs/report.html",
+      "https://example.com/x.html",
+      "/artifacts/html/2026/10/other.html",
+      `/${artifact}?x=1`,
+      "",
+      null,
+      1,
+    ]) {
+      assert.equal(submitModeOfResult({ filePath: artifact, previewUrl, submit: DIRECT_SUBMIT }), undefined, String(previewUrl));
+    }
+  });
+
   it("refuses a missing or non-string filePath", () => {
     for (const filePath of [undefined, null, 1, ["artifacts/html/a.html"]]) {
       assert.equal(submitModeOfResult({ filePath, submit: DIRECT_SUBMIT }), undefined);

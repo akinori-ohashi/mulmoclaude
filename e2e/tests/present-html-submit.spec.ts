@@ -11,6 +11,8 @@ const PAGE_PATH = "artifacts/html/2026/10/plan-1.html";
 const OUTSIDE_PATH = "docs/report.html";
 const LINKED_PATH = "/artifacts/html/2026/10/linked.html";
 const LINKED_POSTED_MARKER = "linked page posted";
+// Served the same page as PAGE_PATH, so only the URL differs from the canonical one.
+const OTHER_PREVIEW_PATH = "/htmlfile/ws/docs/report.html";
 
 const PAGE_HTML = `<!DOCTYPE html><html><body>
 <button id="send">Send decision</button>
@@ -32,6 +34,7 @@ const LINKED_HTML = `<!DOCTYPE html><html><body><script>
 interface ResultOptions {
   submit?: "direct";
   filePath?: string;
+  previewUrl?: string;
 }
 
 async function setup(page: Page, options: ResultOptions = {}): Promise<string[]> {
@@ -54,7 +57,7 @@ async function setup(page: Page, options: ResultOptions = {}): Promise<string[]>
               toolName: "presentHtml",
               message: "Saved HTML",
               title: "Plan page",
-              data: { title: "Plan page", filePath, previewUrl: `/${PAGE_PATH}`, ...(options.submit ? { submit: options.submit } : {}) },
+              data: { title: "Plan page", filePath, previewUrl: options.previewUrl ?? `/${PAGE_PATH}`, ...(options.submit ? { submit: options.submit } : {}) },
             },
           },
         ],
@@ -62,6 +65,10 @@ async function setup(page: Page, options: ResultOptions = {}): Promise<string[]>
   );
   await page.route(
     (url) => url.pathname === `/${PAGE_PATH}`,
+    (route) => route.fulfill({ contentType: "text/html", body: PAGE_HTML }),
+  );
+  await page.route(
+    (url) => url.pathname === OTHER_PREVIEW_PATH,
     (route) => route.fulfill({ contentType: "text/html", body: PAGE_HTML }),
   );
   await page.route(
@@ -131,6 +138,15 @@ test.describe("presentHtml submit", () => {
 
   test("the direct flag on a result pointing outside artifacts/html/ is ignored", async ({ page }) => {
     const agentRuns = await setup(page, { submit: "direct", filePath: OUTSIDE_PATH });
+    const frame = await openPage(page);
+    await expect(page.getByTestId("present-html-iframe")).not.toHaveAttribute("src", /mulmo-submit-key/);
+    await frame.locator("#send").click();
+    await expect(page.getByTestId("present-html-submit")).toBeVisible();
+    expect(agentRuns).toHaveLength(0);
+  });
+
+  test("the direct flag is ignored when the iframe would load a different URL than the artifact's", async ({ page }) => {
+    const agentRuns = await setup(page, { submit: "direct", previewUrl: OTHER_PREVIEW_PATH });
     const frame = await openPage(page);
     await expect(page.getByTestId("present-html-iframe")).not.toHaveAttribute("src", /mulmo-submit-key/);
     await frame.locator("#send").click();

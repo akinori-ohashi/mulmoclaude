@@ -1,5 +1,5 @@
 import { isRecord } from "@mulmoclaude/common";
-import { isHtmlArtifactPath } from "./paths";
+import { htmlArtifactPreviewUrl, isHtmlArtifactPath } from "./paths";
 
 export const DIRECT_SUBMIT = "direct";
 
@@ -24,10 +24,12 @@ export function submitModeFor(args: unknown): SubmitMode | undefined {
 
 // The View's half of the same rule. `data` is ordinary result data — it is persisted, restored and
 // can be posted to a host by any local process — so the flag alone is not trusted: it counts only on
-// a page this tool wrote, under artifacts/html/, never on a result that points at some other file.
+// a page this tool wrote, under artifacts/html/, never on a result that points at some other file —
+// including through `previewUrl`, which is what the iframe actually loads when a host supplies it.
 export function submitModeOfResult(data: unknown): SubmitMode | undefined {
   if (!isRecord(data) || data.submit !== DIRECT_SUBMIT) return undefined;
   if (typeof data.filePath !== "string" || !isHtmlArtifactPath(data.filePath)) return undefined;
+  if (data.previewUrl !== undefined && data.previewUrl !== htmlArtifactPreviewUrl(data.filePath)) return undefined;
   return DIRECT_SUBMIT;
 }
 
