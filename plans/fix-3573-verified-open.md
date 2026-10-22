@@ -8,6 +8,11 @@ string. A component swapped to a symlink between the two syscalls is followed. N
 
 ## What can be closed in portable Node, and how
 
+The scope root itself must resolve inside a trusted root — the workspace — so a scope folder
+(`artifacts/`, a plugin's data or config folder) replaced by a symlink is refused rather than
+becoming the root (`makeConfinedFileOps({ root, trustedRoot })`; reproduced on a real server,
+Codex PR #3580 round 2).
+
 Both operations first bind the root: `lstat` of the root realpath (bigint `dev` + `ino`) is taken
 when the call begins and must still match at verification, so a root renamed away and replaced by
 another directory mid-call is refused (Codex, PR #3580 round 1).
@@ -25,15 +30,18 @@ A swap before the open and back before the re-check leaves a handle whose inode 
 in-root file's, so step 3 fails. A swap after step 3 does not matter: the handle is already bound.
 
 **Writes: closed under the threat model.** The staging file is created and verified, and the
-rename stays inside the verified directory:
+rename lands in the directory that holds it:
 
 1. confine the parent as today (`resolveWriteWithinRoot`, which mkdirs it)
 2. create `<leaf>.<random>.tmp` with `wx` (+ `O_NOFOLLOW`)
 3. realpath the parent again (must be inside the root) and `lstat` the staging entry there: its
    inode must equal `fstat` of the handle — so the bytes are going into an in-root directory
-4. write through the handle, close, rename staging → leaf within that verified directory
+4. write through the handle, close, rename staging → leaf in the directory holding it
 
-If the parent is swapped after step 3, the rename's source no longer resolves (the staging file
+The rename's source is the verified staging file, so it can only succeed in the directory inode
+that was verified — wherever that directory has been moved since (Codex, PR #3580 round 2,
+accepted; pinned by a test). If the parent is swapped for a link after step 3, the source no
+longer resolves (the staging file
 lives in the real directory) and it fails with ENOENT. Planting a file of the staging name in
 the link's target needs write access to that target already.
 

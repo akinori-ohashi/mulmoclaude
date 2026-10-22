@@ -55,6 +55,16 @@ describe("verified file access", () => {
     assert.equal(await readThrough("dir/in.json", { afterOpen: swapOut }), null);
   });
 
+  it("lands in the verified directory itself when it is moved after verification and a link to it put in its place", async () => {
+    const moveAndLinkBack = async (): Promise<void> => {
+      renameSync(dir, `${dir}-moved`);
+      symlinkSync(`${dir}-moved`, dir);
+    };
+    await writeFileVerifiedInDir(root, dir, "new.json", "written", { beforeRename: moveAndLinkBack });
+    assert.equal(readFileSync(path.join(`${dir}-moved`, "new.json"), "utf8"), "written");
+    assert.deepEqual(readdirSync(outside), ["in.json"]);
+  });
+
   // The root pathname itself renamed away and another directory moved into its place.
   const replaceRoot = async (): Promise<void> => {
     renameSync(root, `${root}-original`);

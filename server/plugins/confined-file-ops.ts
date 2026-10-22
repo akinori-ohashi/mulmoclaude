@@ -51,27 +51,46 @@ const scopeRelative = (scopeRoot: string, rel: string): string => path.relative(
 /** An escape reads as a missing file, so callers that treat ENOENT as "not there" stay closed. */
 const notInScope = (rel: string): Error & { code: string } => Object.assign(new Error(`not inside the scope: ${rel}`), { code: "ENOENT" });
 
-// Only a write creates the scope root; a read-only call against an absent root sees "missing".
-const realRoot = async (scopeRoot: string): Promise<string> => {
-  await mkdir(scopeRoot, { recursive: true });
-  return realpath(scopeRoot);
+/** `root` is where the plugin's files live; `trustedRoot` (the workspace) is the anchor it must stay inside,
+ *  so a scope folder that is itself replaced by a symlink cannot carry the whole scope out. */
+export interface FileScope {
+  root: string;
+  trustedRoot: string;
+}
+
+const scopeWithinTrusted = (scope: FileScope): string => path.relative(scope.trustedRoot, scope.root);
+
+/** The scope root's realpath when it exists inside the trusted root; null when absent or led outside. */
+const scopeRootIfPresent = async (scope: FileScope): Promise<string | null> => {
+  const trustedReal = await realpathIfPresent(scope.trustedRoot);
+  return trustedReal === null ? null : resolveExistingWithinRoot(trustedReal, scopeWithinTrusted(scope));
 };
 
-const existingPath = async (scopeRoot: string, rel: string): Promise<string | null> => {
-  const relative = scopeRelative(scopeRoot, rel);
-  const rootReal = await realpathIfPresent(scopeRoot);
+// Only a write creates the scope root; a read-only call against an absent root sees "missing".
+const createScopeRoot = async (scope: FileScope): Promise<string> => {
+  const trustedReal = await realpath(scope.trustedRoot);
+  const target = await resolveWriteWithinRoot(trustedReal, scopeWithinTrusted(scope));
+  if (target !== null) await mkdir(target, { recursive: true });
+  const rootReal = target === null ? null : await scopeRootIfPresent(scope);
+  if (rootReal === null) throw new Error(`refusing to write: the scope root ${scope.root} leads outside ${scope.trustedRoot}`);
+  return rootReal;
+};
+
+const existingPath = async (scope: FileScope, rel: string): Promise<string | null> => {
+  const relative = scopeRelative(scope.root, rel);
+  const rootReal = await scopeRootIfPresent(scope);
   return rootReal === null ? null : resolveExistingWithinRoot(rootReal, relative);
 };
 
-const requireExisting = async (scopeRoot: string, rel: string): Promise<string> => {
-  const resolved = await existingPath(scopeRoot, rel);
+const requireExisting = async (scope: FileScope, rel: string): Promise<string> => {
+  const resolved = await existingPath(scope, rel);
   if (resolved === null) throw notInScope(rel);
   return resolved;
 };
 
-const readVerified = async (scopeRoot: string, rel: string): Promise<Buffer> => {
-  const relative = scopeRelative(scopeRoot, rel);
-  const rootReal = await realpathIfPresent(scopeRoot);
+const readVerified = async (scope: FileScope, rel: string): Promise<Buffer> => {
+  const relative = scopeRelative(scope.root, rel);
+  const rootReal = await scopeRootIfPresent(scope);
   const handle = rootReal === null ? null : await openVerifiedWithinRoot(rootReal, relative);
   if (handle === null) throw notInScope(rel);
   try {
@@ -81,18 +100,18 @@ const readVerified = async (scopeRoot: string, rel: string): Promise<Buffer> => 
   }
 };
 
-const writeVerified = async (scopeRoot: string, rel: string, content: string | Uint8Array): Promise<void> => {
-  const relative = scopeRelative(scopeRoot, rel);
-  const rootReal = await realRoot(scopeRoot);
+const writeVerified = async (scope: FileScope, rel: string, content: string | Uint8Array): Promise<void> => {
+  const relative = scopeRelative(scope.root, rel);
+  const rootReal = await createScopeRoot(scope);
   const target = await resolveWriteWithinRoot(rootReal, relative);
   if (target === null) throw new Error(`refusing to write outside the scope: ${rel}`);
   await writeFileVerifiedInDir(rootReal, path.dirname(target), path.basename(target), content);
 };
 
 // unlink does not follow the leaf, so only the parent is confined: a link is removed, never its target.
-const unlinkTarget = async (scopeRoot: string, rel: string): Promise<string | null> => {
-  const relative = scopeRelative(scopeRoot, rel);
-  const rootReal = await realpathIfPresent(scopeRoot);
+const unlinkTarget = async (scope: FileScope, rel: string): Promise<string | null> => {
+  const relative = scopeRelative(scope.root, rel);
+  const rootReal = await scopeRootIfPresent(scope);
   if (rootReal === null) return null;
   if (relative === "") return rootReal;
   const parentReal = await resolveExistingWithinRoot(rootReal, path.dirname(relative));
@@ -108,25 +127,25 @@ const ignoreEnoent = async <T>(operation: () => Promise<T>, fallback: T): Promis
   }
 };
 
-export function makeConfinedFileOps(scopeRoot: string): FileOps {
+export function makeConfinedFileOps(scope: FileScope): FileOps {
   return {
-    read: async (rel) => (await readVerified(scopeRoot, rel)).toString("utf-8"),
+    read: async (rel) => (await readVerified(scope, rel)).toString("utf-8"),
     readBytes: async (rel) => {
-      const buf = await readVerified(scopeRoot, rel);
+      const buf = await readVerified(scope, rel);
       return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
     },
-    write: async (rel, content) => writeVerified(scopeRoot, rel, content),
+    write: async (rel, content) => writeVerified(scope, rel, content),
     readDir: async (rel) => {
-      const resolved = await existingPath(scopeRoot, rel);
+      const resolved = await existingPath(scope, rel);
       return resolved === null ? [] : ignoreEnoent(() => readdir(resolved), []);
     },
     stat: async (rel) => {
-      const { mtimeMs, size } = await fsStat(await requireExisting(scopeRoot, rel));
+      const { mtimeMs, size } = await fsStat(await requireExisting(scope, rel));
       return { mtimeMs, size };
     },
-    exists: async (rel) => (await existingPath(scopeRoot, rel)) !== null,
+    exists: async (rel) => (await existingPath(scope, rel)) !== null,
     unlink: async (rel) => {
-      const target = await unlinkTarget(scopeRoot, rel);
+      const target = await unlinkTarget(scope, rel);
       if (target !== null) await ignoreEnoent(() => fsUnlink(target), undefined);
     },
   };

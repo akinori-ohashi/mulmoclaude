@@ -21,12 +21,11 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
-import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { makePluginRuntime, pluginChannelName, pluginTaskId, sanitisePackageNameForFs } from "../../server/plugins/runtime.js";
 import { normalizePluginPath } from "../../server/plugins/confined-file-ops.js";
-import { WORKSPACE_PATHS } from "../../server/workspace/paths.js";
+import { WORKSPACE_PATHS, workspacePath } from "../../server/workspace/paths.js";
 import { hasNumberProp, hasStringProp } from "../../server/utils/types.js";
 import { log as hostLog, type LogLevel } from "../../server/system/logger/index.js";
 import type { IPubSub } from "../../server/events/pub-sub/index.js";
@@ -254,8 +253,10 @@ describe("makePluginRuntime — files.data and files.config", () => {
     // #1124).
     savedDataDescriptor = Object.getOwnPropertyDescriptor(WORKSPACE_PATHS, "pluginsData");
     savedConfigDescriptor = Object.getOwnPropertyDescriptor(WORKSPACE_PATHS, "pluginsConfig");
-    dataRoot = mkdtempSync(path.join(tmpdir(), "plugin-runtime-data-"));
-    configRoot = mkdtempSync(path.join(tmpdir(), "plugin-runtime-config-"));
+    // Under the workspace: plugin roots must sit inside it (the trusted anchor), not just anywhere.
+    mkdirSync(workspacePath, { recursive: true });
+    dataRoot = mkdtempSync(path.join(workspacePath, "plugin-runtime-data-"));
+    configRoot = mkdtempSync(path.join(workspacePath, "plugin-runtime-config-"));
     // WORKSPACE_PATHS is a frozen const at import time, so we patch it
     // via Object.defineProperty for the lifetime of the test. The
     // alternative — refactoring `makePluginRuntime` to take roots as

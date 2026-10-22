@@ -14,8 +14,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 The symlink check added in 2.8.1 looked at a path and then used it, so a folder swapped for a link in between could
 still be followed. Reading a plugin or artifact file now opens it first and then confirms the opened file is the one
-inside the folder; writing confirms the staging file is inside the folder before any byte goes in, and renames it
-within that folder. Checking whether a file exists, listing a folder and deleting a file still check first and then
+inside the folder; writing confirms the staging file is inside the folder before any byte goes in. A scope folder that is itself
+replaced by a symlink — `artifacts/`, or a plugin's data or config folder pointed elsewhere — is now refused instead of
+being followed. Checking whether a file exists, listing a folder and deleting a file still check first and then
 act — what each can still expose is listed in `plans/fix-3573-verified-open.md`.
 
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.13.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.

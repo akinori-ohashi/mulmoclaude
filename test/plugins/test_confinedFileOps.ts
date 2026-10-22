@@ -8,7 +8,7 @@ import { makeConfinedFileOps } from "../../server/plugins/confined-file-ops.js";
 const base = mkdtempSync(path.join(tmpdir(), "confined-ops-"));
 const root = path.join(base, "artifacts");
 const outside = path.join(base, "outside");
-const ops = makeConfinedFileOps(root);
+const ops = makeConfinedFileOps({ root, trustedRoot: base });
 
 const isEnoent = (err: unknown): boolean => err instanceof Error && "code" in err && err.code === "ENOENT";
 
@@ -108,7 +108,7 @@ describe("makeConfinedFileOps", () => {
 
   it("leaves an absent root absent on read-only calls", async () => {
     const absentRoot = path.join(base, "never-written");
-    const absentOps = makeConfinedFileOps(absentRoot);
+    const absentOps = makeConfinedFileOps({ root: absentRoot, trustedRoot: base });
     assert.equal(await absentOps.exists("a.json"), false);
     assert.deepEqual(await absentOps.readDir("."), []);
     await assert.rejects(absentOps.read("a.json"), isEnoent);
@@ -116,6 +116,20 @@ describe("makeConfinedFileOps", () => {
     assert.equal(existsSync(absentRoot), false);
     await absentOps.write("a.json", "now");
     assert.equal(await absentOps.read("a.json"), "now");
+  });
+
+  it("refuses a scope root that is itself a symlink leading out of the trusted root", async () => {
+    const trusted = path.join(base, "trusted");
+    mkdirSync(trusted);
+    const linkedRoot = path.join(trusted, "linked-scope");
+    symlinkSync(outside, linkedRoot);
+    const linkedOps = makeConfinedFileOps({ root: linkedRoot, trustedRoot: trusted });
+    await assert.rejects(linkedOps.read("secret.json"), isEnoent);
+    assert.equal(await linkedOps.exists("secret.json"), false);
+    assert.deepEqual(await linkedOps.readDir("."), []);
+    await assert.rejects(linkedOps.write("planted.json", "x"), /leads outside/);
+    await linkedOps.unlink("secret.json");
+    assert.deepEqual(readdirSync(outside).sort(), ["secret.json"]);
   });
 
   it("reports a missing file as missing", async () => {

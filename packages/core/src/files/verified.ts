@@ -129,9 +129,27 @@ async function writeStaging(root: BoundRoot, dirReal: string, staging: string, c
   }
 }
 
+const stagingNameFor = (leaf: string): string => `${leaf}.${randomBytes(STAGING_SUFFIX_BYTES).toString("hex")}.tmp`;
+
+const removeQuietly = async (absPath: string): Promise<void> => {
+  await promises.unlink(absPath).catch(() => {});
+};
+
+// The rename's source is the verified staging file, so it can only succeed in the directory that holds
+// it — the inode verified above, wherever it has been moved since. A link put in its place makes it fail.
+async function renameIntoPlace(stagingDir: string, staging: string, leaf: string, hooks: VerifiedFileHooks): Promise<void> {
+  try {
+    await hooks.beforeRename?.();
+    await renameWithWindowsRetry(path.join(stagingDir, staging), path.join(stagingDir, leaf));
+  } catch (err) {
+    await removeQuietly(path.join(stagingDir, staging));
+    throw err;
+  }
+}
+
 /** Atomic write of `leaf` into `dirReal` (an already-confined realpath under `rootReal`). The staging
- *  file is verified to sit inside the root before any byte is written, and the rename stays in its
- *  directory, so a parent swapped mid-call makes the write fail instead of landing outside. */
+ *  file is verified to sit inside the root before any byte is written, and the rename lands in the
+ *  directory holding it, so a parent swapped for a link mid-call makes the write fail. */
 export async function writeFileVerifiedInDir(
   rootReal: string,
   dirReal: string,
@@ -141,16 +159,10 @@ export async function writeFileVerifiedInDir(
 ): Promise<void> {
   const root = await bindRoot(rootReal);
   if (root === null) throw new Error(`refusing to write: the scope root ${rootReal} is gone`);
-  const staging = `${leaf}.${randomBytes(STAGING_SUFFIX_BYTES).toString("hex")}.tmp`;
+  const staging = stagingNameFor(leaf);
   const stagingDir = await writeStaging(root, dirReal, staging, content, hooks).catch(async (err: unknown) => {
-    await promises.unlink(path.join(dirReal, staging)).catch(() => {});
+    await removeQuietly(path.join(dirReal, staging));
     throw err;
   });
-  try {
-    await hooks.beforeRename?.();
-    await renameWithWindowsRetry(path.join(stagingDir, staging), path.join(stagingDir, leaf));
-  } catch (err) {
-    await promises.unlink(path.join(stagingDir, staging)).catch(() => {});
-    throw err;
-  }
+  await renameIntoPlace(stagingDir, staging, leaf, hooks);
 }
