@@ -25,6 +25,10 @@ Behaviour changes: a symlinked partition under a store refuses with `refusing to
 
 ## Not in this PR
 
-- The `saveAttachment` hooks (EXIF sidecar) still read the saved file by path afterwards — race-only class.
+- The `saveAttachment` EXIF hook (`server/workspace/photo-locations/`) is its own group, next. It re-reads the
+  saved photo by path (race only), and it writes the sidecar under `data/locations/` with `mkdir` + `writeFileAtomic`,
+  so a `data/locations` linked out receives the sidecar — the symlinked-root class, in a different store.
+- Hard links: not addressed, as in `plans/fix-3573-verified-open.md` — they cannot reach a host file across the
+  Docker workspace mount.
 - Workspace-rooted readers (`files.ts`, `pdf.ts`, `thumbnail-store`, `packHtml`), `mulmoscript-plugin` ops,
   `exportShapeScriptUsdz`, `runtime-plugin` assets — see `plans/fix-3573-artifact-mounts.md`.
