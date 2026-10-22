@@ -104,6 +104,9 @@ describe("artifactMount", () => {
     const unsatisfiable = await get("/images/a.png", { Range: "bytes=20-" });
     assert.equal(unsatisfiable.status, 416);
     assert.equal(unsatisfiable.headers.get("content-range"), `bytes */${BODY.length}`);
+    const otherUnit = await get("/images/a.png", { Range: "items=0-3" });
+    assert.equal(otherUnit.status, 200);
+    assert.equal(await otherUnit.text(), BODY);
     const several = await get("/images/a.png", { Range: "bytes=0-1,5-6" });
     assert.equal(several.status, 200);
     assert.equal(await several.text(), BODY);

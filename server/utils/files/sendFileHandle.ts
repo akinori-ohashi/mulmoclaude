@@ -72,8 +72,11 @@ function setEntityHeaders(res: Response, stats: Stats, relPath: string): Validat
   return validators;
 }
 
+// Only a byte range is served; any other unit gets the whole file, as `send` does.
+const BYTES_RANGE_RE = /^ *bytes=/;
+
 function requestedRange(req: Request, size: number, validators: Validators): RangeChoice {
-  if (!rangeApplies(req.get("If-Range"), validators)) return WHOLE;
+  if (!BYTES_RANGE_RE.test(req.get("Range") ?? "") || !rangeApplies(req.get("If-Range"), validators)) return WHOLE;
   return chooseByteRange(req.range(size, { combine: true }));
 }
 
