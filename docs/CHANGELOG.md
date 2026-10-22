@@ -8,6 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-10-22
+
+**Charts can be drawn from a spreadsheet range, a `presentHtml` page can hand the user's decisions back to the
+conversation, and plugin file contents stay in their folder even when a path is swapped mid-request.**
+
 ### Fixed
 
 #### A map drawn from a spreadsheet range is coloured by its values (#3576, PR #3577)
