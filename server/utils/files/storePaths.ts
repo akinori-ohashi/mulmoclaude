@@ -15,8 +15,9 @@ export function storeTrustedRoot(absRoot: string, dirPrefix: string): string | n
 /** `relativePath` (workspace-relative, optionally under `dirPrefix/`) as a path inside the store; null when it
  *  is empty, absolute, drive-qualified, carries a NUL, or leads out of the store. */
 export function storeRelativePath(relativePath: string, dirPrefix: string): string | null {
-  const inStore = relativePath.startsWith(`${dirPrefix}/`) ? relativePath.slice(dirPrefix.length + 1) : relativePath;
-  if (inStore === "" || inStore.includes("\0") || path.isAbsolute(inStore) || WINDOWS_DRIVE_RE.test(inStore)) return null;
-  const normalised = path.posix.normalize(inStore.replace(/\\/g, "/"));
+  const slashed = relativePath.replace(/\\/g, "/");
+  const inStore = slashed.startsWith(`${dirPrefix}/`) ? slashed.slice(dirPrefix.length + 1) : slashed;
+  if (inStore === "" || inStore.includes("\0") || path.posix.isAbsolute(inStore) || path.isAbsolute(inStore) || WINDOWS_DRIVE_RE.test(inStore)) return null;
+  const normalised = path.posix.normalize(inStore);
   return normalised === "." || normalised === ".." || normalised.startsWith("../") ? null : normalised;
 }

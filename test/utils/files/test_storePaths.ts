@@ -25,6 +25,7 @@ describe("storeRelativePath", () => {
     assert.equal(storeRelativePath("2026/10/a.png", "artifacts/images"), "2026/10/a.png");
     assert.equal(storeRelativePath("artifacts/images/2026/../a.png", "artifacts/images"), "a.png");
     assert.equal(storeRelativePath("artifacts/images/2026\\10\\a.png", "artifacts/images"), "2026/10/a.png");
+    assert.equal(storeRelativePath("artifacts\\images\\2026\\a.png", "artifacts/images"), "2026/a.png");
   });
 
   it("is null for an empty, absolute, drive-qualified, NUL-bearing or escaping path", () => {
@@ -41,6 +42,10 @@ describe("storeRelativePath", () => {
       "artifacts/images/../../README.md",
       "artifacts/images/2026/../../x.png",
       "..\\x.png",
+      "\\secret.png",
+      "\\\\server\\share\\x.png",
+      "artifacts/images/\\secret.png",
+      "artifacts\\images\\..\\..\\x.png",
     ];
     refused.forEach((input) => assert.equal(storeRelativePath(input, "artifacts/images"), null, JSON.stringify(input)));
   });
