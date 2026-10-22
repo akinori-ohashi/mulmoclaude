@@ -178,7 +178,7 @@ function expectedSidecarPath(relativePath: string): string {
 /** Build a hook that runs the same shape as `capturePhotoLocation`
  *  but with a stubbed exifr parser. Test seam — the hook in
  *  `server/workspace/photo-locations/index.ts` reads `exifr.parse`
- *  through the default in `readPhotoExif`; we re-create the flow
+ *  through the default in `parsePhotoExif`; we re-create the flow
  *  here with a controllable parser instead. */
 function makeHookWithStubParser(parser: (buf: Buffer) => Promise<unknown>) {
   return async (relativePath: string, mimeType: string) => {

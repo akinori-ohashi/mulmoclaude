@@ -31,8 +31,9 @@ export interface SavedAttachment {
 /** Post-save hook fired after every successful `saveAttachment`.
  *  Receives the workspace-relative path (the same one returned to the
  *  caller) and the MIME type the bytes were saved with — no absolute
- *  path, so a hook reads the bytes back through the store. Hooks must NEVER throw — the upload is
- *  already on disk by the time the hook runs, so a failure should
+ *  path, so a hook reads the bytes back through the store. Hooks must
+ *  NEVER throw — the upload is already on disk by the time the hook
+ *  runs, so a failure should
  *  log and return, not propagate. Multiple hooks fan out via
  *  `Promise.allSettled` so one slow / failing hook can't block or
  *  break the others. (#1222 PR-A.) */
