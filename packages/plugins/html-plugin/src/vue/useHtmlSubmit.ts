@@ -15,6 +15,10 @@ export interface HtmlSubmitOptions {
 
 const SENT_NOTICE_MS = 2_500;
 
+// One clock for every card in the tab: kept per card, an agent presenting several direct pages, or a
+// card being remounted, would each start a fresh interval.
+const directSubmitClock: { lastAtMs: number | null } = { lastAtMs: null };
+
 // What the presented page asked to send. A page without the direct mode is only ever HELD for the
 // user to confirm: it is LLM-authored, and a click inside its frame cannot be told from a scripted one.
 export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, options: HtmlSubmitOptions) {
@@ -22,7 +26,6 @@ export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, options
   const rejectedTooLong = ref(false);
   const sendFailed = ref(false);
   const sentNotice = ref(false);
-  let lastDirectAtMs: number | null = null;
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
   // A host returns false when the terminal could not take the text; an older host returns nothing.
@@ -45,9 +48,9 @@ export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, options
 
   function receive(text: string) {
     const nowMs = performance.now();
-    if (deliveryFor(options.mode(), lastDirectAtMs, nowMs) === "confirm") return hold(text, false);
+    if (deliveryFor(options.mode(), directSubmitClock.lastAtMs, nowMs) === "confirm") return hold(text, false);
     if (!deliver(text)) return hold(text, true);
-    lastDirectAtMs = nowMs;
+    directSubmitClock.lastAtMs = nowMs;
     discard();
     showSent();
   }
