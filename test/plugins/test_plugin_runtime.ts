@@ -1,7 +1,7 @@
 // Tests for `server/plugins/runtime.ts` (#1110).
 //
 // Covers:
-//   - `normalizePluginPath`: POSIX normalisation, Windows backslash
+//   - `normalizePluginPath` (confined-file-ops.ts): POSIX normalisation, Windows backslash
 //     repair, traversal rejection, scope-root anchoring.
 //   - `sanitisePackageNameForFs`: scoped names produce a single safe
 //     directory segment.
@@ -18,13 +18,14 @@
 
 import { describe, it, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { makePluginRuntime, normalizePluginPath, pluginChannelName, pluginTaskId, sanitisePackageNameForFs } from "../../server/plugins/runtime.js";
+import { makePluginRuntime, pluginChannelName, pluginTaskId, sanitisePackageNameForFs } from "../../server/plugins/runtime.js";
+import { normalizePluginPath } from "../../server/plugins/confined-file-ops.js";
 import { WORKSPACE_PATHS } from "../../server/workspace/paths.js";
 import { hasNumberProp, hasStringProp } from "../../server/utils/types.js";
 import { log as hostLog, type LogLevel } from "../../server/system/logger/index.js";
@@ -330,6 +331,19 @@ describe("makePluginRuntime — files.data and files.config", () => {
     await runtime.files.data.write("books\\2026\\journal.jsonl", "winpath");
     // Reads with the POSIX form because that's the contract.
     assert.equal(await runtime.files.data.read("books/2026/journal.jsonl"), "winpath");
+  });
+
+  it("refuses to read or write through a symlink that leads out of the plugin's root", async () => {
+    const runtime = runtimeFor("@example/foo");
+    const scopeRoot = path.join(dataRoot, sanitisePackageNameForFs("@example/foo"));
+    const outside = path.join(dataRoot, "other-plugin");
+    mkdirSync(scopeRoot, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(path.join(outside, "secret.json"), "secret");
+    symlinkSync(outside, path.join(scopeRoot, "link"));
+    await assert.rejects(runtime.files.data.read("link/secret.json"), (err: unknown) => err instanceof Error && "code" in err && err.code === "ENOENT");
+    await assert.rejects(runtime.files.data.write("link/planted.json", "x"), /outside the scope/);
+    assert.deepEqual(readdirSync(outside), ["secret.json"]);
   });
 });
 

@@ -14,7 +14,7 @@ const JAPAN_PREFECTURES = 47;
 
 describe("neededExtensions", () => {
   it("needs nothing for a plain chart", () => {
-    assert.deepEqual(neededExtensions({ xAxis: {}, yAxis: {}, series: [{ type: "bar" }] }), { gl: false, maps: [] });
+    assert.deepEqual(neededExtensions({ xAxis: {}, yAxis: {}, series: [{ type: "bar" }] }), { gl: false, wordCloud: false, maps: [] });
   });
 
   it("finds echarts-gl by its series and by its components", () => {
@@ -23,6 +23,13 @@ describe("neededExtensions", () => {
     assert.equal(neededExtensions({ grid3D: {}, series: [] }).gl, true);
     assert.equal(neededExtensions({ globe: {} }).gl, true);
     assert.equal(neededExtensions({ series: [{ type: "scatter" }] }).gl, false);
+  });
+
+  it("finds a word cloud by its series type", () => {
+    assert.equal(neededExtensions({ series: [{ type: "bar" }, { type: "wordCloud" }] }).wordCloud, true);
+    assert.equal(neededExtensions({ series: { type: "wordCloud" } }).wordCloud, true);
+    assert.equal(neededExtensions({ series: [{ type: "WordCloud" }] }).wordCloud, false);
+    assert.equal(neededExtensions({ wordCloud: {} }).wordCloud, false);
   });
 
   it("finds bundled maps on map series, geo and geo3D, once each, and ignores others", () => {
@@ -40,12 +47,13 @@ describe("neededExtensions", () => {
 
   it("looks into a timeline's baseOption and options", () => {
     const option = { baseOption: { geo: { map: "japan" } }, options: [{ series: [{ type: "bar3D" }] }] };
-    assert.deepEqual(neededExtensions(option), { gl: true, maps: ["japan"] });
+    assert.deepEqual(neededExtensions(option), { gl: true, wordCloud: false, maps: ["japan"] });
   });
 
-  it("says only 3D needs a browser", () => {
-    assert.equal(needsBrowser({ gl: true, maps: [] }), true);
-    assert.equal(needsBrowser({ gl: false, maps: ["world"] }), false);
+  it("says 3D and word clouds need a browser, maps do not", () => {
+    assert.equal(needsBrowser({ gl: true, wordCloud: false, maps: [] }), true);
+    assert.equal(needsBrowser({ gl: false, wordCloud: true, maps: [] }), true);
+    assert.equal(needsBrowser({ gl: false, wordCloud: false, maps: ["world"] }), false);
   });
 });
 
@@ -114,13 +122,6 @@ describe("executeChart with extensions", () => {
     assert.ok(result.data, result.message);
   });
 
-  it("refuses a word cloud, which this plugin does not load", async () => {
-    const wordCloud = { option: { series: [{ type: "wordCloud", data: [{ name: "a", value: 3 }] }] } };
-    const refused = await executeChart({ files: { artifacts: memoryArtifacts() } }, { document: { charts: [wordCloud] } });
-    assert.equal(refused.data, undefined);
-    assert.match(refused.message ?? "", /wordCloud/);
-  });
-
   it("saves a 3D chart without a trial draw, but still checks its formats", async () => {
     const scatter3D = { grid3D: {}, xAxis3D: {}, yAxis3D: {}, zAxis3D: {}, series: [{ type: "scatter3D", data: [[1, 2, 3]] }] };
     const saved = await executeChart({ files: { artifacts: memoryArtifacts() } }, { document: { charts: [{ option: scatter3D }] } });
@@ -140,7 +141,12 @@ describe("executeChart with extensions", () => {
 describe("settleAll", () => {
   it("waits for a slow load before failing with a fast one's error", async () => {
     const finished: string[] = [];
-    const slow = new Promise<void>((resolve) => setTimeout(() => resolve(finished.push("map") && undefined)));
+    const slow = new Promise<void>((resolve) =>
+      setTimeout(() => {
+        finished.push("map");
+        resolve();
+      }),
+    );
     const fast = Promise.reject(new Error("gl failed"));
     await assert.rejects(settleAll([slow, fast]), /gl failed/);
     assert.deepEqual(finished, ["map"]);
@@ -148,6 +154,7 @@ describe("settleAll", () => {
 
   it("resolves when every load does, and wraps a non-Error failure", async () => {
     await settleAll([Promise.resolve(1), Promise.resolve()]);
-    await assert.rejects(settleAll([Promise.reject("offline")]), /offline/);
+    const nonErrorReason: unknown = "offline";
+    await assert.rejects(settleAll([Promise.reject(nonErrorReason)]), (error: unknown) => error instanceof Error && error.message === "offline");
   });
 });

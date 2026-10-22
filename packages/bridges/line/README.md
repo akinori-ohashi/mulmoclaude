@@ -53,15 +53,16 @@ Scan the QR code in the LINE Developers Console → Messaging API tab. Send a me
 
 ## Environment Variables
 
-| Variable                    | Required | Description                                                                                                                                                                                                                                                                 |
-| --------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LINE_CHANNEL_SECRET`       | Yes      | Channel secret for signature verification                                                                                                                                                                                                                                   |
-| `LINE_CHANNEL_ACCESS_TOKEN` | Yes      | Long-lived channel access token                                                                                                                                                                                                                                             |
-| `LINE_BRIDGE_PORT`          | No       | Webhook port (default: 3002; `0` asks the OS for a free port)                                                                                                                                                                                                               |
-| `MULMOCLAUDE_API_URL`       | No       | Default: auto (`.server-port`; waits if nothing is published)                                                                                                                                                                                                               |
-| `MULMOCLAUDE_AUTH_TOKEN`    | No       | Bearer token                                                                                                                                                                                                                                                                |
-| `LINE_BRIDGE_DEFAULT_ROLE`  | No       | Role id to seed new bridge sessions with (e.g. `coder`, `general`). Applied ONLY when a line session first appears — once the user switches role via `/role <id>` the session's own role wins. Unknown role ids silently fall back to the server's default with a warn log. |
-| `BRIDGE_DEFAULT_ROLE`       | No       | Same as above but shared across every bridge. Transport-specific `LINE_BRIDGE_DEFAULT_ROLE` wins when both are set.                                                                                                                                                         |
+| Variable                            | Required | Description                                                                                                                                                                                                                                                                 |
+| ----------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LINE_CHANNEL_SECRET`               | Yes      | Channel secret for signature verification                                                                                                                                                                                                                                   |
+| `LINE_CHANNEL_ACCESS_TOKEN`         | Yes      | Long-lived channel access token                                                                                                                                                                                                                                             |
+| `LINE_BRIDGE_PORT`                  | No       | Webhook port (default: 3002; `0` asks the OS for a free port)                                                                                                                                                                                                               |
+| `MULMOCLAUDE_API_URL`               | No       | Default: auto (`.server-port`; waits if nothing is published)                                                                                                                                                                                                               |
+| `MULMOCLAUDE_AUTH_TOKEN`            | No       | Bearer token                                                                                                                                                                                                                                                                |
+| `LINE_BRIDGE_DEFAULT_ROLE`          | No       | Role id to seed new bridge sessions with (e.g. `coder`, `general`). Applied ONLY when a line session first appears — once the user switches role via `/role <id>` the session's own role wins. Unknown role ids silently fall back to the server's default with a warn log. |
+| `BRIDGE_DEFAULT_ROLE`               | No       | Same as above but shared across every bridge. Transport-specific `LINE_BRIDGE_DEFAULT_ROLE` wins when both are set.                                                                                                                                                         |
+| `LINE_BRIDGE_GROUP_REQUIRE_MENTION` | No       | `1` _(default)_: in a group or room, answer only messages that mention the bot. `0`: answer every message. One-on-one chats are always answered. See [Groups and rooms](#groups-and-rooms)                                                                                  |
 
 An unusable value (a typo, a number outside 0-65535) stops the bridge with a message naming
 the variable, rather than silently starting on the default. A port already in use is reported
@@ -87,10 +88,29 @@ MULMOCLAUDE_AUTH_TOKEN=long-random-string \
 
 Recommended: at least 32 characters of random data (the server logs a warning at startup for shorter values).
 
+## Groups and rooms
+
+Invite the bot to a LINE group (or a multi-person room) and the whole group shares **one
+conversation**: replies go to the group, and `/reset`, `/role` and the rest apply to the
+group's session. One-on-one chats keep their own sessions exactly as before.
+
+The bot receives every message posted in the group, so by default it answers only when it is
+**mentioned** (`@<bot name> …`). The mention itself is removed from the text passed to
+MulmoClaude. Set `LINE_BRIDGE_GROUP_REQUIRE_MENTION=0` to answer every message. Images can't
+carry a mention, so with the default setting images posted in a group are ignored.
+
+To let the bot join groups, turn on **Allow bot to join group chats** in the LINE Official
+Account Manager. A push to a group counts once per group member against your message quota.
+
+> **Changed in 1.3.0** — before, a group message was answered in the sender's one-on-one chat
+> and joined the sender's personal session. It now goes to the group's own session and the reply
+> is posted in the group.
+
 ## Notes
 
 - LINE reply tokens expire in **1 minute**. Since Claude responses can take longer, the bridge uses **push messages** instead of reply messages. This requires your bot to be a verified/certified account for push to work with all users, OR the user must have added the bot as a friend first.
 - LINE limits messages to 5 per push call and ~5000 chars per message. Long replies are automatically chunked.
+- **Loading animation** — while MulmoClaude works on a reply, the bot shows LINE's loading animation (`/v2/bot/chat/loading/start`), refreshed until the reply is pushed. LINE shows it only in one-on-one chats while the user has the chat open, so the bridge does not request it in groups or rooms. No extra setting or permission is needed.
 - **Inbound media** — text and image messages are forwarded to the agent. Image bytes are downloaded via the LINE Data API (`/v2/bot/message/<id>/content`) using the same channel access token; the actual format (JPEG / PNG / HEIC depending on sender) is preserved via the response Content-Type. The photo-EXIF auto-capture flow ([#1222](https://github.com/receptron/mulmoclaude/issues/1222)) writes a sidecar at `data/locations/...` when GPS data is present. Video / audio / file / sticker messages are not forwarded yet.
 
 ## Detailed Setup Guide

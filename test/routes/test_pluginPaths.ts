@@ -1,13 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { isMarkdownPath } from "../../server/utils/files/markdown-store.js";
-import { isSpreadsheetPath } from "../../server/utils/files/spreadsheet-store.js";
 
-// isMarkdownPath tests — the markdown-store counterpart to the
-// spreadsheet-store tests already in test/utils/test_spreadsheet-store.ts.
-// Both functions are used as validation gates in server/api/routes/plugins.ts
-// PUT handlers, so exercising them together here covers the route layer's
-// path-checking logic.
+// isMarkdownPath is a validation gate in server/api/routes/plugins.ts PUT
+// handlers, so exercising it here covers the route layer's path-checking logic.
 
 describe("isMarkdownPath", () => {
   it("accepts a canonical markdown path", () => {
@@ -40,19 +36,9 @@ describe("isMarkdownPath", () => {
   });
 });
 
-// Both validators reject path-traversal attempts. Markdown is held to
-// the same strictness as spreadsheet because `overwriteMarkdown` does
-// no realpath / safeResolve before writing — these gates are the
-// primary defence at the route layer.
-describe("isSpreadsheetPath / isMarkdownPath — traversal awareness", () => {
-  it("isSpreadsheetPath rejects path-normalized traversal", () => {
-    assert.equal(isSpreadsheetPath("artifacts/spreadsheets/../spreadsheets/f.json"), false);
-  });
-
-  it("isSpreadsheetPath rejects double-dot segments", () => {
-    assert.equal(isSpreadsheetPath("artifacts/spreadsheets/../../etc/passwd.json"), false);
-  });
-
+// `overwriteMarkdown` does no realpath / safeResolve before writing, so this
+// gate is the primary defence at the route layer.
+describe("isMarkdownPath — traversal awareness", () => {
   it("isMarkdownPath rejects path-normalized traversal", () => {
     assert.equal(isMarkdownPath("artifacts/documents/../documents/f.md"), false);
   });

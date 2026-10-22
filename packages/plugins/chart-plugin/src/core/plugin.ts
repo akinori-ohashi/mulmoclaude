@@ -3,6 +3,8 @@ import { TOOL_NAME, TOOL_DEFINITION } from "./definition";
 import { chartArtifactPath } from "./paths";
 import { trialDrawProblem } from "./drawProblem";
 import { formatProblem, withFormatters } from "./formats";
+import { withWordClouds, wordCloudProblem } from "./wordCloud";
+import { withMapData } from "./mapData";
 import { chartHeightPx } from "./layout";
 import { loadMaps, needsBrowser, neededExtensions } from "./extensions";
 import { chartOption, chartSources, isChartSource, isReadSourceArgs } from "./source";
@@ -151,13 +153,13 @@ async function readChartRanges(reader: ChartSourceReader, ranges: ChartSource[])
 
 /** Draw each chart once off screen, with the rows the View will give it, so an option ECharts
  *  cannot draw reaches the agent now rather than as a blank card. Null when every chart draws.
- *  A 3D chart needs a browser (WebGL), so only its formats are checked. */
+ *  A 3D chart or a word cloud needs a browser, so only its formats are checked. */
 async function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRows[] | undefined)[]): Promise<string | null> {
   const extensions = document.charts.map((chart) => neededExtensions(chart.option));
   await loadMaps(extensions.flatMap(({ maps }) => maps));
   const problems = document.charts.flatMap((chart, index) => {
     const browserOnly = needsBrowser(extensions[index] ?? neededExtensions(chart.option));
-    const problem = formatProblem(chart.option) ?? (browserOnly ? null : chartDrawProblem(chart, rows[index]));
+    const problem = formatProblem(chart.option) ?? wordCloudProblem(chart.option) ?? (browserOnly ? null : chartDrawProblem(chart, rows[index]));
     return problem ? [`Chart ${index + 1}${chart.title ? ` (${chart.title})` : ""} could not be drawn: ${problem}`] : [];
   });
   return problems.length > 0 ? problems.join("\n") : null;
@@ -165,7 +167,7 @@ async function documentDrawProblem(document: ChartDocument, rows: (ChartSourceRo
 
 function chartDrawProblem(chart: ChartEntry, rows: ChartSourceRows[] | undefined): string | null {
   try {
-    return trialDrawProblem(withFormatters(chartOption(chart, rows, true)), chartHeightPx(chart));
+    return trialDrawProblem(withMapData(withWordClouds(withFormatters(chartOption(chart, rows, true)))), chartHeightPx(chart));
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }

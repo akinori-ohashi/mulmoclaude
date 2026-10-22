@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { functionRegistry } from "../../../src/plugins/spreadsheet/engine/functions/index.ts";
+import { isRegisteredFunction, registeredFunctionsByCategory } from "@gui-chat-plugin/spreadsheet/core";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const HELP_PATH = path.join(repoRoot, "packages/core/assets/helps/spreadsheet.md");
@@ -16,7 +16,7 @@ const HELP_PATH = path.join(repoRoot, "packages/core/assets/helps/spreadsheet.md
 // whole text is scanned rather than just the formulas in it, so a prose word
 // written directly before "(" fails the check too — deliberately, as a false
 // alarm is cheaper than a missed call.
-const FUNCTION_CALL = /\b([A-Za-z][A-Za-z0-9]*)\(/g;
+const FUNCTION_CALL = /\b([A-Za-z][A-Za-z0-9.]*)\(/g;
 
 // A Windows checkout gives the help CRLF line endings.
 const readHelp = (): string => readFileSync(HELP_PATH, "utf8").replaceAll("\r\n", "\n");
@@ -41,19 +41,16 @@ const helpFunctionsByCategory = (help: string): Map<string, string[]> => {
   return new Map(entries);
 };
 
-const registeredByCategory = (): Map<string, string[]> =>
-  new Map([...functionRegistry.getFunctionsByCategory()].map(([category, definitions]) => [category, definitions.map((definition) => definition.name).sort()]));
-
 describe("spreadsheet help lists exactly the registered functions", () => {
   it("lists every registered function under its category, and nothing else", () => {
-    assert.deepEqual(Object.fromEntries(helpFunctionsByCategory(readHelp())), Object.fromEntries(registeredByCategory()));
+    assert.deepEqual(Object.fromEntries(helpFunctionsByCategory(readHelp())), registeredFunctionsByCategory());
   });
 
   it("its formula examples only call registered functions", () => {
     const called = calledFunctions(readHelp());
     assert.ok(called.length > 0, "the help shows formula examples");
     assert.deepEqual(
-      called.filter((name) => !functionRegistry.hasFunction(name)),
+      called.filter((name) => !isRegisteredFunction(name)),
       [],
     );
   });

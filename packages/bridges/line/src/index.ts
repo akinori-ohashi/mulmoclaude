@@ -13,12 +13,17 @@
 //   MULMOCLAUDE_API_URL       — default: the port in <workspace>/.server-port.
 //                               With none published the client waits (#3078)
 //   MULMOCLAUDE_AUTH_TOKEN    — bearer token
+//   LINE_BRIDGE_GROUP_REQUIRE_MENTION — "1" (default) answers in groups / rooms only
+//                               when the bot is mentioned; "0" answers every message
 
 import "dotenv/config";
 import type { Request, Response } from "express";
-import { createBridgeClient, chunkText, formatAckReply, installProcessGuards } from "@mulmobridge/client";
+import { createBridgeClient, chunkText, installProcessGuards } from "@mulmobridge/client";
 import { createWebhookApp, createWebhookRateLimit, verifyHmacSignature, listenWebhook } from "@mulmobridge/webhook-runtime";
-import { extractIncomingLineMessage, parseLineWebhookBody } from "./parse.js";
+import { parseLineWebhookBody } from "./parse.js";
+import { LINE_LOADING_REFRESH_MS, startLineLoading } from "./loading.js";
+import { parseRequireMention } from "./groupGate.js";
+import { deliverLineEvent, type LineDeliveryDeps, type LineImage } from "./deliver.js";
 
 const TRANSPORT_ID = "line";
 
@@ -35,6 +40,19 @@ function readRequiredEnv(): { channelSecret: string; channelAccessToken: string 
 }
 const { channelSecret, channelAccessToken } = readRequiredEnv();
 
+// The explicit `T` return annotation is what lets TS see `process.exit`'s
+// `never` and accept the catch branch as non-returning.
+function parseEnvOrExit<T>(parse: () => T): T {
+  try {
+    return parse();
+  } catch (err) {
+    console.error(`[line] ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return process.exit(1);
+}
+
+const requireMention = parseEnvOrExit(() => parseRequireMention(process.env.LINE_BRIDGE_GROUP_REQUIRE_MENTION));
+
 const client = createBridgeClient({ transportId: TRANSPORT_ID });
 
 client.onPush((pushEvent) => {
@@ -47,7 +65,7 @@ client.onPush((pushEvent) => {
  *  the bytes + Content-Type so the caller can build an Attachment
  *  envelope for the chat-service socket. Returns null when the
  *  fetch fails (network error, 4xx, …) — caller logs and skips. */
-async function downloadLineImage(messageId: string): Promise<{ bytes: Buffer; mimeType: string } | null> {
+async function downloadLineImage(messageId: string): Promise<LineImage | null> {
   try {
     const res = await fetch(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`, {
       headers: { Authorization: `Bearer ${channelAccessToken}` },
@@ -70,7 +88,8 @@ async function downloadLineImage(messageId: string): Promise<{ bytes: Buffer; mi
   }
 }
 
-async function pushMessage(userId: string, text: string): Promise<void> {
+/** `to` is a userId, groupId or roomId — LINE's push accepts all three. */
+async function pushMessage(chatId: string, text: string): Promise<void> {
   const messages = chunkText(text, 5000).map((messageText) => ({
     type: "text",
     text: messageText,
@@ -79,7 +98,7 @@ async function pushMessage(userId: string, text: string): Promise<void> {
   for (let i = 0; i < messages.length; i += 5) {
     try {
       const requestBody = {
-        to: userId,
+        to: chatId,
         messages: messages.slice(i, i + 5),
       };
       const res = await fetch("https://api.line.me/v2/bot/message/push", {
@@ -100,6 +119,16 @@ async function pushMessage(userId: string, text: string): Promise<void> {
     }
   }
 }
+
+const deliveryDeps: LineDeliveryDeps = {
+  requireMention,
+  send: (chatId, text, attachments) => client.send(chatId, text, attachments),
+  push: pushMessage,
+  startLoading: (chatId) => startLineLoading(fetch, channelAccessToken, chatId),
+  downloadImage: downloadLineImage,
+  indicator: { refreshMs: LINE_LOADING_REFRESH_MS, label: TRANSPORT_ID, log: console },
+  log: console,
+};
 
 // ── Webhook server ──────────────────────────────────────────────
 
@@ -124,38 +153,7 @@ app.post("/webhook", webhookRateLimit, async (req: Request, res: Response) => {
   }
 
   for (const event of body.events) {
-    const incoming = extractIncomingLineMessage(event);
-    if (!incoming) continue;
-
-    try {
-      if (incoming.kind === "text") {
-        console.log(`[line] message user=${incoming.userId} len=${incoming.text.length}`);
-        const ack = await client.send(incoming.userId, incoming.text);
-        await pushMessage(incoming.userId, formatAckReply(ack));
-        continue;
-      }
-      // kind === "image"
-      console.log(`[line] image user=${incoming.userId} messageId=${incoming.imageMessageId}`);
-      const image = await downloadLineImage(incoming.imageMessageId);
-      if (!image) {
-        await pushMessage(incoming.userId, "Sorry, I couldn't fetch that image.");
-        continue;
-      }
-      // chat-service's `parseMessagePayload` rejects empty `text`
-      // (`text is required`) so attachment-only messages need a
-      // placeholder body. Mirror the Telegram convention (see
-      // `packages/bridges/telegram/src/router.ts`) — an instructive
-      // prompt rather than a caption, so the agent treats the
-      // attachment as the subject and produces a useful response.
-      // The post-save EXIF hook (#1222 PR-A) writes a sidecar if
-      // GPS data is present. (Codex review on PR #1255 / #1263.)
-      const attachments = [{ mimeType: image.mimeType, data: image.bytes.toString("base64") }];
-      const placeholderText = "Describe / analyze this file.";
-      const ack = await client.send(incoming.userId, placeholderText, attachments);
-      await pushMessage(incoming.userId, formatAckReply(ack));
-    } catch (err) {
-      console.error(`[line] message handling failed: ${err}`);
-    }
+    await deliverLineEvent(event, deliveryDeps);
   }
 });
 

@@ -48,7 +48,6 @@ export default [
       // Vendored SheetJS CE, kept byte-identical to its CDN tarball so the
       // provenance check in test/agent/test_vendoredSheetjs.ts can hold (#3316).
       "server/vendor",
-      "src/plugins/spreadsheet/engine",
       "packages/*/dist",
       "packages/bridges/*/dist",
       "packages/plugins/*/dist",
@@ -838,7 +837,6 @@ export default [
       "server/services/translation/llm.ts",
       "server/utils/files/json.ts",
       "server/workspace/chat-index/summarizer.ts",
-      "src/plugins/spreadsheet/definition.ts",
       "src/utils/api.ts",
       // (b)
       "src/plugins/metas.ts",

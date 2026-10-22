@@ -11,7 +11,6 @@ import { isAttachmentPath } from "../../../server/utils/files/attachment-store.t
 import { isImagePath } from "../../../server/utils/files/image-store.ts";
 import { isMarkdownPath } from "../../../server/utils/files/markdown-store.ts";
 import { isHtmlPath } from "../../../server/utils/files/html-store.ts";
-import { isSpreadsheetPath } from "../../../server/utils/files/spreadsheet-store.ts";
 import { isSvgPath } from "../../../server/utils/files/svg-store.ts";
 
 describe("makePathValidator — prefix + ext gates", () => {
@@ -100,13 +99,6 @@ describe("per-store validators — smoke", () => {
     assert.equal(isHtmlPath("artifacts/html/2026/06/abc.html"), true);
     assert.equal(isHtmlPath("artifacts/html/abc.htm"), false);
     assert.equal(isHtmlPath("artifacts/html/../etc/x.html"), false);
-  });
-
-  it("isSpreadsheetPath (requires .json)", () => {
-    assert.equal(isSpreadsheetPath("artifacts/spreadsheets/2026/06/abc.json"), true);
-    assert.equal(isSpreadsheetPath("artifacts/spreadsheets/abc.csv"), false);
-    assert.equal(isSpreadsheetPath("artifacts/spreadsheets/../etc/x.json"), false);
-    assert.equal(isSpreadsheetPath("artifacts/spreadsheets/v1..2.json"), false);
   });
 
   it("isSvgPath (requires .svg)", () => {

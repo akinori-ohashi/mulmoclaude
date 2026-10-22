@@ -4,6 +4,7 @@ export { executeHtml, executeHtmlUpdate, pluginCore, type HtmlExecuteContext, ty
 export { executeHtmlDispatch, type HtmlDispatchContext } from "./dispatch";
 export type { HtmlDispatchArgs, HtmlDispatchResult, LoadHtmlArgs, SaveHtmlArgs, PackHtmlArgs, PackHtmlResult } from "./contract";
 export { isHtmlDispatchArgs, isPackHtmlArgs } from "./contract";
+export { MAX_SUBMIT_TEXT_CHARS, SUBMIT_MESSAGE_TYPE, readSubmitMessage, type SubmitRead } from "./submitMessage";
 export {
   htmlArtifactPath,
   htmlArtifactPreviewUrl,

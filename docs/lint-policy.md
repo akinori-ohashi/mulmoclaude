@@ -36,7 +36,7 @@ When you see one with a `--` rationale (e.g. `vue/no-v-html`, `no-unmodified-loo
 
 ## `vue/no-v-html` specifically
 
-Every `v-html` in this repo (NewsView, markdown/View, spreadsheet/View, textResponse/View, wiki/View) feeds from `marked.parse` or `XLSX.utils.sheet_to_html` over app-owned data — all intentional, all suppressed at the call site. If you add a new `v-html`, audit the data source and add the same comment with a one-sentence rationale; do NOT silence the rule globally.
+Every `v-html` in this repo (NewsView, markdown/View, textResponse/View, wiki/View) feeds from `marked.parse` or `XLSX.utils.sheet_to_html` over app-owned data — all intentional, all suppressed at the call site. If you add a new `v-html`, audit the data source and add the same comment with a one-sentence rationale; do NOT silence the rule globally.
 
 ## Multi-line elements need the wrapping form
 

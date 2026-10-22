@@ -1,0 +1,36 @@
+// A map series that reads its regions from a dataset paints every region with no row in the
+// series' palette colour, not the empty colour `series.data` leaves them in (ECharts 6.1.0), so on
+// a visualMap scale the regions with no data read as the largest. A map series reading a sheet
+// range therefore gets its rows written into `data` here.
+
+import { asList, isRecord } from "./optionParts";
+import { datasetNamedAmounts, readsSheetRows } from "./seriesDataset";
+
+// Replaced by `data`: left in, `encode` would still point ECharts at the dataset.
+const REWRITTEN = ["data", "datasetIndex", "encode"];
+
+const isMapSeries = (series: unknown): series is Record<string, unknown> => isRecord(series) && series.type === "map";
+
+// An empty `data: []` is the author's too: ECharts then draws no items rather than the dataset's.
+const hasOwnData = (series: Record<string, unknown>): boolean => Array.isArray(series.data);
+
+// Left to ECharts, which reads these right: a row-wise dataset, and a visualMap naming the column
+// it colours by, which `{ name, value }` items would no longer have.
+const readsRowWise = (series: Record<string, unknown>): boolean => series.seriesLayoutBy === "row";
+const namesVisualDimension = (option: Record<string, unknown>): boolean =>
+  asList(option.visualMap).some((visualMap) => isRecord(visualMap) && visualMap.dimension !== undefined);
+
+function mapSeries(option: Record<string, unknown>, series: Record<string, unknown>): Record<string, unknown> {
+  if (hasOwnData(series) || readsRowWise(series) || !readsSheetRows(option, series)) return series;
+  const rest = Object.fromEntries(Object.entries(series).filter(([key]) => !REWRITTEN.includes(key)));
+  return { ...rest, data: datasetNamedAmounts(option, series) };
+}
+
+/** `option` with each top-level map series that reads a dataset's rows given them as `data`.
+ *  Anything else is kept, a map inside a timeline (`baseOption` / `options`) included. */
+export function withMapData(option: Record<string, unknown>): Record<string, unknown> {
+  const { series } = option;
+  if (!asList(series).some(isMapSeries) || namesVisualDimension(option)) return option;
+  const drawn = (entry: unknown): unknown => (isMapSeries(entry) ? mapSeries(option, entry) : entry);
+  return { ...option, series: Array.isArray(series) ? series.map(drawn) : drawn(series) };
+}

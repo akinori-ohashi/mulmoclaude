@@ -91,6 +91,23 @@ ECharts it registers with. The server's trial draw loads the maps
 first; a 3D chart needs WebGL, so on the server only its formats are
 checked, and its card has no SVG export.
 
+## Word clouds
+
+`type: "wordCloud"` is drawn by
+[`@modernized/echarts-wordcloud`](https://www.npmjs.com/package/@modernized/echarts-wordcloud),
+loaded in the browser only when a chart has one (like echarts-gl, a dependency kept external to
+the build). Words come from `data` (`{ name, value }` or `[name, value]`) or from the series'
+dataset (a sheet range: `encode.itemName` / `encode.value`, else its first two columns), which the
+plugin writes into `data` because the extension reads only that; the largest 300 are kept.
+Settings: `sizeRange` (px, default `[12, 60]`), `rotationRange` (degrees within ±90, default
+`[0, 90]`) with `rotationStep` (default 90), `gridSize` (px, default 8); a value out of range falls
+back to its default. Anything else on the series (`shape`, `textStyle`, …) goes to the extension
+as is. The extension places words at random on each draw and leaves out a word that does not fit.
+
+The extension lays words out on a DOM canvas after `setOption` returns, so the server's trial
+draw checks only a word cloud's formats, and its card has no SVG export. A word cloud inside a
+timeline (`baseOption` / `options`) is refused with that reason.
+
 ## Height and columns
 
 A chart entry may set `height` in pixels (kept between 160 and 1200; 400 when left out), and the
