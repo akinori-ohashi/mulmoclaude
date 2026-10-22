@@ -20,6 +20,8 @@ const ko: Messages = {
   submitSend: "보내기",
   submitDiscard: "버리기",
   submitTooLong: (maxChars) => `페이지가 ${maxChars}자를 넘는 내용을 보내려고 해서 전송하지 않았습니다.`,
+  submitSent: "대화로 보냈습니다.",
+  submitFailed: "보내지 못했습니다. 터미널이 연결되어 있지 않습니다. 내용은 여기에 남겨 두었으니 다시 보내기를 누르세요.",
 };
 
 export default ko;

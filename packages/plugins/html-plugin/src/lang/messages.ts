@@ -18,4 +18,6 @@ export interface Messages {
   submitSend: string;
   submitDiscard: string;
   submitTooLong(maxChars: number): string;
+  submitSent: string;
+  submitFailed: string;
 }

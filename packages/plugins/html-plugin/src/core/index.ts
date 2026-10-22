@@ -5,6 +5,7 @@ export { executeHtmlDispatch, type HtmlDispatchContext } from "./dispatch";
 export type { HtmlDispatchArgs, HtmlDispatchResult, LoadHtmlArgs, SaveHtmlArgs, PackHtmlArgs, PackHtmlResult } from "./contract";
 export { isHtmlDispatchArgs, isPackHtmlArgs } from "./contract";
 export { MAX_SUBMIT_TEXT_CHARS, SUBMIT_MESSAGE_TYPE, readSubmitMessage, type SubmitRead } from "./submitMessage";
+export { DIRECT_SUBMIT, DIRECT_SUBMIT_MIN_INTERVAL_MS, deliveryFor, submitModeFor, type SubmitDelivery, type SubmitMode } from "./submitMode";
 export {
   htmlArtifactPath,
   htmlArtifactPreviewUrl,

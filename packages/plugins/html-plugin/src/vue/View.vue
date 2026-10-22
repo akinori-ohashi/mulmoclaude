@@ -31,9 +31,18 @@
       </div>
     </div>
     <div v-if="downloadError" class="download-error" role="alert">{{ t.downloadError(downloadError) }}</div>
+    <div
+      v-if="sentNotice"
+      class="px-4 py-1.5 border-b border-green-200 bg-green-50 shrink-0 text-sm text-green-800"
+      role="status"
+      data-testid="present-html-submit-sent"
+    >
+      {{ t.submitSent }}
+    </div>
     <div v-if="submission" class="px-4 py-3 border-b border-blue-200 bg-blue-50 shrink-0 flex flex-col gap-2" data-testid="present-html-submit">
       <div class="text-sm font-medium text-gray-800">{{ t.submitTitle }}</div>
       <div class="text-xs text-gray-600">{{ t.submitHint }}</div>
+      <div v-if="sendFailed" class="text-xs text-red-700" role="alert" data-testid="present-html-submit-failed">{{ t.submitFailed }}</div>
       <textarea
         v-model="submission.text"
         :maxlength="MAX_SUBMIT_TEXT_CHARS"
@@ -53,7 +62,7 @@
           class="px-3 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
           :disabled="submission.text.trim() === ''"
           data-testid="present-html-submit-send"
-          @click="sendSubmission"
+          @click="sendHeld"
         >
           {{ t.submitSend }}
         </button>
@@ -114,25 +123,21 @@ import { buildPrintCspContent } from "./previewCsp";
 import { useFileWatch } from "@mulmoclaude/core/plugin-vue";
 import { errorMessage } from "@mulmoclaude/common";
 import { MAX_SUBMIT_TEXT_CHARS } from "../core/submitMessage";
-import { useHtmlSubmit } from "./useHtmlSubmit";
+import { useHtmlSubmit, type SendText } from "./useHtmlSubmit";
 
 const runtime = useRuntime();
 const t = useT();
 
 const props = defineProps<{
   selectedResult: ToolResultComplete<PresentHtmlData>;
-  sendTextMessage?: (text?: string) => void;
+  sendTextMessage?: SendText;
 }>();
 
 const frame = ref<HTMLIFrameElement>();
-const { submission, rejectedTooLong, discard } = useHtmlSubmit(frame, () => props.sendTextMessage !== undefined);
-
-function sendSubmission() {
-  const text = submission.value?.text;
-  if (!text || text.trim() === "" || text.length > MAX_SUBMIT_TEXT_CHARS || !props.sendTextMessage) return;
-  props.sendTextMessage(text);
-  discard();
-}
+const { submission, rejectedTooLong, sendFailed, sentNotice, discard, sendHeld } = useHtmlSubmit(frame, {
+  mode: () => data.value?.submit,
+  sender: () => props.sendTextMessage,
+});
 
 const PRINT_STYLE_CSS = `@media print {
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }

@@ -1,22 +1,78 @@
 import { onBeforeUnmount, onMounted, ref, type Ref } from "vue";
-import { readSubmitMessage } from "../core/submitMessage";
+import { MAX_SUBMIT_TEXT_CHARS, readSubmitMessage } from "../core/submitMessage";
+import { deliveryFor, type SubmitMode } from "../core/submitMode";
 
 export interface PendingSubmission {
   text: string;
 }
 
-// Holds what the presented page asked to send, for the user to confirm. Nothing here sends:
-// the page is LLM-authored and a click inside its frame cannot be told from a scripted one.
-export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, isEnabled: () => boolean) {
+export type SendText = (text?: string) => boolean | void;
+
+export interface HtmlSubmitOptions {
+  mode: () => SubmitMode | undefined;
+  sender: () => SendText | undefined;
+}
+
+const SENT_NOTICE_MS = 2_500;
+
+// What the presented page asked to send. A page without the direct mode is only ever HELD for the
+// user to confirm: it is LLM-authored, and a click inside its frame cannot be told from a scripted one.
+export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, options: HtmlSubmitOptions) {
   const submission = ref<PendingSubmission | null>(null);
   const rejectedTooLong = ref(false);
+  const sendFailed = ref(false);
+  const sentNotice = ref(false);
+  let lastDirectAtMs: number | null = null;
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // A host returns false when the terminal could not take the text; an older host returns nothing.
+  function deliver(text: string): boolean {
+    const sender = options.sender();
+    return sender !== undefined && sender(text) !== false;
+  }
+
+  function showSent() {
+    sentNotice.value = true;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => (sentNotice.value = false), SENT_NOTICE_MS);
+  }
+
+  function hold(text: string, failed: boolean) {
+    rejectedTooLong.value = false;
+    submission.value = { text };
+    sendFailed.value = failed;
+  }
+
+  function receive(text: string) {
+    const nowMs = performance.now();
+    if (deliveryFor(options.mode(), lastDirectAtMs, nowMs) === "confirm") return hold(text, false);
+    if (!deliver(text)) return hold(text, true);
+    lastDirectAtMs = nowMs;
+    discard();
+    showSent();
+  }
 
   function onMessage(event: MessageEvent) {
-    if (!isEnabled()) return;
+    if (options.sender() === undefined) return;
     const read = readSubmitMessage(event, frame.value?.contentWindow);
     if (read.kind === "ignored") return;
-    rejectedTooLong.value = read.kind === "tooLong";
-    submission.value = read.kind === "text" ? { text: read.text } : null;
+    if (read.kind === "tooLong") {
+      discard();
+      rejectedTooLong.value = true;
+      return;
+    }
+    receive(read.text);
+  }
+
+  function sendHeld() {
+    const text = submission.value?.text;
+    if (!text || text.trim() === "" || text.length > MAX_SUBMIT_TEXT_CHARS) return;
+    if (!deliver(text)) {
+      sendFailed.value = true;
+      return;
+    }
+    discard();
+    showSent();
   }
 
   // Also the iframe's load handler: a decision made before any (re)load, by the host or by the page
@@ -24,10 +80,14 @@ export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, isEnabl
   function discard() {
     submission.value = null;
     rejectedTooLong.value = false;
+    sendFailed.value = false;
   }
 
   onMounted(() => window.addEventListener("message", onMessage));
-  onBeforeUnmount(() => window.removeEventListener("message", onMessage));
+  onBeforeUnmount(() => {
+    window.removeEventListener("message", onMessage);
+    clearTimeout(noticeTimer);
+  });
 
-  return { submission, rejectedTooLong, discard };
+  return { submission, rejectedTooLong, sendFailed, sentNotice, discard, sendHeld };
 }
