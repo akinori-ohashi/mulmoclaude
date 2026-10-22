@@ -137,8 +137,8 @@ const props = defineProps<{
 
 const frame = ref<HTMLIFrameElement>();
 const { submission, rejectedTooLong, sendFailed, sentNotice, discard, sendHeld } = useHtmlSubmit(frame, {
-  mode: () => submitModeOfResult(data.value),
-  expectedKey: () => (submitModeOfResult(data.value) ? submitKey.value : undefined),
+  mode: () => directMode.value,
+  expectedKey: () => (directMode.value ? submitKey.value : undefined),
   sender: () => props.sendTextMessage,
 });
 
@@ -182,6 +182,8 @@ const reloadNonce = ref(0);
 // A new iframe element per page and per result: its Window is what a submit is matched against, and
 // a reused element keeps the same Window across a navigation, so a message the previous document
 // queued would otherwise be judged by the next result's mode.
+const directMode = computed(() => submitModeOfResult(data.value));
+
 const frameKey = computed(() => `${props.selectedResult.uuid}|${frameSrc.value ?? ""}`);
 
 // A fresh key for each frame document, recomputed only when frameKey changes. It reaches the page
@@ -190,7 +192,7 @@ const submitKey = computed(() => (frameKey.value ? crypto.randomUUID() : ""));
 const framedSrc = computed(() => {
   const src = frameSrc.value;
   if (!src) return undefined;
-  return submitModeOfResult(data.value) ? withSubmitKey(src, submitKey.value) : src;
+  return directMode.value ? withSubmitKey(src, submitKey.value) : src;
 });
 
 const frameSrc = computed(() => {

@@ -119,6 +119,13 @@ describe("withSubmitKey", () => {
     assert.equal(withSubmitKey("/artifacts/html/a.html?v=3", "a b&c"), "/artifacts/html/a.html?v=3#mulmo-submit-key=a%20b%26c");
   });
 
+  it("adds to a fragment the URL already has, so the page still finds its key", () => {
+    const src = withSubmitKey("/artifacts/html/a.html#section", "k");
+    assert.equal(src, "/artifacts/html/a.html#section&mulmo-submit-key=k");
+    assert.equal(new URLSearchParams(new URL(src, "http://h").hash.slice(1)).get(SUBMIT_KEY_PARAM), "k");
+    assert.equal(withSubmitKey("/a.html#", "k"), "/a.html#mulmo-submit-key=k");
+  });
+
   it("reads back with URLSearchParams on the fragment, as the page does", () => {
     const url = new URL(withSubmitKey("http://h/a.html", "k=1#2"), "http://h");
     assert.equal(new URLSearchParams(url.hash.slice(1)).get(SUBMIT_KEY_PARAM), "k=1#2");

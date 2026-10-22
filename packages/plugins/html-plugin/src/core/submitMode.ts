@@ -33,9 +33,14 @@ export function submitModeOfResult(data: unknown): SubmitMode | undefined {
 
 // The key rides in the fragment of the URL the View loads, so only the document that URL produced
 // can read it. A link or script that moves the frame to another document drops the fragment, and
-// that document — which may post before its load event fires — cannot present the key.
+// that document — which may post before its load event fires — cannot present the key, unless the
+// direct page hands it on (window.name, a URL it builds). That is allowed: the page could send anything itself.
 export function withSubmitKey(src: string, key: string): string {
-  return `${src}#${SUBMIT_KEY_PARAM}=${encodeURIComponent(key)}`;
+  const param = `${SUBMIT_KEY_PARAM}=${encodeURIComponent(key)}`;
+  const hashAt = src.indexOf("#");
+  if (hashAt < 0) return `${src}#${param}`;
+  const fragment = src.slice(hashAt + 1);
+  return `${src.slice(0, hashAt)}#${fragment ? `${fragment}&` : ""}${param}`;
 }
 
 export interface DirectSubmitCheck {
