@@ -20,6 +20,16 @@ outside `artifacts/html/` or loading a different URL is never direct. When the h
 in the bar with the reason instead of disappearing, on every page. Shipped in `@mulmoclaude/html-plugin@5.2.0`.
 MulmoClaude runs `presentHtml` with its own executor, so its pages keep the confirmation bar.
 
+### Fixed
+
+#### Artifact images, HTML pages and SVGs are served only from inside the workspace (#3573)
+
+`/artifacts/images`, `/artifacts/html` and `/artifacts/svg` took their own folder's real location as the boundary, so
+replacing that folder — or `artifacts/` — with a symlink to a folder elsewhere on the computer served its images, pages
+and SVGs. Each request now checks that the folder still sits inside the workspace and serves the file it opened, so a
+folder or file swapped for a link mid-request is not followed either. A dotfile under `/artifacts/images` now answers
+404 instead of 403. Video and audio seeking (Range requests) and browser caching keep working.
+
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.2`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.13.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.2.0`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.9.0] - 2026-10-22
