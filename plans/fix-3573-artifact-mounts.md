@@ -24,8 +24,11 @@ request against that, then hands the path to `express.static`. Two holes:
   in-scope file) and served from the handle — never re-opened by path.
 - `sendFileHandle` replaces `express.static` for these mounts: `Content-Type` by extension (kept
   when the mount set one, as `send` does), `Content-Length`, `Last-Modified`, weak `ETag`,
-  conditional GET (304), single `Range` (206 / 416, needed for video and audio seeking), `HEAD`.
+  `If-Match` / `If-Unmodified-Since` (412), conditional GET (304), single `Range` with `If-Range`
+  by tag or date (206 / 416, needed for video and audio seeking), `HEAD`, in `send`'s order.
   Multi-range requests get the whole file, as `send` does with combined ranges it cannot serve.
+  412 / 304 / 416 carry no body, like the 404s these mounts already answer (`send` writes an HTML
+  error page for 412 / 416; nothing here renders one).
 - The HTML document path (`readAndInjectHtmlArtifact`) reads through the verified handle too.
 - Dotfiles are refused in the guard on all three mounts (the images mount used to rely on
   `express.static`'s `dotfiles: "deny"`, which answered 403; it is now 404 like the others).

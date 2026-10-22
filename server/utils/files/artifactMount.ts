@@ -3,6 +3,7 @@
 // rather than the new root, and the file is served from a handle proven to be the in-scope file
 // (plans/fix-3573-artifact-mounts.md).
 
+import path from "node:path";
 import type { FileHandle } from "node:fs/promises";
 import type { Request, RequestHandler, Response } from "express";
 import { openVerifiedWithinScope, realpathIfPresent, scopeRealpath, type VerifiedScope } from "@mulmoclaude/core/files";
@@ -20,7 +21,14 @@ export async function artifactScope(workspaceRoot: string, mountDir: string): Pr
  *  workspace, or the URL is malformed, escapes, or touches a dotfile. */
 export async function artifactRequestPath(scope: VerifiedScope, reqPath: string): Promise<string | null> {
   const scopeReal = await scopeRealpath(scope);
-  return scopeReal === null ? null : resolveArtifactRequestPath(scopeReal, reqPath, true);
+  const decoded = scopeReal === null ? null : resolveArtifactRequestPath(scopeReal, reqPath, true);
+  return scopeReal === null || decoded === null ? null : lexicallyInside(scopeReal, decoded);
+}
+
+// The `path.relative` form is the containment check CodeQL recognises before the path reaches realpath.
+function lexicallyInside(scopeReal: string, relPath: string): string | null {
+  const inside = path.relative(scopeReal, path.resolve(scopeReal, relPath));
+  return inside === "" || inside.startsWith("..") || path.isAbsolute(inside) ? null : inside;
 }
 
 /** A verified handle on a regular file of the scope; null for anything else. The caller closes it. */

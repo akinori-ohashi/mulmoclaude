@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import express from "express";
 import { artifactMount, sendArtifactFile } from "../../../server/utils/files/artifactMount.js";
-import { chooseByteRange, rangeApplies, type ParsedRange } from "../../../server/utils/files/sendFileHandle.js";
+import { chooseByteRange, preconditionFailed, rangeApplies, type ParsedRange } from "../../../server/utils/files/sendFileHandle.js";
 
 const BODY = "0123456789";
 const workspace = realpathSync(mkdtempSync(path.join(tmpdir(), "artifact-mount-ws-")));
@@ -109,13 +109,17 @@ describe("artifactMount", () => {
     assert.equal(await several.text(), BODY);
   });
 
-  it("answers a matching conditional GET with 304 and ignores a Range whose If-Range is stale", async () => {
+  it("answers conditional requests as send does: 304, 412, and a Range only when If-Range is current", async () => {
     const etag = (await get("/images/a.png")).headers.get("etag") ?? "";
     assert.equal(await conditionalStatus("/images/a.png", { "If-None-Match": etag }), 304);
     const stale = await get("/images/a.png", { Range: "bytes=2-4", "If-Range": 'W/"stale"' });
     assert.equal(stale.status, 200);
     assert.equal(await stale.text(), BODY);
     assert.equal((await get("/images/a.png", { Range: "bytes=2-4", "If-Range": etag })).status, 206);
+    const lastModified = (await get("/images/a.png")).headers.get("last-modified") ?? "";
+    assert.equal((await get("/images/a.png", { Range: "bytes=2-4", "If-Range": lastModified })).status, 206);
+    assert.equal(await conditionalStatus("/images/a.png", { "If-Match": '"stale"' }), 412);
+    assert.equal(await conditionalStatus("/images/a.png", { "If-Unmodified-Since": "Thu, 01 Jan 1970 00:00:00 GMT" }), 412);
   });
 
   it("keeps a Content-Type the responder set", async () => {
@@ -173,12 +177,30 @@ describe("chooseByteRange", () => {
   });
 });
 
+const VALIDATORS = { etag: 'W/"a-1"', lastModified: "Thu, 22 Oct 2026 06:00:00 GMT" };
+
 describe("rangeApplies", () => {
-  it("honours a Range only without If-Range or when If-Range names the current entity", () => {
-    assert.equal(rangeApplies(undefined, 'W/"a"', "Thu"), true);
-    assert.equal(rangeApplies('W/"a"', 'W/"a"', "Thu"), true);
-    assert.equal(rangeApplies("Thu", 'W/"a"', "Thu"), true);
-    assert.equal(rangeApplies('W/"b"', 'W/"a"', "Thu"), false);
-    assert.equal(rangeApplies("", 'W/"a"', "Thu"), false);
+  it("honours a Range without If-Range, or when If-Range names the entity tag or a date no older than it", () => {
+    assert.equal(rangeApplies(undefined, VALIDATORS), true);
+    assert.equal(rangeApplies("", VALIDATORS), true);
+    assert.equal(rangeApplies('W/"a-1"', VALIDATORS), true);
+    assert.equal(rangeApplies(VALIDATORS.lastModified, VALIDATORS), true);
+    assert.equal(rangeApplies("Fri, 23 Oct 2026 00:00:00 GMT", VALIDATORS), true);
+    assert.equal(rangeApplies('W/"b-2"', VALIDATORS), false);
+    assert.equal(rangeApplies("Wed, 21 Oct 2026 00:00:00 GMT", VALIDATORS), false);
+    assert.equal(rangeApplies("not a date", VALIDATORS), false);
+  });
+});
+
+describe("preconditionFailed", () => {
+  it("fails an If-Match naming no current tag, and an If-Unmodified-Since older than the file", () => {
+    assert.equal(preconditionFailed(undefined, undefined, VALIDATORS), false);
+    assert.equal(preconditionFailed("*", undefined, VALIDATORS), false);
+    assert.equal(preconditionFailed('"x", W/"a-1"', undefined, VALIDATORS), false);
+    assert.equal(preconditionFailed('"a-1"', undefined, VALIDATORS), false);
+    assert.equal(preconditionFailed('"b-2"', undefined, VALIDATORS), true);
+    assert.equal(preconditionFailed(undefined, VALIDATORS.lastModified, VALIDATORS), false);
+    assert.equal(preconditionFailed(undefined, "Wed, 21 Oct 2026 00:00:00 GMT", VALIDATORS), true);
+    assert.equal(preconditionFailed(undefined, "not a date", VALIDATORS), false);
   });
 });

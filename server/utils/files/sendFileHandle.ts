@@ -31,22 +31,60 @@ export function chooseByteRange(parsed: ParsedRange): RangeChoice {
 
 const weakEtag = (stats: Stats): string => `W/"${stats.size.toString(HEX)}-${Math.floor(stats.mtimeMs).toString(HEX)}"`;
 
-/** A Range is honoured only when there is no If-Range, or it names the representation being served. */
-export function rangeApplies(ifRange: string | undefined, etag: string, lastModified: string): boolean {
-  return ifRange === undefined || ifRange === etag || ifRange === lastModified;
+/** The validators a conditional request is judged against, as headers carry them. */
+export interface Validators {
+  etag: string;
+  lastModified: string;
 }
 
-function setEntityHeaders(res: Response, stats: Stats, relPath: string): void {
+const parseHttpDate = (value: string | undefined): number => (value === undefined ? Number.NaN : Date.parse(value));
+
+const tokenList = (header: string): string[] =>
+  header
+    .split(",")
+    .map((token) => token.trim())
+    .filter((token) => token !== "");
+
+const etagMatches = (token: string, etag: string): boolean => token === etag || `W/${token}` === etag || token === `W/${etag}`;
+
+/** A Range is honoured without If-Range, or when If-Range names the current entity tag or a date no older than it — as `send` does. */
+export function rangeApplies(ifRange: string | undefined, validators: Validators): boolean {
+  if (ifRange === undefined || ifRange === "") return true;
+  if (ifRange.includes('"')) return ifRange.includes(validators.etag);
+  return parseHttpDate(validators.lastModified) <= parseHttpDate(ifRange);
+}
+
+/** If-Match / If-Unmodified-Since that the current entity fails, answered 412 as `send` does. */
+export function preconditionFailed(ifMatch: string | undefined, ifUnmodifiedSince: string | undefined, validators: Validators): boolean {
+  if (ifMatch !== undefined && ifMatch !== "") return ifMatch !== "*" && !tokenList(ifMatch).some((token) => etagMatches(token, validators.etag));
+  const unmodifiedSince = parseHttpDate(ifUnmodifiedSince);
+  const lastModified = parseHttpDate(validators.lastModified);
+  return !Number.isNaN(unmodifiedSince) && (Number.isNaN(lastModified) || lastModified > unmodifiedSince);
+}
+
+function setEntityHeaders(res: Response, stats: Stats, relPath: string): Validators {
+  const validators = { etag: weakEtag(stats), lastModified: stats.mtime.toUTCString() };
   if (res.getHeader("Content-Type") === undefined) res.type(path.extname(relPath) || "application/octet-stream");
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Cache-Control", "public, max-age=0");
-  res.setHeader("Last-Modified", stats.mtime.toUTCString());
-  res.setHeader("ETag", weakEtag(stats));
+  res.setHeader("Last-Modified", validators.lastModified);
+  res.setHeader("ETag", validators.etag);
+  return validators;
 }
 
-function requestedRange(req: Request, res: Response, size: number): RangeChoice {
-  if (!rangeApplies(req.get("If-Range"), String(res.getHeader("ETag")), String(res.getHeader("Last-Modified")))) return WHOLE;
+function requestedRange(req: Request, size: number, validators: Validators): RangeChoice {
+  if (!rangeApplies(req.get("If-Range"), validators)) return WHOLE;
   return chooseByteRange(req.range(size, { combine: true }));
+}
+
+/** 412 / 304 / 416 carry no body, like the 404s these mounts answer. True when one was sent. */
+function answeredWithoutBody(req: Request, res: Response, size: number, validators: Validators, choice: RangeChoice): boolean {
+  if (preconditionFailed(req.get("If-Match"), req.get("If-Unmodified-Since"), validators)) res.status(412);
+  else if (req.fresh) res.status(304);
+  else if (choice.kind === "unsatisfiable") res.status(416).setHeader("Content-Range", `bytes */${size}`);
+  else return false;
+  res.end();
+  return true;
 }
 
 async function streamBytes(req: Request, res: Response, handle: FileHandle, size: number, choice: RangeChoice): Promise<void> {
@@ -65,18 +103,9 @@ async function streamBytes(req: Request, res: Response, handle: FileHandle, size
 export async function sendFileHandle(req: Request, res: Response, handle: FileHandle, relPath: string): Promise<void> {
   try {
     const stats = await handle.stat();
-    setEntityHeaders(res, stats, relPath);
-    if (req.fresh) {
-      res.status(304).end();
-      return;
-    }
-    const choice = requestedRange(req, res, stats.size);
-    if (choice.kind === "unsatisfiable") {
-      res.status(416).setHeader("Content-Range", `bytes */${stats.size}`);
-      res.end();
-      return;
-    }
-    await streamBytes(req, res, handle, stats.size, choice);
+    const validators = setEntityHeaders(res, stats, relPath);
+    const choice = requestedRange(req, stats.size, validators);
+    if (!answeredWithoutBody(req, res, stats.size, validators, choice)) await streamBytes(req, res, handle, stats.size, choice);
   } finally {
     await handle.close();
   }
