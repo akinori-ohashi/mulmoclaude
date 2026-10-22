@@ -20,6 +20,8 @@ const zh: Messages = {
   submitSend: "发送",
   submitDiscard: "丢弃",
   submitTooLong: (maxChars) => `页面试图发送超过 ${maxChars} 个字符的内容，因此未发送。`,
+  submitSent: "已发送到对话。",
+  submitFailed: "发送失败：终端未连接。内容已保留在此，请再次点击“发送”。",
 };
 
 export default zh;

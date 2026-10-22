@@ -20,6 +20,8 @@ const de: Messages = {
   submitSend: "Senden",
   submitDiscard: "Verwerfen",
   submitTooLong: (maxChars) => `Die Seite wollte mehr als ${maxChars} Zeichen senden, daher wurde nichts gesendet.`,
+  submitSent: "An die Unterhaltung gesendet.",
+  submitFailed: "Senden fehlgeschlagen: Das Terminal ist nicht verbunden. Der Text bleibt hier; klicken Sie erneut auf Senden.",
 };
 
 export default de;

@@ -2,6 +2,7 @@ import type { FileOps, ToolPluginCore, ToolResult } from "gui-chat-protocol";
 import { TOOL_DEFINITION } from "./definition";
 import { htmlArtifactPath, isHtmlArtifactPath, isPresentableHtmlPath, toArtifactsRelative } from "./paths";
 import type { HtmlArgs, PresentHtmlData, UpdateHtmlArgs } from "./types";
+import { submitModeFor, type SubmitMode } from "./submitMode";
 
 /** Host capabilities the html core needs, delivered through the GENERIC
  *  gui-chat-protocol runtime — only `files.artifacts` (the shared,
@@ -69,10 +70,15 @@ async function presentExisting(context: HtmlExecuteContext, relativePath: string
 }
 
 /** Persist a new HTML document under a fresh artifact path, then present it. */
-async function saveAndPresent(context: HtmlExecuteContext, html: string, title: string | undefined): Promise<ToolResult<PresentHtmlData>> {
+async function saveAndPresent(
+  context: HtmlExecuteContext,
+  html: string,
+  title: string | undefined,
+  submit: SubmitMode | undefined,
+): Promise<ToolResult<PresentHtmlData>> {
   const { relPath, filePath } = htmlArtifactPath(title);
   await context.files.artifacts.write(relPath, html);
-  return presented(`Saved HTML to ${filePath}`, { title, filePath });
+  return presented(`Saved HTML to ${filePath}`, { title, filePath, ...(submit ? { submit } : {}) });
 }
 
 /**
@@ -98,7 +104,7 @@ export async function executeHtml(context: HtmlExecuteContext, args: HtmlArgs): 
     return presentExisting(context, htmlPath, titleStr);
   }
   if (nonEmptyString(html)) {
-    return saveAndPresent(context, html, titleStr);
+    return saveAndPresent(context, html, titleStr, submitModeFor(args));
   }
   return toolError("provide either `html` or `path`", "Acknowledge the error and retry with inline `html` or an existing `path`.");
 }

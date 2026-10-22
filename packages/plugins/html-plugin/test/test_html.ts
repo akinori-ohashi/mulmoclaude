@@ -93,6 +93,26 @@ describe("executeHtml", () => {
     assert.equal(store.get(toArtifactsRelative(data.filePath)), "<!DOCTYPE html><html></html>");
   });
 
+  it("carries submit: direct onto a page written with html", async () => {
+    const { context } = makeFakeArtifacts();
+    const result = await executeHtml(context, { html: "<!DOCTYPE html><html></html>", submit: "direct" });
+    assert.equal(result.data?.submit, "direct");
+  });
+
+  it("leaves submit off a page written without asking for it", async () => {
+    const { context } = makeFakeArtifacts();
+    const result = await executeHtml(context, { html: "<!DOCTYPE html><html></html>" });
+    assert.ok(result.data);
+    assert.equal("submit" in result.data, false);
+  });
+
+  it("drops submit: direct for a page opened by path", async () => {
+    const { context } = makeFakeArtifacts({ "html/2026/06/lesson-1.html": "<x>" });
+    const result = await executeHtml(context, { path: "artifacts/html/2026/06/lesson-1.html", submit: "direct" });
+    assert.ok(result.data);
+    assert.equal("submit" in result.data, false);
+  });
+
   it("presents an existing path without re-saving", async () => {
     const { store, context } = makeFakeArtifacts({ "html/2026/06/lesson-1.html": "<x>" });
     const result = await executeHtml(context, { path: "artifacts/html/2026/06/lesson-1.html" });

@@ -1,33 +1,39 @@
-import { onBeforeUnmount, onMounted, ref, type Ref } from "vue";
-import { readSubmitMessage } from "../core/submitMessage";
+import { onBeforeUnmount, onMounted, type Ref } from "vue";
+import type { SubmitMode } from "../core/submitMode";
+import { createSubmitReceiver, type DirectSubmitClock, type SendText } from "./submitReceiver";
 
-export interface PendingSubmission {
-  text: string;
+export type { PendingSubmission, SendText } from "./submitReceiver";
+
+export interface HtmlSubmitOptions {
+  mode: () => SubmitMode | undefined;
+  /** The key carried in this frame document's URL fragment; undefined when the page is not direct. */
+  expectedKey: () => string | undefined;
+  sender: () => SendText | undefined;
 }
 
-// Holds what the presented page asked to send, for the user to confirm. Nothing here sends:
-// the page is LLM-authored and a click inside its frame cannot be told from a scripted one.
-export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, isEnabled: () => boolean) {
-  const submission = ref<PendingSubmission | null>(null);
-  const rejectedTooLong = ref(false);
+// One clock for every card in the tab: kept per card, an agent presenting several direct pages, or a
+// card being remounted, would each start a fresh interval.
+const directSubmitClock: DirectSubmitClock = { lastAtMs: null };
 
-  function onMessage(event: MessageEvent) {
-    if (!isEnabled()) return;
-    const read = readSubmitMessage(event, frame.value?.contentWindow);
-    if (read.kind === "ignored") return;
-    rejectedTooLong.value = read.kind === "tooLong";
-    submission.value = read.kind === "text" ? { text: read.text } : null;
-  }
-
-  // Also the iframe's load handler: a decision made before any (re)load, by the host or by the page
-  // itself, no longer describes what is on screen.
-  function discard() {
-    submission.value = null;
-    rejectedTooLong.value = false;
-  }
+export function useHtmlSubmit(frame: Ref<HTMLIFrameElement | undefined>, options: HtmlSubmitOptions) {
+  const receiver = createSubmitReceiver({
+    frameWindow: () => frame.value?.contentWindow,
+    mode: options.mode,
+    expectedKey: options.expectedKey,
+    sender: options.sender,
+    nowMs: () => performance.now(),
+    clock: directSubmitClock,
+    setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
+    clearTimer: (handle) => clearTimeout(handle),
+  });
+  const onMessage = (event: MessageEvent) => receiver.onMessage(event);
 
   onMounted(() => window.addEventListener("message", onMessage));
-  onBeforeUnmount(() => window.removeEventListener("message", onMessage));
+  onBeforeUnmount(() => {
+    window.removeEventListener("message", onMessage);
+    receiver.dispose();
+  });
 
-  return { submission, rejectedTooLong, discard };
+  const { submission, rejectedTooLong, sendFailed, sentNotice, sendHeld, discard } = receiver;
+  return { submission, rejectedTooLong, sendFailed, sentNotice, sendHeld, discard };
 }
