@@ -146,8 +146,9 @@ const removeQuietly = async (absPath: string): Promise<void> => {
   await promises.unlink(absPath).catch(() => {});
 };
 
-// The rename's source is the verified staging file, so it can only succeed in the directory that holds
-// it — the inode verified above, wherever it has been moved since. A link put in its place makes it fail.
+// The rename's source is the verified staging file under its random name, so it succeeds only where that
+// name reaches it: the verified directory (wherever moved since), or a directory the actor could already
+// write and planted the name in. No renameat in Node fs; see plans/fix-3573-verified-open.md.
 async function renameIntoPlace(stagingDir: string, staging: string, leaf: string, hooks: VerifiedFileHooks): Promise<void> {
   try {
     await hooks.beforeRename?.();
@@ -159,8 +160,8 @@ async function renameIntoPlace(stagingDir: string, staging: string, leaf: string
 }
 
 /** Atomic write of `leaf` into `dirReal` (an already-confined directory of the scope). The staging file is
- *  verified to sit inside the scope before any byte is written, and the rename lands in the directory
- *  holding it, so a parent swapped for a link mid-call makes the write fail. */
+ *  verified to sit inside the scope before any byte is written, and a parent swapped for a link mid-call
+ *  makes the write fail — unless the link's target is a directory the actor could already write. */
 export async function writeFileVerifiedInScope(
   scope: VerifiedScope,
   dirReal: string,

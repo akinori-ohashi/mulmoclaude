@@ -36,7 +36,7 @@ in-root file:
 A swap before the open and back before the re-check leaves a handle whose inode is not the
 in-root file's, so step 3 fails. A swap after step 3 does not matter: the handle is already bound.
 
-**Writes: closed under the threat model.** The staging file is created and verified, and the
+**Writes: closed against anyone who cannot already write outside the workspace.** The staging file is created and verified, and the
 rename lands in the directory that holds it:
 
 1. confine the parent as today (`resolveWriteWithinRoot`, which mkdirs it)
@@ -45,12 +45,15 @@ rename lands in the directory that holds it:
    inode must equal `fstat` of the handle — so the bytes are going into an in-root directory
 4. write through the handle, close, rename staging → leaf in the directory holding it
 
-The rename's source is the verified staging file, so it can only succeed in the directory inode
-that was verified — wherever that directory has been moved since (Codex, PR #3580 round 2,
-accepted; pinned by a test). If the parent is swapped for a link after step 3, the source no
-longer resolves (the staging file
-lives in the real directory) and it fails with ENOENT. Planting a file of the staging name in
-the link's target needs write access to that target already.
+The rename's source is the verified staging file under its random name, so it succeeds only where
+that name reaches the staging inode: the verified directory, wherever it has been moved since
+(Codex, PR #3580 round 2, accepted; pinned by a test), or a directory the actor could already
+write. If the parent is swapped for a link after step 3, the source does not resolve in the link's
+target and the rename fails with ENOENT — unless the actor put the staging name there first, by
+planting a file or a hard link to the staging inode (round 4). Either needs write access to that
+target, and an actor with it gains nothing: they can read the workspace and copy the bytes there
+themselves. From the Docker sandbox, host directories are not visible and a hard link across the
+mount fails (EXDEV). Closing it outright needs a descriptor-relative `renameat`.
 
 ## What stays best-effort (residual, documented)
 
@@ -59,6 +62,8 @@ the link's target needs write access to that target already.
   same-named entry in the link's target.
 - **stat / exists** — metadata and one bit, path-based as before: opening the file to verify
   would make an unreadable file throw EACCES where `stat` / `exists` answer today.
+- **a write steered by someone who can write the target** — see above: a planted staging name or
+  a hard link to the staging inode in the link's target, plus a parent swap before the rename.
 - **a stray empty staging file** — a write whose parent was swapped before the staging file was
   created fails, and can leave that empty `<leaf>.<random>.tmp` in the link's target.
 - **a real directory moved in** — a directory renamed into the scope (not linked) is inside it from

@@ -28,7 +28,8 @@ colours for 3D axes — so they read, and colours the chart sets itself still wi
 
 The symlink check added in 2.8.1 looked at a path and then used it, so a folder swapped for a link in between could
 still be followed. Reading a plugin or artifact file now opens it first and then confirms the opened file is the one
-inside the folder; writing confirms the staging file is inside the folder before any byte goes in. A scope folder that is itself
+inside the folder; writing confirms the staging file is inside the folder before any byte goes in, so a swap cannot steer
+it outside unless the swapper could already write there. A scope folder that is itself
 replaced by a symlink — `artifacts/`, or a plugin's data or config folder pointed elsewhere — is now refused instead of
 being followed. Checking whether a file exists, listing a folder and deleting a file still check first and then
 act — what each can still expose is listed in `plans/fix-3573-verified-open.md`.
