@@ -24,7 +24,7 @@ On the dark theme, a 3D chart's tick labels, categories and axis names were draw
 its split lines stood out. The chart plugin now draws dark with a theme of its own — ECharts' dark theme plus light
 colours for 3D axes — so they read, and colours the chart sets itself still win.
 
-Ships `@mulmoclaude/chart-plugin@4.6.1`.
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.8.1] - 2026-10-22
 
