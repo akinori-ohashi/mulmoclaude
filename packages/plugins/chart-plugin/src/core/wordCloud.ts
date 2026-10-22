@@ -2,6 +2,7 @@
 // has one (extensions.ts). The extension reads only `series.data`, so a series reading a sheet range
 // gets its words written into `data` here.
 
+import globalDefault from "echarts/lib/model/globalDefault.js";
 import { asList, isRecord } from "./optionParts";
 import { datasetNamedAmounts, namedAmount, type NamedAmount } from "./seriesDataset";
 
@@ -65,9 +66,31 @@ export function cloudWords(option: Record<string, unknown>, series: Record<strin
 // Rewritten here; anything else on the series (`shape`, `textStyle`, …) goes to the extension as is.
 const REWRITTEN = ["data", "datasetIndex", "encode", "sizeRange", "rotationRange", "rotationStep", "gridSize"];
 
+const isColourList = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === "string");
+
+/** The option's own palette, else ECharts' default one (the light and the dark theme share it). */
+const paletteOf = (option: Record<string, unknown>): string[] => (isColourList(option.color) ? option.color : globalDefault.color);
+
+/** The colour each of the series' own data items gives itself, by word. */
+function authoredColours(series: Record<string, unknown>): Map<string, unknown> {
+  const items = Array.isArray(series.data) ? series.data.filter(isRecord) : [];
+  return new Map(
+    items.flatMap((item) => (isRecord(item.textStyle) && item.textStyle.color !== undefined ? [[String(item.name).trim(), item.textStyle.color]] : [])),
+  );
+}
+
+// The extension paints a series in one colour unless each word carries its own, so each word is given
+// the palette's next one, as ECharts' `colorBy: "data"` would; a colour the author chose is kept.
+function colouredWords(option: Record<string, unknown>, series: Record<string, unknown>, words: CloudWord[]): Record<string, unknown>[] {
+  if (isRecord(series.textStyle) && series.textStyle.color !== undefined) return words.map((word) => ({ ...word }));
+  const palette = paletteOf(option);
+  const authored = authoredColours(series);
+  return words.map((word, index) => ({ ...word, textStyle: { color: authored.get(word.name) ?? palette[index % palette.length] } }));
+}
+
 function cloudSeries(option: Record<string, unknown>, series: Record<string, unknown>): Record<string, unknown> {
   const rest = Object.fromEntries(Object.entries(series).filter(([key]) => !REWRITTEN.includes(key)));
-  return { ...rest, ...cloudStyle(series), data: cloudWords(option, series) };
+  return { ...rest, ...cloudStyle(series), data: colouredWords(option, series, cloudWords(option, series)) };
 }
 
 const isWordCloud = (series: unknown): series is Record<string, unknown> => isRecord(series) && series.type === WORD_CLOUD;

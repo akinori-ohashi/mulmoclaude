@@ -4,9 +4,12 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import globalDefault from "echarts/lib/model/globalDefault.js";
 import { cloudStyle, cloudWords, withWordClouds, wordCloudProblem, type CloudStyle } from "../../../packages/plugins/chart-plugin/src/core/wordCloud";
 import { executeChart } from "../../../packages/plugins/chart-plugin/src/core/plugin";
 import { memoryArtifacts } from "./memoryArtifacts";
+
+const PALETTE = globalDefault.color;
 
 const STYLE: CloudStyle = { sizeRange: [12, 60], rotationRange: [0, 90], rotationStep: 90, gridSize: 8 };
 
@@ -116,8 +119,8 @@ describe("withWordClouds", () => {
       ...STYLE,
       sizeRange: [10, 30],
       data: [
-        { name: "a", value: 1 },
-        { name: "b", value: 2 },
+        { name: "a", value: 1, textStyle: { color: PALETTE[0] } },
+        { name: "b", value: 2, textStyle: { color: PALETTE[1] } },
       ],
     });
     assert.equal(option.series.rotationStep, 0, "the saved option is not changed");
@@ -145,10 +148,39 @@ describe("withWordClouds", () => {
       type: "wordCloud",
       ...STYLE,
       data: [
-        { name: "sales", value: 10 },
-        { name: "cost", value: 4 },
+        { name: "sales", value: 10, textStyle: { color: PALETTE[0] } },
+        { name: "cost", value: 4, textStyle: { color: PALETTE[1] } },
       ],
     });
+  });
+});
+
+describe("word colours", () => {
+  const words = (option: Record<string, unknown>): unknown[] => {
+    const { series } = withWordClouds(option);
+    const cloud: unknown = Array.isArray(series) ? series[0] : series;
+    const data: unknown = typeof cloud === "object" && cloud !== null ? Reflect.get(cloud, "data") : undefined;
+    return Array.isArray(data) ? data : [];
+  };
+  const colours = (option: Record<string, unknown>): unknown[] =>
+    words(option).map((word) => (typeof word === "object" && word !== null ? Reflect.get(Object(Reflect.get(word, "textStyle")), "color") : undefined));
+  const many = Array.from({ length: PALETTE.length + 2 }, (_, index) => ({ name: `w${index}`, value: 100 - index }));
+
+  it("gives each word the palette's next colour, as the word cloud did before 4.6.0, starting over when it runs out", () => {
+    assert.deepEqual(colours({ series: { type: "wordCloud", data: many } }), [...PALETTE, PALETTE[0], PALETTE[1]]);
+  });
+
+  it("takes the option's own palette when it has one", () => {
+    assert.deepEqual(colours({ color: ["#111", "#222"], series: { type: "wordCloud", data: many.slice(0, 3) } }), ["#111", "#222", "#111"]);
+  });
+
+  it("keeps a colour the author gave a word, and gives none when the author coloured the whole series", () => {
+    const data = [
+      { name: "a", value: 3, textStyle: { color: "#f00" } },
+      { name: "b", value: 2 },
+    ];
+    assert.deepEqual(colours({ series: { type: "wordCloud", data } }), ["#f00", PALETTE[1]]);
+    assert.deepEqual(colours({ series: { type: "wordCloud", textStyle: { color: "#0f0" }, data } }), [undefined, undefined]);
   });
 });
 
