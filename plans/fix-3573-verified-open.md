@@ -68,8 +68,12 @@ mount fails (EXDEV). Closing it outright needs a descriptor-relative `renameat`.
   created fails, and can leave that empty `<leaf>.<random>.tmp` in the link's target.
 - **a real directory moved in** — a directory renamed into the scope (not linked) is inside it from
   then on; moving one in from outside the workspace needs write access to it already.
-- **hard links** — an in-root hard link to an outside file is the outside file; creating one needs
-  access to that file already.
+- **hard links** — an in-root hard link to an outside file IS that file, and the inode check
+  cannot tell it apart. In Docker mode one cannot be made: the host outside the workspace mount is
+  not visible and a hard link cannot cross the mount. In native mode (`DISABLE_SANDBOX=1`) Linux may
+  allow it even without read access to the source when `fs.protected_hardlinks=0` — but the agent
+  then runs with the user's own host access and could read the file directly, so the boundary these
+  checks defend is the Docker one.
 
 ## Shape
 
