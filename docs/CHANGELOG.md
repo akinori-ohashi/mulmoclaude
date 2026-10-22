@@ -8,6 +8,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Fixed
+
+#### A map drawn from a spreadsheet range is coloured by its values (#3576, PR #3577)
+
+A map whose values come from a sheet range (`source`, as the `map of regions` recipe writes it) painted every region
+with no row in the series colour, which on a value scale reads as the largest: regions with no data looked busiest and
+the real values pale. The chart plugin now gives such a map its rows as region and value pairs, so regions with no data
+stay empty, on the light and the dark theme. Only the row layout a sheet range produces is rewritten; any other dataset
+is drawn by ECharts as before.
+
+#### 3D charts' axis labels read on the dark theme (#3578, PR #3579)
+
+On the dark theme, a 3D chart's tick labels, categories and axis names were drawn in dark grey and barely showed, while
+its split lines stood out. The chart plugin now draws dark with a theme of its own — ECharts' dark theme plus light
+colours for 3D axes — so they read, and colours the chart sets itself still win.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 ### Added
 
 #### Charts drawn from a spreadsheet range (#3512)
