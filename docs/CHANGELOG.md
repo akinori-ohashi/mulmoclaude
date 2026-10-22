@@ -18,7 +18,30 @@ engine, so the chart shows what the sheet shows, formulas included, and an open 
 The workbook may be named by the path the spreadsheet tool reported, by its full path, or by its path inside the
 sandbox. A path outside the workspace's spreadsheets is refused with the reason.
 
+#### A `presentHtml` page can hand the user's decisions back to the conversation (#3581, PR #3583)
+
+A page shown with `presentHtml` can post `{ type: "mulmo-html-submit", text }` to its parent — for example from a
+"Send" button on a plan where the user picked between mockups. The text is not sent straight away: it appears in a
+bar above the page, where the user can edit or discard it, and it becomes their next message only when they press
+Send there, since a click inside an LLM-authored page cannot be told from a scripted one. Only the page's own frame is
+heard, text over 20,000 characters is refused rather than cut, and reloading the page drops a decision that was waiting.
+The tool's description tells the agent how to add such a button. Shipped in `@mulmoclaude/html-plugin@5.1.0`.
+
 ### Fixed
+
+#### A map drawn from a spreadsheet range is coloured by its values (#3576, PR #3577)
+
+A map whose values come from a sheet range (`source`, as the `map of regions` recipe writes it) painted every region
+with no row in the series colour, which on a value scale reads as the largest: regions with no data looked busiest and
+the real values pale. The chart plugin now gives such a map its rows as region and value pairs, so regions with no data
+stay empty, on the light and the dark theme. Only the row layout a sheet range produces is rewritten; any other dataset
+is drawn by ECharts as before.
+
+#### 3D charts' axis labels read on the dark theme (#3578, PR #3579)
+
+On the dark theme, a 3D chart's tick labels, categories and axis names were drawn in dark grey and barely showed, while
+its split lines stood out. The chart plugin now draws dark with a theme of its own — ECharts' dark theme plus light
+colours for 3D axes — so they read, and colours the chart sets itself still win.
 
 #### Plugin file contents stay inside their folder even when a path is swapped mid-request (#3573)
 
@@ -29,7 +52,7 @@ replaced by a symlink — `artifacts/`, or a plugin's data or config folder poin
 being followed. Checking whether a file exists, listing a folder and deleting a file still check first and then
 act — what each can still expose is listed in `plans/fix-3573-verified-open.md`.
 
-Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.13.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.1`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.13.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.1.0`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.8.1] - 2026-10-22
 
