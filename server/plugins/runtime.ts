@@ -44,7 +44,7 @@ const DEFAULT_FETCH_TIMEOUT_MS = 10 * ONE_SECOND_MS;
  *  category subdir (`charts/`, …) and all write logic; the host only
  *  provides this generic primitive. */
 export function makeArtifactsFileOps(): FileOps {
-  return makeConfinedFileOps(path.join(workspacePath, "artifacts"));
+  return makeConfinedFileOps({ root: path.join(workspacePath, "artifacts"), trustedRoot: workspacePath });
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -288,8 +288,8 @@ export function makePluginRuntime(deps: MakePluginRuntimeDeps): MulmoclaudeRunti
     pubsub: makeScopedPubSub(pkgName, pubsub),
     locale,
     files: {
-      data: makeConfinedFileOps(dataRoot),
-      config: makeConfinedFileOps(configRoot),
+      data: makeConfinedFileOps({ root: dataRoot, trustedRoot: workspacePath }),
+      config: makeConfinedFileOps({ root: configRoot, trustedRoot: workspacePath }),
       artifacts: makeArtifactsFileOps(),
     },
     log: makeScopedLogger(pkgName),

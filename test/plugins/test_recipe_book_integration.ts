@@ -12,15 +12,14 @@
 
 import { describe, it, before, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadPluginFromCacheDir } from "../../server/plugins/runtime-loader.js";
 import { makePluginRuntime } from "../../server/plugins/runtime.js";
 import { createTaskManager } from "../../server/events/task-manager/index.js";
-import { WORKSPACE_PATHS } from "../../server/workspace/paths.js";
+import { WORKSPACE_PATHS, workspacePath } from "../../server/workspace/paths.js";
 import type { IPubSub } from "../../server/events/pub-sub/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -84,8 +83,10 @@ describe("Recipe Book plugin — end-to-end through the loader", () => {
   beforeEach(() => {
     savedDataDescriptor = Object.getOwnPropertyDescriptor(WORKSPACE_PATHS, "pluginsData");
     savedConfigDescriptor = Object.getOwnPropertyDescriptor(WORKSPACE_PATHS, "pluginsConfig");
-    dataRoot = mkdtempSync(path.join(tmpdir(), "recipe-int-data-"));
-    configRoot = mkdtempSync(path.join(tmpdir(), "recipe-int-config-"));
+    // Under the workspace: plugin roots must sit inside it (the trusted anchor of confined FileOps).
+    mkdirSync(workspacePath, { recursive: true });
+    dataRoot = mkdtempSync(path.join(workspacePath, "recipe-int-data-"));
+    configRoot = mkdtempSync(path.join(workspacePath, "recipe-int-config-"));
     if (savedDataDescriptor) Object.defineProperty(WORKSPACE_PATHS, "pluginsData", { ...savedDataDescriptor, value: dataRoot });
     if (savedConfigDescriptor) Object.defineProperty(WORKSPACE_PATHS, "pluginsConfig", { ...savedConfigDescriptor, value: configRoot });
   });

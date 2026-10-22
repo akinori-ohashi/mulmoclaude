@@ -31,6 +31,16 @@ the dark theme. Each word takes the palette's next colour again, in the order it
 list if it sets one, ECharts' default palette otherwise. A colour the chart gives a word, or the whole word cloud, is
 kept.
 
+#### Plugin file contents stay inside their folder even when a path is swapped mid-request (#3573)
+
+The symlink check added in 2.8.1 looked at a path and then used it, so a folder swapped for a link in between could
+still be followed. Reading a plugin or artifact file now opens it first and then confirms the opened file is the one
+inside the folder; writing confirms the staging file is inside the folder before any byte goes in, so a swap cannot steer
+it outside unless the swapper could already write there. A scope folder that is itself
+replaced by a symlink — `artifacts/`, or a plugin's data or config folder pointed elsewhere — is now refused instead of
+being followed. Checking whether a file exists, listing a folder and deleting a file still check first and then
+act — what each can still expose is listed in `plans/fix-3573-verified-open.md`.
+
 ### Added
 
 #### Charts drawn from a spreadsheet range (#3512)
@@ -50,7 +60,7 @@ Send there, since a click inside an LLM-authored page cannot be told from a scri
 heard, text over 20,000 characters is refused rather than cut, and reloading the page drops a decision that was waiting.
 The tool's description tells the agent how to add such a button. Shipped in `@mulmoclaude/html-plugin@5.1.0`.
 
-Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.2`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.1.0`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.2`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.13.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.1.0`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.8.1] - 2026-10-22
 
