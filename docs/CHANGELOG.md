@@ -38,6 +38,14 @@ on the computer let image editing and chat attachments read files there, and let
 read and write now checks that the folder still sits inside the workspace and goes through the file it verified; a
 store folder that leads outside makes the upload or save fail with an error instead.
 
+#### Photo location sidecars are read and written only inside the workspace (#3573)
+
+The location record saved next to a photo's EXIF (`data/locations/`) was written wherever that folder pointed, so a
+`data/locations` replaced by a symlink wrote it elsewhere on the computer, and the photo-locations list read whatever
+records sat there. The capture now reads the photo through the attachment store and writes the record through the
+same checked write as attachments; the list only reads records inside the workspace, and skips links out. A records
+folder that leads outside is treated as empty.
+
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.2`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.13.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.2.0`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.9.0] - 2026-10-22

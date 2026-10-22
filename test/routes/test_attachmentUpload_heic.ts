@@ -25,7 +25,6 @@ let unregisterHook: (() => void) | null = null;
 // Records what the EXIF hook was called with so tests can assert the
 // hook saw the ORIGINAL mimeType, not the JPEG.
 interface CapturedHookCall {
-  absPath: string;
   relativePath: string;
   mimeType: string;
 }
@@ -97,8 +96,8 @@ before(async () => {
   // Register a hook so the "hook sees the original MIME" assertion
   // works. Kept module-scope so beforeEach can reset capturedHookCalls.
   const attachmentStore = await import("../../server/utils/files/attachment-store.ts");
-  unregisterHook = attachmentStore.registerSaveAttachmentHook(async (absPath, relativePath, mimeType) => {
-    capturedHookCalls.push({ absPath, relativePath, mimeType });
+  unregisterHook = attachmentStore.registerSaveAttachmentHook(async (relativePath, mimeType) => {
+    capturedHookCalls.push({ relativePath, mimeType });
   });
 });
 

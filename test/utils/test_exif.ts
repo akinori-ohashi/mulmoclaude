@@ -6,11 +6,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 
-import { isExifSupportedMime, projectExif, readPhotoExif } from "../../server/utils/exif.js";
+import { isExifSupportedMime, parsePhotoExif, projectExif } from "../../server/utils/exif.js";
 
 const TAKEN_AT_RAW = new Date("2026-04-12T08:30:00.000Z");
 const TAKEN_AT_ISO = TAKEN_AT_RAW.toISOString();
@@ -259,45 +256,22 @@ describe("projectExif — empty / null returns", () => {
   });
 });
 
-describe("readPhotoExif — file-system + parser injection", () => {
-  it("returns null when the file does not exist", async () => {
-    const result = await readPhotoExif("/does/not/exist.jpg");
+describe("parsePhotoExif — parser injection", () => {
+  it("returns null when the parser throws (corrupt JPEG)", async () => {
+    const result = await parsePhotoExif(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x00]), () => Promise.reject(new Error("malformed")));
     assert.equal(result, null);
   });
 
-  it("returns null when the parser throws (corrupt JPEG)", async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "exif-test-"));
-    const filePath = path.join(dir, "corrupt.jpg");
-    writeFileSync(filePath, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x00]));
-    try {
-      const result = await readPhotoExif(filePath, () => Promise.reject(new Error("malformed")));
-      assert.equal(result, null);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it("returns null when the parser yields no useful fields", async () => {
+    assert.equal(await parsePhotoExif(Buffer.from([0xff, 0xd8]), () => Promise.resolve({})), null);
   });
 
-  it("returns null when the parser yields no useful fields", async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "exif-test-"));
-    const filePath = path.join(dir, "scrubbed.jpg");
-    writeFileSync(filePath, Buffer.from([0xff, 0xd8]));
-    try {
-      const result = await readPhotoExif(filePath, () => Promise.resolve({}));
-      assert.equal(result, null);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it("returns null for bytes the real parser finds no EXIF in", async () => {
+    assert.equal(await parsePhotoExif(Buffer.from("not a photo")), null);
   });
 
   it("flows the parser output through projectExif", async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "exif-test-"));
-    const filePath = path.join(dir, "good.jpg");
-    writeFileSync(filePath, Buffer.from([0xff, 0xd8]));
-    try {
-      const result = await readPhotoExif(filePath, () => Promise.resolve({ latitude: 35.6586, longitude: 139.7454, Make: "Apple" }));
-      assert.deepEqual(result, { lat: 35.6586, lng: 139.7454, make: "Apple" });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const result = await parsePhotoExif(Buffer.from([0xff, 0xd8]), () => Promise.resolve({ latitude: 35.6586, longitude: 139.7454, Make: "Apple" }));
+    assert.deepEqual(result, { lat: 35.6586, lng: 139.7454, make: "Apple" });
   });
 });
