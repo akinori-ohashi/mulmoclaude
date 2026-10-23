@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -85,12 +85,13 @@ describe("photo-locations change publisher — write-path integration", () => {
     saveSettings({ extraAllowedTools: [] });
     const sink: Published[] = [];
     initPhotoLocationsChangePublisher(fakePubSub(sink));
-    // The capture reads the real file at absPath before handing bytes to the
-    // (stubbed) parser, so it must exist on disk.
-    const photoPath = path.join(workspaceRoot, "pic.jpg");
-    writeFileSync(photoPath, Buffer.from("not-a-real-jpeg"));
+    // The capture reads the stored photo before handing bytes to the
+    // (stubbed) parser, so it must exist in the attachment store.
+    const photoDir = path.join(workspaceRoot, "data/attachments/2026/07");
+    mkdirSync(photoDir, { recursive: true });
+    writeFileSync(path.join(photoDir, "pic.jpg"), Buffer.from("not-a-real-jpeg"));
     const { capturePhotoLocationWithParser } = await import("../../server/workspace/photo-locations/index.js");
-    await capturePhotoLocationWithParser(photoPath, "data/attachments/2026/07/pic.jpg", "image/jpeg", () => Promise.resolve(FAKE_GPS_EXIF));
+    await capturePhotoLocationWithParser("data/attachments/2026/07/pic.jpg", "image/jpeg", () => Promise.resolve(FAKE_GPS_EXIF));
     assert.equal(sink.length, 1, "a sidecar write should publish exactly one change event");
     const [published] = sink;
     assert.ok(published);

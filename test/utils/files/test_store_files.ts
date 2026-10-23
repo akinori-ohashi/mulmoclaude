@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeStoreFiles } from "../../../server/utils/files/store-files.js";
@@ -11,6 +11,8 @@ let outside: string;
 const storeRoot = (): string => path.join(workspace, "data", "attachments");
 const store = makeStoreFiles(storeRoot, PREFIX);
 const BYTES = Buffer.from("bytes");
+const SECRET_MODE = 0o600;
+const PERMISSION_BITS = 0o777;
 
 describe("makeStoreFiles", () => {
   beforeEach(() => {
@@ -24,12 +26,28 @@ describe("makeStoreFiles", () => {
   });
 
   it("creates the store and its partition on the first write, and reads it back", async () => {
-    const written = await store.write(`${PREFIX}/2026/10/a.pdf`, BYTES);
-    assert.equal(written, path.join(storeRoot(), "2026", "10", "a.pdf"));
+    await store.write(`${PREFIX}/2026/10/a.pdf`, BYTES);
+    assert.deepEqual(readFileSync(path.join(storeRoot(), "2026", "10", "a.pdf")), BYTES);
     assert.deepEqual(await store.read(`${PREFIX}/2026/10/a.pdf`), BYTES);
     assert.equal(await store.isFile(`${PREFIX}/2026/10/a.pdf`), true);
     await store.write(`${PREFIX}/2026/10/a.pdf`, Buffer.from("again"));
     assert.equal((await store.read(`${PREFIX}/2026/10/a.pdf`)).toString(), "again");
+  });
+
+  it("applies the requested mode to the written file", { skip: process.platform === "win32" }, async () => {
+    await store.write(`${PREFIX}/2026/10/a.pdf`, BYTES, { mode: SECRET_MODE });
+    assert.equal(statSync(path.join(storeRoot(), "2026", "10", "a.pdf")).mode & PERMISSION_BITS, SECRET_MODE);
+  });
+
+  it("lists a folder of the store, and nothing for a missing or escaping one", async () => {
+    await store.write(`${PREFIX}/2026/10/a.pdf`, BYTES);
+    const names = async (dir: string): Promise<string[]> => (await store.listDir(dir)).map((entry) => entry.name);
+    assert.deepEqual(await names(""), ["2026"]);
+    assert.deepEqual(await names("2026/10"), ["a.pdf"]);
+    assert.deepEqual(await names(`${PREFIX}/2026`), ["10"]);
+    assert.deepEqual(await names("2026/10/a.pdf"), []);
+    assert.deepEqual(await names("none"), []);
+    assert.deepEqual(await names("../.."), []);
   });
 
   it("refuses a missing file, a directory and an escaping path", async () => {
@@ -60,6 +78,7 @@ describe("makeStoreFiles", () => {
       symlinkSync(target(), link(), "dir");
       await assert.rejects(() => store.read(secret), /path traversal rejected/);
       assert.equal(await store.isFile(secret), false);
+      assert.deepEqual(await store.listDir(""), []);
       await assert.rejects(() => store.write(`${PREFIX}/2026/10/new.pdf`, BYTES), /refusing to write/);
       await assert.rejects(() => store.write(secret, BYTES), /refusing to write/);
       assert.equal(readFileSync(path.join(outside, "secret.pdf"), "utf8"), "secret");

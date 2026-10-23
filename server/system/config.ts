@@ -55,7 +55,7 @@ export interface AppSettings {
 
   // Photo-EXIF auto-capture (#1222 PR-A). When `autoCapture` is true
   // (the default), every saved attachment with an image MIME runs
-  // through `readPhotoExif` and a sidecar JSON lands at
+  // through `parsePhotoExif` and a sidecar JSON lands at
   // `data/locations/<YYYY>/<MM>/<id>.json`. Users opt out via
   // Settings → Privacy when they don't want GPS metadata captured
   // automatically (the future `manageMap` `extractExif` tool can

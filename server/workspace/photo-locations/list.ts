@@ -8,13 +8,13 @@
 // "list all my photo locations" or "render every captured pin on
 // a map view".
 
-import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { WORKSPACE_DIRS, WORKSPACE_PATHS } from "../paths.js";
+import { WORKSPACE_DIRS } from "../paths.js";
 import { log } from "../../system/logger/index.js";
 import { isRecord } from "../../utils/types.js";
 import type { PhotoExif } from "../../utils/exif.js";
 import type { PhotoLocationSidecar } from "./index.js";
+import { locationsStore } from "./store.js";
 
 /** A sidecar paired with the id used in the filename. The id is the
  *  attachment's stable identifier; consumers (UI, LLM) use it to
@@ -33,15 +33,12 @@ const SIDECAR_EXT = ".json";
  *  the path so an operator can investigate without the listing
  *  crashing. */
 export async function listAllSidecars(): Promise<ListedSidecar[]> {
-  const root = WORKSPACE_PATHS.locations;
-  const yearDirs = await readSubdirsSafe(root);
+  const yearDirs = await readSubdirs("");
   const all: ListedSidecar[] = [];
   for (const year of yearDirs) {
-    const yearAbs = path.join(root, year);
-    const monthDirs = await readSubdirsSafe(yearAbs);
+    const monthDirs = await readSubdirs(year);
     for (const month of monthDirs) {
-      const monthAbs = path.join(yearAbs, month);
-      const sidecars = await readSidecarsInDir(monthAbs, year, month);
+      const sidecars = await readSidecarsInDir(year, month);
       all.push(...sidecars);
     }
   }
@@ -146,39 +143,30 @@ function validateSidecarShape(value: unknown): PhotoLocationSidecar | null {
   return { version: 1, capturedAt, photo: { relativePath, mimeType }, exif: readSidecarExif(exif) };
 }
 
-async function readSubdirsSafe(dir: string): Promise<string[]> {
-  try {
-    const entries = await readdir(dir, { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-  } catch {
-    // ENOENT on a fresh workspace — locations dir doesn't exist
-    // yet, treat as empty.
-    return [];
-  }
+// A fresh workspace has no locations folder yet; the store lists that as empty.
+async function readSubdirs(storeDir: string): Promise<string[]> {
+  const entries = await locationsStore.listDir(storeDir);
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 }
 
-async function readSidecarsInDir(absDir: string, year: string, month: string): Promise<ListedSidecar[]> {
-  const entries = await readdir(absDir).catch(() => []);
+async function readSidecarsInDir(year: string, month: string): Promise<ListedSidecar[]> {
+  const entries = await locationsStore.listDir(path.posix.join(year, month));
   const out: ListedSidecar[] = [];
-  for (const entry of entries) {
+  for (const { name: entry } of entries) {
     if (!entry.endsWith(SIDECAR_EXT)) continue;
     const sidecarId = entry.slice(0, -SIDECAR_EXT.length);
-    const absPath = path.join(absDir, entry);
+    const relativePath = path.posix.join(WORKSPACE_DIRS.locations, year, month, entry);
     try {
-      const raw = await readFile(absPath, "utf8");
+      const raw = (await locationsStore.read(relativePath)).toString("utf8");
       const parsed: unknown = JSON.parse(raw);
       const sidecar = validateSidecarShape(parsed);
       if (!sidecar) {
-        log.warn("photo-locations", "skipping sidecar with invalid shape", { path: absPath });
+        log.warn("photo-locations", "skipping sidecar with invalid shape", { path: relativePath });
         continue;
       }
-      out.push({
-        id: sidecarId,
-        relativePath: path.posix.join(WORKSPACE_DIRS.locations, year, month, entry),
-        sidecar,
-      });
+      out.push({ id: sidecarId, relativePath, sidecar });
     } catch (err) {
-      log.warn("photo-locations", "skipping malformed sidecar", { path: absPath, error: String(err) });
+      log.warn("photo-locations", "skipping malformed sidecar", { path: relativePath, error: String(err) });
     }
   }
   return out;

@@ -29,14 +29,15 @@ export interface SavedAttachment {
 }
 
 /** Post-save hook fired after every successful `saveAttachment`.
- *  Receives the absolute on-disk path, the workspace-relative path
- *  (the same one returned to the caller), and the MIME type the
- *  bytes were saved with. Hooks must NEVER throw — the upload is
- *  already on disk by the time the hook runs, so a failure should
+ *  Receives the workspace-relative path (the same one returned to the
+ *  caller) and the MIME type the bytes were saved with — no absolute
+ *  path, so a hook reads the bytes back through the store. Hooks must
+ *  NEVER throw — the upload is already on disk by the time the hook
+ *  runs, so a failure should
  *  log and return, not propagate. Multiple hooks fan out via
  *  `Promise.allSettled` so one slow / failing hook can't block or
  *  break the others. (#1222 PR-A.) */
-export type SaveAttachmentHook = (absPath: string, relativePath: string, mimeType: string) => Promise<void>;
+export type SaveAttachmentHook = (relativePath: string, mimeType: string) => Promise<void>;
 
 const saveAttachmentHooks: SaveAttachmentHook[] = [];
 
@@ -52,14 +53,14 @@ export function registerSaveAttachmentHook(hook: SaveAttachmentHook): () => void
   };
 }
 
-async function runSaveAttachmentHooks(absPath: string, relativePath: string, mimeType: string): Promise<void> {
+async function runSaveAttachmentHooks(relativePath: string, mimeType: string): Promise<void> {
   if (saveAttachmentHooks.length === 0) return;
   // Snapshot the array so a hook that calls `registerSaveAttachmentHook`
   // (or its unregister fn) during this loop doesn't mutate the
   // iteration order. `allSettled` so one failing hook doesn't stop
   // the others — failures are the hook's responsibility to log.
   const snapshot = [...saveAttachmentHooks];
-  await Promise.allSettled(snapshot.map((hook) => hook(absPath, relativePath, mimeType)));
+  await Promise.allSettled(snapshot.map((hook) => hook(relativePath, mimeType)));
 }
 
 /** Save a single attachment under data/attachments/YYYY/MM/. The
@@ -69,12 +70,12 @@ export async function saveAttachment(base64Data: string, mimeType: string, origi
   const partition = yearMonthUtc();
   const ext = storedExtensionFor(mimeType, originalFilename);
   const relativePath = path.posix.join(WORKSPACE_DIRS.attachments, partition, `${shortId()}${ext}`);
-  const absPath = await store.write(relativePath, Buffer.from(base64Data, "base64"));
+  await store.write(relativePath, Buffer.from(base64Data, "base64"));
   // Hooks (e.g. photo-EXIF capture) are awaited so callers can rely
   // on the sidecar existing by the time `saveAttachment` resolves —
   // simplifies test assertions and removes a class of race conditions
   // for downstream tools that read sidecars right after upload.
-  await runSaveAttachmentHooks(absPath, relativePath, mimeType);
+  await runSaveAttachmentHooks(relativePath, mimeType);
   return { relativePath, mimeType };
 }
 
