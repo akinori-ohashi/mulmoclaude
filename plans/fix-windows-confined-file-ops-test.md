@@ -10,8 +10,9 @@ Two `makeConfinedFileOps` tests have failed on every Windows run of `main` since
    contract says absolute paths are refused. **Fix:** a leading drive letter is refused like `/`; the test gains
    `C:\…` and `c:…` cases that run on every platform.
 2. **"propagates an error other than ENOENT"** — the test opens a path through a regular file to get `ENOTDIR`.
-   Windows reports that path as ENOENT, so there is no non-ENOENT error for the input to produce. **Fix:** the test is
-   skipped on Windows; it still runs on Linux and macOS.
+   Windows reports that path as ENOENT, so there is no non-ENOENT error for the input to produce. **Fix:** the traversal
+   cases are skipped on Windows (they still run on Linux and macOS); listing a regular file is its own test, which
+   runs on every platform.
 
 ## Verified
 
