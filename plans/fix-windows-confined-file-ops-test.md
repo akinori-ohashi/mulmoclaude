@@ -18,6 +18,8 @@ Two `makeConfinedFileOps` tests have failed on every Windows run of `main` since
    failed first. The test built its anchor with `realpathSync`, which keeps Windows 8.3 names (`RUNNER~1`), while the
    code re-resolves with async `realpath` (long names), so an in-scope file read as outside. Production builds every
    anchor with async `realpath`, so only the test was wrong. **Fix:** `realpathSync.native`.
+   Its "parent swapped out after the open" case renames a directory that holds an open file, which Windows refuses
+   (EPERM), so that swap cannot happen there; the case is skipped on Windows.
 
 ## Verified
 
