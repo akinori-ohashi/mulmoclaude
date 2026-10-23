@@ -89,6 +89,8 @@ describe("makeConfinedFileOps", () => {
     await assert.rejects(ops.read(path.join(outside, "secret.json")), /escapes plugin scope/);
     await assert.rejects(ops.write("../outside/planted.json", "x"), /escapes plugin scope/);
     await assert.rejects(ops.unlink("../outside/secret.json"), /escapes plugin scope/);
+    await assert.rejects(ops.read("C:\\outside\\secret.json"), /escapes plugin scope/);
+    await assert.rejects(ops.write("c:planted.json", "x"), /escapes plugin scope/);
     assert.deepEqual(readdirSync(outside).sort(), ["secret.json"]);
   });
 
@@ -97,7 +99,8 @@ describe("makeConfinedFileOps", () => {
     assert.equal(await ops.read("sheets/win/file.json"), "win");
   });
 
-  it("propagates an error other than ENOENT instead of reading it as missing", async () => {
+  // Windows reports a path through a regular file as ENOENT, not ENOTDIR, so there is no non-ENOENT error to propagate.
+  it("propagates an error other than ENOENT instead of reading it as missing", { skip: process.platform === "win32" }, async () => {
     const isEnotdir = (err: unknown): boolean => err instanceof Error && "code" in err && err.code === "ENOTDIR";
     await assert.rejects(ops.read("sheets/in.json/x"), isEnotdir);
     await assert.rejects(ops.stat("sheets/in.json/x"), isEnotdir);
