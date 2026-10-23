@@ -45,8 +45,9 @@ const readThrough = async (relative: string, hooks: VerifiedFileHooks = {}): Pro
 
 describe("verified file access", () => {
   beforeEach(() => {
-    anchor = realpathSync(mkdtempSync(path.join(tmpdir(), "verified-anchor-")));
-    far = realpathSync(mkdtempSync(path.join(tmpdir(), "verified-far-")));
+    // `.native` matches the async `realpath` the code compares against; plain `realpathSync` keeps Windows 8.3 names (RUNNER~1).
+    anchor = realpathSync.native(mkdtempSync(path.join(tmpdir(), "verified-anchor-")));
+    far = realpathSync.native(mkdtempSync(path.join(tmpdir(), "verified-far-")));
     root = path.join(anchor, "root");
     outside = path.join(anchor, "outside");
     dir = path.join(root, "dir");

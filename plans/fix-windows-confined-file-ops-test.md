@@ -14,6 +14,11 @@ Two `makeConfinedFileOps` tests have failed on every Windows run of `main` since
    cases are skipped on Windows (they still run on Linux and macOS); listing a regular file is its own test, which
    runs on every platform.
 
+3. **`packages/core/test/files/test_verified.ts`**, which `main` never reached on Windows because the host suite
+   failed first. The test built its anchor with `realpathSync`, which keeps Windows 8.3 names (`RUNNER~1`), while the
+   code re-resolves with async `realpath` (long names), so an in-scope file read as outside. Production builds every
+   anchor with async `realpath`, so only the test was wrong. **Fix:** `realpathSync.native`.
+
 ## Verified
 
 - Removing the drive-letter check turns the new assertions red on macOS.
