@@ -22,6 +22,11 @@ MulmoClaude runs `presentHtml` with its own executor, so its pages keep the conf
 
 ### Fixed
 
+#### A plugin file path starting with a drive letter is refused as absolute
+
+A runtime plugin's file call with a Windows absolute path (`C:\…`, `c:file`) used to be taken as a folder named `C:`
+under the plugin's scope; it is now refused like `/…` and `../…`. Nothing outside the scope was reachable before either.
+
 #### Artifact images, HTML pages and SVGs are served only from inside the workspace (#3573)
 
 `/artifacts/images`, `/artifacts/html` and `/artifacts/svg` took their own folder's real location as the boundary, so

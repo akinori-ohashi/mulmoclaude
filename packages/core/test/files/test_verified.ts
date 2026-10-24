@@ -45,8 +45,9 @@ const readThrough = async (relative: string, hooks: VerifiedFileHooks = {}): Pro
 
 describe("verified file access", () => {
   beforeEach(() => {
-    anchor = realpathSync(mkdtempSync(path.join(tmpdir(), "verified-anchor-")));
-    far = realpathSync(mkdtempSync(path.join(tmpdir(), "verified-far-")));
+    // `.native` matches the async `realpath` the code compares against; plain `realpathSync` keeps Windows 8.3 names (RUNNER~1).
+    anchor = realpathSync.native(mkdtempSync(path.join(tmpdir(), "verified-anchor-")));
+    far = realpathSync.native(mkdtempSync(path.join(tmpdir(), "verified-far-")));
     root = path.join(anchor, "root");
     outside = path.join(anchor, "outside");
     dir = path.join(root, "dir");
@@ -71,7 +72,8 @@ describe("verified file access", () => {
     assert.equal(await readThrough("dir/in.json", { beforeOpen: swapOut, afterOpen: swapBack }), null);
   });
 
-  it("refuses when the parent is swapped out after the open and left there", async () => {
+  // Windows refuses to rename a directory holding an open file (EPERM), so this swap cannot happen there.
+  it("refuses when the parent is swapped out after the open and left there", { skip: process.platform === "win32" }, async () => {
     assert.equal(await readThrough("dir/in.json", { afterOpen: swapOut }), null);
   });
 

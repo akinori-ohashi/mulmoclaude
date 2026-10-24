@@ -22,8 +22,8 @@ import { ensureInsideBase } from "./runtime-loader.js";
 //
 //   1. Replace `\` with `/` (Windows path.join leak repair).
 //   2. `path.posix.normalize` (folds `..`, `.`, `//`).
-//   3. Reject if the normalised form starts with `..` or `/`
-//      (would escape the scope root or be absolute).
+//   3. Reject if the normalised form starts with `..`, `/` or a
+//      drive letter (would escape the scope root or be absolute).
 //   4. `path.join(scopeRoot, ...segments)` — platform-aware join so
 //      the returned absolute path uses the host OS separator
 //      (backslashes on Windows, forward slashes on POSIX). Critical
@@ -36,11 +36,13 @@ import { ensureInsideBase } from "./runtime-loader.js";
 /** Resolve a plugin-supplied path to an absolute path inside the
  *  plugin's scope root. Throws on traversal. Lexical only — symlinks
  *  are checked by the FileOps below. Exported for tests. */
+const WINDOWS_DRIVE_RE = /^[a-zA-Z]:/;
+
 export function normalizePluginPath(scopeRoot: string, rel: string): string {
   const slashed = rel.replace(/\\/g, "/");
   const normalised = path.posix.normalize(slashed);
   // `path.posix.normalize` produces `..` alone if the input is `..` itself, hence the equality branch.
-  if (normalised === ".." || normalised.startsWith("../") || normalised.startsWith("/")) {
+  if (normalised === ".." || normalised.startsWith("../") || normalised.startsWith("/") || WINDOWS_DRIVE_RE.test(normalised)) {
     throw new Error(`path escapes plugin scope: ${rel}`);
   }
   const segments = normalised === "." ? [] : normalised.split("/");
