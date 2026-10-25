@@ -51,6 +51,13 @@ records sat there. The capture now reads the photo through the attachment store 
 same checked write as attachments; the list only reads records inside the workspace, and skips links out. A records
 folder that leads outside is treated as empty.
 
+#### PDF export, HTML sharing and phone thumbnails read only regular files inside the workspace (#3573)
+
+Embedding images into a PDF or a shared markdown zip, packing an HTML page into a zip, and making thumbnails for the
+phone's custom views now read the file they checked, so a file swapped for a link mid-read is not followed. A named
+pipe given an image name is skipped. Before, it stopped the whole server during a PDF export and left an HTML share
+waiting forever.
+
 Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.2`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.13.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.2.0`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.9.0] - 2026-10-22
