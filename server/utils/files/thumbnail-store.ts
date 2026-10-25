@@ -5,12 +5,12 @@
 // host produces here. Kept a leaf util (no collection/remote-view imports) so
 // the builder in remoteView.ts is the only wiring point.
 //
-// Reads are workspace-containment-guarded (resolveWithinRoot, same discipline as
-// image-store.ts). Results are cached by (path, mtime, maxEdge) so repeated
+// Reads go through the verified handle (#3573), so a path swapped mid-call cannot
+// reach outside the workspace. Results are cached by (path, mtime, maxEdge) so repeated
 // pages / "load more" scrolls never re-decode the same source.
-import { readFile, realpath, stat } from "fs/promises";
+import type { FileHandle } from "fs/promises";
 import { workspacePath } from "../../workspace/paths.js";
-import { resolveWithinRoot } from "./safe.js";
+import { artifactScope, openArtifactFile } from "./artifactMount.js";
 import { log } from "../../system/logger/index.js";
 
 /** Decode → downscale to fit `maxEdge` (never enlarge) → re-encode JPEG.
@@ -62,6 +62,21 @@ export function clearThumbnailCache(): void {
   cache.clear();
 }
 
+async function thumbnailFromHandle(handle: FileHandle, relPath: string, maxEdge: number, resize: ResizeToJpeg): Promise<string | null> {
+  try {
+    const info = await handle.stat();
+    const cached = cacheGet(relPath, info.mtimeMs, maxEdge);
+    if (cached) return cached;
+    const out = await resize(await handle.readFile(), maxEdge);
+    const dataUrl = `data:image/jpeg;base64,${out.toString("base64")}`;
+    cacheSet(relPath, { mtimeMs: info.mtimeMs, maxEdge, dataUrl });
+    return dataUrl;
+  } catch (err) {
+    log.warn("thumbnail", "resolve failed", { relPath, error: String(err) });
+    return null;
+  }
+}
+
 /** Resolve a workspace-relative image path to a downscaled JPEG `data:` URL, or
  *  `null` when the path escapes the workspace, is missing, or can't be decoded —
  *  the caller then leaves the field as its original path (rendered as a
@@ -70,26 +85,13 @@ export function clearThumbnailCache(): void {
 export function createThumbnailResolver(resize: ResizeToJpeg = sharpResize) {
   return async function resolveThumbnail(relPath: string, maxEdge: number): Promise<string | null> {
     if (typeof relPath !== "string" || relPath.length === 0) return null;
-    let root: string;
+    const scope = await artifactScope(workspacePath, "").catch(() => null);
+    const handle = scope === null ? null : await openArtifactFile(scope, relPath).catch(() => null);
+    if (handle === null) return null;
     try {
-      root = await realpath(workspacePath);
-    } catch {
-      return null;
-    }
-    const abs = resolveWithinRoot(root, relPath);
-    if (!abs) return null;
-    const info = await stat(abs).catch(() => null);
-    if (!info?.isFile()) return null;
-    const cached = cacheGet(relPath, info.mtimeMs, maxEdge);
-    if (cached) return cached;
-    try {
-      const out = await resize(await readFile(abs), maxEdge);
-      const dataUrl = `data:image/jpeg;base64,${out.toString("base64")}`;
-      cacheSet(relPath, { mtimeMs: info.mtimeMs, maxEdge, dataUrl });
-      return dataUrl;
-    } catch (err) {
-      log.warn("thumbnail", "resolve failed", { relPath, error: String(err) });
-      return null;
+      return await thumbnailFromHandle(handle, relPath, maxEdge, resize);
+    } finally {
+      await handle.close();
     }
   };
 }

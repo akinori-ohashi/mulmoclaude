@@ -1,9 +1,7 @@
-import { readFile } from "fs/promises";
-import { realpathSync } from "fs";
 import path from "path";
 import JSZip from "jszip";
 import { resolveWorkspacePath } from "../files/workspace-io.js";
-import { resolveWithinRoot } from "../files/safe.js";
+import { artifactScope, lexicallyInside, readArtifactFile } from "../files/artifactMount.js";
 import { rewriteHtmlAssets } from "./rewriteAssets.js";
 import { log } from "../../system/logger/index.js";
 
@@ -22,32 +20,18 @@ export interface PackedBundle {
   files: PackedFile[];
 }
 
-// `resolveWithinRoot` requires an already-realpath'd root. Resolved
-// lazily (not at import) so loading this module never depends on the
-// workspace dir existing yet; the location doesn't change during a run.
-let workspaceRealCache: string | null = null;
-function workspaceReal(): string {
-  if (workspaceRealCache === null) workspaceRealCache = realpathSync(resolveWorkspacePath("."));
-  return workspaceRealCache;
-}
-
 function stripQueryHash(ref: string): string {
   const cut = ref.search(/[?#]/);
   return cut === -1 ? ref : ref.slice(0, cut);
 }
 
-// Resolve a workspace-relative path to a contained absolute path, or
-// null if it escapes the workspace / doesn't exist. `resolveWithinRoot`
-// already realpath-checks containment; the extra `path.relative` guard
-// is the form CodeQL's js/path-injection analysis recognizes as a
-// sanitizer (its `startsWith` form isn't), and is redundant at runtime.
-function safeWorkspaceAbs(relFromRoot: string): string | null {
-  const root = workspaceReal();
-  const abs = resolveWithinRoot(root, relFromRoot);
-  if (!abs) return null;
-  const rel = path.relative(root, abs);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
-  return abs;
+// Bytes of a workspace file through the verified handle (#3573), or null when it is missing, outside the
+// workspace, or not a regular file. The lexical check is the form CodeQL's js/path-injection recognises.
+async function readWorkspaceFile(relFromRoot: string): Promise<Buffer | null> {
+  const root = resolveWorkspacePath(".");
+  const inside = lexicallyInside(root, relFromRoot);
+  const scope = inside === null ? null : await artifactScope(root, "").catch(() => null);
+  return scope === null || inside === null ? null : readArtifactFile(scope, inside);
 }
 
 // Resolve a ref (relative to the HTML file's dir) to workspace bytes.
@@ -55,19 +39,13 @@ function safeWorkspaceAbs(relFromRoot: string): string | null {
 // missing — the caller warns and leaves the (now dangling) link.
 async function readAsset(htmlDir: string, originalRef: string): Promise<Buffer | null> {
   const relFromRoot = path.posix.normalize(path.posix.join(htmlDir, stripQueryHash(originalRef)));
-  const abs = safeWorkspaceAbs(relFromRoot);
-  if (!abs) return null;
-  try {
-    return await readFile(abs);
-  } catch {
-    return null;
-  }
+  return readWorkspaceFile(relFromRoot);
 }
 
 export async function packHtmlBundle(htmlRelPath: string): Promise<PackedBundle> {
-  const abs = safeWorkspaceAbs(htmlRelPath);
-  if (!abs) throw new Error(`HTML not found or outside workspace: ${htmlRelPath}`);
-  const html = await readFile(abs, "utf-8");
+  const htmlBytes = await readWorkspaceFile(htmlRelPath);
+  if (htmlBytes === null) throw new Error(`HTML not found or outside workspace: ${htmlRelPath}`);
+  const html = htmlBytes.toString("utf-8");
 
   const { html: rewritten, assets } = rewriteHtmlAssets(html);
   const htmlDir = path.posix.dirname(htmlRelPath);

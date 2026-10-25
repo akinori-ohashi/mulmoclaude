@@ -11,7 +11,7 @@ import { log } from "../../system/logger/index.js";
 import { resolveArtifactRequestPath } from "./safe.js";
 import { sendFileHandle } from "./sendFileHandle.js";
 
-/** `mountDir` is the mount folder relative to the workspace, e.g. `artifacts/images`. */
+/** `mountDir` is the mount folder relative to the workspace, e.g. `artifacts/images`; `""` is the workspace itself. */
 export async function artifactScope(workspaceRoot: string, mountDir: string): Promise<VerifiedScope | null> {
   const trustedReal = await realpathIfPresent(workspaceRoot);
   return trustedReal === null ? null : { trustedReal, scopeWithinTrusted: mountDir };
@@ -26,7 +26,7 @@ export async function artifactRequestPath(scope: VerifiedScope, reqPath: string)
 }
 
 // The `path.relative` form is the containment check CodeQL recognises before the path reaches realpath.
-function lexicallyInside(scopeReal: string, relPath: string): string | null {
+export function lexicallyInside(scopeReal: string, relPath: string): string | null {
   const inside = path.relative(scopeReal, path.resolve(scopeReal, relPath));
   return inside === "" || inside.startsWith("..") || path.isAbsolute(inside) ? null : inside;
 }
@@ -42,6 +42,21 @@ export async function openArtifactFile(scope: VerifiedScope, relPath: string): P
   if (isFile) return handle;
   await handle.close();
   return null;
+}
+
+/** Bytes of a regular file of the scope, read through the verified handle; null for anything else or on any error. */
+export async function readArtifactFile(scope: VerifiedScope, relPath: string): Promise<Buffer | null> {
+  try {
+    const handle = await openArtifactFile(scope, relPath);
+    if (handle === null) return null;
+    try {
+      return await handle.readFile();
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return null;
+  }
 }
 
 export type ArtifactResponder = (req: Request, res: Response, scope: VerifiedScope, relPath: string) => Promise<void>;

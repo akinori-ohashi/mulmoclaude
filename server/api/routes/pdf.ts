@@ -1,4 +1,3 @@
-import { realpathSync } from "fs";
 import path from "path";
 import { Router, Request, Response } from "express";
 import { randomUUID } from "node:crypto";
@@ -10,7 +9,8 @@ import puppeteer from "puppeteer";
 import { errorMessage } from "../../utils/errors.js";
 import { badRequest, serverError } from "../../utils/httpError.js";
 import { WORKSPACE_DIRS } from "../../workspace/paths.js";
-import { resolveWithinRoot, readBinarySafeSync } from "../../utils/files/safe.js";
+import type { VerifiedScope } from "@mulmoclaude/core/files";
+import { artifactScope, readArtifactFile } from "../../utils/files/artifactMount.js";
 import { resolveWorkspacePath } from "../../utils/files/workspace-io.js";
 import { parseFrontmatter } from "@mulmoclaude/markdown-utils/markdown/frontmatter";
 import { log } from "../../system/logger/index.js";
@@ -66,21 +66,15 @@ const MIME_BY_EXT: Record<string, string> = {
   ".webp": "image/webp",
 };
 
-// Realpath of the workspace, resolved once at module load. Used to
-// validate that image paths resolved relative to markdowns/ stay
-// inside the workspace after symlink resolution.
-const defaultWorkspaceRoot = realpathSync(resolveWorkspacePath(""));
-
 export interface InlineImagesOptions {
-  /** Workspace root absolute path. Defaults to the lazily-resolved
-   *  realpath of the configured workspace. */
+  /** Workspace root absolute path. Defaults to the configured workspace. */
   workspaceRoot?: string;
   /** Workspace-relative directory the markdown source lives in,
    *  used to resolve `../foo.png`-style references. e.g.
    *  `"data/wiki/pages"` for Wiki page PDFs. Defaults to
    *  `WORKSPACE_DIRS.markdowns` for legacy callers. Inputs are
    *  rejected if they're absolute or contain `..` segments — the
-   *  workspace boundary is enforced anyway by `resolveWithinRoot`,
+   *  workspace boundary is enforced anyway by the verified read,
    *  but rejecting up-front gives a clearer log line than a
    *  silently-broken image. */
   sourceDir?: string | undefined;
@@ -98,46 +92,38 @@ function isSafeSourceDir(dir: string): boolean {
   return !dir.split(/[/\\]/).some((segment) => segment === "..");
 }
 
-// Resolve a workspace-rooted-or-relative `src` value to an absolute
-// path on disk, validated to stay inside the workspace root. Returns
-// null on any failure (escape attempt, missing file, malformed path).
-// Logs the reason so the developer can grep when a PDF image is
-// missing.
-function resolveImageAbsPath(src: string, workspaceRoot: string, baseDir: string): string | null {
+// Resolve a workspace-rooted-or-relative `src` value to a path relative
+// to the workspace root, lexically inside it. Returns null (and logs) on
+// an escape attempt; whether the file exists and stays inside after links
+// is decided by the verified read in `loadImageAsDataUri`.
+function imageWorkspaceRelPath(src: string, workspaceRoot: string, baseDir: string): string | null {
   // Strip query / fragment before any filesystem-level resolution —
   // a `<img src="foo.png?v=123">` cache-bust must still find the
-  // file at `foo.png` on disk. Without this strip, `path.resolve`
-  // bakes the `?v=123` into the candidate path and the safe-resolve
-  // / readBinarySafeSync reject (codex review iter-2 #1028).
+  // file at `foo.png` on disk (codex review iter-2 #1028).
   const pathPart = urlPathname(src);
   // LLM-generated HTML often emits leading-slash workspace-rooted
   // paths like "/artifacts/images/2026/04/foo.png" (web convention).
   // Treat those as workspace-relative; otherwise path.resolve below
-  // sees the slash as host-absolute and the safe-resolve rejects.
+  // sees the slash as host-absolute and the check rejects it.
   const workspaceRooted = pathPart.startsWith("/");
   const resolveBase = workspaceRooted ? workspaceRoot : baseDir;
   const relSrc = workspaceRooted ? pathPart.slice(1) : pathPart;
-  const unsafeAbs = path.resolve(resolveBase, relSrc);
-  const relToWorkspace = path.relative(workspaceRoot, unsafeAbs);
+  const relToWorkspace = path.relative(workspaceRoot, path.resolve(resolveBase, relSrc));
   if (relToWorkspace.startsWith("..") || path.isAbsolute(relToWorkspace)) {
     log.warn("pdf", "image path escapes workspace", { src });
     return null;
   }
-  const abs = resolveWithinRoot(workspaceRoot, relToWorkspace);
-  if (!abs) {
-    log.warn("pdf", "image path rejected by safe-resolve", { src });
-    return null;
-  }
-  return abs;
+  return relToWorkspace;
 }
 
-function loadImageAsDataUri(abs: string): string | null {
-  const buf = readBinarySafeSync(abs);
+// Read through the verified handle (#3573), so a path swapped mid-call cannot reach outside the workspace.
+async function loadImageAsDataUri(scope: VerifiedScope, relPath: string): Promise<string | null> {
+  const buf = await readArtifactFile(scope, relPath);
   if (!buf) {
-    log.warn("pdf", "could not read image", { abs });
+    log.warn("pdf", "could not read image", { relPath });
     return null;
   }
-  const ext = path.extname(abs).toLowerCase();
+  const ext = path.extname(relPath).toLowerCase();
   const mime = MIME_BY_EXT[ext] ?? "application/octet-stream";
   return `data:${mime};base64,${buf.toString("base64")}`;
 }
@@ -167,7 +153,7 @@ function urlPathname(url: string): string {
 
 /** Whether a URL points at a video / audio file that should NOT be
  *  base64-inlined into a PDF. Exported for direct unit testing —
- *  filesystem-level resolver checks (`resolveImageAbsPath`) can mask
+ *  filesystem-level resolver checks (`imageWorkspaceRelPath`) can mask
  *  the regex's behaviour because a missing file also returns null,
  *  so the in-line callback's output looks identical for "skip" vs
  *  "resolve-failed". */
@@ -186,46 +172,66 @@ export function shouldSkipMediaForPdf(url: string): boolean {
  *
  * Handles double-quoted, single-quoted, and unquoted values. Skips
  * `data:` URIs and `http(s)` URLs. Refuses values that escape the
- * workspace root after resolution — the workspace boundary is
- * enforced by `resolveWithinRoot`, regardless of `sourceDir`.
+ * workspace root, regardless of `sourceDir`, and reads every image
+ * through the verified handle.
  *
  * Tag + attribute coverage is shared with the browser markdown
  * surface (`rewriteImgSrcAttrsInHtml`) via `RESOLVABLE_TAG_ATTRS` in
  * `src/utils/image/htmlSrcAttrs.ts`.
  */
-export function inlineImages(html: string, options: InlineImagesOptions = {}): string {
-  const workspaceRoot = options.workspaceRoot ?? defaultWorkspaceRoot;
+export async function inlineImages(html: string, options: InlineImagesOptions = {}): Promise<string> {
+  const workspaceRoot = options.workspaceRoot ?? resolveWorkspacePath("");
+  const baseDir = path.join(workspaceRoot, inlineSourceDir(options.sourceDir));
+  const urls = collectInlinableUrls(html);
+  const scope = urls.size === 0 ? null : await artifactScope(workspaceRoot, "").catch(() => null);
+  const dataUris = new Map<string, string>();
+  if (scope !== null) {
+    await Promise.all(
+      [...urls].map(async (url) => {
+        const relPath = imageWorkspaceRelPath(url, workspaceRoot, baseDir);
+        const dataUri = relPath === null ? null : await loadImageAsDataUri(scope, relPath);
+        if (dataUri !== null) dataUris.set(url, dataUri);
+      }),
+    );
+  }
+  return transformResolvableUrlsInHtml(html, (url) => dataUris.get(url) ?? null);
+}
+
+// The URL transform is synchronous and a verified read is not, so the URLs are gathered first.
+function collectInlinableUrls(html: string): Set<string> {
+  const urls = new Set<string>();
+  transformResolvableUrlsInHtml(html, (url) => {
+    if (isInlinableUrl(url)) urls.add(url);
+    return null;
+  });
+  return urls;
+}
+
+function isInlinableUrl(url: string): boolean {
+  // Narrow to exact `http://` / `https://` prefixes so a relative
+  // path like `http-assets/logo.png` isn't misclassified as
+  // external (CR follow-up on #1023).
+  if (url.startsWith("data:") || url.startsWith("http://") || url.startsWith("https://")) return false;
+  // Skip media (mp4 / mp3 / webm / ...) — see PDF_SKIP_MEDIA_EXT_RE.
+  // `<video poster="x.png">` still inlines because the poster value's
+  // pathname ends in an image extension (codex iter-1).
+  return !shouldSkipMediaForPdf(url);
+}
+
+function inlineSourceDir(sourceDirOption: unknown): string {
   // Defensive type guard: a malformed request body could send
   // `baseDir: null` / `baseDir: 42` / etc. Coerce anything non-
   // string to undefined so the legacy default kicks in instead of
   // `path.join` throwing on a non-string.
-  const requestedDir = typeof options.sourceDir === "string" ? options.sourceDir : undefined;
+  const requestedDir = typeof sourceDirOption === "string" ? sourceDirOption : undefined;
   // Distinguish "explicitly empty" (= workspace root, e.g. a top-
   // level `README.md`) from "absent" (= legacy `markdowns/` default
   // for chat callers). Without this, the `||` collapse would route
   // every workspace-root file through the legacy default.
-  const hasRequestedDir = requestedDir !== undefined;
-  const dirIsSafe = !hasRequestedDir || isSafeSourceDir(requestedDir);
-  if (hasRequestedDir && !dirIsSafe) {
-    log.warn("pdf", "rejecting unsafe sourceDir, falling back to default", { sourceDir: requestedDir });
-  }
-  const sourceDir = dirIsSafe && hasRequestedDir ? requestedDir : WORKSPACE_DIRS.markdowns;
-  const baseDir = path.join(workspaceRoot, sourceDir);
-  return transformResolvableUrlsInHtml(html, (url) => {
-    // Narrow to exact `http://` / `https://` prefixes so a relative
-    // path like `http-assets/logo.png` isn't misclassified as
-    // external (CR follow-up on #1023).
-    if (url.startsWith("data:") || url.startsWith("http://") || url.startsWith("https://")) return null;
-    // Skip media (mp4 / mp3 / webm / ...) — see PDF_SKIP_MEDIA_EXT_RE
-    // comment. `<video poster="x.png">` still inlines because the
-    // poster value's pathname ends in an image extension. The
-    // pathname slice means `foo.png?cacheBust=clip.mp4` correctly
-    // routes through the PNG inline path (codex iter-1).
-    if (shouldSkipMediaForPdf(url)) return null;
-    const abs = resolveImageAbsPath(url, workspaceRoot, baseDir);
-    if (!abs) return null;
-    return loadImageAsDataUri(abs);
-  });
+  if (requestedDir === undefined) return WORKSPACE_DIRS.markdowns;
+  if (isSafeSourceDir(requestedDir)) return requestedDir;
+  log.warn("pdf", "rejecting unsafe sourceDir, falling back to default", { sourceDir: requestedDir });
+  return WORKSPACE_DIRS.markdowns;
 }
 
 // This document is `marked.parse` output with NO sanitiser — unlike every
@@ -305,7 +311,7 @@ async function renderMarpHtml(markdown: string, baseDir?: string): Promise<{ ful
     themes: listMarpThemes(),
     inlineSVG: true,
   });
-  const inlinedHtml = inlineImages(html, { sourceDir: baseDir });
+  const inlinedHtml = await inlineImages(html, { sourceDir: baseDir });
   const fullHtml = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
 html,body { margin:0; padding:0; background:white; }
@@ -388,7 +394,7 @@ export async function renderMarkdownHtml(options: RenderMarkdownHtmlOptions): Pr
   const { markdown, marp = false, baseDir, stripFrontmatter = false } = options;
   if (marp) return (await renderMarpHtml(markdown, baseDir)).fullHtml;
   const source = stripFrontmatter ? parseFrontmatter(markdown).body : markdown;
-  return wrapHtml(inlineImages(await marked.parse(source), { sourceDir: baseDir }), MARKDOWN_CSS);
+  return wrapHtml(await inlineImages(await marked.parse(source), { sourceDir: baseDir }), MARKDOWN_CSS);
 }
 
 /** Render markdown (or a Marp deck) to a PDF buffer. The single code
