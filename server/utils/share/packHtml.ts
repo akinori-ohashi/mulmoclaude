@@ -1,7 +1,8 @@
 import path from "path";
 import JSZip from "jszip";
+import type { VerifiedScope } from "@mulmoclaude/core/files";
 import { resolveWorkspacePath } from "../files/workspace-io.js";
-import { artifactScope, lexicallyInside, readArtifactFile } from "../files/artifactMount.js";
+import { artifactScope, lexicallyInside, openArtifactFile, readArtifactFile } from "../files/artifactMount.js";
 import { rewriteHtmlAssets } from "./rewriteAssets.js";
 import { log } from "../../system/logger/index.js";
 
@@ -25,13 +26,24 @@ function stripQueryHash(ref: string): string {
   return cut === -1 ? ref : ref.slice(0, cut);
 }
 
-// Bytes of a workspace file through the verified handle (#3573), or null when it is missing, outside the
-// workspace, or not a regular file. The lexical check is the form CodeQL's js/path-injection recognises.
-async function readWorkspaceFile(relFromRoot: string): Promise<Buffer | null> {
+// Reads go through the verified handle (#3573). The lexical check is the form CodeQL's js/path-injection recognises.
+async function workspaceTarget(relFromRoot: string): Promise<{ scope: VerifiedScope; inside: string } | null> {
   const root = resolveWorkspacePath(".");
   const inside = lexicallyInside(root, relFromRoot);
-  const scope = inside === null ? null : await artifactScope(root, "").catch(() => null);
-  return scope === null || inside === null ? null : readArtifactFile(scope, inside);
+  const scope = inside === null ? null : await artifactScope(root, "");
+  return scope === null || inside === null ? null : { scope, inside };
+}
+
+// The page's own read errors (EACCES …) propagate; only missing, outside or not a regular file is "not found".
+async function readPage(htmlRelPath: string): Promise<string> {
+  const target = await workspaceTarget(htmlRelPath);
+  const handle = target === null ? null : await openArtifactFile(target.scope, target.inside);
+  if (handle === null) throw new Error(`HTML not found or outside workspace: ${htmlRelPath}`);
+  try {
+    return await handle.readFile("utf-8");
+  } finally {
+    await handle.close();
+  }
 }
 
 // Resolve a ref (relative to the HTML file's dir) to workspace bytes.
@@ -39,13 +51,12 @@ async function readWorkspaceFile(relFromRoot: string): Promise<Buffer | null> {
 // missing — the caller warns and leaves the (now dangling) link.
 async function readAsset(htmlDir: string, originalRef: string): Promise<Buffer | null> {
   const relFromRoot = path.posix.normalize(path.posix.join(htmlDir, stripQueryHash(originalRef)));
-  return readWorkspaceFile(relFromRoot);
+  const target = await workspaceTarget(relFromRoot).catch(() => null);
+  return target === null ? null : readArtifactFile(target.scope, target.inside);
 }
 
 export async function packHtmlBundle(htmlRelPath: string): Promise<PackedBundle> {
-  const htmlBytes = await readWorkspaceFile(htmlRelPath);
-  if (htmlBytes === null) throw new Error(`HTML not found or outside workspace: ${htmlRelPath}`);
-  const html = htmlBytes.toString("utf-8");
+  const html = await readPage(htmlRelPath);
 
   const { html: rewritten, assets } = rewriteHtmlAssets(html);
   const htmlDir = path.posix.dirname(htmlRelPath);

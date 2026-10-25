@@ -108,6 +108,12 @@ describe("packHtmlBundle", () => {
     await assert.rejects(() => packHtmlBundle(`artifacts/html/${TOKEN}/nope.html`), /not found/);
   });
 
+  it("reports a page it cannot read with the read error, not as missing", { skip: isWindows || process.getuid?.() === 0 }, async () => {
+    const lockedRel = `artifacts/html/${TOKEN}/locked.html`;
+    await writeFile(resolveWorkspacePath(lockedRel), HTML, { encoding: "utf-8", mode: 0o000 });
+    await assert.rejects(() => packHtmlBundle(lockedRel), /EACCES/);
+  });
+
   it("rejects an html path that escapes the workspace (containment)", async () => {
     await assert.rejects(() => packHtmlBundle("artifacts/html/../../../../../../etc/passwd"), /not found or outside workspace/);
   });
