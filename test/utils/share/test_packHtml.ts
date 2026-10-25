@@ -1,6 +1,8 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, writeFile, rm } from "fs/promises";
+import { mkdir, mkdtemp, writeFile, rm, symlink } from "fs/promises";
+import { execFileSync } from "child_process";
+import { tmpdir } from "os";
 import path from "path";
 import JSZip from "jszip";
 import { resolveWorkspacePath } from "../../../server/utils/files/workspace-io.js";
@@ -20,6 +22,8 @@ const HTML = [
   `<img src="https://cdn.example/remote.png">`,
   `<img src="../../images/${TOKEN}/missing.png">`,
   `<img src="../../../../../../../../etc/passwd">`,
+  `<img src="../../images/${TOKEN}/link-out.png">`,
+  `<img src="../../images/${TOKEN}/pipe.png">`,
   `</body></html>`,
 ].join("");
 
@@ -29,16 +33,26 @@ function fileIn(bundle: PackedBundle, bundlePath: string): PackedFile {
   return found;
 }
 
+const isWindows = process.platform === "win32";
+let outsideDir = "";
+
 before(async () => {
+  await rm(imgAbsDir, { recursive: true, force: true });
   await mkdir(htmlAbsDir, { recursive: true });
   await mkdir(imgAbsDir, { recursive: true });
   await writeFile(resolveWorkspacePath(HTML_REL), HTML, "utf-8");
   await writeFile(resolveWorkspacePath(IMG_REL), IMG_BYTES);
+  outsideDir = await mkdtemp(path.join(tmpdir(), "share-pack-outside-"));
+  await writeFile(path.join(outsideDir, "secret.png"), "secret");
+  if (isWindows) return;
+  await symlink(path.join(outsideDir, "secret.png"), path.join(imgAbsDir, "link-out.png"));
+  execFileSync("mkfifo", [path.join(imgAbsDir, "pipe.png")]);
 });
 
 after(async () => {
   await rm(htmlAbsDir, { recursive: true, force: true });
   await rm(imgAbsDir, { recursive: true, force: true });
+  await rm(outsideDir, { recursive: true, force: true });
 });
 
 describe("packHtmlBundle", () => {
@@ -65,6 +79,23 @@ describe("packHtmlBundle", () => {
     const bundle = await packHtmlBundle(HTML_REL);
     assert.equal(
       bundle.files.some((file) => file.bundlePath === "assets/passwd"),
+      false,
+    );
+  });
+
+  it("does not bundle a file link out of the workspace", { skip: isWindows }, async () => {
+    const bundle = await packHtmlBundle(HTML_REL);
+    assert.equal(
+      bundle.files.some((file) => file.bundlePath === "assets/link-out.png"),
+      false,
+    );
+  });
+
+  // Read by path, a named pipe blocks until a writer appears; the verified open sees it is not a regular file.
+  it("skips a named pipe without waiting on it", { skip: isWindows, timeout: 10_000 }, async () => {
+    const bundle = await packHtmlBundle(HTML_REL);
+    assert.equal(
+      bundle.files.some((file) => file.bundlePath === "assets/pipe.png"),
       false,
     );
   });
