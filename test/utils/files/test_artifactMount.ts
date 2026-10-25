@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import express from "express";
-import { artifactMount, sendArtifactFile } from "../../../server/utils/files/artifactMount.js";
+import { artifactMount, artifactScope, readArtifactFile, sendArtifactFile } from "../../../server/utils/files/artifactMount.js";
 import { chooseByteRange, preconditionFailed, rangeApplies, type ParsedRange } from "../../../server/utils/files/sendFileHandle.js";
 
 const BODY = "0123456789";
@@ -160,6 +160,43 @@ describe("artifactMount", () => {
 
   it("is a 404 when the mount folder does not exist", async () => {
     assert.equal((await get("/missing/a.png")).status, 404);
+  });
+});
+
+describe("readArtifactFile", () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "artifact-read-ws-")));
+  const away = realpathSync(mkdtempSync(path.join(tmpdir(), "artifact-read-out-")));
+  before(() => {
+    mkdirSync(path.join(root, "docs", "dir"), { recursive: true });
+    writeFileSync(path.join(root, "docs", "a.txt"), "in scope");
+    writeFileSync(path.join(root, "top.txt"), "workspace file");
+    writeFileSync(path.join(away, "secret.txt"), "secret");
+    symlinkSync(path.join(away, "secret.txt"), path.join(root, "docs", "link-out.txt"));
+  });
+  after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(away, { recursive: true, force: true });
+  });
+
+  const read = async (mountDir: string, relPath: string): Promise<string | null> => {
+    const scope = await artifactScope(root, mountDir);
+    assert.ok(scope);
+    const bytes = await readArtifactFile(scope, relPath);
+    return bytes === null ? null : bytes.toString("utf8");
+  };
+
+  it("reads a regular file of a folder scope, and of the workspace itself under the empty scope", async () => {
+    assert.equal(await read("docs", "a.txt"), "in scope");
+    assert.equal(await read("", "top.txt"), "workspace file");
+    assert.equal(await read("", path.join("docs", "a.txt")), "in scope");
+  });
+
+  it("is null for a missing file, a directory, an escape and a file link out", async () => {
+    assert.equal(await read("docs", "none.txt"), null);
+    assert.equal(await read("docs", "dir"), null);
+    assert.equal(await read("docs", "../top.txt"), null);
+    assert.equal(await read("", "../secret.txt"), null);
+    assert.equal(await read("docs", "link-out.txt"), null);
   });
 });
 

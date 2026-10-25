@@ -14,14 +14,6 @@ export function isEnoent(err: unknown): boolean {
   return isErrorWithCode(err) && err.code === "ENOENT";
 }
 
-export function readBinarySafeSync(absPath: string): Buffer | null {
-  try {
-    return readFileSync(absPath);
-  } catch {
-    return null;
-  }
-}
-
 export async function readTextSafe(absPath: string): Promise<string | null> {
   try {
     return await promises.readFile(absPath, "utf-8");

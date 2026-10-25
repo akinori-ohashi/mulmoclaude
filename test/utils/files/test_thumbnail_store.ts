@@ -5,7 +5,9 @@
 // under the workspace root.
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { workspacePath } from "../../../server/workspace/paths.js";
@@ -69,6 +71,27 @@ describe("resolveThumbnail", () => {
     assert.equal(await resolve("../../etc/passwd", 512), null);
     assert.equal(resize.calls.length, 0);
   });
+
+  it(
+    "returns null for a file link out of the workspace, a named pipe and a directory, without calling resize",
+    { skip: process.platform === "win32" },
+    async () => {
+      const outside = await mkdtemp(path.join(tmpdir(), "thumb-outside-"));
+      try {
+        await writeFile(path.join(outside, "secret.png"), "secret");
+        await symlink(path.join(outside, "secret.png"), path.join(DIR_ABS, "link-out.png"));
+        execFileSync("mkfifo", [path.join(DIR_ABS, "pipe.png")]);
+        const resize = spyResize();
+        const resolve = createThumbnailResolver(resize);
+        assert.equal(await resolve(`${DIR_REL}/link-out.png`, 512), null);
+        assert.equal(await resolve(`${DIR_REL}/pipe.png`, 512), null);
+        assert.equal(await resolve(DIR_REL, 512), null);
+        assert.equal(resize.calls.length, 0);
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("returns null for a missing file", async () => {
     const resolve = createThumbnailResolver(spyResize());
