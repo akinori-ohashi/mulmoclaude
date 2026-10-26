@@ -30,6 +30,8 @@ yarn add @mulmobridge/client
 | `BridgeClientOptions` | Options accepted by `createBridgeClient()` |
 | `BridgeClient` | Client interface returned by `createBridgeClient()` |
 | `ParsedDataUrl` | Parsed data URL components |
+| `replyAfterProcessingIndicator(send, { produce, post }, opts)` | Keep a platform's "working on it" indicator up while the reply is produced, and post only once it is down — see below |
+| `runWithProcessingIndicator(send, work, opts)` / `startProcessingIndicator(send, opts)` | The same lifecycle without the post step |
 
 ## Usage
 
@@ -107,6 +109,20 @@ reconnection handles an ordinary outage.
 One case is outside this: a server-initiated disconnect (`io server disconnect`)
 is the one reason socket.io does not retry, so no connection failure follows it.
 The chat-service never issues one, so there is nothing to recover from today.
+
+## Showing that the bot is working
+
+While `send()` waits, a chat user sees nothing unless the bridge tells the platform it is busy (Discord typing, LINE loading, Telegram chat action). `replyAfterProcessingIndicator` sends that request at once and again every `refreshMs`, then stops it, waits for a request still in flight, and only then posts the reply:
+
+```typescript
+await replyAfterProcessingIndicator(
+  () => channel.sendTyping(),
+  { produce: () => produceReply(), post: (reply) => channel.send(reply) },
+  { refreshMs: 8_000, label: "discord", log: console },
+);
+```
+
+Posting first would let a request that crossed the post put the indicator back on an answered message. A request that hangs is waited for at most `INDICATOR_STOP_WAIT_MS`, so it never holds the reply back. A failed request is logged as a warning and does not stop the refresh.
 
 ## How long `send()` waits
 

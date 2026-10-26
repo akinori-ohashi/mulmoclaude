@@ -5,7 +5,6 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { FileOps } from "gui-chat-protocol";
 import {
   executeChart,
   isValidChartDocument,
@@ -24,6 +23,7 @@ import {
   withSourceRows,
 } from "../../../packages/plugins/chart-plugin/src/core/source";
 import type { ChartSource, ChartSourceRows } from "../../../packages/plugins/chart-plugin/src/core/types";
+import { memoryArtifacts } from "./memoryArtifacts";
 
 const SOURCE: ChartSource = { spreadsheet: "artifacts/spreadsheets/2026/10/abc.json", range: "Summary!A1:B3" };
 const ROWS: ChartSourceRows = [
@@ -31,22 +31,6 @@ const ROWS: ChartSourceRows = [
   ["Jan", 100],
   ["Feb", null],
 ];
-
-function memoryArtifacts(): FileOps & { written: string[] } {
-  const written: string[] = [];
-  return {
-    written,
-    read: async () => "",
-    readBytes: async () => new Uint8Array(),
-    write: async (rel) => {
-      written.push(rel);
-    },
-    readDir: async () => [],
-    stat: async () => ({ mtimeMs: 0, size: 0 }),
-    exists: async () => false,
-    unlink: async () => {},
-  };
-}
 
 function readerReturning(rows: ChartSourceRows, seen: ChartSource[] = []): ChartSourceReader {
   return {
@@ -63,7 +47,7 @@ const failingReader: ChartSourceReader = {
   },
 };
 
-const sourcedDocument = { charts: [{ title: "Sales", source: SOURCE, option: { series: [{ type: "bar" }] } }] };
+const sourcedDocument = { charts: [{ title: "Sales", source: SOURCE, option: { xAxis: { type: "category" }, yAxis: {}, series: [{ type: "bar" }] } }] };
 
 describe("isChartSource / isReadSourceArgs", () => {
   it("accepts a spreadsheet path and a range", () => {
@@ -153,7 +137,7 @@ describe("chartOption", () => {
   });
 
   it("draws a sourced chart from its rows, or an empty dataset while they are missing", () => {
-    assert.deepEqual(chartOption(sourced, ROWS, true), { series: [{ type: "bar" }], dataset: { source: ROWS, sourceHeader: true } });
+    assert.deepEqual(chartOption(sourced, [ROWS], true), { series: [{ type: "bar" }], dataset: { source: ROWS, sourceHeader: true } });
     assert.deepEqual(chartOption(sourced, undefined, true), { series: [{ type: "bar" }], dataset: { source: [], sourceHeader: true } });
   });
 });

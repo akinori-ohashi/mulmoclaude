@@ -10,17 +10,15 @@
 //   data/attachments/YYYY/MM/<id>.<ext>            (original, always)
 //   data/attachments/YYYY/MM/<id>.pdf              (companion, PPTX only — same <id>)
 
-import { readFile, stat } from "fs/promises";
 import path from "path";
 import { WORKSPACE_DIRS, WORKSPACE_PATHS } from "../../workspace/paths.js";
 import { shortId } from "../id.js";
-import { writeFileAtomic } from "./atomic.js";
 import { yearMonthUtc } from "@mulmoclaude/core/artifacts";
 import { makePathValidator } from "./path-validator.js";
-import { makeStoreResolvers } from "./store-resolvers.js";
+import { makeStoreFiles } from "./store-files.js";
 import { storedExtensionFor } from "./attachment-mime.js";
 
-const resolvers = makeStoreResolvers(() => WORKSPACE_PATHS.attachments, WORKSPACE_DIRS.attachments);
+const store = makeStoreFiles(() => WORKSPACE_PATHS.attachments, WORKSPACE_DIRS.attachments);
 
 export interface SavedAttachment {
   /** Workspace-relative path of the file written to disk. */
@@ -31,14 +29,15 @@ export interface SavedAttachment {
 }
 
 /** Post-save hook fired after every successful `saveAttachment`.
- *  Receives the absolute on-disk path, the workspace-relative path
- *  (the same one returned to the caller), and the MIME type the
- *  bytes were saved with. Hooks must NEVER throw — the upload is
- *  already on disk by the time the hook runs, so a failure should
+ *  Receives the workspace-relative path (the same one returned to the
+ *  caller) and the MIME type the bytes were saved with — no absolute
+ *  path, so a hook reads the bytes back through the store. Hooks must
+ *  NEVER throw — the upload is already on disk by the time the hook
+ *  runs, so a failure should
  *  log and return, not propagate. Multiple hooks fan out via
  *  `Promise.allSettled` so one slow / failing hook can't block or
  *  break the others. (#1222 PR-A.) */
-export type SaveAttachmentHook = (absPath: string, relativePath: string, mimeType: string) => Promise<void>;
+export type SaveAttachmentHook = (relativePath: string, mimeType: string) => Promise<void>;
 
 const saveAttachmentHooks: SaveAttachmentHook[] = [];
 
@@ -54,14 +53,14 @@ export function registerSaveAttachmentHook(hook: SaveAttachmentHook): () => void
   };
 }
 
-async function runSaveAttachmentHooks(absPath: string, relativePath: string, mimeType: string): Promise<void> {
+async function runSaveAttachmentHooks(relativePath: string, mimeType: string): Promise<void> {
   if (saveAttachmentHooks.length === 0) return;
   // Snapshot the array so a hook that calls `registerSaveAttachmentHook`
   // (or its unregister fn) during this loop doesn't mutate the
   // iteration order. `allSettled` so one failing hook doesn't stop
   // the others — failures are the hook's responsibility to log.
   const snapshot = [...saveAttachmentHooks];
-  await Promise.allSettled(snapshot.map((hook) => hook(absPath, relativePath, mimeType)));
+  await Promise.allSettled(snapshot.map((hook) => hook(relativePath, mimeType)));
 }
 
 /** Save a single attachment under data/attachments/YYYY/MM/. The
@@ -70,15 +69,13 @@ async function runSaveAttachmentHooks(absPath: string, relativePath: string, mim
 export async function saveAttachment(base64Data: string, mimeType: string, originalFilename?: string): Promise<SavedAttachment> {
   const partition = yearMonthUtc();
   const ext = storedExtensionFor(mimeType, originalFilename);
-  const filename = `${shortId()}${ext}`;
-  const absPath = path.join(WORKSPACE_PATHS.attachments, partition, filename);
-  await writeFileAtomic(absPath, Buffer.from(base64Data, "base64"));
-  const relativePath = path.posix.join(WORKSPACE_DIRS.attachments, partition, filename);
+  const relativePath = path.posix.join(WORKSPACE_DIRS.attachments, partition, `${shortId()}${ext}`);
+  await store.write(relativePath, Buffer.from(base64Data, "base64"));
   // Hooks (e.g. photo-EXIF capture) are awaited so callers can rely
   // on the sidecar existing by the time `saveAttachment` resolves —
   // simplifies test assertions and removes a class of race conditions
   // for downstream tools that read sidecars right after upload.
-  await runSaveAttachmentHooks(absPath, relativePath, mimeType);
+  await runSaveAttachmentHooks(relativePath, mimeType);
   return { relativePath, mimeType };
 }
 
@@ -92,30 +89,21 @@ export async function saveCompanion(originalRelativePath: string, buf: Buffer, e
   const dir = path.posix.dirname(originalRelativePath);
   const base = path.posix.basename(originalRelativePath, path.posix.extname(originalRelativePath));
   const relativePath = path.posix.join(dir, `${base}${ext}`);
-  const absPath = await resolvers.forWrite(relativePath);
-  await writeFileAtomic(absPath, buf);
+  await store.write(relativePath, buf);
   return relativePath;
 }
 
 export async function loadAttachmentBase64(relativePath: string): Promise<string> {
-  const absPath = await resolvers.forRead(relativePath);
-  const buf = await readFile(absPath);
-  return buf.toString("base64");
+  return (await store.read(relativePath)).toString("base64");
 }
 
 export async function loadAttachmentBytes(relativePath: string): Promise<Buffer> {
-  const absPath = await resolvers.forRead(relativePath);
-  return readFile(absPath);
+  return store.read(relativePath);
 }
 
 /** True when `relativePath` names a regular file inside the attachment store. */
 export async function attachmentExists(relativePath: string): Promise<boolean> {
-  try {
-    const absPath = await resolvers.forRead(relativePath);
-    return (await stat(absPath)).isFile();
-  } catch {
-    return false;
-  }
+  return store.isFile(relativePath);
 }
 
 export const isAttachmentPath = makePathValidator({ prefix: WORKSPACE_DIRS.attachments });

@@ -3,25 +3,23 @@
 //
 // Every helper closes over `pkgName` so a plugin's pubsub channel,
 // data dir, log prefix etc. cannot leak across plugins. Path arguments
-// to `files.{data,config}` are normalised to POSIX, then anchored
-// inside the plugin's scope root via `ensureInsideBase` — so misuse of
-// `node:path` on Windows still works and `"../../etc/passwd"` is
-// rejected.
+// to `files.{data,config,artifacts}` are confined to their scope root
+// by `makeConfinedFileOps` — lexically, then by realpath, so neither
+// `"../../etc/passwd"` nor a symlink inside the root leads out.
 //
 // This module is server-side only. The browser-side counterpart lives
 // at `src/utils/plugin/runtime.ts`.
 
 import path from "node:path";
-import { readFile, readdir, stat as fsStat, unlink as fsUnlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { FileOps, PluginFetchJsonOptions, PluginFetchOptions, PluginRuntime } from "gui-chat-protocol";
 
 import { WORKSPACE_PATHS, workspacePath } from "../workspace/paths.js";
 import { writeFileAtomic } from "../utils/files/atomic.js";
 import { errorMessage } from "../utils/errors.js";
-import { isErrorWithCode, isRecord } from "../utils/types.js";
+import { isRecord } from "../utils/types.js";
 import { log as hostLog, type Logger } from "../system/logger/index.js";
-import { ensureInsideBase } from "./runtime-loader.js";
+import { makeConfinedFileOps } from "./confined-file-ops.js";
 import { ONE_SECOND_MS } from "../utils/time.js";
 import type { IPubSub } from "../events/pub-sub/index.js";
 import * as notifierEngine from "../notifier/engine.js";
@@ -36,59 +34,6 @@ import { BUILTIN_ROLE_IDS } from "../../src/config/roles.js";
 const DEFAULT_FETCH_TIMEOUT_MS = 10 * ONE_SECOND_MS;
 
 // ─────────────────────────────────────────────────────────────────────
-// Path normalisation contract (see plans/done/feat-plugin-runtime-extensions-1110.md)
-//
-//   1. Replace `\` with `/` (Windows path.join leak repair).
-//   2. `path.posix.normalize` (folds `..`, `.`, `//`).
-//   3. Reject if the normalised form starts with `..` or `/`
-//      (would escape the scope root or be absolute).
-//   4. `path.join(scopeRoot, ...segments)` — platform-aware join so
-//      the returned absolute path uses the host OS separator
-//      (backslashes on Windows, forward slashes on POSIX). Critical
-//      for `ensureInsideBase` to accept the result.
-//
-// Plugin authors should never need `node:path`; the platform meets
-// them where they are even if they mis-import it on Windows.
-// ─────────────────────────────────────────────────────────────────────
-
-/** Resolve a plugin-supplied path to an absolute path inside the
- *  plugin's scope root. Throws on traversal. Exported for tests.
- *
- *  Cross-platform: `scopeRoot` is the host OS's native form (drive
- *  letter + backslashes on Windows, forward slashes on POSIX). The
- *  user-supplied `rel` is POSIX-relative by contract; we sanitise
- *  for the lexical traversal check via `path.posix.*`, then join
- *  with `path.join` so the returned absolute path is in the host's
- *  native form (which `ensureInsideBase` requires). */
-export function normalizePluginPath(scopeRoot: string, rel: string): string {
-  // Defang Windows path.join output and any mixed-separator inputs.
-  const slashed = rel.replace(/\\/g, "/");
-  // Fold `..` / `.` / repeated `/` lexically (no fs touch yet).
-  const normalised = path.posix.normalize(slashed);
-  // Reject lexically — anything that escapes the scope root after
-  // normalisation either starts with `..` (parent-traversal) or is
-  // absolute (`/etc/passwd`). `path.posix.normalize` produces `..`
-  // alone if the input is `..` itself, hence the equality branch.
-  if (normalised === ".." || normalised.startsWith("../") || normalised.startsWith("/")) {
-    throw new Error(`path escapes plugin scope: ${rel}`);
-  }
-  const segments = normalised === "." ? [] : normalised.split("/");
-  // `path.join` (platform-aware) so the result uses the host
-  // separator. On Windows that's backslashes; on POSIX, forward
-  // slashes — matching `scopeRoot`'s existing form so
-  // `ensureInsideBase`'s `path.resolve` + `path.sep` comparison
-  // works across both platforms.
-  const absolute = path.join(scopeRoot, ...segments);
-  // Defence in depth: even though the lexical check above should
-  // catch every escape, run `ensureInsideBase` so a future change to
-  // either step doesn't silently regress the safety guarantee.
-  if (!ensureInsideBase(absolute, scopeRoot)) {
-    throw new Error(`path escapes plugin scope: ${rel}`);
-  }
-  return absolute;
-}
-
-// ─────────────────────────────────────────────────────────────────────
 // Scoped FileOps factory
 // ─────────────────────────────────────────────────────────────────────
 
@@ -99,59 +44,7 @@ export function normalizePluginPath(scopeRoot: string, rel: string): string {
  *  category subdir (`charts/`, …) and all write logic; the host only
  *  provides this generic primitive. */
 export function makeArtifactsFileOps(): FileOps {
-  return makeFileOps(path.join(workspacePath, "artifacts"));
-}
-
-function makeFileOps(scopeRoot: string): FileOps {
-  // The scope root may not exist on first use. Lazy-create at write
-  // time (writeFileAtomic does its own mkdir for the file's parent;
-  // we ensure the scope root exists for readDir() / stat() etc.).
-  // Reads against a never-written plugin throw ENOENT — exposed as
-  // `exists() === false` rather than handled here.
-
-  return {
-    async read(rel) {
-      return readFile(normalizePluginPath(scopeRoot, rel), "utf-8");
-    },
-    async readBytes(rel) {
-      const buf = await readFile(normalizePluginPath(scopeRoot, rel));
-      return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-    },
-    async write(rel, content) {
-      const abs = normalizePluginPath(scopeRoot, rel);
-      await writeFileAtomic(abs, content);
-    },
-    async readDir(rel) {
-      const abs = normalizePluginPath(scopeRoot, rel);
-      try {
-        return await readdir(abs);
-      } catch (err) {
-        if (isErrorWithCode(err) && err.code === "ENOENT") return [];
-        throw err;
-      }
-    },
-    async stat(rel) {
-      const { mtimeMs, size } = await fsStat(normalizePluginPath(scopeRoot, rel));
-      return { mtimeMs, size };
-    },
-    async exists(rel) {
-      try {
-        await fsStat(normalizePluginPath(scopeRoot, rel));
-        return true;
-      } catch (err) {
-        if (isErrorWithCode(err) && err.code === "ENOENT") return false;
-        throw err;
-      }
-    },
-    async unlink(rel) {
-      try {
-        await fsUnlink(normalizePluginPath(scopeRoot, rel));
-      } catch (err) {
-        if (isErrorWithCode(err) && err.code === "ENOENT") return;
-        throw err;
-      }
-    },
-  };
+  return makeConfinedFileOps({ root: path.join(workspacePath, "artifacts"), trustedRoot: workspacePath });
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -395,8 +288,8 @@ export function makePluginRuntime(deps: MakePluginRuntimeDeps): MulmoclaudeRunti
     pubsub: makeScopedPubSub(pkgName, pubsub),
     locale,
     files: {
-      data: makeFileOps(dataRoot),
-      config: makeFileOps(configRoot),
+      data: makeConfinedFileOps({ root: dataRoot, trustedRoot: workspacePath }),
+      config: makeConfinedFileOps({ root: configRoot, trustedRoot: workspacePath }),
       artifacts: makeArtifactsFileOps(),
     },
     log: makeScopedLogger(pkgName),

@@ -87,3 +87,27 @@ Files **already** under `artifacts/` (e.g. `artifacts/images/2026/03/bar.png`, `
 The file is saved at `artifacts/html/<YYYY>/<MM>/<slug>-<timestamp>.html`. From that location, `../../../` climbs out of `<MM>/`, `<YYYY>/`, and `html/` to land in `artifacts/`. From `artifacts/`, the next path segment is the sibling artifact directory you want — `images/`, `charts/`, `documents/`, etc.
 
 Absolute paths like `/artifacts/...` work in-app (the server mounts `/artifacts/images` as a static route) but break under `file://`, where root-relative URLs resolve against the filesystem root. Workspace-rooted paths without a leading slash (`artifacts/...`) get joined to the page URL by the browser and 404 every time.
+
+## Handing a Decision Back to the Conversation
+
+When the page is for the user to decide something — pick between mockups, settle open questions, adjust a plan — give it a button that posts the result to the host:
+
+```html
+<button id="send">Send to Claude</button>
+<script>
+  document.getElementById("send").onclick = () => {
+    const layout = document.querySelector("input[name=layout]:checked").value;
+    window.parent.postMessage({ type: "mulmo-html-submit", text: `Layout: ${layout}` }, "*");
+  };
+</script>
+```
+
+- `text` is plain text, at most 20,000 characters; a longer one is refused, not truncated.
+- The host shows it in a confirmation bar above the page. The user can edit it, and it is sent as their next message only when they press Send — so after presenting, finish your turn instead of waiting or polling.
+- Write `text` so it stands on its own: name each decision and the option chosen, not just "B".
+- A page you write with `html` purely to hand decisions back may pass `submit: "direct"` to `presentHtml`: its posts then reach the conversation without the confirmation bar, as long as each one carries the key the host puts in the page's URL. A post without it, or a second one within a few seconds, still goes to the bar. It is ignored for `path` — never ask for it on a page whose script you did not write.
+
+  ```js
+  const key = new URLSearchParams(location.hash.slice(1)).get("mulmo-submit-key");
+  window.parent.postMessage({ type: "mulmo-html-submit", text: summary(), key }, "*");
+  ```

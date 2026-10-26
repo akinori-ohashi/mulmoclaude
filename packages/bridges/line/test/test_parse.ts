@@ -21,8 +21,8 @@ function imageEvent(overrides: Partial<LineEvent> = {}): LineEvent {
 }
 
 describe("extractIncomingLineMessage — text branch", () => {
-  it("returns kind:text + userId + text for a normal text message", () => {
-    assert.deepEqual(extractIncomingLineMessage(textEvent()), { kind: "text", userId: "U1234", text: "hello" });
+  it("returns kind:text + chatId (the userId) + text for a normal text message", () => {
+    assert.deepEqual(extractIncomingLineMessage(textEvent()), { kind: "text", chatId: "U1234", chatType: "user", mentionsBot: false, text: "hello" });
   });
 
   it("returns null for non-message event types", () => {
@@ -61,8 +61,14 @@ describe("extractIncomingLineMessage — text branch", () => {
 });
 
 describe("extractIncomingLineMessage — image branch (#1222 PR-C)", () => {
-  it("returns kind:image + userId + imageMessageId for an image event", () => {
-    assert.deepEqual(extractIncomingLineMessage(imageEvent()), { kind: "image", userId: "U1234", imageMessageId: "msg-img-9999" });
+  it("returns kind:image + chatId (the userId) + imageMessageId for an image event", () => {
+    assert.deepEqual(extractIncomingLineMessage(imageEvent()), {
+      kind: "image",
+      chatId: "U1234",
+      chatType: "user",
+      mentionsBot: false,
+      imageMessageId: "msg-img-9999",
+    });
   });
 
   it("returns null when image message id is missing", () => {
@@ -113,5 +119,105 @@ describe("parseLineWebhookBody", () => {
     assert.equal(parseLineWebhookBody("null"), null);
     assert.equal(parseLineWebhookBody("42"), null);
     assert.equal(parseLineWebhookBody('"string"'), null);
+  });
+});
+
+describe("extractIncomingLineMessage — group / room (#3567)", () => {
+  const selfMention = { mentionees: [{ index: 0, length: 4, type: "user", isSelf: true }] };
+
+  it("keys a group message by groupId and keeps the mention flag", () => {
+    const event = textEvent({ source: { type: "group", groupId: "C1", userId: "U1" }, message: { type: "text", text: "@bot hi", mention: selfMention } });
+    assert.deepEqual(extractIncomingLineMessage(event), { kind: "text", chatId: "C1", chatType: "group", mentionsBot: true, text: "hi" });
+  });
+
+  it("keys a room message by roomId", () => {
+    const result = extractIncomingLineMessage(textEvent({ source: { type: "room", roomId: "R1", userId: "U1" } }));
+    assert.equal(result?.chatId, "R1");
+    assert.equal(result?.chatType, "room");
+    assert.equal(result?.mentionsBot, false);
+  });
+
+  it("keeps a group message whose sender has no userId (not a friend of the bot)", () => {
+    assert.equal(extractIncomingLineMessage(textEvent({ source: { type: "group", groupId: "C1" } }))?.chatId, "C1");
+  });
+
+  it("drops a group / room event without its id rather than replying elsewhere", () => {
+    assert.equal(extractIncomingLineMessage(textEvent({ source: { type: "group", userId: "U1" } })), null);
+    assert.equal(extractIncomingLineMessage(textEvent({ source: { type: "room", userId: "U1", roomId: "" } })), null);
+  });
+
+  it("drops a message that is only the bot's mention", () => {
+    const event = textEvent({ source: { type: "group", groupId: "C1" }, message: { type: "text", text: "@bot", mention: selfMention } });
+    assert.equal(extractIncomingLineMessage(event), null);
+  });
+
+  it("reads an out-of-range self mention as not mentioned and leaves the text alone", () => {
+    const event = textEvent({
+      source: { type: "group", groupId: "C1" },
+      message: { type: "text", text: "hi", mention: { mentionees: [{ index: -1, length: 4, isSelf: true }] } },
+    });
+    assert.deepEqual(extractIncomingLineMessage(event), { kind: "text", chatId: "C1", chatType: "group", mentionsBot: false, text: "hi" });
+  });
+
+  it("never marks an image as mentioned", () => {
+    const event = imageEvent({ source: { type: "group", groupId: "C1" } });
+    assert.equal(extractIncomingLineMessage(event)?.mentionsBot, false);
+  });
+
+  it("reads a malformed mention as not mentioned instead of dropping the event", () => {
+    const event = textEvent({ source: { type: "group", groupId: "C1" }, message: { type: "text", text: "hi", mention: "broken" } });
+    assert.deepEqual(extractIncomingLineMessage(event), { kind: "text", chatId: "C1", chatType: "group", mentionsBot: false, text: "hi" });
+  });
+});
+
+describe("extractIncomingLineMessage — one-on-one key is unchanged (#3567)", () => {
+  const sampleIds = ["U1234", "Uabcdef0123456789abcdef0123456789", "U0", "x"];
+  const sampleTexts = ["hello", "  spaced  ", "@someone hi", "日本語 😀"];
+  const sources = (userId: string) => [{ userId }, { type: "user", userId }, { type: "unknown", userId }];
+  const mentions = [undefined, { mentionees: [{ index: 0, length: 1, type: "user", isSelf: true }] }, "broken"];
+
+  it("chatId is the raw userId and text is passed on verbatim, whatever mention it carries", () => {
+    sampleIds.forEach((userId) =>
+      sampleTexts.forEach((text) =>
+        sources(userId).forEach((source) =>
+          mentions.forEach((mention) => {
+            const result = extractIncomingLineMessage(textEvent({ source, message: { type: "text", text, mention } }));
+            assert.deepEqual(result, { kind: "text", chatId: userId, chatType: "user", mentionsBot: false, text });
+          }),
+        ),
+      ),
+    );
+  });
+});
+
+describe("parseLineWebhookBody — source fields (#3567)", () => {
+  it("accepts group / room sources", () => {
+    const events = [
+      { type: "message", source: { type: "group", groupId: "C1", userId: "U1" } },
+      { type: "message", source: { type: "room", roomId: "R1" } },
+    ];
+    assert.deepEqual(parseLineWebhookBody(JSON.stringify({ events })), { events });
+  });
+
+  it("drops an event whose groupId / roomId is not a string", () => {
+    const events = [
+      { type: "message", source: { type: "group", groupId: 1 } },
+      { type: "message", source: { type: "room", roomId: {} } },
+    ];
+    assert.deepEqual(parseLineWebhookBody(JSON.stringify({ events })), { events: [] });
+  });
+
+  it("keeps an event whose unrelated groupId / roomId is not a string", () => {
+    const events = [
+      { type: "message", source: { type: "user", userId: "U1", groupId: 1 } },
+      { type: "message", source: { userId: "U1", roomId: {} } },
+      { type: "message", source: { type: "group", groupId: "C1", roomId: 1 } },
+    ];
+    assert.deepEqual(parseLineWebhookBody(JSON.stringify({ events })), { events });
+  });
+
+  it("keeps an event whose mention is malformed", () => {
+    const events = [{ type: "message", message: { type: "text", text: "hi", mention: 42 } }];
+    assert.deepEqual(parseLineWebhookBody(JSON.stringify({ events })), { events });
   });
 });

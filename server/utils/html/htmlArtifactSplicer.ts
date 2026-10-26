@@ -16,22 +16,27 @@
 // startup as an import side effect.
 
 import { readFile as fsReadFile } from "fs/promises";
-import { resolveWithinRoot } from "../files/safe.js";
+import type { VerifiedScope } from "@mulmoclaude/core/files";
+import { openArtifactFile } from "../files/artifactMount.js";
 import { injectImageRepairScript } from "../../../src/utils/image/imageRepairInlineScript.js";
 import { injectHeightReporterScript } from "../../../src/utils/html/iframeHeightReporterScript.js";
 
-/** Read an HTML artifact file (under `htmlsRoot`) and splice the
- *  image-self-repair script before its closing `</body>`. Returns
- *  the spliced HTML on success, `null` when the file can't be
- *  resolved (escapes the root) or read (missing / unreadable).
- *
- *  `htmlsRoot` MUST already be a realpath — `resolveWithinRoot`
- *  compares against it strictly. The middleware in `server/index.ts`
- *  passes the cached `getHtmlsDirReal()` result, which is a realpath. */
-export async function readAndInjectHtmlArtifact(htmlsRoot: string, relPath: string): Promise<string | null> {
-  const abs = resolveWithinRoot(htmlsRoot, relPath);
-  if (!abs) return null;
-  return readAndInjectHtmlFile(abs);
+const spliceHelperScripts = (raw: string): string => injectHeightReporterScript(injectImageRepairScript(raw));
+
+/** Read an HTML artifact under `scope` through a verified handle and splice the helper scripts.
+ *  Null when the file is missing, outside the scope, not a regular file, or unreadable. */
+export async function readAndInjectHtmlArtifact(scope: VerifiedScope, relPath: string): Promise<string | null> {
+  try {
+    const handle = await openArtifactFile(scope, relPath);
+    if (handle === null) return null;
+    try {
+      return spliceHelperScripts(await handle.readFile("utf8"));
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return null;
+  }
 }
 
 /** Same splice, for a page the caller has ALREADY resolved to an absolute path.
@@ -45,5 +50,5 @@ export async function readAndInjectHtmlFile(absPath: string): Promise<string | n
   } catch {
     return null;
   }
-  return injectHeightReporterScript(injectImageRepairScript(raw));
+  return spliceHelperScripts(raw);
 }

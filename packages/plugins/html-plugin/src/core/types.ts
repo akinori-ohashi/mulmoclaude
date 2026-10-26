@@ -1,9 +1,13 @@
+import type { SubmitMode } from "./submitMode";
+
 /** Tool-call arguments for presentHtml. `html` and `path` are mutually
  *  exclusive (provide exactly one); `title` is an optional sidebar label. */
 export interface HtmlArgs {
   html?: string;
   path?: string;
   title?: string;
+  /** `"direct"`: the page's submits reach the conversation without the confirmation bar. Honoured for `html` only. */
+  submit?: string;
 }
 
 /** Result payload that drives the View / preview sidebar. The HTML itself
@@ -20,6 +24,8 @@ export interface PresentHtmlData {
    *  `/artifacts/html/…` URL from `filePath` (`htmlArtifactPreviewUrl`), so
    *  results stored before this field existed still render. */
   previewUrl?: string;
+  /** Set only when the page was written with `html` and asked for `submit: "direct"`. */
+  submit?: SubmitMode;
 }
 
 /** Body of the in-place overwrite path (PUT /api/html/update). */

@@ -119,14 +119,14 @@ jobs:
           set -euo pipefail
           jscpd . \
             --format typescript \
-            --ignore "**/node_modules/**,**/dist/**,**/*.d.ts,**/test/**,**/e2e/**,**/e2e-live/**,**/spreadsheet/engine/**,**/_generated/**,**/vendor/**" \
+            --ignore "**/node_modules/**,**/dist/**,**/*.d.ts,**/test/**,**/e2e/**,**/e2e-live/**,**/_generated/**,**/vendor/**" \
             --reporters console,sarif \
             --output report
 
       - name: Upload SARIF to Code Scanning
         # Hash-pinned: .github/zizmor.yml grants a tag-pin exemption to
         # `actions/*` only, and codeql-action lives under `github/*`.
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d  # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
         with:
           sarif_file: report/jscpd-report.sarif
           # Distinct category keeps these alerts from colliding with the

@@ -14,11 +14,11 @@
 // auto-capture is enabled in `AppSettings.photoExif`.
 
 import path from "node:path";
-import { mkdir } from "node:fs/promises";
-import { writeFileAtomic } from "../../utils/files/atomic.js";
 import { WORKSPACE_PATHS, WORKSPACE_DIRS } from "../paths.js";
 import { isPhotoExifAutoCaptureEnabled, loadSettings } from "../../system/config.js";
-import { isExifSupportedMime, readPhotoExif, type ExifParser, type PhotoExif } from "../../utils/exif.js";
+import { isExifSupportedMime, parsePhotoExif, type ExifParser, type PhotoExif } from "../../utils/exif.js";
+import { loadAttachmentBytes } from "../../utils/files/attachment-store.js";
+import { locationsStore } from "./store.js";
 import { log } from "../../system/logger/index.js";
 import { publishPhotoLocationsChanged } from "../../events/photo-locations-change.js";
 
@@ -65,12 +65,16 @@ function partitionForAttachment(attachmentRelativePath: string): string {
   return path.posix.join(year, month);
 }
 
+/** The sidecar's path inside the locations store (`YYYY/MM/<id>.json`). */
+function sidecarStorePath(attachmentRelativePath: string): string | null {
+  const partition = partitionForAttachment(attachmentRelativePath);
+  return partition === "" ? null : path.posix.join(partition, `${sidecarIdForAttachment(attachmentRelativePath)}.json`);
+}
+
 /** Compute the absolute sidecar path for a saved attachment. */
 export function sidecarPathForAttachment(attachmentRelativePath: string): string | null {
-  const partition = partitionForAttachment(attachmentRelativePath);
-  if (partition === "") return null;
-  const sidecarId = sidecarIdForAttachment(attachmentRelativePath);
-  return path.join(WORKSPACE_PATHS.locations, partition, `${sidecarId}.json`);
+  const storePath = sidecarStorePath(attachmentRelativePath);
+  return storePath === null ? null : path.join(WORKSPACE_PATHS.locations, storePath);
 }
 
 /** Hook the attachment-store calls after every saved attachment.
@@ -81,8 +85,8 @@ export function sidecarPathForAttachment(attachmentRelativePath: string): string
  *
  *  Errors are swallowed and logged at warn — we never want a failed
  *  EXIF probe to fail the upload. */
-export function capturePhotoLocation(absPhotoPath: string, attachmentRelativePath: string, mimeType: string): Promise<void> {
-  return capturePhotoLocationWithParser(absPhotoPath, attachmentRelativePath, mimeType);
+export function capturePhotoLocation(attachmentRelativePath: string, mimeType: string): Promise<void> {
+  return capturePhotoLocationWithParser(attachmentRelativePath, mimeType);
 }
 
 /** Gate check: should we even try to read EXIF for this MIME, given
@@ -92,13 +96,14 @@ function shouldCapture(mimeType: string): boolean {
   return isPhotoExifAutoCaptureEnabled(loadSettings());
 }
 
-/** Read EXIF, swallowing parser errors as `null`. The hook never
- *  fails the upload — a thrown parser is just "skip the sidecar". */
-async function readExifSafe(absPhotoPath: string, attachmentRelativePath: string, parser: ExifParser | undefined): Promise<PhotoExif | null> {
+/** Read EXIF from the stored photo, swallowing errors as `null`. The
+ *  hook never fails the upload — an unreadable photo or a thrown
+ *  parser is just "skip the sidecar". */
+async function readExifSafe(attachmentRelativePath: string, parser: ExifParser | undefined): Promise<PhotoExif | null> {
   try {
-    return await readPhotoExif(absPhotoPath, parser);
+    return await parsePhotoExif(await loadAttachmentBytes(attachmentRelativePath), parser);
   } catch (err) {
-    log.warn("photo-locations", "exif parse threw — skipping sidecar", { path: attachmentRelativePath, error: String(err) });
+    log.warn("photo-locations", "exif read failed — skipping sidecar", { path: attachmentRelativePath, error: String(err) });
     return null;
   }
 }
@@ -106,10 +111,9 @@ async function readExifSafe(absPhotoPath: string, attachmentRelativePath: string
 /** Write the sidecar JSON, creating parent dirs as needed. Failures
  *  are logged but never thrown — the photo upload already succeeded
  *  by the time this runs. */
-async function writeSidecarSafe(sidecarPath: string, payload: PhotoLocationSidecar): Promise<void> {
+async function writeSidecarSafe(storePath: string, payload: PhotoLocationSidecar): Promise<void> {
   try {
-    await mkdir(path.dirname(sidecarPath), { recursive: true });
-    await writeFileAtomic(sidecarPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: SIDECAR_FILE_MODE });
+    await locationsStore.write(storePath, Buffer.from(`${JSON.stringify(payload, null, 2)}\n`), { mode: SIDECAR_FILE_MODE });
     log.info("photo-locations", "sidecar written", {
       attachment: payload.photo.relativePath,
       hasGps: payload.exif.lat !== undefined && payload.exif.lng !== undefined,
@@ -124,17 +128,12 @@ async function writeSidecarSafe(sidecarPath: string, payload: PhotoLocationSidec
 /** Parser-injectable variant. Production code uses
  *  `capturePhotoLocation`; tests reach for this overload to swap
  *  exifr for a stub so they don't need a JPEG fixture. */
-export async function capturePhotoLocationWithParser(
-  absPhotoPath: string,
-  attachmentRelativePath: string,
-  mimeType: string,
-  parser?: ExifParser,
-): Promise<void> {
+export async function capturePhotoLocationWithParser(attachmentRelativePath: string, mimeType: string, parser?: ExifParser): Promise<void> {
   if (!shouldCapture(mimeType)) return;
-  const exif = await readExifSafe(absPhotoPath, attachmentRelativePath, parser);
+  const exif = await readExifSafe(attachmentRelativePath, parser);
   if (!exif) return;
-  const sidecarPath = sidecarPathForAttachment(attachmentRelativePath);
-  if (!sidecarPath) {
+  const storePath = sidecarStorePath(attachmentRelativePath);
+  if (!storePath) {
     log.warn("photo-locations", "could not derive sidecar path — skipping", { attachmentRelativePath });
     return;
   }
@@ -144,7 +143,7 @@ export async function capturePhotoLocationWithParser(
     exif,
     capturedAt: new Date().toISOString(),
   };
-  await writeSidecarSafe(sidecarPath, payload);
+  await writeSidecarSafe(storePath, payload);
 }
 
 // `WORKSPACE_DIRS.locations` is referenced for typing-side

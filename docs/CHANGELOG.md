@@ -8,13 +8,242 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+### Added
+
+#### A page written to hand decisions back can send without the confirmation bar (#3591, PR #3592)
+
+`presentHtml` takes `submit: "direct"` for a page written with `html` (never one opened by `path`). Its posts then reach
+the conversation without the confirmation bar, as long as each one carries the key the host puts in the page's own URL
+(`#mulmo-submit-key=…`), and at most once every few seconds across all cards; anything else still goes to the bar. A
+page the direct page navigates to — by a link, even one that posts while it loads — has no key, and a result pointing
+outside `artifacts/html/` or loading a different URL is never direct. When the host cannot take the text, it now stays
+in the bar with the reason instead of disappearing, on every page. Shipped in `@mulmoclaude/html-plugin@5.2.0`.
+MulmoClaude runs `presentHtml` with its own executor, so its pages keep the confirmation bar.
+
+### Fixed
+
+#### A plugin file path starting with a drive letter is refused as absolute
+
+A runtime plugin's file call with a Windows absolute path (`C:\…`, `c:file`) used to be taken as a folder named `C:`
+under the plugin's scope; it is now refused like `/…` and `../…`. Nothing outside the scope was reachable before either.
+
+#### Artifact images, HTML pages and SVGs are served only from inside the workspace (#3573)
+
+`/artifacts/images`, `/artifacts/html` and `/artifacts/svg` took their own folder's real location as the boundary, so
+replacing that folder — or `artifacts/` — with a symlink to a folder elsewhere on the computer served its images, pages
+and SVGs. Each request now checks that the folder still sits inside the workspace and serves the file it opened, so a
+folder or file swapped for a link mid-request is not followed either. A dotfile under `/artifacts/images` now answers
+404 instead of 403. Video and audio seeking (Range requests) and browser caching keep working.
+
+#### Image and attachment stores read and write only inside the workspace (#3573)
+
+Generated, drawn and edited images (`artifacts/images/`) and chat attachments (`data/attachments/`) took their folder's
+real location as the boundary, so replacing that folder — or the folder above it — with a symlink to a folder elsewhere
+on the computer let image editing and chat attachments read files there, and let saves and uploads write into it. Each
+read and write now checks that the folder still sits inside the workspace and goes through the file it verified; a
+store folder that leads outside makes the upload or save fail with an error instead.
+
+#### Photo location sidecars are read and written only inside the workspace (#3573)
+
+The location record saved next to a photo's EXIF (`data/locations/`) was written wherever that folder pointed, so a
+`data/locations` replaced by a symlink wrote it elsewhere on the computer, and the photo-locations list read whatever
+records sat there. The capture now reads the photo through the attachment store and writes the record through the
+same checked write as attachments; the list only reads records inside the workspace, and skips links out. A records
+folder that leads outside is treated as empty.
+
+#### PDF export, HTML sharing and phone thumbnails read only regular files inside the workspace (#3573)
+
+Embedding images into a PDF or a shared markdown zip, packing an HTML page into a zip, and making thumbnails for the
+phone's custom views now read the file they checked, so a file swapped for a link mid-read is not followed. A named
+pipe given an image name is skipped. Before, it stopped the whole server during a PDF export and left an HTML share
+waiting forever.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.2`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.13.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.2.0`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.9.0] - 2026-10-22
+
+**Charts can be drawn from a spreadsheet range, a `presentHtml` page can hand the user's decisions back to the
+conversation, and plugin file contents stay in their folder even when a path is swapped mid-request.**
+
+### Fixed
+
+#### A map drawn from a spreadsheet range is coloured by its values (#3576, PR #3577)
+
+A map whose values come from a sheet range (`source`, as the `map of regions` recipe writes it) painted every region
+with no row in the series colour, which on a value scale reads as the largest: regions with no data looked busiest and
+the real values pale. The chart plugin now gives such a map its rows as region and value pairs, so regions with no data
+stay empty, on the light and the dark theme. Only the row layout a sheet range produces is rewritten; any other dataset
+is drawn by ECharts as before.
+
+#### 3D charts' axis labels read on the dark theme (#3578, PR #3579)
+
+On the dark theme, a 3D chart's tick labels, categories and axis names were drawn in dark grey and barely showed, while
+its split lines stood out. The chart plugin now draws dark with a theme of its own — ECharts' dark theme plus light
+colours for 3D axes — so they read, and colours the chart sets itself still win.
+
+#### Word cloud words are coloured again (#3588, PR #3589)
+
+Since word clouds have been drawn by `@modernized/echarts-wordcloud` (4.6.0), every word was one colour — light grey on
+the dark theme. Each word takes the palette's next colour again, in the order it did before: the chart's own `color`
+list if it sets one, ECharts' default palette otherwise. A colour the chart gives a word, or the whole word cloud, is
+kept.
+
+#### Plugin file contents stay inside their folder even when a path is swapped mid-request (#3573)
+
+The symlink check added in 2.8.1 looked at a path and then used it, so a folder swapped for a link in between could
+still be followed. Reading a plugin or artifact file now opens it first and then confirms the opened file is the one
+inside the folder; writing confirms the staging file is inside the folder before any byte goes in, so a swap cannot steer
+it outside unless the swapper could already write there. A scope folder that is itself
+replaced by a symlink — `artifacts/`, or a plugin's data or config folder pointed elsewhere — is now refused instead of
+being followed. Checking whether a file exists, listing a folder and deleting a file still check first and then
+act — what each can still expose is listed in `plans/fix-3573-verified-open.md`.
+
+### Added
+
+#### Charts drawn from a spreadsheet range (#3512)
+
+A `presentChart` chart can name a saved spreadsheet range (`source: { spreadsheet, range }`, or several in `sources`)
+instead of carrying its numbers, as it already could in MulmoTerminal. The range is calculated by the spreadsheet's own
+engine, so the chart shows what the sheet shows, formulas included, and an open chart redraws when the sheet is edited.
+The workbook may be named by the path the spreadsheet tool reported, by its full path, or by its path inside the
+sandbox. A path outside the workspace's spreadsheets is refused with the reason.
+
+#### A `presentHtml` page can hand the user's decisions back to the conversation (#3581, PR #3583)
+
+A page shown with `presentHtml` can post `{ type: "mulmo-html-submit", text }` to its parent — for example from a
+"Send" button on a plan where the user picked between mockups. The text is not sent straight away: it appears in a
+bar above the page, where the user can edit or discard it, and it becomes their next message only when they press
+Send there, since a click inside an LLM-authored page cannot be told from a scripted one. Only the page's own frame is
+heard, text over 20,000 characters is refused rather than cut, and reloading the page drops a decision that was waiting.
+The tool's description tells the agent how to add such a button. Shipped in `@mulmoclaude/html-plugin@5.1.0`.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.2`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.13.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.1.0`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.8.1] - 2026-10-22
+
+**Plugin file access can no longer follow a symlink out of its folder, and LINE groups and rooms become one
+conversation.**
+
+### Added
+
+#### LINE: groups and rooms are one conversation, answered when the bot is mentioned (#3567, PR #3569)
+
+A LINE bot invited to a group or a multi-person room now keeps one session for the whole group and posts its replies
+there; `/reset`, `/role` and the other commands apply to the group's session. By default it answers only messages that
+mention it, and the mention is removed from the text it passes on; `LINE_BRIDGE_GROUP_REQUIRE_MENTION=0` answers every
+message. One-on-one chats are unchanged. Before this, a group message was answered in the sender's one-on-one chat and
+joined their personal session. Shipped in `@mulmobridge/line@1.3.0`; the bridge reaches users by upgrading it, not
+through a `mulmoclaude` release.
+
+### Fixed
+
+#### Plugin file access cannot follow a symlink out of its folder (#3564, PR #3570)
+
+The files that plugins and their host routes read and write — `artifacts/` (charts, HTML, ShapeScript, MulmoScript,
+spreadsheets, runtime plugins' `files.artifacts`) and each runtime plugin's own data and config folders — were checked
+against `..` only, so a symlink placed inside could read or write outside. Every one of them now checks the real
+location: a read through such a link reads as a missing file, a write is refused, and deleting a link removes the link
+rather than its target. A symlinked workspace folder itself keeps working.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+## [2.8.0] - 2026-10-22
+
+**The spreadsheet is the shared `@gui-chat-plugin/spreadsheet` package, word clouds are drawn by
+`@modernized/echarts-wordcloud`, and Telegram no longer sends a streamed reply twice.**
+
+### Changed
+
+#### The spreadsheet is the shared `@gui-chat-plugin/spreadsheet` package (#3497, PR #3498)
+
+The spreadsheet that was built into MulmoClaude is replaced by `@gui-chat-plugin/spreadsheet@^4.3.0`, the package
+MulmoTerminal also uses. Workbooks are saved where and as before (`artifacts/spreadsheets/…json`), and existing ones open
+unchanged. The agent's spreadsheet help now lists exactly the functions the package registers — including the dynamic
+arrays, `LET` / `LAMBDA`, `GROUPBY` / `PIVOTBY`, regression, forecasting and statistics added since — and a test keeps
+that list in step with the package. The help also says that a workbook may define its own functions.
+
+#### Word clouds are drawn by `@modernized/echarts-wordcloud` (#3560, PR #3563)
+
+The chart plugin no longer lays word clouds out itself: the browser loads `@modernized/echarts-wordcloud@^4.0.1` and
+draws them with it, and the series accepts its `shape` (circle, cardioid, diamond, square, triangle, pentagon, star).
+The server saves a word cloud after checking only its formats, without a trial draw, and a word cloud exports to PNG but
+no longer to SVG. 4.0.1 of the extension stops a layout when its chart is disposed or redrawn
+(modernized-js/echarts-wordcloud#24).
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.6.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+### Fixed
+
+#### Telegram: a streamed reply arrives once, and an error after it is shown (#3548, PR #3561, #3562)
+
+A reply that streamed into Telegram could also arrive a second time as a new message, because the bridge did not wait
+for its first send before deciding there was nothing to edit. If MulmoClaude failed after part of the reply had
+streamed, the error was never shown; it now arrives as its own message under the partial text. A request that threw
+also left its edit timer running. The bridge reaches users by upgrading it, not through a `mulmoclaude` release.
+
+Ships `@mulmobridge/telegram@1.3.1`.
+
+## [2.7.0] - 2026-10-21
+
+**Charts read straight from a spreadsheet range and redraw when it changes, say why they could not be drawn, and gain
+statistics, formats, maps, 3D, word clouds, a dark appearance and SVG / CSV export.**
+
+### Highlights
+
+#### Charts draw from a spreadsheet range (#3507, #3518, PR #3508, #3514, #3532)
+
+A `presentChart` chart can point at a saved spreadsheet range (`source: { spreadsheet, range }`) instead of carrying
+its numbers, and an open chart redraws when the sheet changes. A cross table (`layout: "matrix"`), a long table split
+into one series per group (`groupBy`) and several ranges at once (`sources: [...]`) can be drawn as well.
+
+#### Charts say why they could not be drawn (#3519, PR #3529)
+
+`presentChart` draws every chart once on the server before saving. If one cannot be drawn, nothing is saved and the
+reply names the chart and the reason, so the agent fixes the option and tries again. A chart that still fails in the
+browser shows the reason on its card instead of a blank canvas.
+
+#### Statistics, formats and recipes (#3516, #3517, #3523, PR #3525, #3527, #3530, #3531)
+
+Fitted curves, histograms, k-means clustering that gives the same groups every time, and a boxplot per column are
+computed from the sheet's rows and recompute when it changes. Numbers, percentages, currencies and dates are formatted
+by a format object instead of a function. The tool description now carries recipes for the common analyst charts
+(Pareto, waterfall, dual axis, heatmap, candlestick, sankey and more).
+
+#### Maps, 3D and word clouds (#3522, #3549, PR #3535, #3555)
+
+World and Japan maps (also with Japanese region names) and 3D charts load only when a chart needs them. A chart can be
+`type: "wordCloud"`: each word is sized by its value, from `series.data` or from a sheet range. The chart plugin lays
+the words out itself, so the cloud draws on the server's trial draw and exports to SVG like any other chart; words that
+do not fit are left out, and words in Japanese, Chinese or Korean stay level.
+
+#### Layout, dark appearance and exports (#3511, #3520, #3521, #3551, PR #3513, #3533, #3534, #3552)
+
+A chart sets its own height, and `columns` lays cards side by side, with fewer per row in a narrow host. A chart redraws
+when its card changes width. Cards follow a host's dark appearance, and each chart exports to SVG and CSV as well as
+PNG.
+
+#### Discord, LINE and Telegram show that the bot is working (#3536, #3541, PR #3538, #3544, #3545, #3547)
+
+While the agent prepares a reply, the Discord bridge shows "typing…", the LINE bridge shows its loading animation
+(one-on-one chats only; LINE refuses it in groups and rooms) and the Telegram bridge shows "typing…". The indicator is
+refreshed until the reply is ready and is fully down before the reply is posted, so it does not reappear on an answered
+message. A failed indicator request is logged as a warning and never holds the reply back. The lifecycle lives once in
+`@mulmobridge/client` (`replyAfterProcessingIndicator`). The bridges are separate packages and reach users by upgrading
+the bridge: `@mulmobridge/client@1.5.0`, `@mulmobridge/discord@1.4.1`, `@mulmobridge/line@1.2.0`,
+`@mulmobridge/telegram@1.3.0`.
+
 ### Under the hood
 
 #### Remote host: a host can tell its machines apart (PR #3506)
 
 `@mulmoclaude/core/remote-host` lets a host write a `machineId` and a `label` into every presence beat (`HostRunnerOptions.machine`), and decide its channel id once signed in (`RemoteHostDeps.resolveHostId`, bounded by a timeout). MulmoTerminal uses this to connect several machines under one account (receptron/mulmoterminal#3092). MulmoClaude passes neither, so its presence and channel are unchanged.
 
-Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.1.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+#### Dependencies (PR #3510, #3515, #3539, #3540, #3543)
+
+`kenteiscript` 0.2 (used by `manageKenteiScript`), the `@gui-chat-plugin/*` and `@mulmochat-plugin/quiz` 2.1 releases,
+`hono` 4.13.13, `follow-redirects` 1.16.1, `markdown-it` 14.3.3, and `undici` 8 for the Slack bridge.
+
+Ships `@mulmoclaude/accounting-plugin@4.0.2`, `@mulmoclaude/chart-plugin@4.5.0`, `@mulmoclaude/collection-plugin@5.5.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@5.12.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@4.1.0`, `@mulmoclaude/html-plugin@5.0.1`, `@mulmoclaude/markdown-plugin@5.2.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@5.5.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
 
 ## [2.6.0] - 2026-10-18
 

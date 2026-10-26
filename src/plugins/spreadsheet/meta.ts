@@ -4,11 +4,9 @@ export const META = definePluginMeta({
   toolName: "presentSpreadsheet",
   apiNamespace: "spreadsheet",
   apiRoutes: {
-    /** POST /api/spreadsheet — create a new spreadsheet. */
+    /** POST /api/spreadsheet — create a new spreadsheet. Cell edits are
+     *  saved through the View's dispatch (server/plugins/spreadsheet-builtin.ts). */
     create: { method: "POST", path: "" },
-    /** PUT /api/spreadsheet/update — overwrite an existing
-     *  spreadsheet. Body carries the workspace-relative path. */
-    update: { method: "PUT", path: "/update" },
   },
   mcpDispatch: "create",
 });

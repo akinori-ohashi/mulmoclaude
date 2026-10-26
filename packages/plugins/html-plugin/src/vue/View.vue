@@ -31,8 +31,58 @@
       </div>
     </div>
     <div v-if="downloadError" class="download-error" role="alert">{{ t.downloadError(downloadError) }}</div>
+    <div
+      v-if="sentNotice"
+      class="px-4 py-1.5 border-b border-green-200 bg-green-50 shrink-0 text-sm text-green-800"
+      role="status"
+      data-testid="present-html-submit-sent"
+    >
+      {{ t.submitSent }}
+    </div>
+    <div v-if="submission" class="px-4 py-3 border-b border-blue-200 bg-blue-50 shrink-0 flex flex-col gap-2" data-testid="present-html-submit">
+      <div class="text-sm font-medium text-gray-800">{{ t.submitTitle }}</div>
+      <div class="text-xs text-gray-600">{{ t.submitHint }}</div>
+      <div v-if="sendFailed" class="text-xs text-red-700" role="alert" data-testid="present-html-submit-failed">{{ t.submitFailed }}</div>
+      <textarea
+        v-model="submission.text"
+        :maxlength="MAX_SUBMIT_TEXT_CHARS"
+        spellcheck="false"
+        class="w-full h-32 p-2 text-sm font-mono bg-white border border-gray-300 rounded resize-y focus:outline-none focus:border-blue-500"
+        data-testid="present-html-submit-text"
+      ></textarea>
+      <div class="flex justify-end gap-2">
+        <button
+          class="px-3 py-1 text-sm rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
+          data-testid="present-html-submit-discard"
+          @click="discard"
+        >
+          {{ t.submitDiscard }}
+        </button>
+        <button
+          class="px-3 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          :disabled="submission.text.trim() === ''"
+          data-testid="present-html-submit-send"
+          @click="sendHeld"
+        >
+          {{ t.submitSend }}
+        </button>
+      </div>
+    </div>
+    <div v-else-if="rejectedTooLong" class="px-4 py-2 border-b border-red-200 bg-red-50 shrink-0 flex items-center justify-between gap-2" role="alert">
+      <span class="text-sm text-red-800">{{ t.submitTooLong(MAX_SUBMIT_TEXT_CHARS) }}</span>
+      <button class="px-2 py-1 text-xs rounded border border-red-300 text-red-700 hover:bg-red-100" @click="discard">{{ t.submitDiscard }}</button>
+    </div>
     <div class="iframe-wrapper">
-      <iframe v-if="frameSrc" data-testid="present-html-iframe" :src="frameSrc" sandbox="allow-scripts" class="w-full h-full border-0" />
+      <iframe
+        v-if="frameSrc"
+        :key="frameKey"
+        ref="frame"
+        data-testid="present-html-iframe"
+        @load="discard"
+        :src="framedSrc"
+        sandbox="allow-scripts"
+        class="w-full h-full border-0"
+      />
       <div v-else class="h-full flex items-center justify-center text-sm text-gray-500">
         {{ t.untitled }}
       </div>
@@ -73,13 +123,24 @@ import { useT } from "../lang";
 import { buildPrintCspContent } from "./previewCsp";
 import { useFileWatch } from "@mulmoclaude/core/plugin-vue";
 import { errorMessage } from "@mulmoclaude/common";
+import { MAX_SUBMIT_TEXT_CHARS } from "../core/submitMessage";
+import { useHtmlSubmit, type SendText } from "./useHtmlSubmit";
+import { submitModeOfResult, withSubmitKey } from "../core/submitMode";
 
 const runtime = useRuntime();
 const t = useT();
 
 const props = defineProps<{
   selectedResult: ToolResultComplete<PresentHtmlData>;
+  sendTextMessage?: SendText;
 }>();
+
+const frame = ref<HTMLIFrameElement>();
+const { submission, rejectedTooLong, sendFailed, sentNotice, discard, sendHeld } = useHtmlSubmit(frame, {
+  mode: () => directMode.value,
+  expectedKey: () => (directMode.value ? submitKey.value : undefined),
+  sender: () => props.sendTextMessage,
+});
 
 const PRINT_STYLE_CSS = `@media print {
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -117,6 +178,22 @@ const previewBaseUrl = computed(() => data.value?.previewUrl ?? htmlArtifactPrev
 // when the bytes on disk did not change — or when no file-change event was
 // heard at all.
 const reloadNonce = ref(0);
+
+// A new iframe element per page and per result: its Window is what a submit is matched against, and
+// a reused element keeps the same Window across a navigation, so a message the previous document
+// queued would otherwise be judged by the next result's mode.
+const directMode = computed(() => submitModeOfResult(data.value));
+
+const frameKey = computed(() => `${props.selectedResult.uuid}|${frameSrc.value ?? ""}`);
+
+// A fresh key for each frame document, recomputed only when frameKey changes. It reaches the page
+// through its URL fragment and only a direct page is given one.
+const submitKey = computed(() => (frameKey.value ? crypto.randomUUID() : ""));
+const framedSrc = computed(() => {
+  const src = frameSrc.value;
+  if (!src) return undefined;
+  return directMode.value ? withSubmitKey(src, submitKey.value) : src;
+});
 
 const frameSrc = computed(() => {
   const base = previewBaseUrl.value;

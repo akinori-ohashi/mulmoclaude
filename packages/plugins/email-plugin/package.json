@@ -31,15 +31,15 @@
     "gui-chat-protocol": "^2.1.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "vite": "^8.3.4",
+    "vite": "^8.3.5",
     "vite-plugin-dts": "^5.1.2",
     "zod": "^4.6.7"
   },
   "license": "MIT",
   "dependencies": {
-    "imapflow": "^2.5.5",
-    "mailparser": "^3.9.46",
-    "nodemailer": "^10.1.7"
+    "imapflow": "^2.8.0",
+    "mailparser": "^3.12.2",
+    "nodemailer": "^10.2.0"
   },
   "homepage": "https://github.com/receptron/mulmoclaude/tree/main/packages/plugins/email-plugin#readme",
   "repository": {

@@ -16,7 +16,7 @@
 
 import "dotenv/config";
 import { Client, GatewayIntentBits, Partials, type Message } from "discord.js";
-import { createBridgeClient, installProcessGuards } from "@mulmobridge/client";
+import { createBridgeClient, installProcessGuards, replyAfterProcessingIndicator } from "@mulmobridge/client";
 import { parseCsvSet } from "@mulmoclaude/common";
 import { collectAttachments, resolveMessageText, type DiscordAttachmentLike } from "./attachments.js";
 import { buildExternalChatId, isChannelAllowed, parseGranularity, readChannelRef } from "./sessionId.js";
@@ -25,6 +25,8 @@ const TRANSPORT_ID = "discord";
 
 installProcessGuards({ name: TRANSPORT_ID });
 const MAX_DISCORD_LENGTH = 2000;
+// Discord drops "typing…" about 10 s after each request.
+const TYPING_REFRESH_MS = 8_000;
 
 const token = process.env.DISCORD_BOT_TOKEN;
 if (!token) {
@@ -101,23 +103,39 @@ async function onMessageCreate(msg: Message): Promise<void> {
   }
 }
 
+interface PendingReply {
+  text: string;
+  chunked: boolean;
+}
+
 async function relayMessage(msg: Message, externalChatId: string, text: string, files: DiscordAttachmentLike[]): Promise<void> {
+  await replyAfterProcessingIndicator(
+    () => sendTypingTo(msg),
+    {
+      produce: () => produceReply(externalChatId, text, files),
+      post: (reply) => (reply.chunked ? sendChunked(msg, reply.text) : msg.reply(reply.text)),
+    },
+    { refreshMs: TYPING_REFRESH_MS, label: TRANSPORT_ID, log: console },
+  );
+}
+
+async function sendTypingTo(msg: Message): Promise<void> {
+  if (msg.channel.isSendable()) await msg.channel.sendTyping();
+}
+
+async function produceReply(externalChatId: string, text: string, files: DiscordAttachmentLike[]): Promise<PendingReply> {
   const { attachments, dropped } = await collectAttachments(files, { fetchFn: fetch, log: console });
 
   // Nothing survived on a file-only post: say so instead of relaying a
   // prompt about a file the agent never receives.
   if (text.length === 0 && attachments.length === 0) {
-    await msg.reply("Sorry, I could not download that attachment. Please try again.");
-    return;
+    return { text: "Sorry, I could not download that attachment. Please try again.", chunked: false };
   }
 
   const ack = await mulmo.send(externalChatId, resolveMessageText(text, dropped), attachments.length > 0 ? attachments : undefined);
-  if (ack.ok) {
-    await sendChunked(msg, ack.reply ?? "");
-  } else {
-    const status = ack.status ? ` (${ack.status})` : "";
-    await msg.reply(`Error${status}: ${ack.error ?? "unknown"}`);
-  }
+  if (ack.ok) return { text: ack.reply ?? "", chunked: true };
+  const status = ack.status ? ` (${ack.status})` : "";
+  return { text: `Error${status}: ${ack.error ?? "unknown"}`, chunked: false };
 }
 
 async function sendChunked(msg: Message, text: string): Promise<void> {

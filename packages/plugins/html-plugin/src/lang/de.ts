@@ -15,6 +15,13 @@ const de: Messages = {
   saveError: (error) => `⚠ Speichern fehlgeschlagen: ${error}`,
   loadingSource: "Quelltext wird geladen…",
   sourceError: (error) => `Quelltext konnte nicht geladen werden: ${error}`,
+  submitTitle: "Dies an die Unterhaltung senden?",
+  submitHint: "Die Seite möchte dies senden. Bei Bedarf bearbeiten – gesendet wird erst, wenn Sie auf Senden klicken.",
+  submitSend: "Senden",
+  submitDiscard: "Verwerfen",
+  submitTooLong: (maxChars) => `Die Seite wollte mehr als ${maxChars} Zeichen senden, daher wurde nichts gesendet.`,
+  submitSent: "An die Unterhaltung gesendet.",
+  submitFailed: "Senden fehlgeschlagen: Das Terminal ist nicht verbunden. Der Text bleibt hier; klicken Sie erneut auf Senden.",
 };
 
 export default de;

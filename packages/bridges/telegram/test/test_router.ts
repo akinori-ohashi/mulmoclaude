@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createMessageRouter, type SendToMulmoFn } from "../src/router.ts";
 import type { TelegramApi, TelegramMessage } from "../src/api.ts";
@@ -26,12 +26,14 @@ interface EditedMessage {
   text: string;
 }
 
-function stubApi(): TelegramApi & { sent: SentMessage[]; edited: EditedMessage[] } {
+function stubApi(): TelegramApi & { sent: SentMessage[]; edited: EditedMessage[]; chatActions: number[] } {
   const sent: SentMessage[] = [];
   const edited: EditedMessage[] = [];
+  const chatActions: number[] = [];
   return {
     sent,
     edited,
+    chatActions,
     async getUpdates() {
       return [];
     },
@@ -47,6 +49,9 @@ function stubApi(): TelegramApi & { sent: SentMessage[]; edited: EditedMessage[]
     // Recorded rather than ignored, so a case can assert on the edits.
     async editMessageText(chatId, messageId, text) {
       edited.push({ chatId, messageId, text });
+    },
+    async sendChatAction(chatId) {
+      chatActions.push(chatId);
     },
     async downloadFile() {
       return "data:image/jpeg;base64,AAAA";
@@ -89,6 +94,45 @@ describe("router.handleMessage — allowed chat", () => {
     await router.handleMessage(msg(42, "hello"));
     assert.deepEqual(mulmoCalls, [{ chatId: "42", text: "hello" }]);
     assert.deepEqual(api.sent, [{ chatId: 42, text: "hi back" }]);
+    assert.deepEqual(api.chatActions, [42]);
+  });
+
+  it("holds the reply until the in-flight typing request settles", async () => {
+    const typingGate = { release: () => {} };
+    const typingApi = stubApi();
+    typingApi.sendChatAction = (chatId) => {
+      typingApi.chatActions.push(chatId);
+      return new Promise<void>((resolve) => {
+        typingGate.release = resolve;
+      });
+    };
+    const router = createMessageRouter({ api: typingApi, allowlist: createAllowlist([42]), sendToMulmo: sendOK, log: silentLog });
+
+    const handling = router.handleMessage(msg(42, "hello"));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(mulmoCalls.length, 1);
+    assert.deepEqual(typingApi.sent, [], "must not reply while a typing request is in flight");
+
+    typingGate.release();
+    await handling;
+    assert.deepEqual(typingApi.sent, [{ chatId: 42, text: "hi back" }]);
+  });
+
+  it("still replies when the typing request fails", async () => {
+    const warnings: string[] = [];
+    const failingApi = stubApi();
+    failingApi.sendChatAction = async () => {
+      throw new Error("Forbidden: bot was blocked");
+    };
+    const router = createMessageRouter({
+      api: failingApi,
+      allowlist: createAllowlist([42]),
+      sendToMulmo: sendOK,
+      log: { ...silentLog, warn: (message) => warnings.push(message) },
+    });
+    await router.handleMessage(msg(42, "hello"));
+    assert.deepEqual(failingApi.sent, [{ chatId: 42, text: "hi back" }]);
+    assert.match(elementAt(warnings, 0), /^\[telegram\] .*bot was blocked/);
   });
 
   it("ignores whitespace-only messages (doesn't call MulmoClaude)", async () => {
@@ -101,6 +145,7 @@ describe("router.handleMessage — allowed chat", () => {
     await router.handleMessage(msg(42, "   "));
     assert.equal(mulmoCalls.length, 0);
     assert.equal(api.sent.length, 0);
+    assert.equal(api.chatActions.length, 0);
   });
 
   it("relays error acks as an error message", async () => {
@@ -210,6 +255,92 @@ describe("router.handleMessage — allowed chat", () => {
   });
 });
 
+describe("router.handleMessage — streamed replies", () => {
+  const STREAMED_TEXT = "partial";
+  const FULL_REPLY = "partial and the rest";
+
+  /** stubApi whose sendMessage resolves a turn later, as a real network call does. */
+  function delayedSendApi(): ReturnType<typeof stubApi> {
+    const api = stubApi();
+    const sendNow = api.sendMessage.bind(api);
+    api.sendMessage = async (chatId, text) => {
+      await new Promise((resolve) => setImmediate(resolve));
+      return sendNow(chatId, text);
+    };
+    return api;
+  }
+
+  function streamingRouter(api: TelegramApi, ack: Awaited<ReturnType<SendToMulmoFn>>) {
+    const router = createMessageRouter({
+      api,
+      allowlist: createAllowlist([42, 43]),
+      sendToMulmo: async () => {
+        router.handleTextChunk(STREAMED_TEXT);
+        return ack;
+      },
+      log: silentLog,
+    });
+    return router;
+  }
+
+  it("completes the streamed message in place instead of sending the reply again", async () => {
+    const api = delayedSendApi();
+    await streamingRouter(api, { ok: true, reply: FULL_REPLY }).handleMessage(msg(42, "hi"));
+    assert.deepEqual(api.sent, [{ chatId: 42, text: STREAMED_TEXT }]);
+    assert.deepEqual(api.edited, [{ chatId: 42, messageId: 1, text: FULL_REPLY }]);
+  });
+
+  describe("with the edit timer under test control", () => {
+    // Longer than the router's edit interval, so one tick always fires it.
+    const PAST_EDIT_INTERVAL_MS = 60_000;
+    const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+    beforeEach(() => {
+      mock.timers.enable({ apis: ["setInterval"] });
+    });
+    afterEach(() => {
+      mock.timers.reset();
+    });
+
+    it("sends the error after the streamed text when the final ack fails", async () => {
+      const api = stubApi();
+      const router = createMessageRouter({
+        api,
+        allowlist: createAllowlist([42]),
+        sendToMulmo: async () => {
+          router.handleTextChunk(STREAMED_TEXT);
+          mock.timers.tick(PAST_EDIT_INTERVAL_MS);
+          await turn();
+          return { ok: false, error: "boom", status: 500 };
+        },
+        log: silentLog,
+      });
+      await router.handleMessage(msg(42, "hi"));
+      assert.equal(api.sent.length, 2);
+      assert.equal(elementAt(api.sent, 0).text, STREAMED_TEXT);
+      assert.match(elementAt(api.sent, 1).text, /Error \(500\): boom/);
+    });
+
+    it("stops the edit timer when the request throws", async () => {
+      const api = stubApi();
+      const router = createMessageRouter({
+        api,
+        allowlist: createAllowlist([42]),
+        sendToMulmo: async () => {
+          router.handleTextChunk(STREAMED_TEXT);
+          throw new Error("socket closed");
+        },
+        log: silentLog,
+      });
+      await assert.rejects(router.handleMessage(msg(42, "first")), /socket closed/);
+      router.handleTextChunk("stale");
+      mock.timers.tick(PAST_EDIT_INTERVAL_MS);
+      await turn();
+      assert.deepEqual(api.sent, []);
+    });
+  });
+});
+
 describe("router.handleMessage — denied chat", () => {
   const mulmoNever: SendToMulmoFn = async () => {
     throw new Error("should not be called for denied chats");
@@ -226,6 +357,7 @@ describe("router.handleMessage — denied chat", () => {
     await router.handleMessage(msg(999, "hi"));
     assert.equal(api.sent.length, 1);
     assert.match(elementAt(api.sent, 0).text, /Access denied/);
+    assert.equal(api.chatActions.length, 0);
     assert.equal(router.deniedAlreadyNotified().has(999), true);
   });
 

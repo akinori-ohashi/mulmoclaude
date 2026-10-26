@@ -15,6 +15,13 @@ const es: Messages = {
   saveError: (error) => `⚠ Error al guardar: ${error}`,
   loadingSource: "Cargando código…",
   sourceError: (error) => `Error al cargar el código: ${error}`,
+  submitTitle: "¿Enviar esto a la conversación?",
+  submitHint: "La página quiere enviar esto. Edítalo si hace falta: no se envía nada hasta que pulses Enviar.",
+  submitSend: "Enviar",
+  submitDiscard: "Descartar",
+  submitTooLong: (maxChars) => `La página intentó enviar más de ${maxChars} caracteres, así que no se envió nada.`,
+  submitSent: "Enviado a la conversación.",
+  submitFailed: "No se pudo enviar: el terminal no está conectado. El texto se conserva aquí; pulsa Enviar para reintentar.",
 };
 
 export default es;

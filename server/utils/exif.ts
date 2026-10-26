@@ -15,7 +15,6 @@
 // extracted coords straight to the Google Map plugin without a
 // reshape (#1227).
 
-import { readFile } from "fs/promises";
 import exifr from "exifr";
 import { isRecord } from "./types.js";
 
@@ -159,17 +158,15 @@ export type ExifParser = (buf: Buffer) => Promise<unknown>;
 
 const defaultParser: ExifParser = (buf) => exifr.parse(buf, PARSE_OPTIONS);
 
-/** Parse a photo file and project the fields we care about. Returns
- *  `null` when the file has no parseable EXIF (screenshots, scrubbed
+/** Parse a photo's bytes and project the fields we care about. Returns
+ *  `null` when they hold no parseable EXIF (screenshots, scrubbed
  *  uploads, non-image MIME types, malformed JPEG). Never throws. */
-export async function readPhotoExif(absPath: string, parser: ExifParser = defaultParser): Promise<PhotoExif | null> {
+export async function parsePhotoExif(buf: Buffer, parser: ExifParser = defaultParser): Promise<PhotoExif | null> {
   let raw: unknown;
   try {
-    const buf = await readFile(absPath);
     raw = await parser(buf);
   } catch {
-    // Includes both fs errors (handler should have ensured the file
-    // exists) and exifr "couldn't find any EXIF data" rejections.
+    // exifr rejects with "couldn't find any EXIF data" on photos without it.
     return null;
   }
   if (!isRecord(raw)) return null;

@@ -1,137 +1,19 @@
+import { TOOL_DEFINITION as PACKAGE_TOOL_DEFINITION } from "@gui-chat-plugin/spreadsheet";
 import type { ToolDefinition } from "gui-chat-protocol";
 import { META } from "./meta";
 import type { ResolvedRoute } from "../meta-types";
-import { errorMessage } from "../../utils/errors";
 
+// presentSpreadsheet's schema, validation, engine and View live in
+// @gui-chat-plugin/spreadsheet (also consumed by MulmoTerminal). This built-in
+// keeps MulmoClaude's routing META and the prompt, which points the agent at
+// the workspace help file for cell formats and functions.
 export const TOOL_NAME = META.toolName;
+
 export type SpreadsheetEndpoints = { readonly [K in keyof typeof META.apiRoutes]: ResolvedRoute };
 
-/** Mirrors the engine's `StoredCellValue`. Declaring it narrower than what the
- *  engine stores and renders is what forced the View to cast its decoded
- *  sheets back to this type. */
-export type SpreadsheetCellValue = string | number | boolean;
-
-export interface SpreadsheetCell {
-  v: SpreadsheetCellValue;
-  f?: string;
-}
-
-/** A cell as a stored workbook actually holds it. The engine's `normalizeData`
- *  folds all four forms, and models and hand edits write all four, so a
- *  workbook read back off disk cannot promise `{ v }` for every cell. The tool
- *  SCHEMA is deliberately stricter — it says what a caller should emit, not
- *  what an existing file may contain. */
-export type StorableCell = SpreadsheetCell | { v?: null; f?: string } | SpreadsheetCellValue | null;
-
-export interface SpreadsheetSheet {
-  name: string;
-  data: StorableCell[][];
-}
-
-export interface SpreadsheetToolData {
-  sheets: SpreadsheetSheet[] | string;
-}
-
-export interface SpreadsheetArgs {
-  title: string;
-  sheets: SpreadsheetSheet[];
-}
-
-const toolDefinition: ToolDefinition = {
-  type: "function",
-  name: TOOL_NAME,
-  description: "Display an Excel-like spreadsheet with formulas and calculations.",
+export const TOOL_DEFINITION: ToolDefinition = {
+  ...PACKAGE_TOOL_DEFINITION,
   prompt: `Use ${TOOL_NAME} when the user asks for a spreadsheet, table with calculations, or what-if analysis. Use formulas and cell references instead of pre-calculated values so the spreadsheet stays interactive. For cell format details and available functions, read \`config/helps/spreadsheet.md\` in the workspace.`,
-  parameters: {
-    type: "object",
-    properties: {
-      title: {
-        type: "string",
-        description: "Title for the spreadsheet",
-      },
-      sheets: {
-        type: "array",
-        description: "Sheets to render as spreadsheet tabs. Each sheet includes a name and 2D array of cells (rows x columns).",
-        items: {
-          type: "object",
-          properties: {
-            name: {
-              type: "string",
-              description: "Sheet name (e.g., 'Sales Q1', 'Summary')",
-            },
-            data: {
-              type: "array",
-              description:
-                'Rows of cells. Each cell is an object with \'v\' (value) and \'f\' (format). Use Excel-style A1 notation in formulas: columns are letters (A, B, C...), rows are 1-based numbers (1, 2, 3...). Values can be text, numbers, dates, or formulas. Examples: [{"v": "Product"}, {"v": 2024, "f": "#,##0"}, {"v": "01/15/2025", "f": "MM/DD/YYYY"}, {"v": "=B2*1.05", "f": "$#,##0.00"}]. Format codes: \'$#,##0.00\' (currency), \'#,##0\' (integer), \'0.00%\' (percent), \'0.00\' (decimal), \'MM/DD/YYYY\' (date), \'DD-MMM-YYYY\' (date), \'YYYY-MM-DD\' (ISO date).',
-              items: {
-                type: "array",
-                description: "Row of cells. Each cell is an object with value and format.",
-                items: {
-                  type: "object",
-                  description: "Cell object with value and optional format. If value is a string starting with '=', it's treated as a formula.",
-                  properties: {
-                    v: {
-                      oneOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }],
-                      description:
-                        "Cell value. Can be text, number, boolean, date, or formula (string starting with '='). Examples: 'Revenue', 1500000, true, '01/15/2025', '=SUM(A1:A10)', '=B2-TODAY()'. Date strings like '01/15/2025' are automatically parsed to date serial numbers.",
-                    },
-                    f: {
-                      type: "string",
-                      description:
-                        "Optional format code for displaying the value. Common formats: '$#,##0.00' (currency), '#,##0' (integer), '0.00%' (percent), '0.00' (decimal), 'MM/DD/YYYY' (date), 'DD-MMM-YYYY' (date), 'YYYY-MM-DD' (ISO date)",
-                    },
-                  },
-                  required: ["v"],
-                },
-              },
-            },
-          },
-          required: ["name", "data"],
-        },
-      },
-    },
-    required: ["title", "sheets"],
-  },
 };
 
-export default toolDefinition;
-
-export const executeSpreadsheet = async (
-  args: SpreadsheetArgs,
-): Promise<{
-  message: string;
-  title: string;
-  data: SpreadsheetToolData;
-  instructions: string;
-}> => {
-  const { title } = args;
-  let { sheets } = args;
-
-  // Handle case where LLM accidentally stringifies the sheets array
-  if (typeof sheets === "string") {
-    try {
-      sheets = JSON.parse(sheets);
-    } catch (error) {
-      throw new Error(`Invalid sheets format: sheets must be an array, not a string. Parse error: ${errorMessage(error)}`);
-    }
-  }
-
-  // Validate that sheets are provided
-  if (!Array.isArray(sheets) || sheets.length === 0) {
-    throw new Error("At least one sheet is required. Sheets must be an array of sheet objects.");
-  }
-
-  // Validate each sheet has data
-  for (const sheet of sheets) {
-    if (!sheet.name || !sheet.data || sheet.data.length === 0) {
-      throw new Error(`Invalid sheet: ${sheet.name || "unnamed"}. Each sheet must have a name and data array.`);
-    }
-  }
-
-  return {
-    message: `Created spreadsheet: ${title}`,
-    title,
-    data: { sheets },
-    instructions: "Acknowledge that the spreadsheet has been created and is displayed to the user.",
-  };
-};
+export default TOOL_DEFINITION;

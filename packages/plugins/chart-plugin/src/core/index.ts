@@ -4,6 +4,7 @@ export type {
   ChartArgs,
   PresentChartData,
   ChartSource,
+  ChartSourceGroupBy,
   ChartSourceCell,
   ChartSourceRows,
   ReadSourceArgs,
@@ -11,5 +12,5 @@ export type {
 } from "./types";
 export { TOOL_NAME, TOOL_DEFINITION } from "./definition";
 export { pluginCore, executeChart, readChartSource, isValidChartDocument, type ChartExecuteContext, type ChartSourceReader } from "./plugin";
-export { isChartSource, isReadSourceArgs } from "./source";
+export { isChartSource, isReadSourceArgs, chartSources } from "./source";
 export { chartArtifactPath, slugify, type ChartPath } from "./paths";

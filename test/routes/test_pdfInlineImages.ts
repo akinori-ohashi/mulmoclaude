@@ -7,7 +7,8 @@
 
 import { beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { inlineImages, shouldSkipMediaForPdf } from "../../server/api/routes/pdf.js";
@@ -30,95 +31,95 @@ beforeEach(() => {
 });
 
 describe("inlineImages — workspace-rooted leading-slash form", () => {
-  it("inlines /artifacts/... paths (the LLM web-convention shape)", () => {
+  it("inlines /artifacts/... paths (the LLM web-convention shape)", async () => {
     const html = '<img src="/artifacts/images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /^<img src="data:image\/png;base64,[A-Za-z0-9+/=]+">$/);
   });
 
-  it("inlines paths without leading slash (markdowns-relative shape)", () => {
+  it("inlines paths without leading slash (markdowns-relative shape)", async () => {
     // markdowns/ references go up to artifacts/, then into images/.
     const html = '<img src="../images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /^<img src="data:image\/png;base64,[A-Za-z0-9+/=]+">$/);
   });
 
-  it("leaves data: URIs untouched", () => {
+  it("leaves data: URIs untouched", async () => {
     const html = '<img src="data:image/png;base64,AAAA">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.equal(out, html);
   });
 
-  it("leaves http(s):// URLs untouched", () => {
+  it("leaves http(s):// URLs untouched", async () => {
     const html = '<img src="https://example.com/foo.png">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.equal(out, html);
   });
 
-  it("rejects path traversal that escapes the workspace", () => {
+  it("rejects path traversal that escapes the workspace", async () => {
     const html = '<img src="../../../../etc/passwd">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     // Original tag preserved (not inlined). Browser will 404 — better
     // than leaking arbitrary host files into the rendered PDF.
     assert.equal(out, html);
   });
 
-  it("rejects /etc/passwd-style host-absolute paths once leading slash is stripped", () => {
+  it("rejects /etc/passwd-style host-absolute paths once leading slash is stripped", async () => {
     // After stripping the leading slash, "etc/passwd" is treated as
     // workspace-relative. It doesn't exist under workspaceRoot, so
     // safe-resolve rejects it and the tag passes through unchanged.
     const html = '<img src="/etc/passwd">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.equal(out, html);
   });
 
-  it("preserves attributes around src", () => {
+  it("preserves attributes around src", async () => {
     const html = '<img alt="cat" src="/artifacts/images/2026/04/foo.png" width="100">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /^<img alt="cat" src="data:image\/png;base64,[^"]+" width="100">$/);
   });
 
-  it("transforms multiple <img> tags in one pass", () => {
+  it("transforms multiple <img> tags in one pass", async () => {
     const html = '<p><img src="/artifacts/images/2026/04/foo.png"><img src="../images/2026/04/foo.png"></p>';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     const matches = out.match(/data:image\/png;base64,/g) ?? [];
     assert.equal(matches.length, 2, "both tags should be rewritten");
   });
 });
 
 describe("inlineImages — sourceDir parameter (Stage F: Wiki PDF)", () => {
-  it("resolves ../../../artifacts/... from data/wiki/pages/", () => {
+  it("resolves ../../../artifacts/... from data/wiki/pages/", async () => {
     // Wiki page directory needs to exist for path.resolve to behave
     // normally — although resolve doesn't actually stat. Create it
     // anyway for realism.
     mkdirSync(path.join(workspaceRoot, "data", "wiki", "pages"), { recursive: true });
     const html = '<img src="../../../artifacts/images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot, sourceDir: "data/wiki/pages" });
+    const out = await inlineImages(html, { workspaceRoot, sourceDir: "data/wiki/pages" });
     assert.match(out, /^<img src="data:image\/png;base64,[A-Za-z0-9+/=]+">$/);
   });
 
-  it("falls back to legacy markdowns/ when sourceDir is omitted", () => {
+  it("falls back to legacy markdowns/ when sourceDir is omitted", async () => {
     const html = '<img src="../images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /data:image\/png;base64/);
   });
 
-  it("rejects an absolute sourceDir, falls back to legacy default", () => {
+  it("rejects an absolute sourceDir, falls back to legacy default", async () => {
     // path.isAbsolute("/etc") returns true. The function should
     // defang and still try the markdowns/ fallback (which DOES
     // contain ../images/foo.png because of the test's mkdirSync).
     const html = '<img src="../images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot, sourceDir: "/etc" });
+    const out = await inlineImages(html, { workspaceRoot, sourceDir: "/etc" });
     assert.match(out, /data:image\/png;base64/);
   });
 
-  it("rejects a sourceDir containing .. segments, falls back to default", () => {
+  it("rejects a sourceDir containing .. segments, falls back to default", async () => {
     const html = '<img src="../images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot, sourceDir: "../escape/me" });
+    const out = await inlineImages(html, { workspaceRoot, sourceDir: "../escape/me" });
     assert.match(out, /data:image\/png;base64/);
   });
 
-  it("treats sourceDir='' as workspace root (top-level files like README.md)", () => {
+  it("treats sourceDir='' as workspace root (top-level files like README.md)", async () => {
     // Codex iter-1 finding (#1036): the previous `requestedDir` truthy
     // check collapsed empty strings to "absent" → server fell back to
     // `markdowns/` for top-level files. Distinguish the two so a
@@ -129,66 +130,66 @@ describe("inlineImages — sourceDir parameter (Stage F: Wiki PDF)", () => {
     const png = path.join(docsDir, "top.png");
     writeFileSync(png, PNG_BYTES);
     const html = '<img src="docs/top.png">';
-    const out = inlineImages(html, { workspaceRoot, sourceDir: "" });
+    const out = await inlineImages(html, { workspaceRoot, sourceDir: "" });
     assert.match(out, /data:image\/png;base64/);
   });
 
-  it("undefined sourceDir still falls back to legacy default (chat callers)", () => {
+  it("undefined sourceDir still falls back to legacy default (chat callers)", async () => {
     // Make sure the `hasRequestedDir` distinction doesn't accidentally
     // break the legacy chat path that doesn't pass sourceDir.
     const html = '<img src="../images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /data:image\/png;base64/);
   });
 
-  it("does not crash on non-string sourceDir from a malformed payload (Codex iter-2)", () => {
+  it("does not crash on non-string sourceDir from a malformed payload (Codex iter-2)", async () => {
     // A JSON body like `{ baseDir: null }` would forward `null` here.
     // Without a type guard, `path.join(workspaceRoot, null)` throws.
     // Treat anything non-string as undefined → legacy default.
     const html = '<img src="../images/2026/04/foo.png">';
     for (const malformed of [null, 42, {}, [], true] as unknown[]) {
-      const out = inlineImages(html, { workspaceRoot, sourceDir: malformed as string | undefined });
+      const out = await inlineImages(html, { workspaceRoot, sourceDir: malformed as string | undefined });
       assert.match(out, /data:image\/png;base64/, `failed for malformed input: ${JSON.stringify(malformed)}`);
     }
   });
 });
 
 describe("inlineImages — quote-form coverage (Stage F)", () => {
-  it("inlines a single-quoted src", () => {
+  it("inlines a single-quoted src", async () => {
     const html = "<img src='/artifacts/images/2026/04/foo.png'>";
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /^<img src='data:image\/png;base64,[^']+'>$/);
   });
 
-  it("inlines an unquoted src", () => {
+  it("inlines an unquoted src", async () => {
     const html = "<img src=/artifacts/images/2026/04/foo.png>";
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     // Output uses double quotes for the canonical form.
     assert.match(out, /^<img src="data:image\/png;base64,[^"]+">$/);
   });
 
-  it("inlines a self-closing <img />", () => {
+  it("inlines a self-closing <img />", async () => {
     const html = '<img src="/artifacts/images/2026/04/foo.png" />';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /^<img src="data:image\/png;base64,[^"]+" \/>$/);
   });
 
-  it("does NOT match data-src= (lookbehind defends against false matches)", () => {
+  it("does NOT match data-src= (lookbehind defends against false matches)", async () => {
     const html = '<img data-src="/artifacts/images/2026/04/foo.png" alt="y">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.equal(out, html);
   });
 
-  it('leaves a malformed <img src="... (no closing quote) untouched', () => {
+  it('leaves a malformed <img src="... (no closing quote) untouched', async () => {
     const html = '<img src="aaaaa.png alt=broken>';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.equal(out, html);
   });
 
-  it("processes 100KB of input in linear time (no ReDoS)", () => {
+  it("processes 100KB of input in linear time (no ReDoS)", async () => {
     const html = `<img ${"a".repeat(100_000)}`;
     const start = Date.now();
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     const elapsedMs = Date.now() - start;
     assert.equal(out, html);
     assert.ok(elapsedMs < 1000, `expected <1s, got ${elapsedMs}ms`);
@@ -196,51 +197,51 @@ describe("inlineImages — quote-form coverage (Stage F)", () => {
 });
 
 describe("inlineImages — attribute-boundary correctness (Codex #1023 review)", () => {
-  it("does not rewrite a src= substring inside another attribute's quoted value", () => {
+  it("does not rewrite a src= substring inside another attribute's quoted value", async () => {
     // Without attribute-iterator parsing, the alt-internal `src=oops`
     // would be rewritten, corrupting the surrounding alt attribute
     // and the tag itself. The attribute walker consumes the alt
     // value as a unit so the real `src=` is the only one rewritten.
     const html = '<img alt="x src=oops" src="/artifacts/images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.ok(out.includes('alt="x src=oops"'));
     assert.match(out, /src="data:image\/png;base64,[^"]+"/);
   });
 
-  it("does not rewrite namespaced attrs like xml:src or xlink:src", () => {
+  it("does not rewrite namespaced attrs like xml:src or xlink:src", async () => {
     const html = '<img xml:src="ignored.png" xlink:src="ignored2.png" src="/artifacts/images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.ok(out.includes('xml:src="ignored.png"'));
     assert.ok(out.includes('xlink:src="ignored2.png"'));
     assert.match(out, /\bsrc="data:image\/png;base64,[^"]+"/);
   });
 
-  it("preserves a tutorial-style alt that mentions src=", () => {
+  it("preserves a tutorial-style alt that mentions src=", async () => {
     const html = '<img alt="example: src=foo.png" src="/artifacts/images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.ok(out.includes('alt="example: src=foo.png"'));
     assert.match(out, /\bsrc="data:image\/png;base64,/);
   });
 
-  it("handles `>` inside a quoted attribute value (Codex iter-2 finding)", () => {
+  it("handles `>` inside a quoted attribute value (Codex iter-2 finding)", async () => {
     // Without quote-aware outer regex, the matcher would stop at the
     // first `>` inside alt and never see the real `src`.
     const html = '<img alt="x > y" src="/artifacts/images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.ok(out.includes('alt="x > y"'));
     assert.match(out, /\bsrc="data:image\/png;base64,/);
   });
 
-  it("handles `>` inside a single-quoted attribute value", () => {
+  it("handles `>` inside a single-quoted attribute value", async () => {
     const html = "<img alt='a > b' src='/artifacts/images/2026/04/foo.png'>";
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.ok(out.includes("alt='a > b'"));
     assert.match(out, /\bsrc='data:image\/png;base64,/);
   });
 
-  it("handles multiple `>` characters inside attribute values", () => {
+  it("handles multiple `>` characters inside attribute values", async () => {
     const html = '<img alt="x>y>z" title="p>q" src="/artifacts/images/2026/04/foo.png">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.ok(out.includes('alt="x>y>z"'));
     assert.ok(out.includes('title="p>q"'));
     assert.match(out, /\bsrc="data:image\/png;base64,/);
@@ -248,84 +249,114 @@ describe("inlineImages — attribute-boundary correctness (Codex #1023 review)",
 });
 
 describe("inlineImages — extended tag coverage (Stage B)", () => {
-  it("inlines <source src> on a video child", () => {
+  it("inlines <source src> on a video child", async () => {
     const html = '<video controls><source src="/artifacts/images/2026/04/foo.png" type="image/png"></video>';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /<source src="data:image\/png;base64,[A-Za-z0-9+/=]+"/);
   });
 
-  it("inlines <video poster>", () => {
+  it("inlines <video poster>", async () => {
     const html = '<video poster="/artifacts/images/2026/04/foo.png" controls></video>';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /<video poster="data:image\/png;base64,[A-Za-z0-9+/=]+"/);
   });
 
-  it("inlines <audio src>", () => {
+  it("inlines <audio src>", async () => {
     // The asset is a PNG but the `<audio>` tag still routes through
     // the same resolver — the Stage B change is purely about which
     // tag/attribute pairs get scanned, not MIME validation.
     const html = '<audio src="/artifacts/images/2026/04/foo.png"></audio>';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /<audio src="data:image\/png;base64,[A-Za-z0-9+/=]+"/);
   });
 
-  it("inlines both <video poster> and <video src> on the same tag", () => {
+  it("inlines both <video poster> and <video src> on the same tag", async () => {
     const html = '<video poster="/artifacts/images/2026/04/foo.png" src="/artifacts/images/2026/04/foo.png"></video>';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /poster="data:image\/png;base64,/);
     assert.match(out, /src="data:image\/png;base64,/);
   });
 
-  it("inlines <source srcset> candidates as data URIs, preserving descriptors (#1275)", () => {
+  it("inlines <source srcset> candidates as data URIs, preserving descriptors (#1275)", async () => {
     const html = '<source srcset="/artifacts/images/2026/04/foo.png 2x" type="image/png">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /^<source srcset="data:image\/png;base64,[A-Za-z0-9+/=]+ 2x" type="image\/png">$/);
   });
 
-  it("does NOT inline <video src=mp4> — poster image is what shows in PDF", () => {
+  it("does NOT inline <video src=mp4> — poster image is what shows in PDF", async () => {
     // The actual file doesn't have to exist; the URL extension is
     // what gates the skip. Inlining a 100MB mp4 as base64 would
     // blow up puppeteer's page-load timeout.
     const html = '<video src="/artifacts/images/2026/04/clip.mp4"></video>';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.equal(out, html, ".mp4 must NOT be inlined in PDF");
   });
 
-  it("inlines <video poster> while leaving <video src=mp4> alone", () => {
+  it("inlines <video poster> while leaving <video src=mp4> alone", async () => {
     // Poster is an image → inlined. The mp4 src → left as relative
     // URL; puppeteer's fetch fails quickly, `networkidle0` resolves.
     const html = '<video poster="/artifacts/images/2026/04/foo.png" src="/artifacts/images/2026/04/clip.mp4"></video>';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /poster="data:image\/png;base64,/);
     assert.match(out, /src="\/artifacts\/images\/2026\/04\/clip\.mp4"/);
   });
 
-  it("does NOT inline <audio src=mp3>", () => {
+  it("does NOT inline <audio src=mp3>", async () => {
     const html = '<audio src="/artifacts/images/2026/04/track.mp3"></audio>';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.equal(out, html);
   });
 
-  it("skips media URL with query string (?v=…cache-bust)", () => {
+  it("skips media URL with query string (?v=…cache-bust)", async () => {
     const html = '<video src="/artifacts/images/2026/04/clip.mp4?v=123"></video>';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.equal(out, html);
   });
 
-  it("inlines a PNG with cache-bust query string end-to-end (codex iter-2 #1028)", () => {
+  it("inlines a PNG with cache-bust query string end-to-end (codex iter-2 #1028)", async () => {
     // The skip regex correctly recognises this as an image (codex
     // iter-1 fix), but the resolver must also strip the query before
     // hitting the filesystem — otherwise a real `<img src="…png?v=1">`
     // still fails to inline. End-to-end test pins both paths.
     const html = '<img src="/artifacts/images/2026/04/foo.png?cacheBust=clip.mp4">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /^<img src="data:image\/png;base64,[A-Za-z0-9+/=]+">$/);
   });
 
-  it("inlines a PNG with fragment end-to-end", () => {
+  it("inlines a PNG with fragment end-to-end", async () => {
     const html = '<img src="/artifacts/images/2026/04/foo.png#anchor">';
-    const out = inlineImages(html, { workspaceRoot });
+    const out = await inlineImages(html, { workspaceRoot });
     assert.match(out, /^<img src="data:image\/png;base64,[A-Za-z0-9+/=]+">$/);
+  });
+});
+
+describe("inlineImages — only regular files inside the workspace", () => {
+  const isWindows = process.platform === "win32";
+
+  it("inlines every occurrence of a src that appears more than once", async () => {
+    const html = '<img src="/artifacts/images/2026/04/foo.png"><img src="/artifacts/images/2026/04/foo.png">';
+    const out = await inlineImages(html, { workspaceRoot });
+    assert.equal(out.match(/data:image\/png;base64,/g)?.length, 2);
+  });
+
+  it("does not inline a file link out of the workspace", { skip: isWindows }, async () => {
+    const outside = realpathSync(makeTempDir("pdf-inline-outside-"));
+    writeFileSync(path.join(outside, "secret.png"), "secret");
+    symlinkSync(path.join(outside, "secret.png"), path.join(imagesDir, "link-out.png"));
+    const html = '<img src="/artifacts/images/2026/04/link-out.png">';
+    assert.equal(await inlineImages(html, { workspaceRoot }), html);
+  });
+
+  // Read by path, a named pipe blocks until a writer appears; the verified open sees it is not a regular file.
+  it("leaves a named pipe alone without waiting on it", { skip: isWindows, timeout: 10_000 }, async () => {
+    execFileSync("mkfifo", [path.join(imagesDir, "pipe.png")]);
+    const html = '<img src="/artifacts/images/2026/04/pipe.png">';
+    assert.equal(await inlineImages(html, { workspaceRoot }), html);
+  });
+
+  it("leaves a directory alone", async () => {
+    const html = '<img src="/artifacts/images/2026/04">';
+    assert.equal(await inlineImages(html, { workspaceRoot }), html);
   });
 });
 

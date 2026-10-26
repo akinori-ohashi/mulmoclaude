@@ -55,6 +55,8 @@ import "./plugins/markdown-builtin.js";
 // Side-effect: registers the built-in "html" dispatch handler so the
 // presentHtml View's useRuntime().dispatch({ kind }) resolves (phase 2).
 import "./plugins/html-builtin.js";
+import "./plugins/spreadsheet-builtin.js";
+import "./plugins/chart-builtin.js";
 // Side-effect: registers the built-in "shapescript" dispatch handler so the
 // presentShapeScript View's useRuntime().dispatch({ kind }) resolves — the
 // source editor's load / save against artifacts/shapes/.
@@ -102,7 +104,7 @@ import { initCollectionChangePublisher } from "./events/collection-change.js";
 import { initPhotoLocationsChangePublisher } from "./events/photo-locations-change.js";
 import { getRole, loadAllRoles } from "./workspace/roles.js";
 import { discoverSkills } from "./workspace/skills/index.js";
-import { WORKSPACE_PATHS } from "./workspace/paths.js";
+import { WORKSPACE_DIRS, WORKSPACE_PATHS } from "./workspace/paths.js";
 import { resolveClientDir } from "./utils/clientDir.js";
 import { serverError } from "./utils/httpError.js";
 import { browserVisibleOrigin } from "./utils/forwardedOrigin.js";
@@ -119,7 +121,8 @@ import { buildSandboxStatus } from "./api/sandboxStatus.js";
 import { buildDiagnosticsMarkdown } from "./utils/diagnostics/collect.js";
 import { existsSync, readFileSync } from "fs";
 import { realpath as fsRealpath, stat as fsStat } from "fs/promises";
-import { makeCachedRealpath, resolveArtifactRequestPath } from "./utils/files/safe.js";
+import { makeCachedRealpath } from "./utils/files/safe.js";
+import { artifactMount, sendArtifactFile } from "./utils/files/artifactMount.js";
 import { cpus, loadavg } from "os";
 import { isDockerAvailable, ensureSandboxImage } from "./system/docker.js";
 import { maybeRunJournal } from "./workspace/journal/index.js";
@@ -385,7 +388,7 @@ app.use("/api", (req, res, next) => {
 // requireSameOrigin guard above still applies; the listener also
 // stays loopback-only.
 //
-// Three-layer guard:
+// Guard:
 //  1. Extension allowlist — reject anything that isn't an image,
 //     video, or audio extension. `saveImage` currently writes `.png`
 //     only, but Stage B (#1011) extends the markdown / wiki rewriter
@@ -394,36 +397,14 @@ app.use("/api", (req, res, next) => {
 //     `artifacts/images/<id>.mp4` (or any user-dropped media file
 //     under that dir) needs to round-trip through this mount the
 //     same way image refs do — otherwise the rewritten URL hits this
-//     mount and 404s before `express.static` gets a chance.
-//  2. realpath-based traversal check via `resolveWithinRoot` — same
-//     guard `/api/files/raw` uses. Catches symlinks pointing outside
-//     the images dir, which `express.static` would otherwise follow.
-//  3. `dotfiles: deny` + `fallthrough: false` on `express.static`
-//     itself, plus its built-in `..` normalize for path traversal.
+//     mount and 404s.
+//  2. `artifactMount` (server/utils/files/artifactMount.ts): the mount
+//     folder must resolve inside the workspace on every request,
+//     dotfile / traversal segments are refused, and the file is served
+//     from a handle verified to be the in-folder file — never re-opened
+//     by path, so a symlink swapped in mid-request is not followed.
 const IMAGE_EXT_RE = /\.(png|jpe?g|webp|gif|svg|mp4|webm|mov|m4v|ogv|mp3|ogg|oga|wav|m4a|aac)$/i;
-const getImagesDirReal = makeCachedRealpath(WORKSPACE_PATHS.images);
-app.use(
-  "/artifacts/images",
-  async (req, res, next) => {
-    if (!IMAGE_EXT_RE.test(req.path)) {
-      res.status(404).end();
-      return;
-    }
-    const root = await getImagesDirReal();
-    if (!root) {
-      res.status(404).end();
-      return;
-    }
-    // No explicit dotfile check here: this mount never short-circuits,
-    // so `express.static`'s `dotfiles: "deny"` below is the authority.
-    if (resolveArtifactRequestPath(root, req.path, false) === null) {
-      res.status(404).end();
-      return;
-    }
-    next();
-  },
-  express.static(WORKSPACE_PATHS.images, { dotfiles: "deny", fallthrough: false }),
-);
+app.use("/artifacts/images", artifactMount(workspacePath, WORKSPACE_DIRS.images, IMAGE_EXT_RE));
 
 // Static mount for HTML artifacts. The Files-view preview iframe
 // switched from `srcdoc` to `src=/artifacts/html/<name>.html` so the
@@ -442,10 +423,7 @@ app.use(
 // (`previewCsp.ts`) so allowing those extensions would only delivery-
 // vector for blocked resources.
 //
-// Same three-layer guard as `/artifacts/images`:
-//  1. extension allowlist (`.html` / `.htm` plus image types).
-//  2. `resolveWithinRoot` symlink-aware traversal check.
-//  3. `dotfiles: deny` + `fallthrough: false` on `express.static`.
+// Same guard as `/artifacts/images` (extension allowlist + `artifactMount`).
 //
 // Bearer auth skipped for the same reason as /artifacts/images and
 // /api/files/*: an iframe `src` request can't carry an Authorization
@@ -472,47 +450,23 @@ app.use(
 // eslint-disable-next-line sonarjs/regex-complexity -- flat extension allowlist with no nested quantifiers, ReDoS-safe; complexity is just the disjunction count
 const HTML_PREVIEW_EXT_RE = /\.(html?|png|jpe?g|webp|gif|svg|ico|mp4|webm|mov|m4v|ogv|mp3|ogg|oga|wav|m4a|aac)$/i;
 const HTML_DOCUMENT_EXT_RE = /\.html?$/i;
-const getHtmlsDirReal = makeCachedRealpath(WORKSPACE_PATHS.htmls);
-
 app.use(
   "/artifacts/html",
-  async (req, res, next) => {
-    if (!HTML_PREVIEW_EXT_RE.test(req.path)) {
-      res.status(404).end();
-      return;
-    }
-    const root = await getHtmlsDirReal();
-    if (!root) {
-      res.status(404).end();
-      return;
-    }
-    // denyDotfiles: the HTML short-circuit below serves the file itself
-    // (bypassing `express.static`'s `dotfiles: "deny"`), so this mount
-    // must reject dotfile segments in the guard — without it,
-    // `/artifacts/html/.hidden.html` would be served (Codex review on
-    // #1056).
-    const relPath = resolveArtifactRequestPath(root, req.path, true);
-    if (relPath === null) {
-      res.status(404).end();
-      return;
-    }
-    if (HTML_DOCUMENT_EXT_RE.test(req.path)) {
-      const origin = browserVisibleOrigin(req);
-      res.setHeader("Content-Security-Policy", buildHtmlPreviewCsp(origin, undefined, readCspExtraSync()));
-      res.setHeader("X-Content-Type-Options", "nosniff");
-      const spliced = await readAndInjectHtmlArtifact(root, relPath);
-      if (spliced === null) {
-        res.status(404).end();
-        return;
-      }
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.send(spliced);
-      return;
-    }
+  artifactMount(workspacePath, WORKSPACE_DIRS.htmls, HTML_PREVIEW_EXT_RE, async (req, res, scope, relPath) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
-    next();
-  },
-  express.static(WORKSPACE_PATHS.htmls, { dotfiles: "deny", fallthrough: false }),
+    if (!HTML_DOCUMENT_EXT_RE.test(req.path)) {
+      await sendArtifactFile(req, res, scope, relPath);
+      return;
+    }
+    res.setHeader("Content-Security-Policy", buildHtmlPreviewCsp(browserVisibleOrigin(req), undefined, readCspExtraSync()));
+    const spliced = await readAndInjectHtmlArtifact(scope, relPath);
+    if (spliced === null) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(spliced);
+  }),
 );
 
 // Mount for HTML pages OUTSIDE `artifacts/html/` — presentHtml's `path` form
@@ -599,39 +553,20 @@ app.use(HTML_FILE_MOUNT, htmlFileRateLimit, async (req, res, next) => {
 // header doesn't interfere with the normal View / Preview path.
 const SVG_RESPONSE_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; sandbox";
 
-// Strict three-layer guard mirroring the `/artifacts/images` mount:
-// extension allowlist, realpath traversal check, dotfiles deny +
-// fallthrough false on `express.static`. Bearer auth bypassed for the
+// Same guard as `/artifacts/images` (extension allowlist + `artifactMount`).
+// Bearer auth bypassed for the
 // same reason as `/artifacts/images` / `/artifacts/html`: an
 // `<img src>` request can't carry an Authorization header. Loopback-
 // only listener + `requireSameOrigin` remain the trust boundary.
 const SVG_EXT_RE = /\.svg$/i;
-const getSvgsDirReal = makeCachedRealpath(WORKSPACE_PATHS.svgs);
 app.use(
   "/artifacts/svg",
-  async (req, res, next) => {
-    if (!SVG_EXT_RE.test(req.path)) {
-      res.status(404).end();
-      return;
-    }
-    const root = await getSvgsDirReal();
-    if (!root) {
-      res.status(404).end();
-      return;
-    }
-    // denyDotfiles for the same reason as the html mount: this handler
-    // sets headers and serves via a bearer-bypassed <img> path, so the
-    // dotfile guard can't be left solely to `express.static`.
-    if (resolveArtifactRequestPath(root, req.path, true) === null) {
-      res.status(404).end();
-      return;
-    }
+  artifactMount(workspacePath, WORKSPACE_DIRS.svgs, SVG_EXT_RE, async (req, res, scope, relPath) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
     res.setHeader("Content-Security-Policy", SVG_RESPONSE_CSP);
-    next();
-  },
-  express.static(WORKSPACE_PATHS.svgs, { dotfiles: "deny", fallthrough: false }),
+    await sendArtifactFile(req, res, scope, relPath);
+  }),
 );
 
 app.get(API_ROUTES.health, (_req: Request, res: Response) => {
