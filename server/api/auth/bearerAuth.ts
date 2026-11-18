@@ -2,34 +2,52 @@
 // `Authorization: Bearer <token>` header doesn't match the current
 // server token.
 //
-// This is the local-process isolation layer. `csrfGuard.ts` handles
-// cross-origin browser attacks (layered on top, both must pass). This
-// middleware handles the case a sibling process on the same machine
-// (malicious program, another user, confused script) tries to hit
-// `/api/*`: without the startup-regenerated token, every request is
-// 401'd.
+// `csrfGuard.ts` handles cross-origin browser attacks (layered on top,
+// both must pass). This middleware 401s a caller that bypasses browser
+// CORS without the startup-regenerated token. It is not a boundary
+// against a process on the same machine: a direct localhost `GET /`
+// hands out the owner token (`./ownerTokenHandoff.ts`), and local code
+// is outside the threat model (#3627).
 //
 // Design choices:
-// - **One exemption**: `/api/files/*` is bearer-exempt because `<img>`
-//   tags in rendered markdown (`presentDocument`, wiki) can't attach
-//   an `Authorization` header — the browser makes a plain GET. These
-//   endpoints are still CSRF-guarded (origin check) and the server
-//   binds to loopback only, so the exposure is localhost-scoped.
-//   The exemption is applied via a regex in `server/index.ts`.
+// - **Exemptions** for requests the browser makes without a header
+//   (`GET /api/files/*` for `<img>`, among others) are decided in
+//   `./bearerExemption.ts` and applied in `server/index.ts`.
 // - **No token in logs**. Reject messages are generic ("unauthorized")
 //   so a leaked log line doesn't reveal whether "no header" vs
 //   "wrong token" — matches common auth-hardening guidance.
-// - **The token rule lives in `@mulmoclaude/common/token-guard`**
-//   (`isAuthorizedToken`): constant-time, byte-length-checked, and shared
-//   with the view-token check, the `/ws/pubsub` and `/ws/chat` handshake
-//   guards and the webhook bridge, so every surface refuses the same way.
+// - **The token rule lives in `./principal.ts`**: the owner token or a named
+//   client token (#3618), shared with the `/ws/pubsub` and `/ws/chat`
+//   handshake guards, so every surface refuses the same way. A client token
+//   is then refused (403) on the owner-only paths in `./clientTokenAccess.ts`,
+//   and outside its scopes (`./clientTokenScope.ts`).
 
 import type { Request, Response, NextFunction } from "express";
-import { getCurrentToken } from "./token.js";
-import { isAuthorizedToken, UNAUTHORIZED_MESSAGE } from "@mulmoclaude/common/token-guard";
-import { unauthorized } from "../../utils/httpError.js";
+import { rememberRequestPrincipal, resolveTokenPrincipal } from "./principal.js";
+import { isOwnerOnlyApiPath } from "./clientTokenAccess.js";
+import { isWithinClientTokenScopes, type ClientTokenScope } from "./clientTokenScope.js";
+import type { Principal } from "./clientTokenRule.js";
+import { UNAUTHORIZED_MESSAGE } from "@mulmoclaude/common/token-guard";
+import { forbidden, unauthorized } from "../../utils/httpError.js";
+import { log } from "../../system/logger/index.js";
 
 const BEARER_PREFIX = "Bearer ";
+
+function clientRefusalReason(scopes: ClientTokenScope[], req: Request): string | null {
+  if (isOwnerOnlyApiPath(req.path)) return "client token refused on an owner-only path";
+  if (!isWithinClientTokenScopes(scopes, { method: req.method, path: req.path })) return "client token refused outside its scopes";
+  return null;
+}
+
+/** True when the request was refused; the owner is never refused here. */
+function refuseClientOutOfReach(principal: Principal, req: Request, res: Response): boolean {
+  if (principal.kind !== "client") return false;
+  const reason = clientRefusalReason(principal.scopes, req);
+  if (reason === null) return false;
+  log.warn("auth", reason, { client: principal.name, method: req.method, path: req.path });
+  forbidden(res, "forbidden");
+  return true;
+}
 
 export function bearerAuth(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers.authorization;
@@ -37,11 +55,14 @@ export function bearerAuth(req: Request, res: Response, next: NextFunction): voi
     unauthorized(res, UNAUTHORIZED_MESSAGE);
     return;
   }
-  // `getCurrentToken()` is null until bootstrap, which the rule refuses too:
-  // a request that beats `generateAndWriteToken()` gets a 401, not a pass.
-  if (!isAuthorizedToken(header.slice(BEARER_PREFIX.length), getCurrentToken())) {
+  // The owner token is null until bootstrap, which the rule refuses too: a
+  // request that beats `generateAndWriteToken()` gets a 401, not a pass.
+  const principal = resolveTokenPrincipal(header.slice(BEARER_PREFIX.length));
+  if (principal === null) {
     unauthorized(res, UNAUTHORIZED_MESSAGE);
     return;
   }
+  if (refuseClientOutOfReach(principal, req, res)) return;
+  rememberRequestPrincipal(req, principal);
   next();
 }

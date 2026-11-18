@@ -80,6 +80,7 @@ import { fakeEchoBackend } from "./agent/backend/fake-echo.js";
 import { startMacosReminderAdapter } from "./notifier/macosReminderAdapter.js";
 import notifierRoutes from "./api/routes/notifier.js";
 import { createShutdownRouter } from "./api/routes/shutdown.js";
+import { createClientTokensRouter } from "./api/routes/clientTokens.js";
 import { initNotifier } from "./notifier/engine.js";
 import { registerSaveAttachmentHook } from "./utils/files/attachment-store.js";
 import { capturePhotoLocation } from "./workspace/photo-locations/index.js";
@@ -108,6 +109,7 @@ import { WORKSPACE_DIRS, WORKSPACE_PATHS } from "./workspace/paths.js";
 import { resolveClientDir } from "./utils/clientDir.js";
 import { serverError } from "./utils/httpError.js";
 import { browserVisibleOrigin } from "./utils/forwardedOrigin.js";
+import { decideOwnerTokenHandoff } from "./api/auth/ownerTokenHandoff.js";
 import { makeUuid } from "./utils/id.js";
 import { mcpToolsRouter, mcpTools, isMcpToolEnabled, MCP_TOOL_PROMPT_FILE_SOURCES } from "./agent/mcp-tools/index.js";
 import { preflightUserServers, logPreflightResult } from "./agent/mcpPreflight.js";
@@ -142,6 +144,8 @@ import { connectRelay } from "./events/relay-client.js";
 import { startConfiguredBridges } from "./bridges/registry.js";
 import { requireSameOrigin } from "./api/csrfGuard.js";
 import { bearerAuth } from "./api/auth/bearerAuth.js";
+import { isBearerExempt } from "./api/auth/bearerExemption.js";
+import { flushClientTokenUsage, isSocketAuthorizedBearer } from "./api/auth/principal.js";
 import { isViewDataPath } from "./api/auth/viewToken.js";
 import { deleteTokenFile, generateAndWriteToken, getCurrentToken } from "./api/auth/token.js";
 import { boundPortOf, deleteServerPort, publishServerPort, setBoundPort } from "./workspace/serverPort.js";
@@ -167,6 +171,20 @@ import { findLiveInstancePort, instanceGuardMessage, shouldStopForRunningInstanc
 import { SCHEDULE_TYPES, MISSED_RUN_POLICIES } from "@receptron/task-scheduler";
 
 const HTML_TOKEN_PLACEHOLDER = "__MULMOCLAUDE_AUTH_TOKEN__";
+
+// Withheld from a page load that came through a tunnel or proxy (#3627); the
+// page then treats itself as signed out.
+function ownerTokenForPage(req: Request): string {
+  const handoff = decideOwnerTokenHandoff({
+    remoteAddress: req.socket.remoteAddress,
+    target: req.originalUrl,
+    headers: req.headers,
+    rawHeaders: req.rawHeaders,
+  });
+  if (handoff.ok) return getCurrentToken() ?? "";
+  log.warn("auth", "index.html served without the owner token: not a direct localhost load", { reason: handoff.reason, path: req.path });
+  return "";
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -322,55 +340,12 @@ app.use((req, res, next) => {
 // Bearer token auth: every `/api/*` request must carry
 // `Authorization: Bearer <token>` matching the per-startup token.
 // Layered *on top of* CSRF guard so we catch both cross-origin
-// browser attacks (origin check) and local sibling processes that
-// bypass browser CORS (bearer check). See #272 and
-// plans/done/feat-bearer-token-auth.md.
-//
-// /api/files/* is exempt because <img src="/api/files/raw?path=...">
-// tags in rendered markdown can't attach Authorization headers.
-// /api/plugins/runtime/<pkg>/<version>/<file> (#1043 C-2) is exempt
-// for the same reason: the frontend dynamic-imports plugin assets
-// (`import("/api/plugins/runtime/<pkg>/<ver>/dist/vue.js")`) and the
-// browser cannot attach Authorization headers to those module
-// requests. The pattern "4+ segments past /plugins/runtime/" only
-// matches asset GETs — `/plugins/runtime/list` (3 segments) and
-// `/plugins/runtime/<pkg>/dispatch` (3 segments) still require auth.
-// Path traversal is hardened separately by `resolveWithinRoot` in
-// the asset route handler.
-// The CSRF origin check + loopback-only binding still apply.
-const RUNTIME_PLUGIN_ASSET_PATH_RE = /^\/plugins\/runtime\/[^/]+\/[^/]+\//;
-// Generic OAuth callback receiver for runtime plugins (#1162). Same
-// browser-redirect-can't-carry-Authorization-header reason as the
-// asset path above. Trust model: registry-membership (the host's
-// route handler 404s an unknown :alias) plus the plugin's single-use
-// `state` for CSRF.
-const RUNTIME_PLUGIN_OAUTH_CALLBACK_RE = /^\/plugins\/runtime\/oauth-callback\/[^/]+$/;
+// browser attacks (origin check) and callers that bypass browser
+// CORS without the token (bearer check). See #272 and
+// plans/done/feat-bearer-token-auth.md. The requests a browser makes
+// without a header are exempt — see `isBearerExempt`.
 app.use("/api", (req, res, next) => {
-  if (req.path.startsWith("/files/")) {
-    next();
-    return;
-  }
-  // Custom-view data endpoints carry a scoped capability token, not the
-  // global bearer (the sandboxed iframe can't read it). `requireViewToken`
-  // guards them instead. See server/api/auth/viewToken.ts.
-  if (isViewDataPath(req.path)) {
-    next();
-    return;
-  }
-  if ((req.method === "GET" || req.method === "HEAD") && RUNTIME_PLUGIN_ASSET_PATH_RE.test(req.path)) {
-    // HEAD is bypassed for the same reason as GET: the frontend
-    // runtime-plugin loader HEAD-probes `dist/vue.js` to distinguish
-    // "no Vue bundle (404, server-only plugin)" from real load
-    // failures before `import()`-ing the asset (#1273 follow-up).
-    // That probe is a raw `fetch`, not the bearer-attaching `apiGet`,
-    // and the actual `import()` itself can't attach Authorization
-    // either — so the auth-bypass must cover both verbs or every
-    // runtime plugin's Vue View silently downgrades to a
-    // definition-only entry (401 → "unexpected status" → no view).
-    next();
-    return;
-  }
-  if (req.method === "GET" && RUNTIME_PLUGIN_OAUTH_CALLBACK_RE.test(req.path)) {
+  if (isBearerExempt({ method: req.method, path: req.path }, isViewDataPath)) {
     next();
     return;
   }
@@ -488,6 +463,7 @@ const getWorkspaceDirReal = makeCachedRealpath(workspacePath);
 // runaway loop hammering the filesystem, not to police normal use. Same limiter
 // the collection view routes use.
 const HTML_FILE_RATE_LIMIT_PER_MINUTE = 600;
+const INDEX_HTML_RATE_LIMIT_PER_MINUTE = 600;
 const htmlFileRateLimit = makeViewActionRateLimiter(HTML_FILE_RATE_LIMIT_PER_MINUTE, ONE_MINUTE_MS);
 app.use(HTML_FILE_MOUNT, htmlFileRateLimit, async (req, res, next) => {
   if (!HTML_PREVIEW_EXT_RE.test(req.path)) {
@@ -747,6 +723,7 @@ const chatService = createChatService({
   // Socket.io handshake (see #268 Phase A) needs to validate the
   // same bearer token the HTTP middleware enforces.
   tokenProvider: getCurrentToken,
+  authorizeToken: isSocketAuthorizedBearer,
   listSessions: listSessionsForBridge,
   getSessionHistory: getSessionHistoryForBridge,
   getSessionRole: getSessionRoleForBridge,
@@ -766,6 +743,7 @@ app.use(createTranslationRouter());
 app.use(mcpToolsRouter);
 app.use(schedulerTasksRoutes);
 app.use(createShutdownRouter());
+app.use(createClientTokensRouter());
 
 if (env.isProduction) {
   // `{ index: false }` so express.static doesn't intercept `GET /`
@@ -782,7 +760,10 @@ if (env.isProduction) {
   const clientDir = resolveClientDir(process.env.MULMOCLAUDE_CLIENT_DIR, path.join(__dirname, "../client"));
   app.use(express.static(clientDir, { index: false }));
   const indexHtmlPath = path.join(clientDir, "index.html");
-  app.get("/{*splat}", (_req: Request, res: Response) => {
+  // Every client-side route lands here, so the bucket is roomy: it bounds a
+  // runaway reload loop re-reading index.html, not normal navigation.
+  const indexHtmlRateLimit = makeViewActionRateLimiter(INDEX_HTML_RATE_LIMIT_PER_MINUTE, ONE_MINUTE_MS);
+  app.get("/{*splat}", indexHtmlRateLimit, (req: Request, res: Response) => {
     let html: string;
     try {
       html = readFileSync(indexHtmlPath, "utf-8");
@@ -791,9 +772,10 @@ if (env.isProduction) {
       serverError(res, "Internal Server Error");
       return;
     }
-    const token = getCurrentToken() ?? "";
-    html = html.replace(HTML_TOKEN_PLACEHOLDER, token);
+    html = html.replace(HTML_TOKEN_PLACEHOLDER, ownerTokenForPage(req));
     res.set("Content-Type", "text/html; charset=utf-8");
+    // The page may carry the owner token, so no proxy or browser cache may keep it.
+    res.set("Cache-Control", "no-store");
     res.send(html);
   });
 }
@@ -1369,7 +1351,7 @@ async function startRuntimeServices(httpServer: ReturnType<typeof app.listen>, p
 // (#3082). That residue is accepted and reasoned about in
 // `docs/bridge-protocol.md`; it is not covered by this cleanup, which only
 // closes the graceful path.
-const shutdownHooks: (() => void)[] = [stopWhisperSidecar];
+const shutdownHooks: (() => void)[] = [stopWhisperSidecar, flushClientTokenUsage];
 function registerShutdownHook(hook: () => void): void {
   shutdownHooks.push(hook);
 }
@@ -1477,7 +1459,7 @@ process.on("SIGTERM", () => {
     // (CodeRabbit review on PR #1196). Both `createPubSub` and
     // `initNotifier` are sync, so wiring them up here costs nothing
     // and closes the window.
-    const earlyPubsub = createPubSub(httpServer, { tokenProvider: getCurrentToken });
+    const earlyPubsub = createPubSub(httpServer, { authorizeToken: isSocketAuthorizedBearer });
     initNotifier({
       publish: (channel, payload) => earlyPubsub.publish(channel, payload),
     });

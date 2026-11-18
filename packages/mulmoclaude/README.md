@@ -5,7 +5,7 @@ GUI front-end for Claude Code — chat with rich visual output, schema-driven da
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js 22.22.2+ / 24.15+ / 26+, Claude Code CLI
+# Prerequisites: Node.js 24.15+ / 26+, Claude Code CLI
 npm install -g @anthropic-ai/claude-code
 claude              # one-time OAuth — completes the CLI setup
 
@@ -34,6 +34,7 @@ Your browser opens to `http://localhost:3001`. That's it.
 | "Put that on my task list"               | Task in Google Tasks, with notes and a due date                                           |
 | "Subscribe to this RSS feed"             | Data feed on `/feeds`, fetched on a schedule                                              |
 | "Model a chess piece in 3D"              | Interactive ShapeScript scene, exportable to USDZ / GLB / STL                             |
+| "Design a bracket I can 3D-print"        | Solid model (`presentBrep`) with STEP / STL files and line drawings — unsandboxed only    |
 | "Review my draft, ask me about each fix" | A form showing each passage with the phrase highlighted, the answer fields right under it |
 
 **Pages you can visit directly**: `/wiki` (browse + lint), `/feeds` (data feeds), `/collections` (data apps — Discover tab to import community collections, Contribute to share your own), `/automations` (recurring tasks), `/files` (drop files onto a folder row to save them straight into it), `/skills`, `/roles`. Each page has its own chat composer that spawns a fresh chat already aware of the page context.
@@ -82,6 +83,8 @@ The launcher writes `~/Library/Logs/MulmoClaude/launcher.log`. The bundle carrie
 
 The npm package ships with the pre-built client (Vite) and the server source — TypeScript, executed directly via `tsx`. No cloning, no build step for end users: `npx` downloads the package and starts the Express server.
 
+Open the web UI on the same machine (`localhost`). The page hands the browser its API token only on a direct local load, so it does not work through a tunnel or reverse proxy (ngrok, cloudflared, …); use the remote host for a phone.
+
 Your data lives in `~/mulmoclaude/` (created on first run): conversations, memory, calendar, contacts, wiki, collections, scheduled tasks, generated artifacts. Plain files; the workspace IS the database.
 
 ## Sandbox (recommended)
@@ -95,6 +98,10 @@ SANDBOX_SSH_AGENT_FORWARD=1 \
 SANDBOX_MOUNT_CONFIGS=gh \
   npx mulmoclaude
 ```
+
+To hand the agent other host environment variables, name them with `SANDBOX_ENV=NAME1,NAME2`, or point
+`SANDBOX_ENV_FILE` at a docker-style env file kept outside the workspace. Values never appear on the docker command line
+(see [`docs/sandbox-credentials.md`](https://github.com/receptron/mulmoclaude/blob/main/docs/sandbox-credentials.md)).
 
 Or run directly on the host (no sandbox, full access):
 
@@ -146,6 +153,15 @@ MULMOCLAUDE_AUTH_TOKEN=long-random-string \
 
 Recommended: ≥ 32 characters of random data (shorter values trigger a startup warning).
 
+### A separate token per bridge or script
+
+`npx mulmoclaude token add <name>` prints a token for one client (a bridge, n8n, a script); `token list` shows them and
+`token revoke <name>` cuts one off at once, without a restart and without touching the others. These tokens work on the
+API and both sockets, but are refused on settings, secrets and other host-management endpoints. Only a hash is stored,
+in `~/.mulmoclaude/client-tokens.json`. `--scope read` (GET / HEAD only) and `--scope collection:<slug>` (that
+collection only, repeatable) narrow a token further; a scoped token cannot open a socket. **Settings → API tokens**
+lists them with when each was last used, and revokes one without a terminal.
+
 ## Roles, skills, and collections
 
 - **Roles** (sidebar selector): General, Simple (a much smaller prompt for light conversation), Office, Guide & Planner, Artist, Tutor, Storyteller, Settings. Each one biases Claude toward a workflow and surfaces its sample prompts. With `TYPESAFE_API_KEY` set, Tutor can quiz you with a [KenteiScript](https://www.npmjs.com/package/kenteiscript) test you answer in your own words, graded on the server.
@@ -157,7 +173,7 @@ Recommended: ≥ 32 characters of random data (shorter values trigger a startup 
 - **Gemini API key** — enables AI image generation (`generateImage`), audio / video. Free tier suffices for everyday use; get one from [Google AI Studio](https://aistudio.google.com/). Paste it into **Settings → Gemini**: it takes effect immediately, with no restart and no file to find, and it wins over anything in the shell or a `.env`. The older routes still work — `GEMINI_API_KEY` exported in the shell, or in a `.env` — but which `.env` gets read depends on how you started the app (from the icon there is no launch directory, so it reads `~/.env`), which is why the Settings tab names the exact path this launch is reading.
 - **Attach any file to a chat** — paste, drop or pick it. Images, PDF, Office documents and text are read by the model; any other type (a `.mpp`, a CAD file, an archive) is saved to `data/attachments/` and handed to the agent by path, so a tool or skill you add can process it.
 - **Download any workspace file** — the Files view previews text and renders known media; anything else (and any file too large to preview) offers a direct download of the bytes. This replaces relying on "Open in OS", which spawns a handler on the _server's_ desktop — under Docker, WSL2 or a remote host there is none, so those files used to be unreachable from the UI.
-- **Local voice input** (macOS only, opt-in) — `whisper.cpp` for dictating chat messages without sending audio to a cloud API.
+- **Local voice input** (macOS only, opt-in) — `whisper.cpp` for dictating chat messages without sending audio to a cloud API. If it inserts phrases you never said during silence, `WHISPER_SERVER_EXTRA_ARGS="--vad --vad-model <path>"` passes extra flags to `whisper-server`.
 - **Marp slides** — `marp: true` frontmatter on any markdown file renders a slide deck in the canvas with PDF export. Custom themes via `config/marp-themes/<name>.css`.
 - **Remotion scenes in MulmoScript stories** — with the optional remotion packages installed, ask for a Remotion animation on a story beat: the agent can write the scene component itself, so you can refine it in the conversation, or leave it to mulmocast to generate from a description.
 - **Auto memory** — the agent maintains a typed memory layout (`conversations/memory/<type>/<topic>.md`) and reads it ambient-style.

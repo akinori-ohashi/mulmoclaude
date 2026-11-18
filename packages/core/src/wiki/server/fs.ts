@@ -5,24 +5,7 @@
 // instead of try/catch.
 
 import type { Dirent, Stats } from "node:fs";
-import { readFileSync } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
-
-export async function readTextSafe(absPath: string): Promise<string | null> {
-  try {
-    return await readFile(absPath, "utf-8");
-  } catch {
-    return null;
-  }
-}
-
-export function readTextSafeSync(absPath: string): string | null {
-  try {
-    return readFileSync(absPath, "utf-8");
-  } catch {
-    return null;
-  }
-}
+import { readdir, stat } from "node:fs/promises";
 
 export async function statSafeAsync(absPath: string): Promise<Stats | null> {
   try {

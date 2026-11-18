@@ -177,6 +177,7 @@
                  survive the compiler. This tab is mutually exclusive with
                  the rest by construction, so it does not need to be in it. -->
             <SettingsQuitTab v-if="activeTab === 'quit'" @stopped="emit('stopped')" />
+            <SettingsClientTokensTab v-if="activeTab === 'clientTokens'" />
           </template>
         </div>
       </div>
@@ -214,6 +215,7 @@ import SettingsChatIndexTab from "./SettingsChatIndexTab.vue";
 import SettingsJournalTab from "./SettingsJournalTab.vue";
 import SettingsNotificationsTab from "./SettingsNotificationsTab.vue";
 import SettingsQuitTab from "./SettingsQuitTab.vue";
+import SettingsClientTokensTab from "./SettingsClientTokensTab.vue";
 import SkillsView from "../plugins/manageSkills/View.vue";
 import RolesView from "./RolesView.vue";
 import PluginScopedRoot from "./PluginScopedRoot.vue";
@@ -287,6 +289,7 @@ type TabId =
   | "notifications"
   | "skills"
   | "roles"
+  | "clientTokens"
   | "quit";
 
 const activeTab = ref<TabId>("tools");
@@ -314,7 +317,7 @@ const GROUPS: readonly { key: string; items: readonly TabId[] }[] = [
   { key: "management", items: ["skills", "roles"] },
   // Last on purpose: stopping the server is a deliberate act, not
   // something to sit a mis-click away from the controls above (#2616).
-  { key: "server", items: ["quit"] },
+  { key: "server", items: ["clientTokens", "quit"] },
 ];
 
 // The file to name in the Gemini tab. The bare filename is the fallback

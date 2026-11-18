@@ -170,6 +170,26 @@ MULMOCLAUDE_AUTH_TOKEN=long-random-string \
 
 Recommended: at least 32 characters of random data (the server logs a warning at startup for shorter values).
 
+#### A separate token per bridge or script
+
+To give each client — a bridge, an n8n workflow, a script — its own token that can be revoked without touching the others, issue a named client token:
+
+```bash
+npx mulmoclaude token add n8n        # prints the token once
+npx mulmoclaude token list           # names and ids, never values
+npx mulmoclaude token revoke n8n     # a running server refuses it on the next request
+
+npx mulmoclaude token add report --scope read                                 # GET / HEAD only
+npx mulmoclaude token add tasks-sync --scope collection:tasks                 # only the tasks collection
+npx mulmoclaude token add tasks-read --scope read --scope collection:tasks    # both
+```
+
+A token issued without `--scope` is `full`. A scoped token (`read`, `collection:<slug>`, or both) is refused (403) outside its scope — a `collection:` token reaches only `/api/collections/<slug>/…` and a collection list showing just its collections — and cannot open `/ws/pubsub` or `/ws/chat`, so a bridge needs a `full` token. `GET /api/files/*` needs no token at all, so no scope stops a file read.
+
+(`yarn token …` in a checkout.) Give the printed token to that client as `MULMOCLAUDE_AUTH_TOKEN` — and only to that client, never to the server's own environment. Client tokens survive server restarts and work on `/api/*`, `/ws/pubsub` and `/ws/chat`. They are refused (403) on settings, secrets, roles, skills, plugins, automations, direct agent runs, collection actions that start an agent, and the other host-management APIs. A revoked token is refused on the next request, and an open socket using it is closed within seconds. The page at `GET /` carries the owner token only for a direct `localhost` load, never through a tunnel or reverse proxy, but a process on the same machine can still read it ([#3627](https://github.com/receptron/mulmoclaude/issues/3627)), so these refusals stop mistakes, not a local holder set on getting around them. Only a hash of each is stored, in `~/.mulmoclaude/client-tokens.json`.
+
+**Settings → API tokens** lists the issued tokens with their scopes, when each was created and when it was last used (to the minute; kept in `~/.mulmoclaude/client-tokens-usage.json`), and revokes one with a confirm. Issuing stays on the CLI, so a token's value never passes through the browser.
+
 ### Why do you need a Gemini API key?
 
 MulmoClaude uses Google's **Gemini 3.1 Flash Image (nano banana 2)** model for image generation and editing. This powers:
@@ -199,12 +219,13 @@ Both agents can run commands and edit files. Claude Code uses MulmoClaude's Dock
 
 **With Docker Desktop installed**, MulmoClaude automatically runs Claude inside a sandboxed container. Only your workspace and Claude's own config (`~/.claude`) are mounted — the rest of your filesystem is invisible to Claude. No configuration is required: the app detects Docker on startup and enables the sandbox automatically.
 
-**Bearer token auth**: every `/api/*` endpoint requires an `Authorization: Bearer <token>` header. The token is auto-generated on server startup and injected into the browser via a `<meta>` tag — no manual setup. The only exception is `/api/files/*` (exempt because `<img>` tags in rendered documents can't attach headers). See [`docs/developer.md`](docs/developer.md#auth-bearer-token-on-api) for details.
+**Bearer token auth**: every `/api/*` endpoint requires an `Authorization: Bearer <token>` header. The token is auto-generated on server startup and injected into the browser via a `<meta>` tag — no manual setup. The HTTP exceptions are requests the browser makes itself without a header — chiefly `GET /api/files/*` (`<img>` tags in rendered documents); writes under `/api/files/` need the token, and the `/ws/pubsub` socket.io handshake presents the same token as `auth.token`. See [`docs/developer.md`](docs/developer.md#auth-bearer-token-on-api) for details.
 
-**Sandbox credential forwarding** (opt-in): by default the sandbox has no access to host credentials. Two environment variables let you selectively expose what `git` / `gh` need:
+**Sandbox credential forwarding** (opt-in): by default the sandbox has no access to host credentials. These environment variables let you selectively expose what `git` / `gh` and your own tools need:
 
 - `SANDBOX_SSH_AGENT_FORWARD=1` — forwards the host's SSH agent socket. Private keys stay on the host.
 - `SANDBOX_MOUNT_CONFIGS=gh,gitconfig` — mounts `~/.config/gh` and `~/.gitconfig` read-only.
+- `SANDBOX_ENV=NAME1,NAME2` / `SANDBOX_ENV_FILE=/path/to/agent.env` — passes host environment variables (by name, or from a docker-style env file) into the sandbox. Values never appear in the docker command line.
 
 Full contract and security notes: [`docs/sandbox-credentials.md`](docs/sandbox-credentials.md).
 
@@ -493,6 +514,13 @@ This is **disabled by default** and **macOS-only** (Apple Silicon recommended). 
 - **Model choice**: `large-v3-turbo` (default), `small`, and `base` are selectable in Settings → Voice; the lighter models suit lower-RAM machines.
 - **Privacy**: audio is processed on-device and temporary files are deleted immediately after transcription. (The "on-device" guarantee assumes you run the server on your own machine.)
 - Models live under `~/mulmoclaude/models/` — deliberately outside the git-managed `data/` workspace tree. Disabling the feature offers to delete the downloaded weights.
+- **Phantom phrases from silence** (e.g. "Thanks for watching" appearing when you are not speaking): set `WHISPER_SERVER_EXTRA_ARGS` to pass extra flags to `whisper-server`, such as its own voice-activity detection. Download a Silero VAD model from [ggml-org/whisper-vad](https://huggingface.co/ggml-org/whisper-vad), then start the server with
+
+  ```bash
+  export WHISPER_SERVER_EXTRA_ARGS='--vad --vad-model /path/to/ggml-silero-v6.2.0.bin'
+  ```
+
+  Use a JSON array (`'["--vad", "--vad-model", "/path with spaces/model.bin"]'`) when a path contains spaces. Any `whisper-server` flag is accepted except the model, help, and the server-level flags (`--host`, `--port`, `--request-path`, `--inference-path`, …), which MulmoClaude owns; a value containing one of those is ignored as a whole, with a warning in the server log. A `whisper-server` that does not know a flag exits on start, so voice input stops until you remove the variable — check `whisper-server --help` first.
 
 ## Configuring Additional Tools (Web Settings)
 

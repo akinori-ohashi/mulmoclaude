@@ -1,6 +1,6 @@
 {
   "name": "@mulmoclaude/bookmarks-plugin",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Sample runtime plugin for MulmoClaude — saves URLs with multi-tab live sync, demonstrates the gui-chat-protocol v0.3 runtime API (#1110).",
   "type": "module",
   "main": "./dist/index.js",
@@ -33,13 +33,13 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^6.0.10",
+    "@vitejs/plugin-vue": "^6.0.11",
     "gui-chat-protocol": "^2.1.0",
     "typescript": "^6.0.3",
-    "vite": "^8.3.5",
+    "vite": "^8.3.7",
     "vite-plugin-dts": "^5.1.2",
-    "vue": "^3.5.43",
-    "vue-tsc": "^3.3.13",
+    "vue": "^3.5.45",
+    "vue-tsc": "^3.3.14",
     "zod": "^4.6.7"
   },
   "license": "MIT",

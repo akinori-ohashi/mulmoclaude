@@ -43,7 +43,7 @@ npx mulmoclaude@latest
 
 ### 前置条件
 
-- **Node.js 22.22.2+ / 24.15+ / 26+** —— 运行时
+- **Node.js 24.15+ / 26+** —— 运行时
 - **[Claude Code CLI](https://claude.ai/code)** —— 已安装并完成认证。请先运行一次 `claude` 完成 OAuth
 - **ffmpeg** —— 视频生成所需。如果不生成视频可以跳过
   - macOS: `brew install ffmpeg`
@@ -162,7 +162,7 @@ MulmoClaude 使用 Claude Code 作为 AI 后端，它可以访问包括 Bash 在
 
 **在安装了 Docker Desktop 的情况下**，MulmoClaude 会自动在沙盒容器内运行 Claude。只有你的工作区和 Claude 自己的配置（`~/.claude`）会被挂载 —— 文件系统的其余部分对 Claude 是不可见的。无需任何配置：应用会在启动时检测 Docker 并自动启用沙盒。
 
-**Bearer token 认证**：每个 `/api/*` 端点都需要 `Authorization: Bearer <token>` 头部。token 在服务器启动时自动生成，并通过 `<meta>` 标签注入浏览器 —— 无需手动设置。唯一的例外是 `/api/files/*`（因为渲染文档中的 `<img>` 标签无法附加头部，所以被豁免）。详情请参考 [`docs/developer.md`](docs/developer.md#auth-bearer-token-on-api)。
+**Bearer token 认证**：每个 `/api/*` 端点都需要 `Authorization: Bearer <token>` 头部。token 在服务器启动时自动生成，并通过 `<meta>` 标签注入浏览器 —— 无需手动设置。主要的例外是 `GET /api/files/*`（因为渲染文档中的 `<img>` 标签无法附加头部，所以被豁免）；对 `/api/files/` 下的写入仍需要 token。详情请参考 [`docs/developer.md`](docs/developer.md#auth-bearer-token-on-api)。
 
 **沙盒凭据转发**（需主动开启）：默认情况下，沙盒无法访问宿主机的凭据。两个环境变量可以让你有选择性地暴露 `git` / `gh` 所需的内容：
 

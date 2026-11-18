@@ -8,6 +8,228 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Se
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-11-18
+
+**Solid models for parts that are made; extra flags for the local Whisper server; links and memory stay inside the
+workspace.**
+
+Ships `@mulmoclaude/accounting-plugin@6.0.1`, `@mulmoclaude/chart-plugin@6.0.1`, `@mulmoclaude/collection-plugin@7.0.1`, `@mulmoclaude/common@1.6.0`, `@mulmoclaude/core@7.2.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@6.0.1`, `@mulmoclaude/html-plugin@7.0.1`, `@mulmoclaude/markdown-plugin@7.0.1`, `@mulmoclaude/markdown-utils@3.0.3`, `@mulmoclaude/mulmoscript-plugin@7.0.1`, `@mulmoclaude/spotify-plugin@2.0.4`, `@mulmoclaude/x-plugin@1.0.5`.
+
+### Added
+
+#### Solid models with `presentBrep` (#3665)
+
+The Artist role gains `presentBrep`, from `@gui-chat-plugin/brep`, beside `presentShapeScript`. The agent writes a
+[replicad](https://replicad.xyz) script; the server builds it with the OpenCascade kernel, checks the result, and saves
+the script, a STEP file, an STL and a sheet of line drawings under `artifacts/brep/`. The card shows the model in 3D
+with the check report and a download button for each file. Because the script runs in the server's process, the tool
+is offered only to an agent running unsandboxed on this machine, and `POST /api/brep` refuses client tokens.
+
+#### Extra flags for the local Whisper server (#3671)
+
+Voice input can insert phrases nobody said — 「ご視聴ありがとうございました」 and the like — which Whisper invents for
+silent or noisy audio. Setting `WHISPER_SERVER_EXTRA_ARGS` passes extra flags to `whisper-server`, for example
+`--vad --vad-model <path>` to turn on its own voice detection. Paths with spaces go in a JSON array. Flags MulmoClaude
+sets itself (model, host, port and the other server options) cannot be overridden: a value naming one is ignored as a
+whole, with a warning in the log. Leaving the variable unset changes nothing.
+
+### Fixed
+
+#### Memory is read only from inside the workspace (#3573)
+
+The agent's system prompt lists memory from `conversations/memory/` on every turn, and it read whatever that folder, a
+type folder or a memory file pointed to, so a symlink to something elsewhere on the computer handed its headings (or,
+in the older per-entry layout, its whole text) to the agent — including a sandboxed one. Only regular files inside the
+workspace are read now, and the startup migration of the older `conversations/memory.md` no longer copies one that
+leads outside into memory, nor does the journal send it to the summariser; a link to a file inside the workspace keeps working. A named pipe in the memory folder no
+longer hangs the turn.
+
+#### Links inside the workspace are no longer refused for their letter case (#3573)
+
+On a case-insensitive disk (macOS, Windows), a symlink inside the workspace whose target was written with different
+letter case than the folder on disk — `repo/notes` for a folder named `Repo/notes` — was treated as leading outside, so
+the file explorer refused files under it. A workspace at the root of a drive was refused the same way. The shared
+containment check now compares the on-disk spelling as a second look; anything that really leads outside is still
+refused. The same holds for collection data, preset skill sync, plugin and shape-export paths, which had their own
+copy of the check.
+
+## [2.13.0] - 2026-11-17
+
+**Node.js 24.15+ or 26+ is required and firebase 13 is in; plugin results without a message reach the agent; the wiki
+stays inside the workspace.**
+
+Ships `@mulmoclaude/accounting-plugin@6.0.0`, `@mulmoclaude/chart-plugin@6.0.0`, `@mulmoclaude/collection-plugin@7.0.0`, `@mulmoclaude/common@1.6.0`, `@mulmoclaude/core@7.1.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@6.0.0`, `@mulmoclaude/html-plugin@7.0.0`, `@mulmoclaude/markdown-plugin@7.0.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@7.0.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+### Changed
+
+#### Node.js 22 is no longer supported (#3650)
+
+MulmoClaude now requires Node.js 24.15+ or 26+ (`engines`, the launcher preflight and CI all moved together).
+firebase 13 requires Node.js 24.12 or later.
+
+#### firebase 13 (#3649)
+
+`firebase` 13 (was 12). `@mulmoclaude/core` 7.0.0 requires it, and the seven plugins that peer on core take a major
+bump to accept core 7.
+
+### Fixed
+
+#### Google tool results reach the agent (#3660)
+
+A plugin result with neither `message` nor `instructions` and no card `data` reached the agent as just `Done`, so the
+Google tool's calendar events, mail and files never got to the LLM. Such a result is now passed on as JSON. Results
+with a message, or with a card, are unchanged.
+
+#### The agent's system prompt reads the wiki summary and memory file only from inside the workspace (#3573)
+
+The wiki summary (`data/wiki/summary.md`) and the older single-file memory were read into the agent's system prompt
+wherever `data/wiki` or those files pointed, so a symlink to a file elsewhere on the computer handed its contents to the
+agent — including a sandboxed one. Only regular files inside the workspace are read now; a wiki that leads outside counts
+as no wiki. A summary that is a folder or unreadable no longer breaks building the prompt.
+
+#### The wiki view shows only what is inside the workspace (#3573)
+
+The wiki view, graph and lint report read `data/wiki/index.md`, `log.md` and the pages wherever `data/wiki`,
+`data/wiki/pages` or those files pointed, so replacing any of them with a symlink to something elsewhere on the computer
+showed its `.md` files in the wiki. Anything that leads out of the workspace now reads as missing. A link to a folder or
+file inside the workspace keeps working.
+
+#### Wiki pages are saved only inside the workspace (#3573)
+
+Saving a wiki page — from the editor, the file explorer, a restore from history, or the session backlinks — wrote
+wherever `data/wiki` or `data/wiki/pages` pointed, so replacing either folder with a symlink to a folder elsewhere on
+the computer wrote the page there. The save now checks that the file it writes sits inside the workspace, so a wiki
+folder that leads outside makes the save fail with an error instead, as creating a new page already did. A link to a
+folder inside the workspace keeps working.
+
+#### Wiki edit history stays inside the workspace (#3573)
+
+Recording, listing, reading and pruning a wiki page's edit history followed `data/wiki` or `data/wiki/.history` when
+either was a symlink to a folder elsewhere on the computer: a save wrote its history there, the history view showed
+files from there, and pruning old entries could delete files there. History that leads outside the workspace is now
+refused when recording and shown as empty when reading. A link to a folder inside the workspace keeps working.
+
+#### A wiki page that links out of the workspace is no longer copied into its history (#3573)
+
+When the agent's write hook recorded a page's history, and when a save read the page it was about to replace, a page
+file that was a symlink to a file elsewhere on the computer — or sat under a wiki folder linked elsewhere — was read
+through the link: the hook stored that file's contents in the page's history, and a save carried its frontmatter into
+the new page. Such a page now reads as missing in both places. A link to a file inside the workspace keeps working.
+
+## [2.12.0] - 2026-11-07
+
+**Client tokens can be narrowed to reads or to some collections and are listed in Settings; file writes need the bearer
+token, and the owner token is no longer handed out through a tunnel; large collections load faster.**
+
+Ships `@mulmoclaude/accounting-plugin@5.0.0`, `@mulmoclaude/chart-plugin@5.0.0`, `@mulmoclaude/collection-plugin@6.0.0`, `@mulmoclaude/common@1.6.0`, `@mulmoclaude/core@6.0.1`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@5.0.0`, `@mulmoclaude/html-plugin@6.0.0`, `@mulmoclaude/markdown-plugin@6.0.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@6.0.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+### Added
+
+#### Client tokens in Settings (#3637)
+
+**Settings → API tokens** lists the client tokens issued with `mulmoclaude token add`: their scopes, when each was
+created and when it was last used, to the minute. A token can be revoked from there, with the same effect as
+`mulmoclaude token revoke`. Issuing stays on the CLI, so a token's value never passes through the browser. Last-used
+times are kept in `~/.mulmoclaude/client-tokens-usage.json`, written in batches rather than on every request.
+
+#### Client tokens can be limited to reads, or to some collections (#3636)
+
+`mulmoclaude token add <name> --scope read` issues a token that may only `GET` / `HEAD`; `--scope collection:<slug>`
+(repeatable) limits it to those collections' API, with `GET /api/collections` listing only them. The two combine. A
+`read` token is refused (403) on every write; a `collection:` token is refused on every path outside its collections,
+the collection ontology included. Any scoped token cannot open `/ws/pubsub` or `/ws/chat`. Without `--scope` a token is `full`, as before. `GET /api/files/*` needs no token at all, so a scope does not
+stop a file read. A server older than this one ignores a scoped token rather than granting it more.
+
+### Changed
+
+#### Large collections load faster (#3640)
+
+Reading a whole collection (queries, item lists, every view's full load) used to read its record files one at a
+time. It now reads them in parallel, a bounded number at once, in the same order and with the same checks: symlinked
+records and files outside the workspace are still refused, and each skipped file is still logged. The shared helper
+is `mapWithConcurrency` in `@mulmoclaude/common@1.6.0`; every declared `@mulmoclaude/common` range moves to `^1.6.0`.
+
+#### ShapeScript 8.2.3 (#3643)
+
+`@gui-chat-plugin/shapescript` moves to `^8.2.3`, which brings `three` 0.187.
+
+### Fixed
+
+#### `npx mulmoclaude` waits for a slow server instead of giving up silently (#3623, PR #3634)
+
+The launcher used to poll the server for a fixed window and then stop without a word, so a boot that outlasted it
+(typically Windows with the Docker sandbox building its image) showed no ready banner and opened no browser. It now
+waits for as long as the server process lives, and after a while prints one notice naming the URL to open by hand.
+
+#### Session-history rows are proper buttons (#3629, PR #3632)
+
+A session row's open, bookmark and menu controls are now sibling buttons instead of controls nested inside a
+`role="button"` card, so each is reachable by keyboard and announced correctly; the bookmark icon reports its state.
+Clicking anywhere on the card still opens the session.
+
+### Security
+
+#### File writes need the bearer token (#3628)
+
+`/api/files/*` was exempt from bearer auth so that `<img src="/api/files/raw?…">` works, but the exemption also covered
+the routes that write workspace files or start an OS handler. `POST /api/files/create`, `POST /api/files/upload`,
+`PUT /api/files/content`, `POST /api/files/open` and `POST /api/files/reveal` now need the token like every other
+`/api/*` call; only `GET` / `HEAD` under `/api/files/` stays exempt. The web UI already sent the token. A script that
+wrote files through these routes without one now gets 401.
+
+#### The page no longer hands the owner token through a tunnel or proxy (#3627)
+
+`GET /` embeds the API's owner token only when the page is loaded directly from `localhost` (or `127.0.0.1` / `[::1]`) on
+this machine. A load through a tunnel or reverse proxy — a public `Host`, or any `X-Forwarded-*` / `Forwarded` /
+`Via`-style header — gets a page without it, so putting MulmoClaude behind ngrok, cloudflared or similar no longer gives
+the token to anyone who can reach that address. The web UI therefore does not work through such a proxy; use the remote
+host for a phone. The dev server applies the same rule. A process on the same machine can still read the token.
+
+
+## [2.11.0] - 2026-11-06
+
+**Each bridge or script can hold its own named token, revocable on its own; host environment variables can reach the
+Docker sandbox by name; custom views get a collection's enum choices; and a session's role icon toggles its bookmark.**
+
+Ships `@mulmoclaude/accounting-plugin@5.0.0`, `@mulmoclaude/chart-plugin@5.0.0`, `@mulmoclaude/collection-plugin@6.0.0`, `@mulmoclaude/common@1.5.0`, `@mulmoclaude/core@6.0.0`, `@mulmoclaude/form-plugin@2.2.0`, `@mulmoclaude/google-plugin@5.0.0`, `@mulmoclaude/html-plugin@6.0.0`, `@mulmoclaude/markdown-plugin@6.0.0`, `@mulmoclaude/markdown-utils@3.0.2`, `@mulmoclaude/mulmoscript-plugin@6.0.0`, `@mulmoclaude/spotify-plugin@2.0.3`, `@mulmoclaude/x-plugin@1.0.4`.
+
+### Added
+
+#### Named client tokens (#3618)
+
+`mulmoclaude token add <name>` issues a bearer token for one bridge or script, `token list` shows them and `token revoke <name>` revokes one without restarting the server or touching the others. Client tokens are accepted on `/api/*`, `/ws/pubsub` and `/ws/chat` (`/ws/chat` through `authorizeToken`, new in `@mulmobridge/chat-service@2.1.0`), refused on settings, secrets, agent-starting actions and other host-management APIs, and stored as hashes in `~/.mulmoclaude/client-tokens.json`. Open sockets using a revoked token are closed within seconds. Nothing changes unless a token is issued. Ships `@mulmobridge/chat-service@2.1.0`.
+
+#### Environment variables for the Docker sandbox (#3617)
+
+`SANDBOX_ENV=NAME1,NAME2` passes host environment variables into the sandbox by name, and `SANDBOX_ENV_FILE=<path>`
+passes a docker-style env file. Values never appear in the docker command line; the file's checked lines reach docker
+through a pipe, never a copy on disk (not supported on Windows hosts yet), and a file inside the workspace or any other directory the sandbox mounts is refused. The variables
+the sandbox and its entrypoint use cannot be overridden. See `docs/sandbox-credentials.md`.
+
+#### Custom views receive a collection's enum choices (#2169, PR #3625)
+
+A custom view (`views/*.html`) now finds every top-level `enum` field of its collection in
+`window.__MC_VIEW.fields` (`{ status: { type: "enum", values: [...] } }`), so a dropdown, filter or kanban column can
+follow `schema.json` instead of a hard-coded list. It is always present (`{}` when there are none), and existing views
+are unaffected. `ref` choices are not covered yet. Ships in `@mulmoclaude/core@6.0.0` and
+`@mulmoclaude/collection-plugin@6.0.0`.
+
+#### Clicking a session's role icon toggles its bookmark (#1685, PR #3624)
+
+In the session history, clicking a row's role icon bookmarks or unbookmarks that session instead of opening it; the rest
+of the row still opens it. Keyboard and screen-reader users keep the `…` menu item.
+
+### Changed
+
+#### `@mulmoclaude/core/remote-host` loads without `firebase` — breaking, core 6.0.0 (#3266)
+
+`commandsCollection` and `hostDoc` are no longer exported from `@mulmoclaude/core/remote-host`; import them from
+`@mulmoclaude/core/remote-host/server`. The `./remote-host` entry now loads with the optional `firebase` peer absent, as
+a browser-safe entry should. Nothing in MulmoClaude or MulmoTerminal imported the two helpers from the old path.
+
+The seven plugins that take core as a peer (`accounting`, `chart`, `collection`, `google`, `html`, `markdown`,
+`mulmoscript`) move their peer range to `^6.0.0` and therefore take a major version each; their own APIs are unchanged.
+
 ## [2.10.0] - 2026-10-26
 
 **A file the workspace has been made to point outside of is no longer read or written: the file explorer, artifact

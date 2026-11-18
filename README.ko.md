@@ -43,7 +43,7 @@ npx mulmoclaude@latest
 
 ### 필수 조건
 
-- **Node.js 22.22.2+ / 24.15+ / 26+** — 런타임
+- **Node.js 24.15+ / 26+** — 런타임
 - **[Claude Code CLI](https://claude.ai/code)** — 설치 및 인증 완료. `claude` 를 한 번 실행해 OAuth 를 완료해 주세요
 - **ffmpeg** — 동영상 생성에 필요합니다. 동영상을 생성하지 않으면 건너뛰어도 됩니다
   - macOS: `brew install ffmpeg`
@@ -162,7 +162,7 @@ MulmoClaude는 AI 백엔드로 Claude Code를 사용하며, Bash를 포함한 �
 
 **Docker Desktop이 설치되어 있으면**, MulmoClaude는 Claude를 자동으로 샌드박스 컨테이너 내부에서 실행합니다. 워크스페이스와 Claude의 자체 설정(`~/.claude`)만 마운트되며 — 파일시스템의 나머지는 Claude에게 보이지 않습니다. 설정은 필요 없습니다: 앱이 시작 시 Docker를 감지하여 자동으로 샌드박스를 활성화합니다.
 
-**Bearer 토큰 인증**: 모든 `/api/*` 엔드포인트는 `Authorization: Bearer <token>` 헤더를 요구합니다. 토큰은 서버 시작 시 자동 생성되고 `<meta>` 태그를 통해 브라우저에 주입됩니다 — 수동 설정 불필요. 유일한 예외는 `/api/files/*` 입니다 (렌더링된 문서의 `<img>` 태그가 헤더를 첨부할 수 없기 때문에 면제). 자세한 내용은 [`docs/developer.md`](docs/developer.md#auth-bearer-token-on-api) 를 참고하세요.
+**Bearer 토큰 인증**: 모든 `/api/*` 엔드포인트는 `Authorization: Bearer <token>` 헤더를 요구합니다. 토큰은 서버 시작 시 자동 생성되고 `<meta>` 태그를 통해 브라우저에 주입됩니다 — 수동 설정 불필요. 주요 예외는 `GET /api/files/*` 입니다 (렌더링된 문서의 `<img>` 태그가 헤더를 첨부할 수 없기 때문에 면제). `/api/files/` 아래의 쓰기 요청에는 토큰이 필요합니다. 자세한 내용은 [`docs/developer.md`](docs/developer.md#auth-bearer-token-on-api) 를 참고하세요.
 
 **샌드박스 자격 증명 전달** (선택적): 기본적으로 샌드박스는 호스트 자격 증명에 접근하지 않습니다. 두 개의 환경 변수를 통해 `git` / `gh` 에 필요한 것을 선택적으로 노출할 수 있습니다:
 

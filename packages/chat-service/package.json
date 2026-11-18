@@ -1,6 +1,6 @@
 {
   "name": "@mulmobridge/chat-service",
-  "version": "2.0.0",
+  "version": "2.1.1",
   "description": "Server-side chat service for MulmoBridge — socket.io + REST bridge to Claude Code agents",
   "type": "module",
   "main": "./dist/index.js",
@@ -28,7 +28,7 @@
   "author": "Receptron Team",
   "dependencies": {
     "@mulmobridge/protocol": "^1.1.0",
-    "@mulmoclaude/common": "^1.5.0"
+    "@mulmoclaude/common": "^1.6.0"
   },
   "peerDependencies": {
     "express": "^5.0.0",

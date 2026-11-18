@@ -5,9 +5,8 @@
 // Ships with server source (TypeScript) + pre-built client (Vite).
 // Runs the server via tsx (TypeScript executor).
 
-import { execFileSync, execSync, spawn } from "child_process";
+import { execFileSync, execSync, spawn, spawnSync } from "child_process";
 import { existsSync } from "fs";
-import { get as httpGet } from "http";
 import { createRequire } from "module";
 import { join, dirname, delimiter as PATH_DELIMITER } from "path";
 import { fileURLToPath } from "url";
@@ -22,6 +21,7 @@ import { parseEnvFile, mergeLaunchEnv, describeLaunchEnvLoad } from "../server/u
 import { LAUNCH_ENV_PATH_VAR } from "../server/utils/launch-vars.mjs";
 import { findLiveInstancePort, instanceGuardMessage, serverPortPathIn, shouldStopForRunningInstance } from "../server/utils/instance-guard.mjs";
 import { resolveWorkspacePath } from "../server/utils/workspace-path.mjs";
+import { slowStartMessage, waitUntilReady } from "../server/utils/wait-ready.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -55,37 +55,6 @@ function pickOpenCommand() {
   return "xdg-open";
 }
 
-// Poll the server until it answers an HTTP request, then call `onReady`.
-// Gives up after ~15s so the launcher doesn't hang forever on a crash loop.
-function waitUntilReady(portNum, onReady) {
-  const startedAt = Date.now();
-  const timeoutMs = 15000;
-  const intervalMs = 300;
-
-  // `function` declarations (not arrow consts) so the mutual
-  // reference between `attempt` and `retry` works without TDZ
-  // ordering problems. Both forms are hoisted to the top of the
-  // enclosing function scope.
-  function attempt() {
-    const req = httpGet({ host: "127.0.0.1", port: portNum, path: "/", timeout: 1000 }, (res) => {
-      res.resume();
-      onReady();
-    });
-    req.on("error", retry);
-    req.on("timeout", () => {
-      req.destroy();
-      retry();
-    });
-  }
-
-  function retry() {
-    if (Date.now() - startedAt > timeoutMs) return;
-    setTimeout(attempt, intervalMs);
-  }
-
-  attempt();
-}
-
 function printReadyBanner(url) {
   const bar = "─".repeat(50);
   console.log("");
@@ -97,6 +66,24 @@ function printReadyBanner(url) {
   console.log("");
 }
 
+// Resolve tsx's CLI entry via Node's module resolution so this works
+// whether tsx is nested (`npx`/local install) or hoisted (`npm i -g`).
+// tsx doesn't export `./cli`, so locate via its package.json + `bin`.
+function resolveTsxCli() {
+  try {
+    const tsxPkgJson = require.resolve("tsx/package.json");
+    // Path is the resolved location of tsx's own package.json under
+    // node_modules — not user-influenced, so the dynamic require is
+    // safe. require.resolve already validated the path.
+    // eslint-disable-next-line security/detect-non-literal-require -- resolved package.json path from require.resolve, not user input
+    const tsxPkg = require(tsxPkgJson);
+    return join(dirname(tsxPkgJson), tsxPkg.bin);
+  } catch {
+    error("Failed to locate 'tsx' — the package may be installed incorrectly.");
+    return process.exit(1);
+  }
+}
+
 // ── Parse args ──────────────────────────────────────────────
 
 const args = process.argv.slice(2);
@@ -104,10 +91,13 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(`
 Usage: npx mulmoclaude [options]
        npx mulmoclaude create-shortcut [--dir <path>] [--yes]
+       npx mulmoclaude token add <name> [--scope <scope>]... | list | revoke <name>
 
 Commands:
   create-shortcut      Create a clickable MulmoClaude.app (macOS) so the
                        app can be started without a terminal
+  token                Issue, list or revoke a named token for a bridge or
+                       script; each can be revoked without touching the others
 
 Options:
   --port <number>      Server port (default: ${DEFAULT_PORT})
@@ -137,6 +127,15 @@ if (args[0] === "create-shortcut") {
   const { runCreateShortcut } = await import("../server/utils/launcher/create-shortcut.mjs");
   const { version } = require(join(PKG_DIR, "package.json"));
   process.exit(await runCreateShortcut(args.slice(1), { version }));
+}
+
+// Edits the client-token store and exits — it never starts a server, and a
+// running one picks the change up on its next request.
+if (args[0] === "token") {
+  const result = spawnSync(process.execPath, [resolveTsxCli(), join(PKG_DIR, "server", "api", "auth", "clientTokenCli.ts"), ...args.slice(1)], {
+    stdio: "inherit",
+  });
+  process.exit(result.status ?? 1);
 }
 
 const { requestedPort, portExplicit } = parsePortArg();
@@ -263,22 +262,7 @@ async function chooseAvailablePort(requested, explicit) {
 
 log(`Starting MulmoClaude on port ${port}...`);
 
-// Resolve tsx's CLI entry via Node's module resolution so this works
-// whether tsx is nested (`npx`/local install) or hoisted (`npm i -g`).
-// tsx doesn't export `./cli`, so locate via its package.json + `bin`.
-let tsxCli;
-try {
-  const tsxPkgJson = require.resolve("tsx/package.json");
-  // Path is the resolved location of tsx's own package.json under
-  // node_modules — not user-influenced, so the dynamic require is
-  // safe. require.resolve already validated the path.
-  // eslint-disable-next-line security/detect-non-literal-require -- resolved package.json path from require.resolve, not user input
-  const tsxPkg = require(tsxPkgJson);
-  tsxCli = join(dirname(tsxPkgJson), tsxPkg.bin);
-} catch {
-  error("Failed to locate 'tsx' — the package may be installed incorrectly.");
-  process.exit(1);
-}
+const tsxCli = resolveTsxCli();
 
 const serverEnv = {
   ...baseEnv,
@@ -326,7 +310,8 @@ const server = spawn(process.execPath, [tsxCli, SERVER_ENTRY], {
 // actually responds — not a fixed-delay timer, so the banner appears
 // right when the UI is reachable.
 const url = `http://localhost:${port}`;
-waitUntilReady(port, () => {
+
+function openBrowserWhenReady() {
   printReadyBanner(url);
   if (noOpen) return;
   const openCmd = pickOpenCommand();
@@ -336,7 +321,15 @@ waitUntilReady(port, () => {
   } catch {
     log(`Open your browser: ${url}`);
   }
-});
+}
+
+// Not awaited: the shutdown handlers below must be live while the server boots.
+async function openBrowserOnceServerAnswers() {
+  const isServerAlive = () => server.exitCode === null && server.signalCode === null;
+  const ready = await waitUntilReady({ port, isServerAlive, onSlowStart: () => log(slowStartMessage(url, { willOpenBrowser: !noOpen })) });
+  if (ready) openBrowserWhenReady();
+}
+openBrowserOnceServerAnswers();
 
 // Graceful shutdown
 process.on("SIGINT", () => {
